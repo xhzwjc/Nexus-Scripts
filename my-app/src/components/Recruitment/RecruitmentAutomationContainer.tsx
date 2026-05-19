@@ -1820,6 +1820,9 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const [resumeUploadCitySource, setResumeUploadCitySource] = useState<"manual" | "auto">("auto");
     const [resumeUploadSource, setResumeUploadSource] = useState<"manual" | "boss" | "liepin" | "headhunter" | "other">("manual");
     const [resumeUploadDuplicateStrategy, setResumeUploadDuplicateStrategy] = useState<"skip" | "overwrite" | "prompt">("skip");
+    const [showAdvancedOptions, setShowAdvancedOptions] = useState(false);
+    const [isDraggingFile, setIsDraggingFile] = useState(false);
+    const fileInputRef = useRef<HTMLInputElement | null>(null);
     const [uploadProgress, setUploadProgress] = useState(0);
     const [uploadCompletedCount, setUploadCompletedCount] = useState(0);
     const [resumeUploadError, setResumeUploadError] = useState<string | null>(null);
@@ -6472,6 +6475,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             setResumeUploadMode("smart");
             setResumeUploadSource("manual");
             setResumeUploadDuplicateStrategy("skip");
+            setShowAdvancedOptions(false);
+            setIsDraggingFile(false);
             // Optimistic update: immediately add uploaded items to candidate list
             // 排除 matching/unmatched 状态的候选人（智能匹配模式下未识别的候选人在人才库中显示）
             if (allItems.length > 0) {
@@ -6627,106 +6632,260 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                     </Field>
                 ) : null}
 
-                {/* 简历来源 */}
-                <Field label={isZh ? "简历来源" : "Resume Source"}>
-                    <NativeSelect
-                        value={resumeUploadSource}
-                        onChange={(event) => setResumeUploadSource(event.target.value as typeof resumeUploadSource)}
-                    >
-                        <option value="manual">{isZh ? "手动上传" : "Manual Upload"}</option>
-                        <option value="boss">{isZh ? "Boss直聘" : "Boss Zhipin"}</option>
-                        <option value="liepin">{isZh ? "猎聘" : "Liepin"}</option>
-                        <option value="headhunter">{isZh ? "猎头推荐" : "Headhunter"}</option>
-                        <option value="other">{isZh ? "其他渠道" : "Other"}</option>
-                    </NativeSelect>
-                </Field>
-
-                {/* 重复处理策略 */}
-                <Field label={isZh ? "重复处理" : "Duplicate Handling"}>
-                    <NativeSelect
-                        value={resumeUploadDuplicateStrategy}
-                        onChange={(event) => setResumeUploadDuplicateStrategy(event.target.value as typeof resumeUploadDuplicateStrategy)}
-                    >
-                        <option value="skip">{isZh ? "跳过重复简历" : "Skip duplicates"}</option>
-                        <option value="overwrite">{isZh ? "覆盖已有记录" : "Overwrite existing"}</option>
-                        <option value="prompt">{isZh ? "提示我确认" : "Prompt me to confirm"}</option>
-                    </NativeSelect>
-                </Field>
-
-                {/* 城市 */}
-                <Field label={recruitmentUiText.city}>
-                    <div className="flex flex-col gap-2">
-                        <div className="flex gap-1">
-                            {([
-                                {value: "manual" as const, label: recruitmentUiText.manualCityEntry},
-                                {value: "auto" as const, label: recruitmentUiText.autoDetectCity},
-                            ] as const).map((opt) => (
-                                <button
-                                    key={opt.value}
-                                    type="button"
-                                    className={cn(
-                                        "rounded-md border px-2.5 py-1 text-sm transition-colors",
-                                        resumeUploadCitySource === opt.value
-                                            ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
-                                            : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300 dark:hover:border-slate-700",
-                                    )}
-                                    onClick={() => setResumeUploadCitySource(opt.value)}
-                                >
-                                    {opt.label}
-                                </button>
-                            ))}
-                        </div>
-                        {resumeUploadCitySource === "manual" ? (
-                            <div className="flex flex-col gap-1.5">
-                                <Input
-                                    list="city-options"
-                                    placeholder={recruitmentUiText.cityPlaceholder}
-                                    value={resumeUploadCity}
-                                    onChange={(event) => setResumeUploadCity(event.target.value)}
-                                />
-                                <datalist id="city-options">
-                                    {POPULAR_CITIES.map((city) => (
-                                        <option key={city} value={city}/>
-                                    ))}
-                                </datalist>
-                                <div className="flex flex-wrap gap-1">
-                                    {POPULAR_CITIES.slice(0, 8).map((city) => (
+                {/* 高级选项（仅智能匹配模式折叠） */}
+                {resumeUploadMode === "smart" ? (
+                    <>
+                        <button
+                            type="button"
+                            className="flex items-center gap-1 text-sm font-medium text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 transition-colors"
+                            onClick={() => setShowAdvancedOptions((v) => !v)}
+                        >
+                            {isZh ? "高级选项" : "Advanced Options"}
+                            <ChevronDown className={cn("h-4 w-4 transition-transform", showAdvancedOptions && "rotate-180")} />
+                        </button>
+                        {showAdvancedOptions ? (
+                            <div className="space-y-4 rounded-xl border border-slate-200 bg-slate-50/50 p-3 dark:border-slate-800 dark:bg-slate-900/50">
+                                {/* 简历来源 */}
+                                <Field label={isZh ? "简历来源" : "Resume Source"}>
+                                    <NativeSelect
+                                        value={resumeUploadSource}
+                                        onChange={(event) => setResumeUploadSource(event.target.value as typeof resumeUploadSource)}
+                                    >
+                                        <option value="manual">{isZh ? "手动上传" : "Manual Upload"}</option>
+                                        <option value="boss">{isZh ? "Boss直聘" : "Boss Zhipin"}</option>
+                                        <option value="liepin">{isZh ? "猎聘" : "Liepin"}</option>
+                                        <option value="headhunter">{isZh ? "猎头推荐" : "Headhunter"}</option>
+                                        <option value="other">{isZh ? "其他渠道" : "Other"}</option>
+                                    </NativeSelect>
+                                </Field>
+                                {/* 重复处理策略 */}
+                                <Field label={isZh ? "重复处理" : "Duplicate Handling"}>
+                                    <NativeSelect
+                                        value={resumeUploadDuplicateStrategy}
+                                        onChange={(event) => setResumeUploadDuplicateStrategy(event.target.value as typeof resumeUploadDuplicateStrategy)}
+                                    >
+                                        <option value="skip">{isZh ? "跳过重复简历" : "Skip duplicates"}</option>
+                                        <option value="overwrite">{isZh ? "覆盖已有记录" : "Overwrite existing"}</option>
+                                        <option value="prompt">{isZh ? "提示我确认" : "Prompt me to confirm"}</option>
+                                    </NativeSelect>
+                                </Field>
+                                {/* 城市 */}
+                                <Field label={recruitmentUiText.city}>
+                                    <div className="flex flex-col gap-2">
+                                        <div className="flex gap-1">
+                                            {([
+                                                {value: "manual" as const, label: recruitmentUiText.manualCityEntry},
+                                                {value: "auto" as const, label: recruitmentUiText.autoDetectCity},
+                                            ] as const).map((opt) => (
+                                                <button
+                                                    key={opt.value}
+                                                    type="button"
+                                                    className={cn(
+                                                        "rounded-md border px-2.5 py-1 text-sm transition-colors",
+                                                        resumeUploadCitySource === opt.value
+                                                            ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
+                                                            : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300 dark:hover:border-slate-700",
+                                                    )}
+                                                    onClick={() => setResumeUploadCitySource(opt.value)}
+                                                >
+                                                    {opt.label}
+                                                </button>
+                                            ))}
+                                        </div>
+                                        {resumeUploadCitySource === "manual" ? (
+                                            <div className="flex flex-col gap-1.5">
+                                                <Input
+                                                    list="city-options"
+                                                    placeholder={recruitmentUiText.cityPlaceholder}
+                                                    value={resumeUploadCity}
+                                                    onChange={(event) => setResumeUploadCity(event.target.value)}
+                                                />
+                                                <datalist id="city-options">
+                                                    {POPULAR_CITIES.map((city) => (
+                                                        <option key={city} value={city}/>
+                                                    ))}
+                                                </datalist>
+                                                <div className="flex flex-wrap gap-1">
+                                                    {POPULAR_CITIES.slice(0, 8).map((city) => (
+                                                        <button
+                                                            key={city}
+                                                            type="button"
+                                                            className={cn(
+                                                                "rounded-full border px-2 py-0.5 text-sm transition-colors",
+                                                                resumeUploadCity === city
+                                                                    ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
+                                                                    : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300 dark:hover:border-slate-700",
+                                                            )}
+                                                            onClick={() => setResumeUploadCity(city)}
+                                                        >
+                                                            {city}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        ) : resumeUploadCitySource === "auto" ? (
+                                            <p className="text-sm text-slate-500 dark:text-slate-400">
+                                                {recruitmentUiText.cityAutoHint}
+                                            </p>
+                                        ) : null}
+                                    </div>
+                                </Field>
+                            </div>
+                        ) : null}
+                    </>
+                ) : (
+                    <>
+                        {/* 非智能匹配模式：直接显示简历来源和重复处理 */}
+                        <Field label={isZh ? "简历来源" : "Resume Source"}>
+                            <NativeSelect
+                                value={resumeUploadSource}
+                                onChange={(event) => setResumeUploadSource(event.target.value as typeof resumeUploadSource)}
+                            >
+                                <option value="manual">{isZh ? "手动上传" : "Manual Upload"}</option>
+                                <option value="boss">{isZh ? "Boss直聘" : "Boss Zhipin"}</option>
+                                <option value="liepin">{isZh ? "猎聘" : "Liepin"}</option>
+                                <option value="headhunter">{isZh ? "猎头推荐" : "Headhunter"}</option>
+                                <option value="other">{isZh ? "其他渠道" : "Other"}</option>
+                            </NativeSelect>
+                        </Field>
+                        <Field label={isZh ? "重复处理" : "Duplicate Handling"}>
+                            <NativeSelect
+                                value={resumeUploadDuplicateStrategy}
+                                onChange={(event) => setResumeUploadDuplicateStrategy(event.target.value as typeof resumeUploadDuplicateStrategy)}
+                            >
+                                <option value="skip">{isZh ? "跳过重复简历" : "Skip duplicates"}</option>
+                                <option value="overwrite">{isZh ? "覆盖已有记录" : "Overwrite existing"}</option>
+                                <option value="prompt">{isZh ? "提示我确认" : "Prompt me to confirm"}</option>
+                            </NativeSelect>
+                        </Field>
+                        <Field label={recruitmentUiText.city}>
+                            <div className="flex flex-col gap-2">
+                                <div className="flex gap-1">
+                                    {([
+                                        {value: "manual" as const, label: recruitmentUiText.manualCityEntry},
+                                        {value: "auto" as const, label: recruitmentUiText.autoDetectCity},
+                                    ] as const).map((opt) => (
                                         <button
-                                            key={city}
+                                            key={opt.value}
                                             type="button"
                                             className={cn(
-                                                "rounded-full border px-2 py-0.5 text-sm transition-colors",
-                                                resumeUploadCity === city
+                                                "rounded-md border px-2.5 py-1 text-sm transition-colors",
+                                                resumeUploadCitySource === opt.value
                                                     ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
                                                     : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300 dark:hover:border-slate-700",
                                             )}
-                                            onClick={() => setResumeUploadCity(city)}
+                                            onClick={() => setResumeUploadCitySource(opt.value)}
                                         >
-                                            {city}
+                                            {opt.label}
                                         </button>
                                     ))}
                                 </div>
+                                {resumeUploadCitySource === "manual" ? (
+                                    <div className="flex flex-col gap-1.5">
+                                        <Input
+                                            list="city-options"
+                                            placeholder={recruitmentUiText.cityPlaceholder}
+                                            value={resumeUploadCity}
+                                            onChange={(event) => setResumeUploadCity(event.target.value)}
+                                        />
+                                        <datalist id="city-options">
+                                            {POPULAR_CITIES.map((city) => (
+                                                <option key={city} value={city}/>
+                                            ))}
+                                        </datalist>
+                                        <div className="flex flex-wrap gap-1">
+                                            {POPULAR_CITIES.slice(0, 8).map((city) => (
+                                                <button
+                                                    key={city}
+                                                    type="button"
+                                                    className={cn(
+                                                        "rounded-full border px-2 py-0.5 text-sm transition-colors",
+                                                        resumeUploadCity === city
+                                                            ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
+                                                            : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300 dark:hover:border-slate-700",
+                                                    )}
+                                                    onClick={() => setResumeUploadCity(city)}
+                                                >
+                                                    {city}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                ) : resumeUploadCitySource === "auto" ? (
+                                    <p className="text-sm text-slate-500 dark:text-slate-400">
+                                        {recruitmentUiText.cityAutoHint}
+                                    </p>
+                                ) : null}
                             </div>
-                        ) : resumeUploadCitySource === "auto" ? (
-                            <p className="text-sm text-slate-500 dark:text-slate-400">
-                                {recruitmentUiText.cityAutoHint}
-                            </p>
-                        ) : null}
-                    </div>
-                </Field>
+                        </Field>
+                    </>
+                )}
 
-                {/* 文件选择 */}
-                <Field label={recruitmentUiText.selectFiles}>
-                    <Input
+                {/* 文件上传区域 */}
+                <label
+                    className={cn(
+                        "relative flex w-full cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed transition-colors",
+                        "h-28",
+                        isDraggingFile
+                            ? "border-slate-900 bg-slate-100 dark:border-slate-100 dark:bg-slate-800"
+                            : "border-slate-300 bg-slate-50 hover:border-slate-400 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:hover:border-slate-600 dark:hover:bg-slate-800",
+                    )}
+                    onClick={(e) => { if (resumeUploadFileList && resumeUploadFileList.length > 0) e.preventDefault(); }}
+                    onDragOver={(e) => { e.preventDefault(); setIsDraggingFile(true); }}
+                    onDragLeave={() => setIsDraggingFile(false)}
+                    onDrop={(e) => {
+                        e.preventDefault();
+                        setIsDraggingFile(false);
+                        const files = e.dataTransfer.files;
+                        if (files.length > 0) {
+                            setResumeUploadError(null);
+                            setResumeUploadFileList(files);
+                        }
+                    }}
+                >
+                    <input
+                        ref={fileInputRef}
                         type="file"
                         multiple
-                        accept=".pdf,.docx"
+                        accept=".pdf"
+                        className="sr-only"
                         onChange={handleResumeFileChange}
                     />
-                </Field>
-                <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-4 text-base text-slate-500 dark:border-slate-800 dark:text-slate-400">
-                    {recruitmentUiText.filesSelected(resumeUploadFileList?.length ?? 0)}
-                </div>
+                    {resumeUploadFileList && resumeUploadFileList.length > 0 ? (
+                        <>
+                            <FileText className="h-10 w-10 text-slate-600 dark:text-slate-300" />
+                            <p className="text-base font-medium text-slate-700 dark:text-slate-200 leading-tight">
+                                {resumeUploadFileList.length === 1
+                                    ? resumeUploadFileList[0].name
+                                    : `${resumeUploadFileList.length} ${isZh ? "个文件" : "files"}`}
+                            </p>
+                            <p className="text-sm text-slate-500 dark:text-slate-400">
+                                {recruitmentUiText.filesSelected(resumeUploadFileList.length)}
+                            </p>
+                            <button
+                                type="button"
+                                className="absolute right-2 top-2 rounded-full p-0.5 text-slate-400 hover:bg-slate-200 hover:text-slate-600 dark:hover:bg-slate-700 dark:hover:text-slate-300 transition-colors"
+                                onClick={(e) => {
+                                    e.preventDefault();
+                                    setResumeUploadFileList(null);
+                                    if (fileInputRef.current) fileInputRef.current.value = "";
+                                }}
+                            >
+                                <X className="h-4 w-4" />
+                            </button>
+                        </>
+                    ) : (
+                        <>
+                            <Upload className="h-10 w-10 text-slate-400 dark:text-slate-500" />
+                            <p className="text-base text-slate-600 dark:text-slate-300">
+                                {isZh ? "点击或拖拽上传简历" : "Click or drag to upload"}
+                            </p>
+                            <p className="text-sm text-slate-400 dark:text-slate-500">
+                                {isZh ? "仅支持 PDF 格式" : "PDF format only"}
+                            </p>
+                        </>
+                    )}
+                </label>
                 </div>
             </ScrollArea>
             <DialogFooter className="items-center justify-between gap-3 sm:justify-between">
@@ -6759,7 +6918,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 </div>
             )}
         </DialogContent>
-    ), [recruitmentUiText, positionsLoading, positions, resumeUploadPositionId, showOrganizationFields, organizationSelectOptions, resumeUploadOrgCode, resumeUploadCitySource, resumeUploadCity, resumeUploadFileList, resumeUploadError, uploadingResume, uploadCompletedCount, uploadProgress, resumeUploadMode, resumeUploadSource, resumeUploadDuplicateStrategy, isZh]);
+    ), [recruitmentUiText, positionsLoading, positions, resumeUploadPositionId, showOrganizationFields, organizationSelectOptions, resumeUploadOrgCode, resumeUploadCitySource, resumeUploadCity, resumeUploadFileList, resumeUploadError, uploadingResume, uploadCompletedCount, uploadProgress, resumeUploadMode, resumeUploadSource, resumeUploadDuplicateStrategy, isZh, showAdvancedOptions, isDraggingFile]);
 
     function openResumeUploadDialog() {
         if (activePage === "positions" && selectedPositionId) {
@@ -10970,6 +11129,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 setResumeUploadOpen(open);
                 if (!open) {
                     setResumeUploadError(null);
+                    setShowAdvancedOptions(false);
+                    setIsDraggingFile(false);
                 }
             }}>
                 {resumeUploadDialogBody}
