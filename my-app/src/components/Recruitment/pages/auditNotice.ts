@@ -7,8 +7,8 @@ export type AuditNoticePresentation = {
     showInvalidReasons: boolean;
 };
 
-const INVALID_NOTICE_CONTAINER_CLASS_NAME = "space-y-3 rounded-2xl border border-amber-200 bg-amber-50/80 px-4 py-4 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100";
-const HINT_NOTICE_CONTAINER_CLASS_NAME = "space-y-3 rounded-2xl border border-slate-200/80 bg-slate-50/90 px-4 py-4 text-sm text-slate-700 dark:border-slate-800 dark:bg-slate-900/70 dark:text-slate-200";
+const INVALID_NOTICE_CONTAINER_CLASS_NAME = "space-y-3 rounded-2xl border border-amber-200 bg-amber-50/80 px-4 py-4 text-base text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100";
+const HINT_NOTICE_CONTAINER_CLASS_NAME = "space-y-3 rounded-2xl border border-slate-200/80 bg-slate-50/90 px-4 py-4 text-base text-slate-700 dark:border-slate-800 dark:bg-slate-900/70 dark:text-slate-200";
 
 export function resolveAuditNoticePresentation(input: {
     screeningResultState?: string | null;

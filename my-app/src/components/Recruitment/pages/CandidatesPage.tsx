@@ -193,19 +193,19 @@ const CandidateRow = React.memo(function CandidateRow({
                                 </div>
                                 <HoverRevealText
                                     text={candidate.phone || candidate.email || tr.noContact}
-                                    className="text-xs text-slate-500 dark:text-slate-400"
+                                    className="text-sm text-slate-500 dark:text-slate-400"
                                 />
                                 {candidate.ai_potential_position ? (
                                     <HoverRevealText
                                         text={`${isZh ? "转岗潜力" : "Potential Transition"}: ${candidate.ai_potential_position}${candidate.ai_potential_reason ? ` · ${candidate.ai_potential_reason}` : ""}`}
-                                        className="mt-1 text-xs text-sky-600 dark:text-sky-300"
+                                        className="mt-1 text-sm text-sky-600 dark:text-sky-300"
                                         tooltipClassName="max-w-md"
                                     />
                                 ) : null}
                                 {resumeMailSummary ? (
                                     <HoverRevealText
                                         text={resumeMailSummary}
-                                        className="mt-1 text-xs text-sky-600 dark:text-slate-300"
+                                        className="mt-1 text-sm text-sky-600 dark:text-slate-300"
                                         tooltipClassName="max-w-sm"
                                     />
                                 ) : null}
@@ -226,7 +226,7 @@ const CandidateRow = React.memo(function CandidateRow({
                         >
                             <HoverRevealText
                                 text={getOrganizationLabel(candidate.org_code)}
-                                className="text-xs text-slate-600 dark:text-slate-300"
+                                className="text-sm text-slate-600 dark:text-slate-300"
                             />
                         </td>
                     );
@@ -269,7 +269,7 @@ const CandidateRow = React.memo(function CandidateRow({
                                         ),
                                         language,
                                     })}
-                                    className="mt-1 text-[11px] leading-4 text-slate-500 dark:text-slate-400"
+                                    className="mt-1 text-[15px] leading-4 text-slate-500 dark:text-slate-400"
                                     tooltipClassName="max-w-sm"
                                 />
                             ) : null}
@@ -302,7 +302,7 @@ const CandidateRow = React.memo(function CandidateRow({
                             }}
                             className="p-2 align-middle"
                         >
-                            <HoverRevealText text={candidate.city || "-"} className="text-xs text-slate-600 dark:text-slate-300"/>
+                            <HoverRevealText text={candidate.city || "-"} className="text-sm text-slate-600 dark:text-slate-300"/>
                         </td>
                     );
                 }
@@ -317,7 +317,7 @@ const CandidateRow = React.memo(function CandidateRow({
                             }}
                             className="p-2 align-middle"
                         >
-                            <HoverRevealText text={candidate.expected_city || "-"} className="text-xs text-slate-600 dark:text-slate-300"/>
+                            <HoverRevealText text={candidate.expected_city || "-"} className="text-sm text-slate-600 dark:text-slate-300"/>
                         </td>
                     );
                 }
@@ -332,7 +332,7 @@ const CandidateRow = React.memo(function CandidateRow({
                             }}
                             className="p-2 align-middle"
                         >
-                            <HoverRevealText text={candidate.source || "-"} className="text-xs text-slate-600 dark:text-slate-300"/>
+                            <HoverRevealText text={candidate.source || "-"} className="text-sm text-slate-600 dark:text-slate-300"/>
                         </td>
                     );
                 }
@@ -669,13 +669,13 @@ function OutputSnippet({content}: { content: string }) {
 
     return (
         <div className="mt-3 min-w-0 overflow-hidden rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/60">
-            <pre className="min-w-0 whitespace-pre-wrap break-all text-xs leading-6 text-slate-600 dark:text-slate-300">
+            <pre className="min-w-0 whitespace-pre-wrap break-all text-sm leading-6 text-slate-600 dark:text-slate-300">
                 {expanded ? content : preview}
             </pre>
             {hasMore ? (
                 <button
                     type="button"
-                    className="mt-2 text-xs text-slate-400 transition hover:text-slate-600 dark:hover:text-slate-300"
+                    className="mt-2 text-sm text-slate-400 transition hover:text-slate-600 dark:hover:text-slate-300"
                     onClick={() => setExpanded((current) => !current)}
                 >
                     {expanded ? tr.collapse : tr.expandAll(lines.length)}
@@ -732,7 +732,7 @@ function InterviewQuestionCard({
                 <div className="min-w-0">
                     <p className="font-medium text-slate-900 dark:text-slate-100">{question.round_name}</p>
                     {question.created_at ? (
-                        <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                        <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
                             {tr.generatedAt(question.created_at)}
                         </p>
                     ) : null}
@@ -744,14 +744,14 @@ function InterviewQuestionCard({
 
             <div className="grid grid-cols-2 gap-px border-b border-slate-200/80 bg-slate-200/80 dark:border-slate-800 dark:bg-slate-800">
                 <div className="bg-white px-4 py-2.5 dark:bg-slate-950">
-                    <p className="text-xs text-slate-500 dark:text-slate-400">{tr.moduleCount}</p>
-                    <p className="mt-0.5 text-sm font-medium text-slate-900 dark:text-slate-100">
+                    <p className="text-sm text-slate-500 dark:text-slate-400">{tr.moduleCount}</p>
+                    <p className="mt-0.5 text-base font-medium text-slate-900 dark:text-slate-100">
                         {modules.length > 0 ? `${modules.length}${tr.modulesSuffix}` : tr.parsing}
                     </p>
                 </div>
                 <div className="bg-white px-4 py-2.5 dark:bg-slate-950">
-                    <p className="text-xs text-slate-500 dark:text-slate-400">{tr.estimatedQuestions}</p>
-                    <p className="mt-0.5 text-sm font-medium text-slate-900 dark:text-slate-100">
+                    <p className="text-sm text-slate-500 dark:text-slate-400">{tr.estimatedQuestions}</p>
+                    <p className="mt-0.5 text-base font-medium text-slate-900 dark:text-slate-100">
                         {questionCount != null ? `${questionCount}${tr.questionSuffix}` : "-"}
                     </p>
                 </div>
@@ -759,17 +759,17 @@ function InterviewQuestionCard({
 
             {modules.length > 0 ? (
                 <div className="space-y-1.5 border-b border-slate-200/80 px-4 py-3 dark:border-slate-800">
-                    <p className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">{tr.moduleOutline}</p>
+                    <p className="text-sm font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">{tr.moduleOutline}</p>
                     {modules.slice(0, 5).map((moduleName, index) => (
-                        <div key={`${moduleName}-${index}`} className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
-                            <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[10px] text-slate-500 dark:bg-slate-800">
+                        <div key={`${moduleName}-${index}`} className="flex items-center gap-2 text-base text-slate-700 dark:text-slate-300">
+                            <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[14px] text-slate-500 dark:bg-slate-800">
                                 {index + 1}
                             </span>
                             <span className="truncate">{moduleName}</span>
                         </div>
                     ))}
                     {modules.length > 5 ? (
-                        <p className="text-xs text-slate-400 dark:text-slate-500">{tr.extraModules(modules.length - 5)}</p>
+                        <p className="text-sm text-slate-400 dark:text-slate-500">{tr.extraModules(modules.length - 5)}</p>
                     ) : null}
                 </div>
             ) : null}
@@ -1114,7 +1114,7 @@ function CandidateAiOutputDialog({
                     <div className="flex flex-wrap items-start justify-between gap-3">
                         <div className="min-w-0">
                             <DialogTitle>{tr.fullAiOutput}</DialogTitle>
-                            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
+                            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-slate-500 dark:text-slate-400">
                                 {modelLabel ? <span>{tr.modelLabel}: {modelLabel}</span> : null}
                                 {generatedAt ? <span>{tr.timeLabel}: {formatLongDateTime(generatedAt)}</span> : null}
                             </div>
@@ -1128,16 +1128,16 @@ function CandidateAiOutputDialog({
                 <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
                     <div className="space-y-4 px-1 pb-2">
                         <div className="rounded-[22px] border border-slate-200/80 bg-white/90 px-5 py-5 dark:border-slate-800 dark:bg-slate-950/70">
-                            <div className="prose prose-slate max-w-none text-sm leading-7 dark:prose-invert prose-headings:mb-3 prose-headings:mt-5 prose-headings:font-semibold prose-p:my-3 prose-ul:my-3 prose-ol:my-3 prose-li:my-1 prose-pre:rounded-2xl prose-pre:border prose-pre:border-slate-200/80 prose-pre:bg-slate-950 prose-pre:p-4 dark:prose-pre:border-slate-800">
+                            <div className="prose prose-slate max-w-none text-base leading-7 dark:prose-invert prose-headings:mb-3 prose-headings:mt-5 prose-headings:font-semibold prose-p:my-3 prose-ul:my-3 prose-ol:my-3 prose-li:my-1 prose-pre:rounded-2xl prose-pre:border prose-pre:border-slate-200/80 prose-pre:bg-slate-950 prose-pre:p-4 dark:prose-pre:border-slate-800">
                                 <ReactMarkdown>{markdown}</ReactMarkdown>
                             </div>
                         </div>
                         {raw && raw.trim() && raw.trim() !== markdown.trim() ? (
                             <details className="rounded-[22px] border border-slate-200/80 bg-slate-50/80 px-5 py-4 dark:border-slate-800 dark:bg-slate-900/60">
-                                <summary className="cursor-pointer text-sm font-medium text-slate-900 dark:text-slate-100">
+                                <summary className="cursor-pointer text-base font-medium text-slate-900 dark:text-slate-100">
                                     {tr.viewStructuredRaw}
                                 </summary>
-                                <pre className="mt-4 whitespace-pre-wrap break-all rounded-2xl border border-slate-200/80 bg-white/90 px-4 py-4 text-xs leading-6 text-slate-700 dark:border-slate-800 dark:bg-slate-950/70 dark:text-slate-300">
+                                <pre className="mt-4 whitespace-pre-wrap break-all rounded-2xl border border-slate-200/80 bg-white/90 px-4 py-4 text-sm leading-6 text-slate-700 dark:border-slate-800 dark:bg-slate-950/70 dark:text-slate-300">
                                     {raw}
                                 </pre>
                             </details>
@@ -1232,7 +1232,7 @@ function MultiSelect({ options, selected, onChange, placeholder, selectedLabel }
                             </svg>
                         )}
                     </div>
-                    <span className="truncate block min-w-0 flex-1 text-sm text-slate-700 dark:text-slate-300" title={option.label}>
+                    <span className="truncate block min-w-0 flex-1 text-base text-slate-700 dark:text-slate-300" title={option.label}>
                         {option.label}
                     </span>
                 </div>
@@ -1247,7 +1247,7 @@ function MultiSelect({ options, selected, onChange, placeholder, selectedLabel }
                 type="button"
                 onClick={handleOpen}
                 title={displayText}
-                className="flex h-9 w-full items-center justify-between rounded-md border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-950"
+                className="flex h-9 w-full items-center justify-between rounded-md border border-slate-200 bg-white px-3 py-2 text-base dark:border-slate-800 dark:bg-slate-950"
             >
                 <span className={cn(
                     "block w-full truncate",
@@ -1350,7 +1350,7 @@ function CandidateFilterBar({
         || (!chip.startsWith(tr.allPrefix) && chip !== tr.noKeyword)
     ), [tr]);
 
-    const fieldLabelClassName = "mb-1 block text-[10px] font-medium tracking-wide text-slate-500 dark:text-slate-400";
+    const fieldLabelClassName = "mb-1 block text-[14px] font-medium tracking-wide text-slate-500 dark:text-slate-400";
 
     return (
         <Card className={cn(defaultPanelClass, "gap-0 py-0")}>
@@ -1360,13 +1360,13 @@ function CandidateFilterBar({
                         <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-slate-200/80 bg-slate-50 text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
                             <SlidersHorizontal className="h-3.5 w-3.5"/>
                         </div>
-                        <span className="shrink-0 text-sm font-medium text-slate-900 dark:text-slate-100">{tr.filters}</span>
+                        <span className="shrink-0 text-base font-medium text-slate-900 dark:text-slate-100">{tr.filters}</span>
                         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
                             {summaryChips.map((chip) => (
                                 <span
                                     key={chip}
                                     className={cn(
-                                        "inline-flex max-w-full items-center rounded-full border px-2 py-0.5 text-[11px] transition",
+                                        "inline-flex max-w-full items-center rounded-full border px-2 py-0.5 text-[15px] transition",
                                         isChipActive(chip)
                                             ? "border-slate-400 bg-slate-100/95 text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
                                             : "border-slate-200/80 bg-white/80 text-slate-500 dark:border-slate-800 dark:bg-slate-950/80 dark:text-slate-400",
@@ -1384,7 +1384,7 @@ function CandidateFilterBar({
                             <Button
                                 size="sm"
                                 variant={candidateStatusFilter.includes("talent_pool") ? "default" : "outline"}
-                                className="rounded-full text-xs"
+                                className="rounded-full text-sm"
                                 onClick={() => {
                                     if (candidateStatusFilter.includes("talent_pool")) {
                                         setCandidateStatusFilter(candidateStatusFilter.filter(s => s !== "talent_pool"));
@@ -1478,13 +1478,13 @@ function CandidateFilterBar({
                     </div>
 
                     <div className="mt-2 flex flex-wrap items-center justify-between gap-3 border-t border-slate-200/80 pt-2 dark:border-slate-800">
-                        <div className="flex items-center gap-2.5 text-xs text-slate-500 dark:text-slate-400">
+                        <div className="flex items-center gap-2.5 text-sm text-slate-500 dark:text-slate-400">
                             <span>{tr.matchedCandidates(visibleCandidateCount)}</span>
                             <Button
                                 type="button"
                                 variant="ghost"
                                 size="sm"
-                                className="h-auto px-0 py-0 text-xs text-slate-500 hover:bg-transparent hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+                                className="h-auto px-0 py-0 text-sm text-slate-500 hover:bg-transparent hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
                                 onClick={resetFilters}
                                 disabled={!hasActiveFilters}
                             >
@@ -2208,13 +2208,13 @@ export function CandidatesPage({
                 <Card className={cn(panelClass, "h-full !gap-0 overflow-hidden !py-0")}>
                     <CardHeader className="px-4 pt-2 pb-0 sm:px-5">
                         <div className="flex items-center justify-between gap-3">
-                            <CardTitle className="text-[15px] leading-none">{tr.candidateList}</CardTitle>
+                            <CardTitle className="text-[19px] leading-none">{tr.candidateList}</CardTitle>
                             <div className="flex items-center gap-2">
                                 {onRefresh ? (
                                     <Button
                                         size="sm"
                                         variant="outline"
-                                        className="h-7 rounded-md px-2 text-xs"
+                                        className="h-7 rounded-md px-2 text-sm"
                                         disabled={refreshing || candidatesLoading}
                                         onClick={async () => {
                                             setRefreshing(true);
@@ -2233,7 +2233,7 @@ export function CandidatesPage({
                                 <Button
                                     size="sm"
                                     variant="outline"
-                                    className="h-7 rounded-md px-2.5 text-xs"
+                                    className="h-7 rounded-md px-2.5 text-sm"
                                     onClick={() => setCandidateFilterBarExpanded((current) => !current)}
                                 >
                                     <SlidersHorizontal className="h-4 w-4"/>
@@ -2244,28 +2244,28 @@ export function CandidatesPage({
                     </CardHeader>
                     <CardContent className="flex min-h-0 flex-1 flex-col px-4 pt-1 pb-2.5 sm:px-5">
                         <div className="mb-0.5 flex flex-wrap items-center justify-between gap-2">
-                            <p className="text-xs text-slate-500 dark:text-slate-400">
+                            <p className="text-sm text-slate-500 dark:text-slate-400">
                                 {tr.selectedCandidates(selectedCandidateIds.length)}
                             </p>
                             <div className="flex flex-wrap gap-2">
-                                <Button size="sm" variant="outline" className="h-7 rounded-md px-2.5 text-xs" onClick={() => setSelectedCandidateIds([])} disabled={!selectedCandidateIds.length}>
+                                <Button size="sm" variant="outline" className="h-7 rounded-md px-2.5 text-sm" onClick={() => setSelectedCandidateIds([])} disabled={!selectedCandidateIds.length}>
                                     {tr.clearSelection}
                                 </Button>
                                 <Button
                                     size="sm"
                                     variant="outline"
-                                    className="h-7 rounded-md px-2.5 text-xs"
+                                    className="h-7 rounded-md px-2.5 text-sm"
                                     onClick={() => void triggerScreening(selectedCandidateIds)}
                                     disabled={isBatchScreeningCancelling || (screeningSubmitting && !isBatchScreeningRunning) || (!isBatchScreeningRunning && !selectedCandidateIds.length)}
                                 >
                                     {isBatchScreeningCancelling ? <Loader2 className="h-4 w-4 animate-spin"/> : isBatchScreeningRunning ? <Square className="h-4 w-4"/> : screeningSubmitting ? <Loader2 className="h-4 w-4 animate-spin"/> : <Sparkles className="h-4 w-4"/>}
                                     {isBatchScreeningCancelling ? tr.stopping : isBatchScreeningRunning ? tr.stopBatchScreening : screeningSubmitting ? tr.queueing : tr.queueBatch}
                                 </Button>
-                                <Button size="sm" variant="outline" className="h-7 rounded-md px-2.5 text-xs" onClick={() => openResumeMailDialog(selectedCandidateIds)} disabled={!selectedCandidateIds.length}>
+                                <Button size="sm" variant="outline" className="h-7 rounded-md px-2.5 text-sm" onClick={() => openResumeMailDialog(selectedCandidateIds)} disabled={!selectedCandidateIds.length}>
                                     <Mail className="h-4 w-4"/>
                                     {tr.sendResumesBatch}
                                 </Button>
-                                <Button size="sm" variant="outline" className="h-7 rounded-md px-2.5 text-xs" onClick={() => { setBatchBindPositionId(""); setBatchBindDialogOpen(true); }} disabled={!selectedCandidateIds.length}>
+                                <Button size="sm" variant="outline" className="h-7 rounded-md px-2.5 text-sm" onClick={() => { setBatchBindPositionId(""); setBatchBindDialogOpen(true); }} disabled={!selectedCandidateIds.length}>
                                     <Briefcase className="h-4 w-4"/>
                                     {tr.batchBindPosition}
                                 </Button>
@@ -2273,7 +2273,7 @@ export function CandidatesPage({
                                 <Button
                                     size="sm"
                                     variant="outline"
-                                    className="h-7 rounded-md px-2.5 text-xs"
+                                    className="h-7 rounded-md px-2.5 text-sm"
                                     onClick={async () => {
                                         if (onMoveToTalentPool) {
                                             await onMoveToTalentPool(selectedCandidateIds);
@@ -2286,15 +2286,15 @@ export function CandidatesPage({
                                     <Users className="h-4 w-4"/>
                                     {isZh ? "归入人才库" : "Move to Talent Pool"}
                                 </Button>
-                                <Button size="sm" variant="outline" className="h-7 rounded-md px-2.5 text-xs" onClick={() => { setBatchStatusValue(""); setBatchStatusReason(""); setBatchStatusDialogOpen(true); }} disabled={!selectedCandidateIds.length}>
+                                <Button size="sm" variant="outline" className="h-7 rounded-md px-2.5 text-sm" onClick={() => { setBatchStatusValue(""); setBatchStatusReason(""); setBatchStatusDialogOpen(true); }} disabled={!selectedCandidateIds.length}>
                                     <ArrowRightLeft className="h-4 w-4"/>
                                     {tr.batchUpdateStatus}
                                 </Button>
-                                <Button size="sm" variant="outline" className="h-7 rounded-md px-2.5 text-xs" onClick={() => setExportDialogOpen(true)} disabled={!selectedCandidateIds.length || exporting}>
+                                <Button size="sm" variant="outline" className="h-7 rounded-md px-2.5 text-sm" onClick={() => setExportDialogOpen(true)} disabled={!selectedCandidateIds.length || exporting}>
                                     <Download className="h-4 w-4"/>
                                     {exporting ? tr.exporting : tr.exportCandidates}
                                 </Button>
-                                <Button size="sm" variant="outline" className="h-7 rounded-md px-2.5 text-xs text-rose-600 hover:text-rose-700 hover:bg-rose-50 dark:text-rose-400 dark:hover:text-rose-300 dark:hover:bg-rose-950/30" onClick={() => requestBatchDelete(selectedCandidateIds)} disabled={!selectedCandidateIds.length}>
+                                <Button size="sm" variant="outline" className="h-7 rounded-md px-2.5 text-sm text-rose-600 hover:text-rose-700 hover:bg-rose-50 dark:text-rose-400 dark:hover:text-rose-300 dark:hover:bg-rose-950/30" onClick={() => requestBatchDelete(selectedCandidateIds)} disabled={!selectedCandidateIds.length}>
                                     <Trash2 className="h-4 w-4"/>
                                 </Button>
                             </div>
@@ -2312,7 +2312,7 @@ export function CandidatesPage({
                                         ref={mergedCandidateListScrollRef}
                                         className="relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto [scrollbar-gutter:stable] [scrollbar-width:auto] [scrollbar-color:rgba(148,163,184,0.9)_transparent] [&::-webkit-scrollbar]:h-3 [&::-webkit-scrollbar]:w-3 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:border-2 [&::-webkit-scrollbar-thumb]:border-transparent [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-thumb]:bg-clip-content hover:[&::-webkit-scrollbar-thumb]:bg-slate-400 dark:[scrollbar-color:rgba(71,85,105,0.95)_transparent] dark:[&::-webkit-scrollbar-thumb]:bg-slate-700 dark:hover:[&::-webkit-scrollbar-thumb]:bg-slate-600"
                                     >
-                                        <table style={{width: candidateListEffectiveTableWidth, minWidth: candidateListEffectiveTableWidth}} className="caption-bottom table-fixed text-sm">
+                                        <table style={{width: candidateListEffectiveTableWidth, minWidth: candidateListEffectiveTableWidth}} className="caption-bottom table-fixed text-base">
                                             <thead className="[&_tr]:border-b">
                                                 <tr className="border-b bg-white/95 transition-colors dark:bg-slate-950/95">
                                                     <th className="text-foreground sticky top-0 z-10 h-10 w-14 bg-inherit px-2 text-left align-middle font-medium whitespace-nowrap">
@@ -2338,7 +2338,7 @@ export function CandidatesPage({
                                                                     minWidth: candidateListEffectiveColumnWidths[columnKey],
                                                                     maxWidth: candidateListEffectiveColumnWidths[columnKey],
                                                                 }}
-                                                                className="text-foreground sticky top-0 z-10 h-10 bg-inherit px-2 text-left align-middle text-xs font-medium whitespace-nowrap"
+                                                                className="text-foreground sticky top-0 z-10 h-10 bg-inherit px-2 text-left align-middle text-sm font-medium whitespace-nowrap"
                                                             >
                                                                 {label}
                                                             </th>
@@ -2392,12 +2392,12 @@ export function CandidatesPage({
                                             </tbody>
                                         </table>
                                         {isLoadingMoreCandidates ? (
-                                            <div className="flex items-center justify-center gap-2 py-3 text-sm text-muted-foreground">
+                                            <div className="flex items-center justify-center gap-2 py-3 text-base text-muted-foreground">
                                                 <Loader2 className="h-4 w-4 animate-spin"/>
                                                 <span>{tr.loadingMoreCandidates}</span>
                                             </div>
                                         ) : !isLoadingMoreCandidates && allCandidatesCount >= candidateTotal && candidateTotal > 0 ? (
-                                            <div className="flex items-center justify-center py-3 text-sm text-muted-foreground">
+                                            <div className="flex items-center justify-center py-3 text-base text-muted-foreground">
                                                 <span>{tr.allCandidatesLoaded}</span>
                                             </div>
                                         ) : null}
@@ -2418,7 +2418,7 @@ export function CandidatesPage({
                                     {groupedCandidates.map((group) => (
                                         <div key={group.status} className="rounded-2xl border border-slate-200/80 bg-slate-50/60 p-4 dark:border-slate-800 dark:bg-slate-900/60">
                                             <div className="mb-4 flex items-center justify-between gap-2">
-                                                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{group.label}</p>
+                                                <p className="text-base font-semibold text-slate-900 dark:text-slate-100">{group.label}</p>
                                                 <Badge variant="outline" className="rounded-full">{group.items.length}</Badge>
                                             </div>
                                             <div className="space-y-3">
@@ -2441,7 +2441,7 @@ export function CandidatesPage({
                                                                 className="min-w-0 flex-1 text-left"
                                                             >
                                                                 <div className="flex flex-wrap items-center gap-2">
-                                                                    <p className="line-clamp-2 break-words text-sm font-medium leading-6">
+                                                                    <p className="line-clamp-2 break-words text-base font-medium leading-6">
                                                                         {candidate.name}
                                                                     </p>
                                                                     {mailSummary ? (
@@ -2450,13 +2450,13 @@ export function CandidatesPage({
                                                                         </Badge>
                                                                     ) : null}
                                                                 </div>
-                                                                <p className="mt-1 line-clamp-2 break-words text-xs leading-5 opacity-80">
+                                                                <p className="mt-1 line-clamp-2 break-words text-sm leading-5 opacity-80">
                                                                     {candidate.position_title || tr.unassignedPosition}
                                                                 </p>
                                                                 {mailSummary ? (
-                                                                    <p className="mt-2 text-[11px] opacity-80">{mailSummary}</p>
+                                                                    <p className="mt-2 text-[15px] opacity-80">{mailSummary}</p>
                                                                 ) : null}
-                                                                <div className="mt-3 flex items-center justify-between text-xs opacity-80">
+                                                                <div className="mt-3 flex items-center justify-between text-sm opacity-80">
                                                                     <span>{tr.matchBadge} {formatPercent(resolveCandidateSummaryMatchPercent(candidate))}</span>
                                                                     <span>{formatDateTime(candidate.updated_at)}</span>
                                                                 </div>
@@ -2471,7 +2471,7 @@ export function CandidatesPage({
                                                     </div>
                                                     );
                                                 })) : (
-                                                    <p className="rounded-2xl border border-dashed border-slate-200 px-4 py-6 text-center text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
+                                                    <p className="rounded-2xl border border-dashed border-slate-200 px-4 py-6 text-center text-base text-slate-500 dark:border-slate-800 dark:text-slate-400">
                                                         {tr.noCandidatesInStatus}
                                                     </p>
                                                 )}
@@ -2505,7 +2505,7 @@ export function CandidatesPage({
                                            whitespace-nowrap z-50 pointer-events-none"
                             >
                                 <div className="bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900
-                                                text-xs font-medium px-3 py-2 rounded-lg shadow-lg
+                                                text-sm font-medium px-3 py-2 rounded-lg shadow-lg
                                                 animate-pulse">
                                     {tr.splitResizeHint}
                                 </div>
@@ -2550,8 +2550,8 @@ export function CandidatesPage({
                                 <div className="space-y-1">
                                     <div className="flex items-start justify-between gap-3">
                                         <div className="min-w-0 flex-1 space-y-1">
-                                            <div data-no-zoom className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400 cursor-text select-text">
-                                                <span className="text-[1rem] font-semibold text-slate-900 dark:text-slate-100">{candidateDetail.candidate.name}</span>
+                                            <div data-no-zoom className="flex flex-wrap items-center gap-2 text-[15px] text-slate-500 dark:text-slate-400 cursor-text select-text">
+                                                <span className="text-[1.25rem] font-semibold text-slate-900 dark:text-slate-100">{candidateDetail.candidate.name}</span>
                                                 <Badge className={cn("rounded-full border", statusBadgeClass("candidate", candidateDetailDisplayStatus))}>
                                                     {labelForCandidateStatus(candidateDetailDisplayStatus)}
                                                 </Badge>
@@ -2573,11 +2573,11 @@ export function CandidatesPage({
                                                     </Badge>
                                                 ) : null}
                                             </div>
-                                            <div data-no-zoom className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500 dark:text-slate-400 cursor-text select-text">
+                                            <div data-no-zoom className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-slate-500 dark:text-slate-400 cursor-text select-text">
                                                 {candidateDetailIdentityMeta ? <span>{candidateDetailIdentityMeta}</span> : null}
                                             </div>
                                             {(candidateDetail.candidate.ai_potential_position || candidateDetail.candidate.ai_potential_reason) ? (
-                                                <div data-no-zoom className="mt-2 rounded-xl border border-sky-100 bg-sky-50/70 px-3 py-2 text-xs text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
+                                                <div data-no-zoom className="mt-2 rounded-xl border border-sky-100 bg-sky-50/70 px-3 py-2 text-sm text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
                                                     <div className="font-medium">
                                                         {`${isZh ? "转岗潜力方向" : "Potential Transition"}：`}
                                                         {candidateDetail.candidate.ai_potential_position || (isZh ? "暂无" : "N/A")}
@@ -2610,7 +2610,7 @@ export function CandidatesPage({
                                             pointerEvents: "none",
                                             zIndex: 9999,
                                         }}
-                                        className="flex items-center gap-1 rounded-md bg-slate-800/90 px-2 py-1 text-[11px] text-white shadow-lg dark:bg-slate-700/90"
+                                        className="flex items-center gap-1 rounded-md bg-slate-800/90 px-2 py-1 text-[15px] text-white shadow-lg dark:bg-slate-700/90"
                                     >
                                         <ZoomIn className="h-3 w-3 shrink-0" />
                                         <span>{detailExpanded ? tr.zoomHintCollapse : tr.zoomHintExpand}</span>
@@ -2688,7 +2688,7 @@ export function CandidatesPage({
                                         <div className="mt-2 rounded-2xl border border-slate-200/80 bg-slate-50/70 px-3 py-3 dark:border-slate-800 dark:bg-slate-900/60">
                                             <div className="flex flex-wrap items-center justify-between gap-2">
                                                 <div className="min-w-0">
-                                                    <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{tr.currentScreeningTask}</p>
+                                                    <p className="text-base font-medium text-slate-900 dark:text-slate-100">{tr.currentScreeningTask}</p>
                                                     {(() => {
                                                         const autoRetry = Boolean(candidateDetail?.candidate.active_screening_auto_retry_scheduled);
                                                         const logMsg = sanitizeTaskMessage(
@@ -2705,8 +2705,8 @@ export function CandidatesPage({
                                                         const secondary = displayReason && logMsg && logMsg !== displayReason ? logMsg : null;
                                                         return (
                                                             <>
-                                                                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{primary}</p>
-                                                                {secondary ? <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{secondary}</p> : null}
+                                                                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{primary}</p>
+                                                                {secondary ? <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{secondary}</p> : null}
                                                             </>
                                                         );
                                                     })()}
@@ -2751,17 +2751,17 @@ export function CandidatesPage({
                                         <>
                                             {duplicateCandidates.length > 0 && (
                                                 <details className="rounded-2xl border border-amber-200 bg-amber-50/70 px-4 py-3 dark:border-amber-900/80 dark:bg-amber-950/30">
-                                                    <summary className="cursor-pointer text-sm font-medium text-amber-800 dark:text-amber-200">
+                                                    <summary className="cursor-pointer text-base font-medium text-amber-800 dark:text-amber-200">
                                                         {tr.duplicateWarning}（{duplicateCandidates.length}）
                                                     </summary>
-                                                    <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">{tr.duplicateWarningDesc(duplicateCandidates.length)}</p>
+                                                    <p className="mt-1 text-sm text-amber-700 dark:text-amber-300">{tr.duplicateWarningDesc(duplicateCandidates.length)}</p>
                                                     <div className="mt-2 flex flex-wrap gap-1.5">
                                                         {duplicateCandidates.map((dup) => (
                                                             <Button
                                                                 key={dup.id}
                                                                 size="sm"
                                                                 variant="outline"
-                                                                className="h-6 rounded-full border-amber-300 px-2 text-xs text-amber-800 hover:bg-amber-100 dark:border-amber-800 dark:text-amber-200 dark:hover:bg-amber-900/40"
+                                                                className="h-6 rounded-full border-amber-300 px-2 text-sm text-amber-800 hover:bg-amber-100 dark:border-amber-800 dark:text-amber-200 dark:hover:bg-amber-900/40"
                                                                 onClick={() => setSelectedCandidateId(dup.id)}
                                                             >
                                                                 {dup.name} ({dup.candidate_code})
@@ -2841,10 +2841,10 @@ export function CandidatesPage({
                                                                         </Button>
                                                                     </PopoverTrigger>
                                                                     <PopoverContent className="w-56 p-3" side="bottom" align="start">
-                                                                        <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                                                                        <p className="text-base font-medium text-slate-900 dark:text-slate-100">
                                                                             {tr.confirmStatusChange(label)}
                                                                         </p>
-                                                                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                                                        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
                                                                             {tr.currentStatusLine(labelForCandidateStatus(resolveCandidateDisplayStatus(candidateDetail.candidate)))}
                                                                         </p>
                                                                         <div className="mt-3 flex gap-2">
@@ -2870,12 +2870,12 @@ export function CandidatesPage({
                                                         {candidateDetail.status_history.length ? candidateDetail.status_history.map((history) => (
                                                             <div key={history.id} className="rounded-2xl border border-slate-200/80 px-4 py-4 dark:border-slate-800">
                                                                 <div className="flex items-center justify-between gap-3">
-                                                                    <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                                                                    <p className="text-base font-medium text-slate-900 dark:text-slate-100">
                                                                         {labelForCandidateStatus(history.from_status || "")} → {labelForCandidateStatus(history.to_status)}
                                                                     </p>
-                                                                    <p className="text-xs text-slate-500 dark:text-slate-400">{formatDateTime(history.created_at)}</p>
+                                                                    <p className="text-sm text-slate-500 dark:text-slate-400">{formatDateTime(history.created_at)}</p>
                                                                 </div>
-                                                                <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{history.reason || tr.noReasonProvided}</p>
+                                                                <p className="mt-2 text-base text-slate-600 dark:text-slate-300">{history.reason || tr.noReasonProvided}</p>
                                                             </div>
                                                         )) : (
                                                             <EmptyState title={tr.noStatusHistory} description={tr.noStatusHistoryDesc}/>
@@ -2886,7 +2886,7 @@ export function CandidatesPage({
 
                                             <div className="rounded-2xl border border-slate-200/80 bg-white/85 px-4 py-4 dark:border-slate-800 dark:bg-slate-950/70">
                                                 <div className="flex flex-wrap items-center justify-between gap-2">
-                                                    <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{tr.offers}</p>
+                                                    <p className="text-base font-medium text-slate-900 dark:text-slate-100">{tr.offers}</p>
                                                     <Button size="sm" variant="outline" onClick={() => { setOfferForm({offer_title: "", salary: "", department: "", entry_date: "", offer_content: "", notes: ""}); setOfferFormOpen(!offerFormOpen); }}>
                                                         <Plus className="h-4 w-4"/>
                                                         {tr.addOffer}
@@ -2935,19 +2935,19 @@ export function CandidatesPage({
                                                                 <div className="flex items-start justify-between gap-2">
                                                                     <div className="min-w-0 flex-1">
                                                                         <div className="flex items-center gap-2">
-                                                                            <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{offer.offer_title || "-"}</p>
-                                                                            <Badge variant="outline" className="rounded-full text-xs">{statusLabels[offer.status] || offer.status}</Badge>
+                                                                            <p className="text-base font-medium text-slate-900 dark:text-slate-100">{offer.offer_title || "-"}</p>
+                                                                            <Badge variant="outline" className="rounded-full text-sm">{statusLabels[offer.status] || offer.status}</Badge>
                                                                         </div>
-                                                                        {offer.salary && <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{offer.salary}</p>}
-                                                                        {offer.department && <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{offer.department}</p>}
-                                                                        {offer.entry_date && <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{offer.entry_date}</p>}
-                                                                        {offer.offer_content && <p className="mt-1 text-xs text-slate-600 dark:text-slate-300 whitespace-pre-wrap">{offer.offer_content}</p>}
+                                                                        {offer.salary && <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">{offer.salary}</p>}
+                                                                        {offer.department && <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">{offer.department}</p>}
+                                                                        {offer.entry_date && <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">{offer.entry_date}</p>}
+                                                                        {offer.offer_content && <p className="mt-1 text-sm text-slate-600 dark:text-slate-300 whitespace-pre-wrap">{offer.offer_content}</p>}
                                                                     </div>
                                                                     <div className="flex items-center gap-1">
                                                                         <NativeSelect
                                                                             value={offer.status}
                                                                             onChange={(e) => void updateOffer(offer.id, {status: e.target.value})}
-                                                                            className="h-6 text-xs"
+                                                                            className="h-6 text-sm"
                                                                         >
                                                                             <option value="draft">{tr.offerStatusDraft}</option>
                                                                             <option value="sent">{tr.offerStatusSent}</option>
@@ -2970,7 +2970,7 @@ export function CandidatesPage({
 
                                             <div className="rounded-2xl border border-slate-200/80 bg-white/85 px-4 py-4 dark:border-slate-800 dark:bg-slate-950/70">
                                                 <div className="flex flex-wrap items-center justify-between gap-2">
-                                                    <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{tr.followUps}</p>
+                                                    <p className="text-base font-medium text-slate-900 dark:text-slate-100">{tr.followUps}</p>
                                                     <Button size="sm" variant="outline" onClick={() => { setFollowUpContent(""); setFollowUpType("note"); setFollowUpFormOpen(!followUpFormOpen); }}>
                                                         <Plus className="h-4 w-4"/>
                                                         {tr.addFollowUp}
@@ -2980,7 +2980,7 @@ export function CandidatesPage({
                                                     <div className="mt-3 space-y-2 rounded-xl border border-slate-200/70 bg-slate-50/50 p-3 dark:border-slate-800 dark:bg-slate-900/50">
                                                         <Textarea value={followUpContent} onChange={(e) => setFollowUpContent(e.target.value)} rows={3} placeholder={tr.followUpContentPlaceholder}/>
                                                         <div className="flex items-center gap-2">
-                                                            <NativeSelect value={followUpType} onChange={(e) => setFollowUpType(e.target.value)} className="h-8 text-xs">
+                                                            <NativeSelect value={followUpType} onChange={(e) => setFollowUpType(e.target.value)} className="h-8 text-sm">
                                                                 <option value="note">{tr.followUpTypeNote}</option>
                                                                 <option value="call">{tr.followUpTypeCall}</option>
                                                                 <option value="email">{tr.followUpTypeEmail}</option>
@@ -3013,10 +3013,10 @@ export function CandidatesPage({
                                                                 <div className="flex items-start justify-between gap-2">
                                                                     <div className="min-w-0 flex-1">
                                                                         <div className="flex items-center gap-2">
-                                                                            <Badge variant="outline" className="rounded-full text-xs">{typeLabels[fu.follow_up_type] || fu.follow_up_type}</Badge>
-                                                                            {fu.created_at && <span className="text-xs text-slate-400 dark:text-slate-500">{formatDateTime(fu.created_at)}</span>}
+                                                                            <Badge variant="outline" className="rounded-full text-sm">{typeLabels[fu.follow_up_type] || fu.follow_up_type}</Badge>
+                                                                            {fu.created_at && <span className="text-sm text-slate-400 dark:text-slate-500">{formatDateTime(fu.created_at)}</span>}
                                                                         </div>
-                                                                        <p className="mt-1 text-sm text-slate-700 dark:text-slate-300 whitespace-pre-wrap">{fu.content}</p>
+                                                                        <p className="mt-1 text-base text-slate-700 dark:text-slate-300 whitespace-pre-wrap">{fu.content}</p>
                                                                     </div>
                                                                     <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-rose-500 hover:text-rose-700" onClick={() => { if (window.confirm(tr.confirmDeleteFollowUp)) void deleteFollowUp(fu.id); }}>
                                                                         <Trash2 className="h-3.5 w-3.5"/>
@@ -3036,7 +3036,7 @@ export function CandidatesPage({
                                         <>
                                             <div className="min-w-0 space-y-2">
                                                 <div className="flex flex-wrap items-center justify-between gap-3">
-                                                    <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{tr.aiScoreAndAdvice}</p>
+                                                    <p className="text-base font-medium text-slate-900 dark:text-slate-100">{tr.aiScoreAndAdvice}</p>
                                                     <Button
                                                         size="sm"
                                                         variant="outline"
@@ -3050,7 +3050,7 @@ export function CandidatesPage({
                                                     <div className="rounded-2xl border border-slate-200/80 bg-slate-50/70 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/60">
                                                         <div className="flex flex-wrap items-start justify-between gap-3">
                                                             <div className="min-w-0 flex-1">
-                                                                <p className="text-3xl font-semibold text-slate-900 dark:text-slate-100">
+                                                                <p className="text-4xl font-semibold text-slate-900 dark:text-slate-100">
                                                                     {candidateScoreDisplayValues.totalScore !== null
                                                                         ? formatScoreValue(
                                                                             candidateScoreDisplayValues.totalScore,
@@ -3058,7 +3058,7 @@ export function CandidatesPage({
                                                                         )
                                                                         : "-"}
                                                                 </p>
-                                                            <p className="mt-1 break-words text-sm text-slate-500 dark:text-slate-400">
+                                                            <p className="mt-1 break-words text-base text-slate-500 dark:text-slate-400">
                                                                 {tr.aiRecommendationLine(
                                                                     candidateScoreDecisionValues.recommendation || "-",
                                                                     labelForCandidateStatus(candidateScoreDecisionValues.suggestedStatus) || "-",
@@ -3078,9 +3078,9 @@ export function CandidatesPage({
                                                             </Badge>
                                                         </div>
                                                     </div>
-                                                    <div className="mt-4 space-y-3 text-sm text-slate-600 dark:text-slate-300">
+                                                    <div className="mt-4 space-y-3 text-base text-slate-600 dark:text-slate-300">
                                                         {Array.isArray(candidateDetail.score?.validation_warnings) && candidateDetail.score.validation_warnings.length > 0 ? (
-                                                            <details className="rounded-xl border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs text-amber-900 dark:border-amber-900/80 dark:bg-amber-950/30 dark:text-amber-200">
+                                                            <details className="rounded-xl border border-amber-200 bg-amber-50/70 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/80 dark:bg-amber-950/30 dark:text-amber-200">
                                                                 <summary className="cursor-pointer font-medium">{tr.viewScoreWarnings}</summary>
                                                                 <ul className="mt-2 space-y-1">
                                                                     {candidateDetail.score.validation_warnings.map((item, index) => (
@@ -3163,11 +3163,11 @@ export function CandidatesPage({
                                                                         return (
                                                                             <li key={`dimension-${index}`} className="rounded-xl border border-slate-200/70 px-3 py-3 dark:border-slate-800">
                                                                                 <div className="flex items-center justify-between gap-2">
-                                                                                    <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                                                                                    <p className="text-base font-medium text-slate-900 dark:text-slate-100">
                                                                                         {label}
-                                                                                        {isInferred ? <span className="ml-1 text-xs text-slate-400 dark:text-slate-500">{tr.inferredDimension}</span> : null}
+                                                                                        {isInferred ? <span className="ml-1 text-sm text-slate-400 dark:text-slate-500">{tr.inferredDimension}</span> : null}
                                                                                     </p>
-                                                                                    <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+                                                                                    <p className="text-base font-semibold text-slate-700 dark:text-slate-200">
                                                                                         {scoreValue !== null ? scoreValue : "-"} / {maxScore !== null ? maxScore : "-"}
                                                                                     </p>
                                                                                 </div>
@@ -3180,12 +3180,12 @@ export function CandidatesPage({
                                                                                     </div>
                                                                                 )}
                                                                                 {reason && (
-                                                                                    <div className="mt-2 text-xs leading-6 text-slate-600 dark:text-slate-300">
+                                                                                    <div className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">
                                                                                         <p className="font-medium text-slate-700 dark:text-slate-200">{tr.dimensionReason}:</p>
                                                                                         <p className="mt-0.5 break-words">{reason}</p>
                                                                                     </div>
                                                                                 )}
-                                                                                <div className="mt-2 text-xs leading-6 text-slate-500 dark:text-slate-400">
+                                                                                <div className="mt-2 text-sm leading-6 text-slate-500 dark:text-slate-400">
                                                                                     <p>{tr.evidence}:</p>
                                                                                     {evidences.length ? (
                                                                                         <ul className="mt-1 space-y-1">
@@ -3222,10 +3222,10 @@ export function CandidatesPage({
                                                 ) : (
                                                     <EmptyState title={tr.noScreeningMemory} description={tr.noScreeningMemoryDesc}/>
                                                 )}
-                                                <p className="mt-3 break-words text-xs leading-6 text-slate-500 dark:text-slate-400">
+                                                <p className="mt-3 break-words text-sm leading-6 text-slate-500 dark:text-slate-400">
                                                     {tr.screeningMemoryHint(effectiveScreeningSkillSourceLabel)}
                                                 </p>
-                                                <p className="mt-2 break-words text-xs leading-6 text-slate-500 dark:text-slate-400">
+                                                <p className="mt-2 break-words text-sm leading-6 text-slate-500 dark:text-slate-400">
                                                     {tr.screeningSkillPreview(formatSkillNames(effectiveScreeningSkillIds, skillMap, language))}
                                                 </p>
                                             </Field>
@@ -3280,14 +3280,14 @@ export function CandidatesPage({
                                                 <div className="rounded-2xl border border-slate-200/80 bg-slate-50/70 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/60">
                                                     <div className="flex flex-wrap items-start justify-between gap-3">
                                                         <div className="min-w-0 flex-1">
-                                                            <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{tr.assistantPackedTitle}</p>
-                                                            <p className="mt-1 break-words text-sm leading-6 text-slate-500 dark:text-slate-400">
+                                                            <p className="text-base font-medium text-slate-900 dark:text-slate-100">{tr.assistantPackedTitle}</p>
+                                                            <p className="mt-1 break-words text-base leading-6 text-slate-500 dark:text-slate-400">
                                                                 {candidateAssistantActivity.length
                                                                     ? tr.assistantPackedDescWithCount(candidateAssistantActivity.length)
                                                                     : tr.assistantPackedDescEmpty}
                                                             </p>
-                                                            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">{tr.defaultInterviewSource(preferredInterviewSkillSourceLabel)}</p>
-                                                            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">{tr.actualSource(effectiveInterviewSkillSourceLabel)}</p>
+                                                            <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">{tr.defaultInterviewSource(preferredInterviewSkillSourceLabel)}</p>
+                                                            <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">{tr.actualSource(effectiveInterviewSkillSourceLabel)}</p>
                                                         </div>
                                                         <Button size="sm" variant="outline" onClick={() => openAssistantMode("drawer")}>
                                                             <Bot className="h-4 w-4"/>
@@ -3303,10 +3303,10 @@ export function CandidatesPage({
                                                         <>
                                                             <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200/80 bg-slate-50/70 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/60">
                                                                 <div className="min-w-0">
-                                                                    <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                                                                    <p className="text-base font-medium text-slate-900 dark:text-slate-100">
                                                                         {tr.recordedLogs(candidateProcessActivity.length)}
                                                                     </p>
-                                                                    <p className="mt-1 break-words text-xs text-slate-500 dark:text-slate-400">
+                                                                    <p className="mt-1 break-words text-sm text-slate-500 dark:text-slate-400">
                                                                         {tr.logsCollapsedHint}
                                                                     </p>
                                                                 </div>
@@ -3320,8 +3320,8 @@ export function CandidatesPage({
                                                                     <div key={log.id} className="rounded-2xl border border-slate-200/80 px-4 py-4 dark:border-slate-800">
                                                                         <div className="flex flex-wrap items-start justify-between gap-3">
                                                                             <div className="min-w-0 flex-1">
-                                                                                <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{labelForTaskType(log.task_type)}</p>
-                                                                                <p className="mt-1 break-words text-xs text-slate-500 dark:text-slate-400">{labelForProvider(log.model_provider)} · {log.model_name || "-"} · {formatLongDateTime(log.created_at)}</p>
+                                                                                <p className="text-base font-medium text-slate-900 dark:text-slate-100">{labelForTaskType(log.task_type)}</p>
+                                                                                <p className="mt-1 break-words text-sm text-slate-500 dark:text-slate-400">{labelForProvider(log.model_provider)} · {log.model_name || "-"} · {formatLongDateTime(log.created_at)}</p>
                                                                             </div>
                                                                             <Badge className={cn("rounded-full border", statusBadgeClass("task", log.status))}>
                                                                                 {labelForTaskExecutionStatus(log.status)}
@@ -3332,7 +3332,7 @@ export function CandidatesPage({
                                                                             <InfoTile label={tr.memorySource} value={labelForMemorySource(log.memory_source)}/>
                                                                         </div>
                                                                         {log.error_message ? (
-                                                                            <p className="mt-3 break-all text-sm text-rose-600">
+                                                                            <p className="mt-3 break-all text-base text-rose-600">
                                                                                 {sanitizeTaskMessage(
                                                                                     log.error_message,
                                                                                     log.task_type,
@@ -3368,10 +3368,10 @@ export function CandidatesPage({
                                             <div className="rounded-2xl border border-slate-200/80 bg-white/85 px-4 py-4 dark:border-slate-800 dark:bg-slate-950/70">
                                                 <div className="flex flex-wrap items-start justify-between gap-3">
                                                     <div className="min-w-0 flex-1">
-                                                        <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                                                        <p className="text-base font-medium text-slate-900 dark:text-slate-100">
                                                             {primaryResumeFile ? primaryResumeFile.original_name : tr.noResumeFile}
                                                         </p>
-                                                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                                        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
                                                             {primaryResumeFile
                                                                 ? tr.resumeFileDesc(primaryResumeFile.file_ext || "-", primaryResumeFile.file_size || 0, primaryResumeFile.parse_status)
                                                                 : tr.resumeFileEmptyDesc}
@@ -3397,7 +3397,7 @@ export function CandidatesPage({
                                                     ) : null}
                                                 </div>
                                                 {primaryResumeFile?.parse_error ? (
-                                                    <div className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-200">
+                                                    <div className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-base text-rose-700 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-200">
                                                         {tr.parseErrorLine(primaryResumeFile.parse_error)}
                                                     </div>
                                                 ) : null}
@@ -3408,18 +3408,18 @@ export function CandidatesPage({
                                                     <Input value={interviewRoundName} onChange={(event) => setInterviewRoundName(event.target.value)} placeholder={tr.roundPlaceholder}/>
                                                     <Input value={joinTags(effectiveInterviewSkillIds.map((id) => skillMap.get(id)?.name || ""))} readOnly placeholder={tr.currentSkillsPlaceholder}/>
                                                 </div>
-                                                <p className="text-xs text-slate-500 dark:text-slate-400">{tr.defaultInterviewSource(preferredInterviewSkillSourceLabel)}</p>
+                                                <p className="text-sm text-slate-500 dark:text-slate-400">{tr.defaultInterviewSource(preferredInterviewSkillSourceLabel)}</p>
                                                 <Textarea
                                                     value={interviewCustomRequirements}
                                                     onChange={(event) => setInterviewCustomRequirements(event.target.value)}
                                                     rows={3}
                                                     placeholder={tr.interviewRequirementsPlaceholder}
                                                 />
-                                                <p className="text-xs leading-6 text-slate-500 dark:text-slate-400">
+                                                <p className="text-sm leading-6 text-slate-500 dark:text-slate-400">
                                                     {tr.actualSkills(formatSkillNames(effectiveInterviewSkillIds, skillMap, language))}
                                                 </p>
                                                 <div className="flex flex-wrap items-center justify-between gap-3">
-                                                    <p className="text-xs text-slate-500 dark:text-slate-400">{tr.actualSource(effectiveInterviewSkillSourceLabel)}</p>
+                                                    <p className="text-sm text-slate-500 dark:text-slate-400">{tr.actualSource(effectiveInterviewSkillSourceLabel)}</p>
                                                     {interviewSkillSelectionDirty ? (
                                                         <Button
                                                             size="sm"
@@ -3433,7 +3433,7 @@ export function CandidatesPage({
                                                         </Button>
                                                     ) : null}
                                                 </div>
-                                                <p className="text-xs leading-6 text-slate-500 dark:text-slate-400">
+                                                <p className="text-sm leading-6 text-slate-500 dark:text-slate-400">
                                                     {!interviewSkillSelectionDirty
                                                         ? tr.interviewSkillHintDefault
                                                         : tr.interviewSkillHintManual}
@@ -3444,7 +3444,7 @@ export function CandidatesPage({
                                                             key={skill.id}
                                                             type="button"
                                                             className={cn(
-                                                                "rounded-full border px-3 py-2 text-xs transition",
+                                                                "rounded-full border px-3 py-2 text-sm transition",
                                                                 effectiveInterviewSkillIds.includes(skill.id)
                                                                     ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
                                                                     : "border-slate-200 bg-white text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300",
@@ -3476,7 +3476,7 @@ export function CandidatesPage({
 
                                             <div className="rounded-2xl border border-slate-200/80 bg-white/85 px-4 py-4 dark:border-slate-800 dark:bg-slate-950/70">
                                                 <div className="flex flex-wrap items-center justify-between gap-2">
-                                                    <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{tr.interviewSchedules}</p>
+                                                    <p className="text-base font-medium text-slate-900 dark:text-slate-100">{tr.interviewSchedules}</p>
                                                     <Button size="sm" variant="outline" onClick={() => { setScheduleForm({round_name: interviewRoundName || defaultRoundName, interviewer_name: "", scheduled_at: "", duration_minutes: "60", location: "", meeting_link: "", notes: ""}); setScheduleFormOpen(!scheduleFormOpen); }}>
                                                         <Plus className="h-4 w-4"/>
                                                         {tr.addSchedule}
@@ -3524,20 +3524,20 @@ export function CandidatesPage({
                                                         <div key={schedule.id} className="rounded-xl border border-slate-200/70 px-3 py-2 dark:border-slate-800">
                                                             <div className="flex items-start justify-between gap-2">
                                                                 <div className="min-w-0 flex-1">
-                                                                    <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                                                                    <p className="text-base font-medium text-slate-900 dark:text-slate-100">
                                                                         {schedule.round_name}
                                                                         {schedule.interviewer_name ? ` · ${schedule.interviewer_name}` : ""}
                                                                     </p>
                                                                     {schedule.scheduled_at && (
-                                                                        <p className="mt-0.5 flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
+                                                                        <p className="mt-0.5 flex items-center gap-1 text-sm text-slate-500 dark:text-slate-400">
                                                                             <Calendar className="h-3 w-3"/>
                                                                             {new Date(schedule.scheduled_at).toLocaleString()}
                                                                             {schedule.duration_minutes ? ` (${schedule.duration_minutes} min)` : ""}
                                                                         </p>
                                                                     )}
-                                                                    {schedule.location && <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{schedule.location}</p>}
-                                                                    {schedule.meeting_link && <p className="mt-0.5 text-xs text-blue-600 dark:text-blue-400 truncate">{schedule.meeting_link}</p>}
-                                                                    {schedule.notes && <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{schedule.notes}</p>}
+                                                                    {schedule.location && <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">{schedule.location}</p>}
+                                                                    {schedule.meeting_link && <p className="mt-0.5 text-sm text-blue-600 dark:text-blue-400 truncate">{schedule.meeting_link}</p>}
+                                                                    {schedule.notes && <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">{schedule.notes}</p>}
                                                                 </div>
                                                                 <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-rose-500 hover:text-rose-700" onClick={() => { if (window.confirm(tr.confirmDeleteSchedule)) void deleteInterviewSchedule(schedule.id); }}>
                                                                     <Trash2 className="h-3.5 w-3.5"/>
@@ -3560,8 +3560,8 @@ export function CandidatesPage({
                         <div className="flex h-full min-h-0 flex-1 flex-col">
                             <div className="border-b border-slate-200/80 px-5 py-4 dark:border-slate-800">
                                 <div className="space-y-1.5">
-                                    <h3 className="text-lg font-semibold tracking-tight text-slate-900 dark:text-slate-100">{tr.candidateWorkspace}</h3>
-                                    <p className="text-sm text-slate-500 dark:text-slate-400">{tr.candidateWorkspaceDesc}</p>
+                                    <h3 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">{tr.candidateWorkspace}</h3>
+                                    <p className="text-base text-slate-500 dark:text-slate-400">{tr.candidateWorkspaceDesc}</p>
                                 </div>
                             </div>
                             <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
@@ -3587,16 +3587,16 @@ export function CandidatesPage({
                                                 >
                                                     <div className="min-w-0">
                                                         <p className="font-medium text-slate-900 dark:text-slate-100">{candidate.name}</p>
-                                                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                                        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
                                                             {candidate.position_title || tr.unassignedPosition} · {labelForCandidateStatus(resolveCandidateDisplayStatus(candidate))} · {tr.matchBadge} {formatPercent(resolveCandidateSummaryMatchPercent(candidate))}
                                                         </p>
                                                         {candidate.ai_potential_position ? (
-                                                            <p className="mt-1 text-xs text-sky-600 dark:text-sky-300">
+                                                            <p className="mt-1 text-sm text-sky-600 dark:text-sky-300">
                                                                 {`${isZh ? "转岗潜力" : "Potential Transition"}：${candidate.ai_potential_position}`}
                                                             </p>
                                                         ) : null}
                                                     </div>
-                                                    <p className="shrink-0 text-xs text-slate-500 dark:text-slate-400">{formatDateTime(candidate.updated_at)}</p>
+                                                    <p className="shrink-0 text-sm text-slate-500 dark:text-slate-400">{formatDateTime(candidate.updated_at)}</p>
                                                 </button>
                                             )) : (
                                                 <EmptyState title={tr.noCandidates} description={tr.noCandidatesDesc}/>
@@ -3607,12 +3607,12 @@ export function CandidatesPage({
                                     <Field label={tr.recommendedActions}>
                                         <div className="grid gap-3 md:grid-cols-2">
                                             <div className="rounded-2xl border border-slate-200/80 bg-slate-50/70 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/60">
-                                                <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{tr.continueFiltering}</p>
-                                                <p className="mt-1 text-xs leading-6 text-slate-500 dark:text-slate-400">{tr.continueFilteringDesc}</p>
+                                                <p className="text-base font-medium text-slate-900 dark:text-slate-100">{tr.continueFiltering}</p>
+                                                <p className="mt-1 text-sm leading-6 text-slate-500 dark:text-slate-400">{tr.continueFilteringDesc}</p>
                                             </div>
                                             <div className="rounded-2xl border border-slate-200/80 bg-slate-50/70 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/60">
-                                                <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{tr.batchHandleResults}</p>
-                                                <p className="mt-1 text-xs leading-6 text-slate-500 dark:text-slate-400">{tr.batchHandleResultsDesc}</p>
+                                                <p className="text-base font-medium text-slate-900 dark:text-slate-100">{tr.batchHandleResults}</p>
+                                                <p className="mt-1 text-sm leading-6 text-slate-500 dark:text-slate-400">{tr.batchHandleResultsDesc}</p>
                                             </div>
                                         </div>
                                     </Field>
@@ -3638,10 +3638,10 @@ export function CandidatesPage({
                         <DialogTitle>{isZh ? "导出候选人" : "Export Candidates"}</DialogTitle>
                     </DialogHeader>
                     <div className="space-y-4 py-2">
-                        <div className="rounded-xl border border-slate-200/80 bg-slate-50/80 px-4 py-3 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-300">
+                        <div className="rounded-xl border border-slate-200/80 bg-slate-50/80 px-4 py-3 text-base text-slate-600 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-300">
                             {isZh ? `将导出 ${selectedCandidateIds.length} 位候选人，可自定义字段，并选择是否打包原始简历。` : `Export ${selectedCandidateIds.length} candidates with custom fields and optional resume files.`}
                         </div>
-                        <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+                        <label className="flex items-center gap-2 text-base text-slate-700 dark:text-slate-300">
                             <input
                                 type="checkbox"
                                 checked={exportIncludeResumes}
@@ -3651,7 +3651,7 @@ export function CandidatesPage({
                         </label>
                         <div className="space-y-2">
                             <div className="flex items-center justify-between">
-                                <p className="text-sm font-medium text-slate-700 dark:text-slate-300">{isZh ? "导出字段" : "Export Fields"}</p>
+                                <p className="text-base font-medium text-slate-700 dark:text-slate-300">{isZh ? "导出字段" : "Export Fields"}</p>
                                 <Button
                                     size="sm"
                                     variant="outline"
@@ -3664,7 +3664,7 @@ export function CandidatesPage({
                                 {exportFieldOptions.map((field) => {
                                     const checked = exportFieldKeys.includes(field.key);
                                     return (
-                                        <label key={`export-field-${field.key}`} className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 dark:border-slate-800 dark:text-slate-300">
+                                        <label key={`export-field-${field.key}`} className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-base text-slate-700 dark:border-slate-800 dark:text-slate-300">
                                             <input
                                                 type="checkbox"
                                                 checked={checked}
@@ -3750,7 +3750,7 @@ export function CandidatesPage({
                     </DialogHeader>
                     <div className="space-y-4 py-2">
                         <div className="space-y-1.5">
-                            <p className="text-sm font-medium text-slate-700 dark:text-slate-300">{tr.batchUpdateStatusLabel}</p>
+                            <p className="text-base font-medium text-slate-700 dark:text-slate-300">{tr.batchUpdateStatusLabel}</p>
                             <NativeSelect value={batchStatusValue} onChange={(event) => setBatchStatusValue(event.target.value)}>
                                 <option value="" disabled>{tr.batchUpdateStatusSelectPlaceholder}</option>
                                 {Object.entries(candidateStatusLabels).map(([value, label]) => (
@@ -3759,7 +3759,7 @@ export function CandidatesPage({
                             </NativeSelect>
                         </div>
                         <div className="space-y-1.5">
-                            <p className="text-sm font-medium text-slate-700 dark:text-slate-300">{tr.batchUpdateStatusReason}</p>
+                            <p className="text-base font-medium text-slate-700 dark:text-slate-300">{tr.batchUpdateStatusReason}</p>
                             <Textarea
                                 value={batchStatusReason}
                                 onChange={(event) => setBatchStatusReason(event.target.value)}

@@ -160,7 +160,7 @@ const DimensionRow = React.memo(function DimensionRow({
                 <td className="px-3 py-2 font-medium">{dim.name || <span className="text-slate-400 italic">{skillUnnamed}</span>}</td>
                 <td className="px-3 py-2 text-center">{dim.maxScore}</td>
                 <td className="px-3 py-2 text-center">
-                    <Badge variant="outline" className="rounded-full text-xs">{priorityOptions.find((p) => p.value === dim.priority)?.label}</Badge>
+                    <Badge variant="outline" className="rounded-full text-sm">{priorityOptions.find((p) => p.value === dim.priority)?.label}</Badge>
                 </td>
                 <td className="px-3 py-2 text-center">{dim.isHardRequirement ? "✓" : ""}</td>
                 <td className="px-3 py-2 text-center">
@@ -182,7 +182,7 @@ const DimensionRow = React.memo(function DimensionRow({
                     <td colSpan={6} className="p-4">
                         <div className="grid gap-3 md:grid-cols-2">
                             <div className="space-y-1.5">
-                                <Label className="text-xs">{skillDimensionName}</Label>
+                                <Label className="text-sm">{skillDimensionName}</Label>
                                 <Input
                                     value={localName}
                                     onChange={(e) => setLocalName(e.target.value)}
@@ -192,11 +192,11 @@ const DimensionRow = React.memo(function DimensionRow({
                             </div>
                             <div className="grid grid-cols-2 gap-3">
                                 <div className="space-y-1.5">
-                                    <Label className="text-xs">{skillMaxScore}</Label>
+                                    <Label className="text-sm">{skillMaxScore}</Label>
                                     <Input type="number" step="0.1" min="0.1" max="5.0" value={dim.maxScore} onChange={(e) => onUpdate({maxScore: parseFloat(e.target.value) || 0})} />
                                 </div>
                                 <div className="space-y-1.5">
-                                    <Label className="text-xs">{skillPriority}</Label>
+                                    <Label className="text-sm">{skillPriority}</Label>
                                     <Select value={dim.priority} onValueChange={(v) => onUpdate({priority: v as ScreeningSkillDimension["priority"]})}>
                                         <SelectTrigger><SelectValue /></SelectTrigger>
                                         <SelectContent>
@@ -207,7 +207,7 @@ const DimensionRow = React.memo(function DimensionRow({
                             </div>
                         </div>
                         <div className="mt-3 space-y-1.5">
-                            <Label className="text-xs">{skillEvaluationFocus}</Label>
+                            <Label className="text-sm">{skillEvaluationFocus}</Label>
                             <Textarea
                                 value={localDesc}
                                 onChange={(e) => setLocalDesc(e.target.value)}
@@ -218,7 +218,7 @@ const DimensionRow = React.memo(function DimensionRow({
                         </div>
                         <div className="mt-3 flex items-center gap-2">
                             <Checkbox checked={dim.isHardRequirement} onCheckedChange={(v) => onUpdate({isHardRequirement: !!v})} />
-                            <Label className="text-xs cursor-pointer">{skillHardRequirement}</Label>
+                            <Label className="text-sm cursor-pointer">{skillHardRequirement}</Label>
                         </div>
                     </td>
                 </tr>
@@ -510,7 +510,7 @@ export function StructuredSkillEditor({
                 setTab(v);
             }} className="flex flex-col flex-1 min-h-0">
                 {aiAppliedNotice ? (
-                    <div className="mb-3 flex items-start justify-between gap-3 rounded-2xl border border-emerald-200 bg-emerald-50/90 px-4 py-3 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200">
+                    <div className="mb-3 flex items-start justify-between gap-3 rounded-2xl border border-emerald-200 bg-emerald-50/90 px-4 py-3 text-base text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200">
                         <p>{aiAppliedNotice}</p>
                         <button
                             type="button"
@@ -552,7 +552,7 @@ export function StructuredSkillEditor({
                                     key={kind}
                                     type="button"
                                     className={cn(
-                                        "rounded-full border px-3 py-1.5 text-xs transition",
+                                        "rounded-full border px-3 py-1.5 text-sm transition",
                                         form.taskTypes.includes(kind)
                                             ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
                                             : "border-slate-200 bg-white text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300",
@@ -563,7 +563,7 @@ export function StructuredSkillEditor({
                                 </button>
                             ))}
                         </div>
-                        <p className="text-xs text-slate-400">{t.recruitment.taskTypeHint}</p>
+                        <p className="text-sm text-slate-400">{t.recruitment.taskTypeHint}</p>
                     </div>
 
                     <Separator />
@@ -572,20 +572,20 @@ export function StructuredSkillEditor({
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-3">
                                 <Label className="text-base font-semibold">{t.recruitment.skillDimensions}</Label>
-                                <span className="text-sm text-slate-500">{t.recruitment.skillDimensionsCount.replace('{count}', String(form.dimensions.length))}</span>
+                                <span className="text-base text-slate-500">{t.recruitment.skillDimensionsCount.replace('{count}', String(form.dimensions.length))}</span>
                             </div>
                             <div className="flex items-center gap-2">
                                 <Badge variant={deferredDimValidation.valid ? "default" : "destructive"} className="rounded-full">
                                     {t.recruitment.totalScore} {deferredDimValidation.total.toFixed(1)} / 10.0
                                 </Badge>
                                 {!deferredDimValidation.valid && (
-                                    <span className="text-xs text-red-500">{deferredDimValidation.message}</span>
+                                    <span className="text-sm text-red-500">{deferredDimValidation.message}</span>
                                 )}
                             </div>
                         </div>
 
                         <div className="border rounded-lg overflow-hidden">
-                            <table className="w-full text-sm">
+                            <table className="w-full text-base">
                                 <thead className="bg-slate-50 dark:bg-slate-900">
                                     <tr>
                                         <th className="w-8 px-2 py-2 text-center">{t.recruitment.skillDimensionIndex}</th>
@@ -666,7 +666,7 @@ export function StructuredSkillEditor({
                 </TabsContent>
 
                 <TabsContent value="advanced" className="flex-1 min-h-0 overflow-y-auto pr-1 mt-3 space-y-4">
-                    <p className="text-sm text-slate-500">{t.recruitment.skillAdvancedHint}</p>
+                    <p className="text-base text-slate-500">{t.recruitment.skillAdvancedHint}</p>
                     <div className="grid gap-4 md:grid-cols-2">
                         <div className="space-y-1.5">
                             <Label>{t.recruitment.skillName} {t.recruitment.required}</Label>
@@ -685,7 +685,7 @@ export function StructuredSkillEditor({
                                     key={kind}
                                     type="button"
                                     className={cn(
-                                        "rounded-full border px-3 py-1.5 text-xs transition",
+                                        "rounded-full border px-3 py-1.5 text-sm transition",
                                         form.taskTypes.includes(kind)
                                             ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
                                             : "border-slate-200 bg-white text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300",
@@ -699,7 +699,7 @@ export function StructuredSkillEditor({
                     </div>
                     <div className="space-y-1.5">
                         <Label>{t.recruitment.skillContent} {t.recruitment.required}</Label>
-                        <Textarea value={advancedContent} onChange={(e) => setAdvancedContent(e.target.value)} className="min-h-[400px] font-mono text-xs" />
+                        <Textarea value={advancedContent} onChange={(e) => setAdvancedContent(e.target.value)} className="min-h-[400px] font-mono text-sm" />
                     </div>
                     <div className="grid gap-4 md:grid-cols-3">
                         <div className="space-y-1.5">
@@ -764,8 +764,8 @@ export function StructuredSkillEditor({
                                 </div>
                                 <div className="space-y-3">
                                     <div>
-                                        <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{t.recruitment.aiGenerate}</p>
-                                        <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">{aiLoadingMessages[aiLoadingIndex]}</p>
+                                        <p className="text-base font-semibold text-slate-900 dark:text-slate-100">{t.recruitment.aiGenerate}</p>
+                                        <p className="mt-1 text-base text-slate-600 dark:text-slate-300">{aiLoadingMessages[aiLoadingIndex]}</p>
                                     </div>
                                     <div className="grid gap-2 sm:grid-cols-2">
                                         <div className="h-2.5 rounded-full bg-sky-200/80 animate-pulse dark:bg-sky-800/70" />
@@ -773,7 +773,7 @@ export function StructuredSkillEditor({
                                         <div className="h-2.5 rounded-full bg-emerald-100/80 animate-pulse dark:bg-slate-800/80" />
                                         <div className="h-2.5 rounded-full bg-slate-200/80 animate-pulse dark:bg-slate-800/80" />
                                     </div>
-                                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                                    <p className="text-sm text-slate-500 dark:text-slate-400">
                                         {isZh ? "正在等待模型开始输出内容，生成开始后会立即在下方实时展示。" : "Waiting for the model to begin streaming. Live content will appear below as soon as the first token arrives."}
                                     </p>
                                 </div>
@@ -784,17 +784,17 @@ export function StructuredSkillEditor({
                         <div className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50/90 p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950/60">
                             <div className="flex items-center justify-between gap-3">
                                 <div>
-                                    <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                                    <p className="text-base font-semibold text-slate-900 dark:text-slate-100">
                                         {isZh ? "AI 生成结果" : "AI generated result"}
                                     </p>
-                                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                    <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
                                         {aiGenerating
                                             ? (isZh ? "内容正在实时输出，可随时停止生成。" : "Streaming content live. You can stop generation at any time.")
                                             : (isZh ? "内容生成完成后已保留在这里，方便你继续检查和编辑。" : "The generated content stays here so you can review and edit it.")}
                                     </p>
                                 </div>
                                 {streamProgressVisible ? (
-                                    <div className="rounded-full bg-white px-3 py-1 text-xs font-medium text-sky-700 shadow-sm dark:bg-slate-900 dark:text-sky-300">
+                                    <div className="rounded-full bg-white px-3 py-1 text-sm font-medium text-sky-700 shadow-sm dark:bg-slate-900 dark:text-sky-300">
                                         {streamProgressPercent}%
                                     </div>
                                 ) : null}
@@ -808,7 +808,7 @@ export function StructuredSkillEditor({
                                 </div>
                             ) : null}
                             <div className="mt-4 rounded-xl border border-white/80 bg-white/80 p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950/70">
-                                <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                                <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
                                     <span className={cn(
                                         "inline-flex h-2 w-2 rounded-full",
                                         aiGenerating ? "animate-pulse bg-sky-500" : "bg-emerald-500",
@@ -819,7 +819,7 @@ export function StructuredSkillEditor({
                                             : (isZh ? "已完成本次生成，可继续检查并保存内容" : "Generation finished. Review and save when ready.")}
                                     </span>
                                 </div>
-                                <pre className="mt-3 min-h-[180px] whitespace-pre-wrap text-sm leading-relaxed font-sans text-slate-700 dark:text-slate-200">
+                                <pre className="mt-3 min-h-[180px] whitespace-pre-wrap text-base leading-relaxed font-sans text-slate-700 dark:text-slate-200">
                                     {aiGeneratedContent || (isZh ? "请稍候，实时内容将在这里继续更新..." : "Please wait. Live content will continue updating here...")}
                                 </pre>
                             </div>
@@ -834,7 +834,7 @@ export function StructuredSkillEditor({
             </Tabs>
 
             {submitError && (
-                <div className="mt-2 rounded-md bg-red-50 dark:bg-red-950/30 px-3 py-2 text-sm text-red-600 dark:text-red-400">{submitError}</div>
+                <div className="mt-2 rounded-md bg-red-50 dark:bg-red-950/30 px-3 py-2 text-base text-red-600 dark:text-red-400">{submitError}</div>
             )}
 
             <div className="flex items-center justify-end gap-2 pt-3 border-t mt-3 shrink-0">

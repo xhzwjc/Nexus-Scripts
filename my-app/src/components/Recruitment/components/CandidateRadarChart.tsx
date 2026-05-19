@@ -65,7 +65,7 @@ const HorizontalBarsOnly = ({ dimensions }: { dimensions: CandidateScoreDimensio
   <div className="space-y-4 p-4">
     {dimensions.map((d, i) => (
       <div key={i} className="space-y-1.5">
-        <div className="flex justify-between text-xs">
+        <div className="flex justify-between text-sm">
           <span className="font-medium text-slate-700 dark:text-slate-300">{d.label}</span>
           <span className="text-slate-500">{d.score}/{d.max_score}</span>
         </div>
@@ -131,7 +131,7 @@ function AggregatedRadar({ dimensions, radarScores, isZh, uiText }: { dimensions
   const hasAnyData = chartData.some((d) => d.rawMax > 0);
   if (!hasAnyData) {
     return (
-      <div className="flex flex-col items-center justify-center h-[300px] border border-dashed rounded-xl bg-slate-50/50 text-slate-400 text-sm">
+      <div className="flex flex-col items-center justify-center h-[300px] border border-dashed rounded-xl bg-slate-50/50 text-slate-400 text-base">
         <Info className="h-5 w-5 mb-2 opacity-50" />
         {uiText.noData}
       </div>
@@ -144,7 +144,7 @@ function AggregatedRadar({ dimensions, radarScores, isZh, uiText }: { dimensions
         <ResponsiveContainer width="100%" height="100%">
           <RadarChart cx="50%" cy="50%" outerRadius="75%" data={chartData}>
             <PolarGrid stroke="#e2e8f0" />
-            <PolarAngleAxis dataKey="subject" tick={{ fill: "#64748b", fontSize: 12 }} />
+            <PolarAngleAxis dataKey="subject" tick={{ fill: "#64748b", fontSize: 16 }} />
             <Radar name={uiText.benchmark} dataKey="benchmark" stroke="#94a3b8" strokeDasharray="4 4" fill="transparent" isAnimationActive={false} />
             <Radar name={isZh ? "候选人得分" : "Score"} dataKey="candidate" stroke="#3b82f6" strokeWidth={2} fill="#3b82f6" fillOpacity={0.5} />
             <Tooltip
@@ -152,7 +152,7 @@ function AggregatedRadar({ dimensions, radarScores, isZh, uiText }: { dimensions
                 if (active && payload && payload.length) {
                   const data = payload[0].payload as { fullLabel: string; rawScore: number; rawMax: number; reason: string; evidence: string };
                   return (
-                    <div className="bg-white p-3 shadow-xl border rounded-lg text-xs dark:bg-slate-950 max-w-[280px]">
+                    <div className="bg-white p-3 shadow-xl border rounded-lg text-sm dark:bg-slate-950 max-w-[280px]">
                       <p className="font-bold mb-1">{data.fullLabel}</p>
                       <div className="mb-1">
                         {isZh ? "得分" : "Score"}: <span className="text-blue-600 font-mono">{data.rawScore}/{data.rawMax}</span>
@@ -176,8 +176,8 @@ function AggregatedRadar({ dimensions, radarScores, isZh, uiText }: { dimensions
           return (
             <div key={i} className="rounded-lg border border-slate-100 bg-slate-50/50 p-2.5 dark:border-slate-800 dark:bg-slate-900/30">
               <div className="flex items-center justify-between gap-2 mb-1">
-                <span className="text-xs font-semibold text-slate-700 dark:text-slate-200">{d.fullLabel}</span>
-                <span className="text-xs font-mono text-slate-500">{d.rawScore}/{d.rawMax}</span>
+                <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">{d.fullLabel}</span>
+                <span className="text-sm font-mono text-slate-500">{d.rawScore}/{d.rawMax}</span>
               </div>
               <div className="h-1 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
                 <div
@@ -185,8 +185,8 @@ function AggregatedRadar({ dimensions, radarScores, isZh, uiText }: { dimensions
                   style={{ width: `${percent}%` }}
                 />
               </div>
-              {d.reason ? <p className="mt-1.5 text-[11px] leading-5 text-slate-600 dark:text-slate-400">{d.reason}</p> : <p className="mt-1.5 text-[11px] leading-5 text-slate-400 italic">{isZh ? "暂无评分说明" : "No rating explanation"}</p>}
-              {d.evidence && <p className="mt-0.5 text-[11px] leading-5 text-slate-400 dark:text-slate-500 italic">"{d.evidence}"</p>}
+              {d.reason ? <p className="mt-1.5 text-[15px] leading-5 text-slate-600 dark:text-slate-400">{d.reason}</p> : <p className="mt-1.5 text-[15px] leading-5 text-slate-400 italic">{isZh ? "暂无评分说明" : "No rating explanation"}</p>}
+              {d.evidence && <p className="mt-0.5 text-[15px] leading-5 text-slate-400 dark:text-slate-500 italic">"{d.evidence}"</p>}
             </div>
           );
         })}
@@ -214,7 +214,7 @@ function IndividualRadar({ dimensions, isZh, uiText }: { dimensions: CandidateSc
 
   if (validDims.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center h-[300px] border border-dashed rounded-xl bg-slate-50/50 text-slate-400 text-sm">
+      <div className="flex flex-col items-center justify-center h-[300px] border border-dashed rounded-xl bg-slate-50/50 text-slate-400 text-base">
         <Info className="h-5 w-5 mb-2 opacity-50" />
         {uiText.noData}
       </div>
@@ -259,7 +259,7 @@ function IndividualRadar({ dimensions, isZh, uiText }: { dimensions: CandidateSc
             <PolarGrid stroke="#e2e8f0" />
             <PolarAngleAxis
               dataKey="subject"
-              tick={{ fill: "#64748b", fontSize: chartData.length > 8 ? 10 : 12 }}
+              tick={{ fill: "#64748b", fontSize: chartData.length > 8 ? 14 : 16 }}
               onClick={(data: { value: string }) => handleDimClick(data.value)}
               className="cursor-pointer"
             />
@@ -270,7 +270,7 @@ function IndividualRadar({ dimensions, isZh, uiText }: { dimensions: CandidateSc
                 if (active && payload && payload.length) {
                   const data = (payload[0] as { payload: { fullLabel: string; rawScore: number; rawMax: number; isInferred?: boolean | null } }).payload;
                   return (
-                    <div className="bg-white p-3 shadow-xl border rounded-lg text-xs dark:bg-slate-950">
+                    <div className="bg-white p-3 shadow-xl border rounded-lg text-sm dark:bg-slate-950">
                       <p className="font-bold mb-1">{data.fullLabel}</p>
                       <div className="flex items-center gap-2">
                         <span>{isZh ? "得分" : "Score"}: <span className="text-blue-600 font-mono">{data.rawScore}/{data.rawMax}</span></span>
@@ -287,12 +287,12 @@ function IndividualRadar({ dimensions, isZh, uiText }: { dimensions: CandidateSc
       </div>
       {overflowDims.length > 0 && (
         <div className="px-4 pb-4">
-          <p className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold mb-2">{uiText.otherSkills}</p>
+          <p className="text-[14px] uppercase tracking-wider text-slate-400 font-semibold mb-2">{uiText.otherSkills}</p>
           <div className="flex flex-wrap gap-2">
             {overflowDims.map((dim, idx) => {
               const normScore = dim.max_score! > 0 ? (dim.score! / dim.max_score!) * 100 : 0;
               return (
-                <Badge key={idx} variant="secondary" className={cn("text-[11px] font-normal", normScore < 40 && "text-red-500")}>
+                <Badge key={idx} variant="secondary" className={cn("text-[15px] font-normal", normScore < 40 && "text-red-500")}>
                   {dim.label}: {dim.score}/{dim.max_score}
                 </Badge>
               );

@@ -104,8 +104,8 @@ export function SkillSettingsPage({
             <Card className={panelClass}>
                 <CardContent className="flex flex-wrap items-center justify-between gap-3 px-6 py-6">
                     <div>
-                        <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{t.common.skillsBelongToAdminSettings || "Assessment plans belong to admin settings"}</p>
-                        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{t.common.skillsSettingsHint || "This entry lives inside management settings so the main workspace stays focused."}</p>
+                        <p className="text-base font-semibold text-slate-900 dark:text-slate-100">{t.common.skillsBelongToAdminSettings || "Assessment plans belong to admin settings"}</p>
+                        <p className="mt-1 text-base text-slate-500 dark:text-slate-400">{t.common.skillsSettingsHint || "This entry lives inside management settings so the main workspace stays focused."}</p>
                     </div>
                     <div className="flex gap-2">
                         {canManageSkill && (
@@ -159,7 +159,7 @@ export function SkillSettingsPage({
                         </div>
                     ) : filteredSkills.length ? (
                         <div>
-                            <div className="hidden grid-cols-[minmax(0,2.1fr)_0.9fr_1.1fr_0.9fr_1fr] gap-4 border-b border-slate-200/80 px-6 py-4 text-xs font-medium uppercase tracking-[0.18em] text-slate-500 dark:border-slate-800 dark:text-slate-400 lg:grid">
+                            <div className="hidden grid-cols-[minmax(0,2.1fr)_0.9fr_1.1fr_0.9fr_1fr] gap-4 border-b border-slate-200/80 px-6 py-4 text-sm font-medium uppercase tracking-[0.18em] text-slate-500 dark:border-slate-800 dark:text-slate-400 lg:grid">
                                 <div>评估方案</div>
                                 <div>类型</div>
                                 <div>关联岗位</div>
@@ -180,14 +180,14 @@ export function SkillSettingsPage({
                                                     {skill.is_enabled ? t.recruitment.enabled : t.recruitment.disabled}
                                                 </Badge>
                                             </div>
-                                            <p className="line-clamp-2 min-h-10 text-sm leading-5 text-slate-600 dark:text-slate-300">{shortText(skill.description || skill.content, 140)}</p>
+                                            <p className="line-clamp-2 min-h-10 text-base leading-5 text-slate-600 dark:text-slate-300">{shortText(skill.description || skill.content, 140)}</p>
                                             {previewTags.length ? (
                                                 <div className="flex flex-wrap items-center gap-2">
                                                     {previewTags.map((tag) => (
                                                         <Badge key={tag} variant="outline" className="rounded-full">{tag}</Badge>
                                                     ))}
                                                     {hiddenTagCount > 0 ? (
-                                                        <span className="text-xs text-slate-400 dark:text-slate-500">{`+${hiddenTagCount}`}</span>
+                                                        <span className="text-sm text-slate-400 dark:text-slate-500">{`+${hiddenTagCount}`}</span>
                                                     ) : null}
                                                 </div>
                                             ) : null}
@@ -199,10 +199,10 @@ export function SkillSettingsPage({
                                                 </Badge>
                                             ))}
                                         </div>
-                                        <div className="truncate text-sm text-slate-600 dark:text-slate-300">
+                                        <div className="truncate text-base text-slate-600 dark:text-slate-300">
                                             {skill.bound_position_title || "通用方案"}
                                         </div>
-                                        <div className="text-sm text-slate-500 dark:text-slate-400">
+                                        <div className="text-base text-slate-500 dark:text-slate-400">
                                             {formatDateTime(skill.created_at)}
                                         </div>
                                         <div className="flex flex-wrap gap-2">
@@ -247,8 +247,8 @@ export function SkillSettingsPage({
                                     openSkillEditorByTaskKind(option.kind);
                                 }}
                             >
-                                <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">{option.title}</div>
-                                <div className="mt-1 text-sm text-slate-500 dark:text-slate-400">{option.description}</div>
+                                <div className="text-base font-semibold text-slate-900 dark:text-slate-100">{option.title}</div>
+                                <div className="mt-1 text-base text-slate-500 dark:text-slate-400">{option.description}</div>
                             </button>
                         ))}
                     </div>

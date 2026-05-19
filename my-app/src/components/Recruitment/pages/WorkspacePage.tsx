@@ -172,24 +172,24 @@ export function WorkspacePage({
                     <div className="space-y-2.5">
                         <div className="flex flex-wrap items-center gap-2">
                             <Badge
-                                className="rounded-full border-slate-200 bg-white/90 px-2.5 py-0.5 text-[11px] text-slate-700 shadow-none dark:border-slate-700 dark:bg-slate-900/80 dark:text-slate-200">
+                                className="rounded-full border-slate-200 bg-white/90 px-2.5 py-0.5 text-[15px] text-slate-700 shadow-none dark:border-slate-700 dark:bg-slate-900/80 dark:text-slate-200">
                                 {tr.overviewBadge}
                             </Badge>
-                            <h2 className="text-lg font-semibold tracking-tight text-slate-950 dark:text-slate-50 sm:text-[1.15rem]">
+                            <h2 className="text-xl font-semibold tracking-tight text-slate-950 dark:text-slate-50 sm:text-[1.4rem]">
                                 {tr.overviewTitle}
                             </h2>
                         </div>
                         <div className="flex flex-wrap items-center justify-between gap-2.5">
-                            <p className="min-w-[220px] flex-1 text-sm leading-6 text-slate-600 dark:text-slate-300">
+                            <p className="min-w-[220px] flex-1 text-base leading-6 text-slate-600 dark:text-slate-300">
                                 {tr.overviewDescription}
                             </p>
                             <div className="flex flex-wrap items-center gap-2">
-                                <div className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200/80 bg-white/90 px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-950/80">
-                                    <span className="text-xs text-slate-500 dark:text-slate-400">{tr.recruitingPositions}</span>
+                                <div className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200/80 bg-white/90 px-3 py-2 text-base dark:border-slate-800 dark:bg-slate-950/80">
+                                    <span className="text-sm text-slate-500 dark:text-slate-400">{tr.recruitingPositions}</span>
                                     <span className="font-semibold text-slate-950 dark:text-slate-50">{dashboard?.cards.positions_recruiting ?? 0}</span>
                                 </div>
-                                <div className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200/80 bg-white/90 px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-950/80">
-                                    <span className="text-xs text-slate-500 dark:text-slate-400">{tr.todayNewResumes}</span>
+                                <div className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200/80 bg-white/90 px-3 py-2 text-base dark:border-slate-800 dark:bg-slate-950/80">
+                                    <span className="text-sm text-slate-500 dark:text-slate-400">{tr.todayNewResumes}</span>
                                     <span className="font-semibold text-slate-950 dark:text-slate-50">{todayNewResumes}</span>
                                 </div>
                             </div>
@@ -199,7 +199,7 @@ export function WorkspacePage({
                                         type="button"
                                         variant="outline"
                                         size="sm"
-                                        className="h-9 rounded-xl px-3 text-sm"
+                                        className="h-9 rounded-xl px-3 text-base"
                                         disabled={refreshing}
                                         onClick={async () => {
                                             setRefreshing(true);
@@ -219,7 +219,7 @@ export function WorkspacePage({
                                     variant="outline"
                                     onClick={openCreatePosition}
                                     size="sm"
-                                    className="h-9 rounded-xl px-3.5 text-sm"
+                                    className="h-9 rounded-xl px-3.5 text-base"
                                 >
                                     <Plus className="h-4 w-4"/>
                                     {tr.createPosition}
@@ -253,8 +253,8 @@ export function WorkspacePage({
                 <Card className={panelClass}>
                     <CardHeader className="pb-0">
                         <div className="space-y-1.5">
-                            <CardTitle className="text-lg">{tr.quickActions}</CardTitle>
-                            <CardDescription className="text-xs leading-5 text-slate-500 dark:text-slate-400">
+                            <CardTitle className="text-xl">{tr.quickActions}</CardTitle>
+                            <CardDescription className="text-sm leading-5 text-slate-500 dark:text-slate-400">
                                 {tr.quickActionsDesc}
                             </CardDescription>
                         </div>
@@ -278,7 +278,7 @@ export function WorkspacePage({
                 <div className="grid gap-6 xl:grid-cols-2">
                     <Card className={cn(panelClass, "flex min-h-0 flex-col overflow-hidden xl:h-[660px] 2xl:h-[708px]")}>
                         <CardHeader className="shrink-0">
-                            <CardTitle className="text-lg">{tr.latestCandidates}</CardTitle>
+                            <CardTitle className="text-xl">{tr.latestCandidates}</CardTitle>
                             <CardDescription>{tr.latestCandidatesDesc}</CardDescription>
                         </CardHeader>
                         <CardContent className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 dark:[&::-webkit-scrollbar-thumb]:bg-slate-700 space-y-3">
@@ -294,7 +294,7 @@ export function WorkspacePage({
                                 >
                                     <div className="min-w-0">
                                         <p className="break-words font-medium text-slate-900 dark:text-slate-100">{candidate.name}</p>
-                                        <p className="mt-1 break-words text-sm text-slate-500 dark:text-slate-400">
+                                        <p className="mt-1 break-words text-base text-slate-500 dark:text-slate-400">
                                             {candidate.position_title || tr.unassignedPosition} ·
                                             {isZh ? "匹配度" : "Match"} {formatPercent(candidate.match_percent)}
                                         </p>
@@ -304,7 +304,7 @@ export function WorkspacePage({
                                             className={cn("rounded-full border", statusBadgeClass("candidate", resolveCandidateDisplayStatus(candidate)))}>
                                             {labelForCandidateStatus(resolveCandidateDisplayStatus(candidate))}
                                         </Badge>
-                                        <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">{formatDateTime(candidate.created_at)}</p>
+                                        <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">{formatDateTime(candidate.created_at)}</p>
                                     </div>
                                 </button>
                             )) : (
@@ -322,7 +322,7 @@ export function WorkspacePage({
 
                     <Card className={cn(panelClass, "flex min-h-0 flex-col overflow-hidden xl:h-[660px] 2xl:h-[708px]")}>
                         <CardHeader className="shrink-0">
-                            <CardTitle className="text-lg">{tr.recentAiTasks}</CardTitle>
+                            <CardTitle className="text-xl">{tr.recentAiTasks}</CardTitle>
                             <CardDescription>{tr.recentAiTasksDesc}</CardDescription>
                         </CardHeader>
                         <CardContent className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 dark:[&::-webkit-scrollbar-thumb]:bg-slate-700 space-y-3">
@@ -338,14 +338,14 @@ export function WorkspacePage({
                                 >
                                     <div className="min-w-0">
                                         <p className="break-words font-medium text-slate-900 dark:text-slate-100">{labelForTaskType(log.task_type)}</p>
-                                        <p className="mt-1 break-words text-sm text-slate-500 dark:text-slate-400">{String(log.input_summary || "").trim() ? String(log.input_summary) : "-"}</p>
+                                        <p className="mt-1 break-words text-base text-slate-500 dark:text-slate-400">{String(log.input_summary || "").trim() ? String(log.input_summary) : "-"}</p>
                                     </div>
                                     <div className="shrink-0 text-left sm:text-right">
                                         <Badge
                                             className={cn("rounded-full border", statusBadgeClass("task", log.status))}>
                                             {labelForTaskExecutionStatus(log.status)}
                                         </Badge>
-                                        <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">{formatDateTime(log.created_at)}</p>
+                                        <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">{formatDateTime(log.created_at)}</p>
                                     </div>
                                 </button>
                             )) : (
@@ -357,7 +357,7 @@ export function WorkspacePage({
 
                     <Card className={cn(panelClass, "flex min-h-0 flex-col overflow-hidden xl:h-[660px] 2xl:h-[708px]")}>
                         <CardHeader className="shrink-0">
-                            <CardTitle className="text-lg">{tr.statusDistribution}</CardTitle>
+                            <CardTitle className="text-xl">{tr.statusDistribution}</CardTitle>
                             <CardDescription>{tr.statusDistributionDesc}</CardDescription>
                         </CardHeader>
                         <CardContent className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 dark:[&::-webkit-scrollbar-thumb]:bg-slate-700 space-y-3">
@@ -365,8 +365,8 @@ export function WorkspacePage({
                                 <div key={item.status}
                                      className="rounded-2xl border border-slate-200/80 px-4 py-4 dark:border-slate-800">
                                     <div className="flex items-center justify-between gap-3">
-                                        <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{labelForCandidateStatus(item.status)}</p>
-                                        <p className="text-lg font-semibold text-slate-900 dark:text-slate-100">{item.count}</p>
+                                        <p className="text-base font-medium text-slate-900 dark:text-slate-100">{labelForCandidateStatus(item.status)}</p>
+                                        <p className="text-xl font-semibold text-slate-900 dark:text-slate-100">{item.count}</p>
                                     </div>
                                 </div>
                             )) : (
@@ -378,7 +378,7 @@ export function WorkspacePage({
 
                     <Card className={cn(panelClass, "flex min-h-0 flex-col overflow-hidden xl:h-[660px] 2xl:h-[708px]")}>
                         <CardHeader className="shrink-0">
-                            <CardTitle className="text-lg">{tr.recruitmentFunnel}</CardTitle>
+                            <CardTitle className="text-xl">{tr.recruitmentFunnel}</CardTitle>
                             <CardDescription>{tr.recruitmentFunnelDesc}</CardDescription>
                         </CardHeader>
                         <CardContent className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 dark:[&::-webkit-scrollbar-thumb]:bg-slate-700">
@@ -406,7 +406,7 @@ export function WorkspacePage({
                                                 {index > 0 && (
                                                     <div className="flex items-center justify-center py-0.5">
                                                         {conversionRate ? (
-                                                            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium tabular-nums text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                                                            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[14px] font-medium tabular-nums text-slate-500 dark:bg-slate-800 dark:text-slate-400">
                                                                 ↓ {conversionRate}%
                                                             </span>
                                                         ) : (
@@ -416,8 +416,8 @@ export function WorkspacePage({
                                                 )}
                                                 <div className="rounded-xl border border-slate-200/80 bg-white/60 px-3.5 py-2.5 dark:border-slate-800 dark:bg-slate-900/40">
                                                     <div className="flex items-center justify-between">
-                                                        <span className="text-sm font-medium text-slate-700 dark:text-slate-200">{label}</span>
-                                                        <span className="text-sm font-semibold tabular-nums text-slate-900 dark:text-slate-50">{stage.count}</span>
+                                                        <span className="text-base font-medium text-slate-700 dark:text-slate-200">{label}</span>
+                                                        <span className="text-base font-semibold tabular-nums text-slate-900 dark:text-slate-50">{stage.count}</span>
                                                     </div>
                                                     {stage.count > 0 && (
                                                         <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
@@ -434,14 +434,14 @@ export function WorkspacePage({
                                     {(funnelData.rejected_count > 0 || funnelData.talent_pool_count > 0) && (
                                         <div className="mt-2 flex flex-wrap gap-3 border-t border-slate-200/80 pt-2.5 dark:border-slate-800">
                                             {funnelData.rejected_count > 0 && (
-                                                <div className="flex items-center gap-1.5 text-sm">
+                                                <div className="flex items-center gap-1.5 text-base">
                                                     <span className="inline-block h-1.5 w-1.5 rounded-full bg-rose-400"/>
                                                     <span className="text-slate-500 dark:text-slate-400">{tr.rejected}</span>
                                                     <span className="font-medium tabular-nums text-rose-600 dark:text-rose-400">{funnelData.rejected_count}</span>
                                                 </div>
                                             )}
                                             {funnelData.talent_pool_count > 0 && (
-                                                <div className="flex items-center gap-1.5 text-sm">
+                                                <div className="flex items-center gap-1.5 text-base">
                                                     <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-400"/>
                                                     <span className="text-slate-500 dark:text-slate-400">{tr.talentPool}</span>
                                                     <span className="font-medium tabular-nums text-amber-600 dark:text-amber-400">{funnelData.talent_pool_count}</span>
@@ -458,7 +458,7 @@ export function WorkspacePage({
 
                     <Card className={cn(panelClass, "flex min-h-0 flex-col overflow-hidden xl:h-[660px] 2xl:h-[708px]")}>
                         <CardHeader className="shrink-0">
-                            <CardTitle className="text-lg">{tr.sourceDistribution}</CardTitle>
+                            <CardTitle className="text-xl">{tr.sourceDistribution}</CardTitle>
                             <CardDescription>{tr.sourceDistributionDesc}</CardDescription>
                         </CardHeader>
                         <CardContent className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 dark:[&::-webkit-scrollbar-thumb]:bg-slate-700">
@@ -473,8 +473,8 @@ export function WorkspacePage({
                                         return (
                                             <div key={item.source} className="rounded-xl border border-slate-200/80 bg-white/60 px-3.5 py-2.5 dark:border-slate-800 dark:bg-slate-900/40">
                                                 <div className="flex items-center justify-between">
-                                                    <span className="text-sm font-medium text-slate-700 dark:text-slate-200">{label}</span>
-                                                    <span className="text-sm font-semibold tabular-nums text-slate-900 dark:text-slate-50">{item.count}</span>
+                                                    <span className="text-base font-medium text-slate-700 dark:text-slate-200">{label}</span>
+                                                    <span className="text-base font-semibold tabular-nums text-slate-900 dark:text-slate-50">{item.count}</span>
                                                 </div>
                                                 {item.count > 0 && (
                                                     <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
@@ -488,7 +488,7 @@ export function WorkspacePage({
                                         );
                                     })}
                                     <div className="mt-1 border-t border-slate-200/80 pt-2.5 dark:border-slate-800">
-                                        <div className="flex items-center justify-between text-sm">
+                                        <div className="flex items-center justify-between text-base">
                                             <span className="text-slate-500 dark:text-slate-400">{isZh ? "总计" : "Total"}</span>
                                             <span className="font-semibold tabular-nums text-slate-900 dark:text-slate-100">{sourceStatsData.total}</span>
                                         </div>

@@ -103,8 +103,8 @@ export function MailSettingsPage({
             <Card className={panelClass}>
                 <CardContent className="flex flex-wrap items-center justify-between gap-3 px-6 py-6">
                     <div>
-                        <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{t.common.mailConfigCenter || "Mail Configuration & Delivery Center"}</p>
-                        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{t.common.mailConfigHint || "Manage senders, recipients, and delivery logs in one place, and send resumes directly from the current candidate context."}</p>
+                        <p className="text-base font-semibold text-slate-900 dark:text-slate-100">{t.common.mailConfigCenter || "Mail Configuration & Delivery Center"}</p>
+                        <p className="mt-1 text-base text-slate-500 dark:text-slate-400">{t.common.mailConfigHint || "Manage senders, recipients, and delivery logs in one place, and send resumes directly from the current candidate context."}</p>
                     </div>
                     <div className="flex flex-wrap gap-2">
                         <Button variant="outline" onClick={() => void refreshMailSettingsWithFeedback()} disabled={mailSettingsLoading}>
@@ -134,11 +134,11 @@ export function MailSettingsPage({
             <div className="grid gap-6 xl:grid-cols-2">
                 <Card className={panelClass}>
                     <CardHeader>
-                        <CardTitle className="text-lg">{t.common.globalAutoSendDefaults || "Global Auto-Send Defaults"}</CardTitle>
+                        <CardTitle className="text-xl">{t.common.globalAutoSendDefaults || "Global Auto-Send Defaults"}</CardTitle>
                         <CardDescription>{t.common.globalAutoSendHint || "Provide a default recipient pool that positions can reuse. It only sends when a position explicitly enables auto-send and opts into global recipients."}</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4">
-                        <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+                        <label className="flex items-center gap-2 text-base text-slate-700 dark:text-slate-200">
                             <input
                                 type="checkbox"
                                 checked={mailAutoPushGlobalConfig.global_auto_push_enabled}
@@ -151,7 +151,7 @@ export function MailSettingsPage({
                             {t.common.enableSystemAutoSend || "Enable system-wide auto-send"}
                         </label>
                         <div className="space-y-2">
-                            <p className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">{t.common.globalDefaultRecipients || "Global Default Recipients"}</p>
+                            <p className="text-sm font-medium uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">{t.common.globalDefaultRecipients || "Global Default Recipients"}</p>
                             <div className="flex flex-wrap gap-2">
                                 {mailRecipients.filter((recipient) => recipient.is_enabled).length ? mailRecipients.filter((recipient) => recipient.is_enabled).map((recipient) => {
                                     const selected = mailAutoPushGlobalConfig.global_default_recipient_ids.includes(recipient.id);
@@ -161,7 +161,7 @@ export function MailSettingsPage({
                                             type="button"
                                             disabled={!canManageMailConfig || mailAutoPushConfigSaving}
                                             className={cn(
-                                                "rounded-full border px-3 py-2 text-xs transition disabled:cursor-not-allowed disabled:opacity-60",
+                                                "rounded-full border px-3 py-2 text-sm transition disabled:cursor-not-allowed disabled:opacity-60",
                                                 selected
                                                     ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
                                                     : "border-slate-200 bg-white text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300",
@@ -176,10 +176,10 @@ export function MailSettingsPage({
                                             {recipient.name}
                                         </button>
                                     );
-                                }) : <p className="text-sm text-slate-500 dark:text-slate-400">{t.recruitment.noRecipientsAvailable}</p>}
+                                }) : <p className="text-base text-slate-500 dark:text-slate-400">{t.recruitment.noRecipientsAvailable}</p>}
                             </div>
                         </div>
-                        <div className="flex items-center justify-between gap-3 rounded-2xl border border-dashed border-slate-200/80 px-4 py-3 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
+                        <div className="flex items-center justify-between gap-3 rounded-2xl border border-dashed border-slate-200/80 px-4 py-3 text-base text-slate-500 dark:border-slate-800 dark:text-slate-400">
                             <span>{t.common.currentDefaultEmails || "Current default emails:"} {selectedGlobalRecipientEmails.length ? selectedGlobalRecipientEmails.join(isZh ? "、" : ", ") : (t.common.notSet || "Not set")}</span>
                             <Button
                                 size="sm"
@@ -194,7 +194,7 @@ export function MailSettingsPage({
 
                 <Card className={panelClass}>
                     <CardHeader>
-                        <CardTitle className="text-lg">{t.common.senders || "Senders"}</CardTitle>
+                        <CardTitle className="text-xl">{t.common.senders || "Senders"}</CardTitle>
                         <CardDescription>{t.common.sendersHint || "Supports personal mailboxes, 163, Outlook, and later corporate mail. The default sender is preferred when sending resumes."}</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4">
@@ -203,7 +203,7 @@ export function MailSettingsPage({
                                 <div className="flex items-start justify-between gap-3">
                                     <div>
                                         <p className="font-medium text-slate-900 dark:text-slate-100">{sender.name}</p>
-                                        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{sender.from_name || sender.name} &lt;{sender.from_email}&gt;</p>
+                                        <p className="mt-1 text-base text-slate-500 dark:text-slate-400">{sender.from_name || sender.name} &lt;{sender.from_email}&gt;</p>
                                     </div>
                                     <div className="flex flex-wrap gap-2">
                                         {sender.is_default ? <Badge className="rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200">{t.common.default || "Default"}</Badge> : null}
@@ -228,7 +228,7 @@ export function MailSettingsPage({
 
                 <Card className={panelClass}>
                     <CardHeader>
-                        <CardTitle className="text-lg">{t.common.recipients || "Recipients"}</CardTitle>
+                        <CardTitle className="text-xl">{t.common.recipients || "Recipients"}</CardTitle>
                         <CardDescription>{t.common.recipientsHint || "Manage internal recipients in one place. Sending supports single-select, multi-select, and temporary external emails."}</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4">
@@ -237,14 +237,14 @@ export function MailSettingsPage({
                                 <div className="flex items-start justify-between gap-3">
                                     <div>
                                         <p className="font-medium text-slate-900 dark:text-slate-100">{recipient.name}</p>
-                                        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{recipient.email}</p>
+                                        <p className="mt-1 text-base text-slate-500 dark:text-slate-400">{recipient.email}</p>
                                     </div>
                                     <Badge
                                         className={cn("rounded-full border", recipient.is_enabled ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200" : "border-slate-200 bg-slate-100 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300")}>
                                         {recipient.is_enabled ? t.recruitment.selectable : t.recruitment.disabled}
                                     </Badge>
                                 </div>
-                                <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+                                <p className="mt-2 text-base text-slate-600 dark:text-slate-300">
                                     {recipient.department || (t.common.noDepartment || "No department")} / {recipient.role_title || (t.common.noRole || "No role")}
                                 </p>
                                 <div className="mt-3 flex flex-wrap gap-2">
@@ -252,7 +252,7 @@ export function MailSettingsPage({
                                         <Badge key={tag} variant="outline" className="rounded-full">{tag}</Badge>
                                     ))}
                                 </div>
-                                {recipient.notes ? <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">{recipient.notes}</p> : null}
+                                {recipient.notes ? <p className="mt-3 text-base text-slate-500 dark:text-slate-400">{recipient.notes}</p> : null}
                                 <div className="mt-4 flex flex-wrap gap-2">
                                     <Button size="sm" variant="outline" onClick={() => openMailRecipientEditor(recipient)}>{t.common.edit}</Button>
                                     <Button size="sm" variant="outline" onClick={() => setMailRecipientDeleteTarget(recipient)}>{t.common.delete}</Button>
@@ -265,7 +265,7 @@ export function MailSettingsPage({
 
             <Card className={panelClass}>
                 <CardHeader>
-                    <CardTitle className="text-lg">{t.common.deliveryRecords || "Delivery Records"}</CardTitle>
+                    <CardTitle className="text-xl">{t.common.deliveryRecords || "Delivery Records"}</CardTitle>
                     <CardDescription>{t.common.deliveryRecordsHint || "Keep the sender, candidate, recipients, subject, and status for every resume delivery so you can trace what was sent."}</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
@@ -285,7 +285,7 @@ export function MailSettingsPage({
                                 <div className="flex flex-wrap items-start justify-between gap-3">
                                     <div>
                                         <p className="font-medium text-slate-900 dark:text-slate-100">{dispatch.subject || (t.common.noCustomSubject || "No custom subject (system default subject will be used)")}</p>
-                                        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                                        <p className="mt-1 text-base text-slate-500 dark:text-slate-400">
                                             {mailSenderMap.get(dispatch.sender_config_id || 0)?.name || dispatch.sender_name || (t.common.defaultSender || "Default sender")} / {formatLongDateTime(dispatch.sent_at || dispatch.created_at)}
                                         </p>
                                     </div>
@@ -318,8 +318,8 @@ export function MailSettingsPage({
                                         value={dispatch.candidate_status ? labelForCandidateStatus(dispatch.candidate_status) : (t.common.unrecorded || "Unrecorded")}
                                     />
                                 </div>
-                                <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">{shortText(dispatch.body_text || (t.common.defaultEmailBodyHint || "When the body is blank, the system uses the default email template."), 180)}</p>
-                                {dispatch.error_message ? <p className="mt-3 text-sm text-rose-600 dark:text-rose-300">{dispatch.error_message}</p> : null}
+                                <p className="mt-3 text-base text-slate-600 dark:text-slate-300">{shortText(dispatch.body_text || (t.common.defaultEmailBodyHint || "When the body is blank, the system uses the default email template."), 180)}</p>
+                                {dispatch.error_message ? <p className="mt-3 text-base text-rose-600 dark:text-rose-300">{dispatch.error_message}</p> : null}
                                 <div className="mt-4 flex flex-wrap gap-2">
                                     {dispatch.status === "failed" ? (
                                         <Button size="sm" variant="outline" onClick={() => void retryResumeMailDispatch(dispatch)} disabled={isDispatchActing}>

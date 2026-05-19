@@ -551,8 +551,8 @@ export function AuditPage({
         : formatAuditStageLabel(selectedDisplayTaskStage);
     const selectedRootNotice = selectedFlowAuditView?.rootNotice || null;
     const selectedRootNoticeClassName = selectedFlowAuditView?.autoRequeueScheduled
-        ? "mt-3 rounded-2xl border border-sky-200 bg-sky-50/80 px-4 py-3 text-sm text-sky-900 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-100"
-        : "mt-3 rounded-2xl border border-amber-200 bg-amber-50/80 px-4 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100";
+        ? "mt-3 rounded-2xl border border-sky-200 bg-sky-50/80 px-4 py-3 text-base text-sky-900 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-100"
+        : "mt-3 rounded-2xl border border-amber-200 bg-amber-50/80 px-4 py-3 text-base text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100";
     const selectedInfraRetryCount = selectedFlowAuditView?.infraRetryCount ?? null;
     const selectedRetryAfterSeconds = selectedFlowAuditView?.retryAfterSeconds ?? null;
     const selectedNextRetryAt = selectedFlowAuditView?.nextRetryAt || null;
@@ -617,27 +617,27 @@ export function AuditPage({
                     </div>
                     {log ? (
                         <>
-                            <div className="rounded-2xl border border-slate-200/80 bg-white px-4 py-4 text-xs leading-6 text-slate-600 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300">
+                            <div className="rounded-2xl border border-slate-200/80 bg-white px-4 py-4 text-sm leading-6 text-slate-600 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300">
                                 <pre className="whitespace-pre-wrap break-words">{log.prompt_snapshot || tr.promptSnapshotMissing}</pre>
                             </div>
-                            <div className="rounded-2xl border border-slate-200/80 bg-white px-4 py-4 text-xs leading-6 text-slate-600 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300">
+                            <div className="rounded-2xl border border-slate-200/80 bg-white px-4 py-4 text-sm leading-6 text-slate-600 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300">
                                 <pre className="whitespace-pre-wrap break-words">{log.full_request_snapshot || tr.fullRequestMissing}</pre>
                             </div>
-                            <div className="rounded-2xl border border-slate-200/80 bg-white px-4 py-4 text-xs leading-6 text-slate-600 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300">
+                            <div className="rounded-2xl border border-slate-200/80 bg-white px-4 py-4 text-sm leading-6 text-slate-600 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300">
                                 <pre className="whitespace-pre-wrap break-words">{log.raw_response_text || tr.rawResponseMissing}</pre>
                             </div>
-                            <div className="rounded-2xl border border-slate-200/80 bg-white px-4 py-4 text-xs leading-6 text-slate-600 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300">
+                            <div className="rounded-2xl border border-slate-200/80 bg-white px-4 py-4 text-sm leading-6 text-slate-600 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300">
                                 <pre className="whitespace-pre-wrap break-words">{formatStructuredValue(log.parsed_response_json, tr.parsedJsonMissing)}</pre>
                             </div>
-                            <div className="rounded-2xl border border-slate-200/80 bg-white px-4 py-4 text-xs leading-6 text-slate-600 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300">
+                            <div className="rounded-2xl border border-slate-200/80 bg-white px-4 py-4 text-sm leading-6 text-slate-600 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300">
                                 <pre className="whitespace-pre-wrap break-words">{formatStructuredValue(log.sanitized_response_json, tr.sanitizedJsonMissing)}</pre>
                             </div>
-                            <div className="rounded-2xl border border-slate-200/80 bg-white px-4 py-4 text-xs leading-6 text-slate-600 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300">
+                            <div className="rounded-2xl border border-slate-200/80 bg-white px-4 py-4 text-sm leading-6 text-slate-600 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300">
                                 <pre className="whitespace-pre-wrap break-words">{formatStructuredValue(log.output_snapshot, log.output_summary || tr.outputMissing)}</pre>
                             </div>
                         </>
                     ) : (
-                        <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-4 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
+                        <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-4 text-base text-slate-500 dark:border-slate-800 dark:text-slate-400">
                             {emptyText}
                         </div>
                     )}
@@ -847,8 +847,8 @@ export function AuditPage({
                     <div className="flex flex-col gap-4">
                         <div className="flex flex-wrap items-center justify-between gap-3">
                             <div className="min-w-0">
-                                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{tr.filterBarTitle}</p>
-                                <p className="mt-1 break-words text-sm text-slate-500 dark:text-slate-400">{auditFiltersCollapsed ? auditFilterSummary : tr.filterBarDesc}</p>
+                                <p className="text-base font-semibold text-slate-900 dark:text-slate-100">{tr.filterBarTitle}</p>
+                                <p className="mt-1 break-words text-base text-slate-500 dark:text-slate-400">{auditFiltersCollapsed ? auditFilterSummary : tr.filterBarDesc}</p>
                             </div>
                             <div className="flex flex-wrap gap-2">
                                 <Button variant="outline" onClick={() => void refreshLogsWithFeedback()} disabled={logsLoading}>
@@ -900,7 +900,7 @@ export function AuditPage({
             <div className="grid min-h-0 items-stretch gap-6 overflow-hidden xl:grid-cols-[minmax(0,1fr)_minmax(540px,42%)] 2xl:grid-cols-[minmax(0,1fr)_minmax(680px,45%)]">
                 <Card className={cn(panelClass, "flex min-h-0 flex-col overflow-hidden")}>
                     <CardHeader className="pb-0">
-                        <CardTitle className="text-lg">{tr.auditCenterTitle}</CardTitle>
+                        <CardTitle className="text-xl">{tr.auditCenterTitle}</CardTitle>
                         <CardDescription>{tr.auditCenterDesc}</CardDescription>
                     </CardHeader>
                     <CardContent className="flex min-h-0 flex-1 flex-col pt-6">
@@ -977,7 +977,7 @@ export function AuditPage({
                                                                                 {labelForTaskExecutionStatus(log.status)}
                                                                             </Badge>
                                                                             {stageLabel ? (
-                                                                                <p className="text-xs text-slate-500 dark:text-slate-400">
+                                                                                <p className="text-sm text-slate-500 dark:text-slate-400">
                                                                                     {stageLabel}
                                                                                 </p>
                                                                             ) : null}
@@ -1042,10 +1042,10 @@ export function AuditPage({
                                         <Badge variant="outline" className="rounded-full">{selectedDisplayTaskStageLabel}</Badge>
                                     ) : null}
                                 </div>
-                                <h3 className="mt-3 text-2xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">
+                                <h3 className="mt-3 text-3xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">
                                     {buildLogObjectLabel(selectedLogDetail, positionMap, candidateMap, skillMap)}
                                 </h3>
-                                <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
+                                <p className="mt-2 text-base text-slate-500 dark:text-slate-400">
                                     {selectedModelLabel} · {formatLongDateTime(selectedLogDetail.created_at)}
                                 </p>
                                 {selectedRootNotice ? (
@@ -1055,7 +1055,7 @@ export function AuditPage({
                                 ) : null}
                                 {!selectedRootNotice && !selectedFlowAuditView?.autoRequeueScheduled && selectedInvalidResultSummary ? (
                                     <div
-                                        className="mt-3 rounded-2xl border border-amber-200 bg-amber-50/80 px-4 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100 line-clamp-2 cursor-default"
+                                        className="mt-3 rounded-2xl border border-amber-200 bg-amber-50/80 px-4 py-3 text-base text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100 line-clamp-2 cursor-default"
                                         title={selectedInvalidResultSummary || undefined}
                                     >
                                         {selectedInvalidResultSummary}
@@ -1080,7 +1080,7 @@ export function AuditPage({
                                     <Field label={tr.taskFlow}>
                                         <div className="space-y-3">
                                             {selectedFlowAuditView?.inferredFromChildTerminal ? (
-                                                <div className="rounded-2xl border border-amber-200 bg-amber-50/80 px-4 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
+                                                <div className="rounded-2xl border border-amber-200 bg-amber-50/80 px-4 py-3 text-base text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
                                                     {tr.inferredTerminal}
                                                 </div>
                                             ) : null}
@@ -1088,10 +1088,10 @@ export function AuditPage({
                                                 <div key={stage.key != null ? `${stage.key}-${idx}` : `stage-${idx}`} className="rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 dark:border-slate-800 dark:bg-slate-900">
                                                     <div className="flex flex-wrap items-center justify-between gap-2">
                                                         <div className="space-y-1">
-                                                            <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                                                            <p className="text-base font-semibold text-slate-900 dark:text-slate-100">
                                                                 {stage.title}
                                                             </p>
-                                                            <p className="text-xs text-slate-500 dark:text-slate-400">
+                                                            <p className="text-sm text-slate-500 dark:text-slate-400">
                                                                 {stage.detail}
                                                             </p>
                                                         </div>
@@ -1107,10 +1107,10 @@ export function AuditPage({
                                                 <div key={log.id != null ? `${log.id}-${idx}` : `runlog-${idx}`} className="rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 dark:border-slate-800 dark:bg-slate-900">
                                                     <div className="flex flex-wrap items-center justify-between gap-2">
                                                         <div className="space-y-1">
-                                                            <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                                                            <p className="text-base font-semibold text-slate-900 dark:text-slate-100">
                                                                 {labelForAuditLogTask(log)} / {labelForScreeningTaskStage(log.stage)}
                                                             </p>
-                                                            <p className="text-xs text-slate-500 dark:text-slate-400">
+                                                            <p className="text-sm text-slate-500 dark:text-slate-400">
                                                                 #{log.id} · {buildLogObjectLabel(log, positionMap, candidateMap, skillMap)}
                                                             </p>
                                                         </div>
@@ -1123,14 +1123,14 @@ export function AuditPage({
                                                     </div>
                                                 </div>
                                             )) : (
-                                                <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-4 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
+                                                <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-4 text-base text-slate-500 dark:border-slate-800 dark:text-slate-400">
                                                     {tr.noRunFlow}
                                                 </div>
                                             )}
                                         </div>
                                     </Field>
                                     <Field label={tr.skillResolution}>
-                                        <div className="space-y-3 rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 text-sm dark:border-slate-800 dark:bg-slate-900">
+                                        <div className="space-y-3 rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 text-base dark:border-slate-800 dark:bg-slate-900">
                                             <p className="font-medium text-slate-900 dark:text-slate-100">{selectedSkillUsageText}</p>
                                             <p className="text-slate-500 dark:text-slate-400">
                                                 {tr.sourceLine(labelForSkillResolutionSource(selectedLogDetail.skill_resolution_source), labelForMemorySource(selectedLogDetail.memory_source))}
@@ -1150,7 +1150,7 @@ export function AuditPage({
                                                 />
                                             </div>
                                             {selectedSkillResolutionDetail ? (
-                                                <pre className="whitespace-pre-wrap break-words text-xs leading-6 text-slate-600 dark:text-slate-300">
+                                                <pre className="whitespace-pre-wrap break-words text-sm leading-6 text-slate-600 dark:text-slate-300">
                                                     {formatStructuredValue(selectedSkillResolutionDetail, tr.noSkillResolutionDetail)}
                                                 </pre>
                                             ) : null}
@@ -1160,8 +1160,8 @@ export function AuditPage({
                                                         <div key={`${skill.skill_code}-${skill.id}`} className="rounded-2xl border border-slate-200/80 bg-white px-4 py-4 dark:border-slate-700 dark:bg-slate-950">
                                                             <div className="flex flex-wrap items-start justify-between gap-3">
                                                                 <div>
-                                                                    <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{skill.name}</p>
-                                                                    {skill.description ? <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{skill.description}</p> : null}
+                                                                    <p className="text-base font-semibold text-slate-900 dark:text-slate-100">{skill.name}</p>
+                                                                    {skill.description ? <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{skill.description}</p> : null}
                                                                 </div>
                                                                 {skill.tags.length ? (
                                                                     <div className="flex flex-wrap gap-2">
@@ -1171,7 +1171,7 @@ export function AuditPage({
                                                                     </div>
                                                                 ) : null}
                                                             </div>
-                                                            <pre className="mt-3 whitespace-pre-wrap break-words text-xs leading-6 text-slate-600 dark:text-slate-300">{skill.content || tr.noSkillContent}</pre>
+                                                            <pre className="mt-3 whitespace-pre-wrap break-words text-sm leading-6 text-slate-600 dark:text-slate-300">{skill.content || tr.noSkillContent}</pre>
                                                         </div>
                                                     ))}
                                                 </div>
@@ -1181,17 +1181,17 @@ export function AuditPage({
                                     <Field label={tr.scoreRuleSnapshot}>
                                         <div className="space-y-3">
                                             {selectedScoreRuleSnapshot.length ? selectedScoreRuleSnapshot.map((item, index) => (
-                                                <div key={`${item.label || "rule"}-${index}`} className="rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 text-sm dark:border-slate-800 dark:bg-slate-900">
+                                                <div key={`${item.label || "rule"}-${index}`} className="rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 text-base dark:border-slate-800 dark:bg-slate-900">
                                                     <p className="font-semibold text-slate-900 dark:text-slate-100">
                                                         {String(item.label || "-")} · {String(item.max_score || "-")}{tr.pointsSuffix}
                                                     </p>
-                                                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                                    <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
                                                         {String(item.skill_name || tr.sourceSkillMissing)} · {item.is_core ? tr.coreDimension : tr.nonCoreDimension}
                                                     </p>
-                                                    <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{String(item.note || tr.noNotes)}</p>
+                                                    <p className="mt-2 text-base text-slate-600 dark:text-slate-300">{String(item.note || tr.noNotes)}</p>
                                                 </div>
                                             )) : (
-                                                <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-4 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
+                                                <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-4 text-base text-slate-500 dark:border-slate-800 dark:text-slate-400">
                                                     {tr.noRuleSnapshot}
                                                 </div>
                                             )}
@@ -1234,12 +1234,12 @@ export function AuditPage({
                                         </Field>
                                     ) : null}
                                     <Field label={tr.stateExplanation}>
-                                        <div className="rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 text-xs leading-6 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+                                        <div className="rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 text-sm leading-6 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
                                             <pre className="whitespace-pre-wrap break-words">{formatStructuredValue(selectedValidationMeta, tr.noStateExplanation)}</pre>
                                         </div>
                                     </Field>
                                     <Field label={tr.persistedResults}>
-                                        <div className="rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 text-xs leading-6 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+                                        <div className="rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 text-sm leading-6 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
                                             <pre className="whitespace-pre-wrap break-words">{formatStructuredValue(selectedPersistedResultRefs, tr.noPersistedResults)}</pre>
                                         </div>
                                     </Field>
@@ -1265,7 +1265,7 @@ export function AuditPage({
                                                         <InfoTile label={tr.finalSource} value={String(selectedValidationMeta?.final_response_source || selectedLogOutputRecord?.final_response_source || tr.unrecorded)}/>
                                                         <InfoTile label={tr.candidateStatus} value={String(selectedPersistedResultRefs?.candidate_status_after || tr.unrecorded)}/>
                                                     </div>
-                                                    <div className="rounded-2xl border border-slate-200/80 bg-white px-4 py-4 text-xs leading-6 text-slate-600 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300">
+                                                    <div className="rounded-2xl border border-slate-200/80 bg-white px-4 py-4 text-sm leading-6 text-slate-600 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300">
                                                         <pre className="whitespace-pre-wrap break-words">{formatStructuredValue(selectedPersistedResultRefs, tr.noPersistedResults)}</pre>
                                                     </div>
                                                 </div>
@@ -1274,32 +1274,32 @@ export function AuditPage({
                                     ) : (
                                         <>
                                             <Field label="Prompt Snapshot">
-                                                <div className="rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 text-xs leading-6 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+                                                <div className="rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 text-sm leading-6 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
                                                     <pre className="whitespace-pre-wrap break-words">{selectedLogDetail.prompt_snapshot || tr.promptSnapshotMissing}</pre>
                                                 </div>
                                             </Field>
                                             <Field label={tr.fullModelRequest}>
-                                                <div className="rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 text-xs leading-6 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+                                                <div className="rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 text-sm leading-6 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
                                                     <pre className="whitespace-pre-wrap break-words">{selectedLogDetail.full_request_snapshot || tr.fullRequestMissing}</pre>
                                                 </div>
                                             </Field>
                                             <Field label={tr.modelRawResponse}>
-                                                <div className="rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 text-xs leading-6 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+                                                <div className="rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 text-sm leading-6 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
                                                     <pre className="whitespace-pre-wrap break-words">{selectedLogDetail.raw_response_text || tr.rawResponseMissing}</pre>
                                                 </div>
                                             </Field>
                                             <Field label={tr.parsedJson}>
-                                                <div className="rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 text-xs leading-6 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+                                                <div className="rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 text-sm leading-6 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
                                                     <pre className="whitespace-pre-wrap break-words">{formatStructuredValue(selectedLogDetail.parsed_response_json, tr.parsedJsonMissing)}</pre>
                                                 </div>
                                             </Field>
                                             <Field label={tr.sanitizedJson}>
-                                                <div className="rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 text-xs leading-6 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+                                                <div className="rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 text-sm leading-6 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
                                                     <pre className="whitespace-pre-wrap break-words">{formatStructuredValue(selectedLogDetail.sanitized_response_json, tr.sanitizedJsonMissing)}</pre>
                                                 </div>
                                             </Field>
                                             <Field label={tr.fullOutput}>
-                                                <div className="rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 text-xs leading-6 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+                                                <div className="rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 text-sm leading-6 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
                                                     <pre className="whitespace-pre-wrap break-words">{formatStructuredValue(selectedLogDetail.output_snapshot, selectedLogDetail.output_summary || tr.outputMissing)}</pre>
                                                 </div>
                                             </Field>

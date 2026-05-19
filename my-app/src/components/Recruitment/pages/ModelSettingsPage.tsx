@@ -64,9 +64,9 @@ export function ModelSettingsPage({
             <Card className={panelClass}>
                 <CardContent className="flex flex-wrap items-center justify-between gap-3 px-6 py-6">
                     <div>
-                        <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{t.common.modelConfigCenter}</p>
-                        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{t.common.modelConfigHint}</p>
-                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{t.common.sharedModelThrottleHint}</p>
+                        <p className="text-base font-semibold text-slate-900 dark:text-slate-100">{t.common.modelConfigCenter}</p>
+                        <p className="mt-1 text-base text-slate-500 dark:text-slate-400">{t.common.modelConfigHint}</p>
+                        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{t.common.sharedModelThrottleHint}</p>
                     </div>
                     <div className="flex flex-wrap gap-2">
                         <Button variant="outline" onClick={() => void refreshLLMConfigsWithFeedback()} disabled={modelsLoading}>
@@ -93,7 +93,7 @@ export function ModelSettingsPage({
             {groupedConfigs.length ? groupedConfigs.map(([taskType, configs]) => (
                 <Card key={taskType} className={panelClass}>
                     <CardHeader>
-                        <CardTitle className="text-lg">{labelForTaskType(taskType)}</CardTitle>
+                        <CardTitle className="text-xl">{labelForTaskType(taskType)}</CardTitle>
                         <CardDescription>{t.common.modelFallbackHint}</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4">
@@ -106,7 +106,7 @@ export function ModelSettingsPage({
                                     <div className="flex flex-wrap items-start justify-between gap-3">
                                         <div>
                                             <p className="font-medium text-slate-900 dark:text-slate-100">{config.config_key}</p>
-                                            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{resolvedProvider} / {resolvedModelName}</p>
+                                            <p className="mt-1 text-base text-slate-500 dark:text-slate-400">{resolvedProvider} / {resolvedModelName}</p>
                                         </div>
                                         <div className="flex flex-wrap gap-2">
                                             {isCurrent ? <Badge className="rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200">{t.common.currentActive}</Badge> : null}
