@@ -1935,6 +1935,7 @@ export function CandidatesPage({
 
     const [candidateDetailPanel, setCandidateDetailPanel] = React.useState<"profile" | "ai" | "interview">("profile");
     const [detailExpanded, setDetailExpanded] = React.useState(false);
+    const [potentialReasonExpanded, setPotentialReasonExpanded] = React.useState(false);
     const zoomHintRef = React.useRef<HTMLDivElement>(null);
 
     // ---- 分栏拖拽调整 (Split Pane Resize) ----
@@ -1956,6 +1957,7 @@ export function CandidatesPage({
         setCandidateDetailPanel("profile");
         setCandidateAiOutputDialogOpen(false);
         setDetailExpanded(false);
+        setPotentialReasonExpanded(false);
     }, [selectedCandidateId]);
 
     React.useEffect(() => {
@@ -2578,11 +2580,22 @@ export function CandidatesPage({
                                             </div>
                                             {(candidateDetail.candidate.ai_potential_position || candidateDetail.candidate.ai_potential_reason) ? (
                                                 <div data-no-zoom className="mt-2 rounded-xl border border-sky-100 bg-sky-50/70 px-3 py-2 text-sm text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
-                                                    <div className="font-medium">
-                                                        {`${isZh ? "转岗潜力方向" : "Potential Transition"}：`}
-                                                        {candidateDetail.candidate.ai_potential_position || (isZh ? "暂无" : "N/A")}
+                                                    <div className="flex items-center">
+                                                        <span className="font-medium">
+                                                            {`${isZh ? "转岗潜力方向" : "Potential Transition"}：`}
+                                                            {candidateDetail.candidate.ai_potential_position || (isZh ? "暂无" : "N/A")}
+                                                        </span>
+                                                        {candidateDetail.candidate.ai_potential_reason ? (
+                                                            <button
+                                                                type="button"
+                                                                className="ml-1.5 shrink-0 text-xs text-sky-500 hover:text-sky-700 dark:text-sky-400 dark:hover:text-sky-200"
+                                                                onClick={() => setPotentialReasonExpanded((v) => !v)}
+                                                            >
+                                                                {potentialReasonExpanded ? (isZh ? "收起详情" : "Collapse") : (isZh ? "展开详情" : "Expand")}
+                                                            </button>
+                                                        ) : null}
                                                     </div>
-                                                    {candidateDetail.candidate.ai_potential_reason ? (
+                                                    {candidateDetail.candidate.ai_potential_reason && potentialReasonExpanded ? (
                                                         <div className="mt-1 text-sky-600 dark:text-sky-200/80">{candidateDetail.candidate.ai_potential_reason}</div>
                                                     ) : null}
                                                 </div>
