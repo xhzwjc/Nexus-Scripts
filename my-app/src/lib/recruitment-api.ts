@@ -155,6 +155,7 @@ export interface CandidateSummary {
   match_percent?: number | null;
   tags: string[];
   notes?: string | null;
+  note_summary?: string | null;
   latest_resume_file_id?: number | null;
   latest_parse_result_id?: number | null;
   latest_score_id?: number | null;

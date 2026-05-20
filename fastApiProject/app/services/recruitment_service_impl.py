@@ -9955,24 +9955,55 @@ class RecruitmentService:
         _preloaded_position: Optional[RecruitmentPosition] = None,
         _preloaded_score_row: Optional[RecruitmentCandidateScore] = None,
         _preloaded_screening_state: Optional[Dict[str, Any]] = None,
+        _preloaded_ai_match_snapshot: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         display_payload = self._build_candidate_list_display_payload(
             row,
             _preloaded_score_row=_preloaded_score_row,
             _preloaded_screening_state=_preloaded_screening_state,
         )
+        screening_state = display_payload["screening_state"]
+        ai_match_snapshot = _preloaded_ai_match_snapshot if _preloaded_ai_match_snapshot is not None else self._resolve_candidate_ai_match_snapshot(row)
+        tags = json_loads_safe(row.tags_json, [])
+        notes_text = str(row.notes or "").strip()
+        note_summary = notes_text[:80].rstrip()
+        if len(notes_text) > 80:
+            note_summary = f"{note_summary}..."
         return {
             "id": row.id,
+            "candidate_code": row.candidate_code,
+            "position_id": row.position_id,
             "name": row.name,
             "phone": row.phone,
             "email": row.email,
+            "current_company": row.current_company,
             "city": getattr(row, "city", None),
-            "age": getattr(row, "age", None),
+            "expected_city": getattr(row, "expected_city", None),
             "education": getattr(row, "education", None),
             "years_of_experience": getattr(row, "years_of_experience", None),
+            "source": row.source,
+            "source_detail": row.source_detail,
             "match_percent": display_payload["display_match_percent"],
             "status": row.status,
             "display_status": display_payload["display_status"],
+            "display_status_reason": screening_state.get("display_status_reason"),
+            "active_screening_task_id": screening_state.get("active_screening_task_id"),
+            "active_screening_task_type": screening_state.get("active_screening_task_type"),
+            "active_screening_task_status": screening_state.get("active_screening_status"),
+            "active_screening_auto_retry_scheduled": display_payload["active_screening_auto_retry_scheduled"],
+            "ai_recommended_status": display_payload["ai_recommended_status"],
+            "latest_resume_file_id": row.latest_resume_file_id,
+            "latest_parse_result_id": row.latest_parse_result_id,
+            "latest_score_id": row.latest_score_id,
+            "latest_total_score": display_payload["display_total_score"],
+            "owner_id": row.owner_id,
+            "ai_match_reason": ai_match_snapshot.get("ai_match_reason"),
+            "ai_potential_position": ai_match_snapshot.get("ai_potential_position"),
+            "ai_potential_reason": ai_match_snapshot.get("ai_potential_reason"),
+            "tags": tags[:3] if isinstance(tags, list) else [],
+            "note_summary": note_summary or None,
+            "created_at": isoformat_or_none(row.created_at),
+            "updated_at": isoformat_or_none(row.updated_at),
         }
 
     def _serialize_talent_pool_item(
@@ -10344,9 +10375,7 @@ class RecruitmentService:
                     seen_cids_score.add(cid)
                     completed_score_map[cid] = sr
 
-        ai_match_snapshot_map: Dict[int, Dict[str, Any]] = {}
-        if not compact:
-            ai_match_snapshot_map = self._build_candidate_ai_match_snapshot_map(rows)
+        ai_match_snapshot_map: Dict[int, Dict[str, Any]] = self._build_candidate_ai_match_snapshot_map(rows)
 
         serialized_rows = []
         serializer = self._serialize_position_candidate_item if compact else self._serialize_candidate_list_item
@@ -10364,7 +10393,7 @@ class RecruitmentService:
                 _preloaded_position=preloaded_position,
                 _preloaded_score_row=preloaded_score_row,
                 _preloaded_screening_state=screening_state,
-                **({"_preloaded_ai_match_snapshot": ai_match_snapshot_map.get(row.id)} if not compact else {}),
+                _preloaded_ai_match_snapshot=ai_match_snapshot_map.get(row.id),
             ))
         return {"items": serialized_rows, "total": total}
 

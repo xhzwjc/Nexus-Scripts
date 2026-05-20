@@ -538,10 +538,150 @@ interface RecruitmentAutomationContainerProps {
 }
 
 // ---- 岗位内嵌候选人列表：行组件（模块级，稳定引用） ----
-const POSITION_CANDIDATE_ROW_HEIGHT = 48;
-const POSITION_CANDIDATE_GRID_COLUMNS = "minmax(80px,1.2fr) minmax(120px,1.8fr) minmax(40px,0.5fr) minmax(60px,0.8fr) minmax(40px,0.4fr) minmax(70px,0.8fr) minmax(50px,0.6fr) minmax(50px,0.6fr) minmax(70px,0.9fr)";
-const positionCandidateValueClassName = "truncate text-sm font-medium text-slate-700 dark:text-slate-100";
-const positionCandidateScalarValueClassName = "text-sm font-medium text-slate-700 dark:text-slate-100";
+const POSITION_CANDIDATE_ROW_HEIGHT = 88;
+const POSITION_CANDIDATE_GRID_COLUMNS = "minmax(170px,1.45fr) minmax(170px,1.35fr) minmax(130px,0.9fr) minmax(170px,1.25fr) minmax(130px,0.9fr) minmax(96px,0.62fr)";
+
+function compactText(value: unknown) {
+    return String(value ?? "").trim();
+}
+
+function truncateText(value: unknown, limit = 48) {
+    const text = compactText(value);
+    if (!text) return "";
+    return text.length > limit ? `${text.slice(0, limit).trim()}...` : text;
+}
+
+function looksLikeGeneratedCandidateName(value: unknown) {
+    const text = compactText(value);
+    return /^【[^】]+】/.test(text) || /^岗位[:：]/.test(text);
+}
+
+function formatPositionCandidateName(candidate: CandidateSummary, isZh: boolean) {
+    const name = compactText(candidate.name);
+    if (!name || looksLikeGeneratedCandidateName(name)) {
+        return isZh ? "姓名待补全" : "Name needed";
+    }
+    return name;
+}
+
+function formatMaskedContact(candidate: CandidateSummary, isZh: boolean) {
+    if (candidate.phone) return compactText(candidate.phone);
+    if (candidate.email) return compactText(candidate.email);
+    return isZh ? "联系方式待补充" : "Contact needed";
+}
+
+function formatResumeState(candidate: CandidateSummary, isZh: boolean) {
+    if (!candidate.latest_resume_file_id && !candidate.latest_parse_result_id) {
+        return isZh ? "简历待上传" : "Resume needed";
+    }
+    if (!candidate.latest_parse_result_id) {
+        return isZh ? "简历待解析" : "Parse pending";
+    }
+    return isZh ? "简历已解析" : "Resume parsed";
+}
+
+function resolveMatchLevel(value?: number | null, isZh = true) {
+    if (value === undefined || value === null || Number.isNaN(Number(value))) {
+        return isZh ? "待分析" : "Pending";
+    }
+    const score = Number(value);
+    if (score >= 85) return isZh ? "强匹配" : "Strong";
+    if (score >= 70) return isZh ? "较匹配" : "Good";
+    if (score >= 50) return isZh ? "可参考" : "Review";
+    return isZh ? "低匹配" : "Low";
+}
+
+function matchLevelClassName(value?: number | null) {
+    if (value === undefined || value === null || Number.isNaN(Number(value))) {
+        return "border-slate-200 bg-slate-50 text-slate-500 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-400";
+    }
+    const score = Number(value);
+    if (score >= 85) return "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200";
+    if (score >= 70) return "border-teal-200 bg-teal-50 text-teal-700 dark:border-teal-900 dark:bg-teal-950/40 dark:text-teal-200";
+    if (score >= 50) return "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200";
+    return "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200";
+}
+
+function formatRelativeTime(value?: string | null, isZh = true) {
+    const text = compactText(value);
+    if (!text) return isZh ? "暂无更新时间" : "No update time";
+    const timestamp = new Date(text).getTime();
+    if (!Number.isFinite(timestamp)) return isZh ? "暂无更新时间" : "No update time";
+    const diff = Math.max(0, Date.now() - timestamp);
+    const minute = 60 * 1000;
+    const hour = 60 * minute;
+    const day = 24 * hour;
+    if (diff < minute) return isZh ? "刚刚" : "just now";
+    if (diff < hour) {
+        const minutes = Math.floor(diff / minute);
+        return isZh ? `${minutes} 分钟前` : `${minutes}m ago`;
+    }
+    if (diff < day) {
+        const hours = Math.floor(diff / hour);
+        return isZh ? `${hours} 小时前` : `${hours}h ago`;
+    }
+    if (diff < 30 * day) {
+        const days = Math.floor(diff / day);
+        return isZh ? `${days} 天前` : `${days}d ago`;
+    }
+    return formatDateTime(text);
+}
+
+function sourceLabel(value?: string | null, isZh = true) {
+    const source = compactText(value);
+    if (!source) return isZh ? "暂无来源" : "No source";
+    const zhLabels: Record<string, string> = {
+        manual_upload: "手动上传",
+        boss_zhipin: "BOSS直聘",
+        liepin: "猎聘",
+        headhunter: "猎头推荐",
+        other: "其他来源",
+    };
+    const enLabels: Record<string, string> = {
+        manual_upload: "Manual upload",
+        boss_zhipin: "BOSS Zhipin",
+        liepin: "Liepin",
+        headhunter: "Headhunter",
+        other: "Other",
+    };
+    return (isZh ? zhLabels : enLabels)[source] || source;
+}
+
+function nextActionHint(status: string, isZh: boolean) {
+    const zh: Record<string, string> = {
+        new_imported: "建议完善资料",
+        matching: "等待岗位识别",
+        unmatched: "建议重新识别",
+        pending_screening: "建议 HR 初筛",
+        screening_running: "等待筛选结果",
+        screening_failed: "查看失败原因",
+        screening_passed: "建议安排面试",
+        screening_rejected: "查看淘汰原因",
+        pending_interview: "跟进面试安排",
+        interview_passed: "推进 Offer",
+        interview_rejected: "查看面试反馈",
+        pending_offer: "跟进 Offer",
+        offer_sent: "等待反馈",
+        hired: "流程已完成",
+    };
+    const en: Record<string, string> = {
+        new_imported: "Complete profile",
+        matching: "Waiting match",
+        unmatched: "Retry match",
+        pending_screening: "HR screening",
+        screening_running: "Waiting result",
+        screening_failed: "Check failure",
+        screening_passed: "Schedule interview",
+        screening_rejected: "Review reason",
+        pending_interview: "Follow interview",
+        interview_passed: "Move to offer",
+        interview_rejected: "Review feedback",
+        pending_offer: "Follow offer",
+        offer_sent: "Await response",
+        hired: "Completed",
+    };
+    return (isZh ? zh : en)[status] || (isZh ? "查看详情" : "View details");
+}
 
 const JDStreamingPreview = React.memo(function JDStreamingPreview({
     content,
@@ -631,68 +771,162 @@ const PositionCandidateRow = React.memo(function PositionCandidateRow({
     isZh: boolean;
 }) {
     const displayStatus = resolveCandidateDisplayStatus(candidate);
+    const candidateName = formatPositionCandidateName(candidate, isZh);
+    const contactText = formatMaskedContact(candidate, isZh);
+    const resumeState = formatResumeState(candidate, isZh);
+    const tags = (candidate.tags || []).filter(Boolean).slice(0, 3);
+    const matchPercentText = candidate.match_percent === undefined || candidate.match_percent === null
+        ? (isZh ? "待分析" : "Pending")
+        : formatPercent(candidate.match_percent);
+    const matchLevel = resolveMatchLevel(candidate.match_percent, isZh);
+    const aiReason = compactText(candidate.ai_match_reason) || compactText(candidate.note_summary);
+    const aiSummary = aiReason || (isZh ? "暂无 AI 解释，建议进入详情查看简历" : "No AI explanation yet");
+    const potentialPosition = compactText(candidate.ai_potential_position);
+    const potentialReason = compactText(candidate.ai_potential_reason);
+    const experienceText = compactText(candidate.years_of_experience) || (isZh ? "年限待解析" : "Experience pending");
+    const educationText = compactText(candidate.education) || (isZh ? "学历待补充" : "Education needed");
+    const profileText = `${educationText} · ${experienceText}`;
+    const companyText = compactText(candidate.current_company);
+    const cityText = compactText(candidate.city) || (isZh ? "城市待补充" : "City needed");
+    const expectedCityText = compactText(candidate.expected_city) || (isZh ? "期望城市未填写" : "Expected city empty");
+    const sourceText = sourceLabel(candidate.source, isZh);
+    const sourceDetail = compactText(candidate.source_detail);
+    const updatedText = formatRelativeTime(candidate.updated_at || candidate.created_at, isZh);
+    const canViewResume = Boolean(candidate.latest_resume_file_id || candidate.latest_parse_result_id);
     return (
         <div
             role="button"
             tabIndex={0}
             className={cn(
-                "grid w-full items-center gap-6 px-4 text-left transition-colors border-b border-slate-100 dark:border-slate-800/80 cursor-pointer",
+                "grid w-full items-center gap-4 border-b border-slate-100 px-4 text-left transition-colors dark:border-slate-800/80 cursor-pointer",
                 isSelected
-                    ? "bg-teal-50/80 dark:bg-teal-900/30"
-                    : "hover:bg-slate-50 dark:hover:bg-slate-900/80"
+                    ? "bg-slate-50/95 shadow-[inset_3px_0_0_rgba(15,23,42,0.9)] dark:bg-slate-900/70 dark:shadow-[inset_3px_0_0_rgba(241,245,249,0.95)]"
+                    : "bg-white hover:bg-slate-50/80 dark:bg-slate-950/60 dark:hover:bg-slate-900/80"
             )}
             style={{ height: POSITION_CANDIDATE_ROW_HEIGHT, gridTemplateColumns: POSITION_CANDIDATE_GRID_COLUMNS }}
             onClick={() => onSelect(candidate.id)}
             onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onSelect(candidate.id); }}
         >
+            <div className="min-w-0 space-y-1.5">
+                <div className="flex min-w-0 items-center gap-1.5">
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <span className="truncate text-[15px] font-semibold leading-5 text-slate-950 dark:text-slate-50">{candidateName}</span>
+                        </TooltipTrigger>
+                        <TooltipContent side="top"><p>{candidateName}</p></TooltipContent>
+                    </Tooltip>
+                    {tags.map((tag) => (
+                        <Badge key={tag} variant="outline" className="h-5 shrink-0 rounded-full px-1.5 text-[11px] font-medium text-slate-500 dark:text-slate-300">
+                            {tag}
+                        </Badge>
+                    ))}
+                </div>
+                <p className="truncate text-xs font-medium text-slate-600 dark:text-slate-300">{profileText}</p>
+                <p className="truncate text-xs text-slate-400 dark:text-slate-500">{contactText} · {resumeState}</p>
+            </div>
+
             <Tooltip>
                 <TooltipTrigger asChild>
-                    <span className="min-w-0 truncate text-base font-medium text-slate-900 dark:text-slate-100">{candidate.name}</span>
+                    <div className="min-w-0 space-y-1.5">
+                        <div className="flex min-w-0 items-center gap-2">
+                            <span className="text-[18px] font-semibold leading-5 text-slate-950 dark:text-slate-50">{matchPercentText}</span>
+                            <Badge className={cn("shrink-0 rounded-full border px-2 py-0 text-[12px] font-medium", matchLevelClassName(candidate.match_percent))}>
+                                {matchLevel}
+                            </Badge>
+                        </div>
+                        <p className="line-clamp-1 text-xs font-medium leading-5 text-slate-600 dark:text-slate-200">{truncateText(aiSummary, 44)}</p>
+                        <p className="truncate text-xs text-sky-600 dark:text-sky-300">
+                            {potentialPosition ? `${isZh ? "转岗潜力" : "Potential"}：${potentialPosition}` : (isZh ? "暂无转岗潜力" : "No potential role")}
+                        </p>
+                    </div>
                 </TooltipTrigger>
-                <TooltipContent side="top"><p>{candidate.name}</p></TooltipContent>
+                <TooltipContent side="top" className="max-w-sm border-slate-700 bg-slate-950 text-left text-white shadow-xl dark:border-slate-600 dark:bg-slate-950 dark:text-white">
+                    <div className="space-y-2">
+                        <div>
+                            <p className="font-semibold text-white">{isZh ? "AI 推荐原因" : "AI recommendation"}</p>
+                            <p className="mt-1 text-xs font-medium leading-5 text-white">{aiReason || (isZh ? "暂无 AI 解释，建议进入详情查看简历或重新初筛。" : "No AI explanation yet. View details or run screening again.")}</p>
+                        </div>
+                        {potentialPosition || potentialReason ? (
+                            <div>
+                                <p className="font-semibold text-white">{isZh ? "转岗潜力" : "Potential role"}</p>
+                                <p className="mt-1 text-xs font-medium leading-5 text-white">{potentialPosition || (isZh ? "暂无明确岗位" : "No clear role")}</p>
+                                {potentialReason ? <p className="mt-1 text-xs font-medium leading-5 text-white">{potentialReason}</p> : null}
+                            </div>
+                        ) : null}
+                    </div>
+                </TooltipContent>
             </Tooltip>
-            <Tooltip>
-                <TooltipTrigger asChild>
-                    <span className={positionCandidateValueClassName}>{candidate.phone || candidate.email || "-"}</span>
-                </TooltipTrigger>
-                <TooltipContent side="top"><p>{candidate.phone || candidate.email || ""}</p></TooltipContent>
-            </Tooltip>
-            {/* 简历列 */}
-            <Tooltip>
-                <TooltipTrigger asChild>
-                    <button
-                        type="button"
-                        className="flex h-7 w-7 items-center justify-center rounded-md text-red-500 transition-colors hover:bg-red-50 hover:text-red-600"
-                        onClick={(e) => { e.stopPropagation(); onViewResume(candidate.id); }}
-                    >
-                        <FileText className="h-4 w-4" />
-                    </button>
-                </TooltipTrigger>
-                <TooltipContent side="top"><p>{isZh ? "查看简历" : "View Resume"}</p></TooltipContent>
-            </Tooltip>
-            <Tooltip>
-                <TooltipTrigger asChild>
-                    <span className={positionCandidateValueClassName}>{candidate.city || "-"}</span>
-                </TooltipTrigger>
-                <TooltipContent side="top"><p>{candidate.city || ""}</p></TooltipContent>
-            </Tooltip>
-            <span className={positionCandidateScalarValueClassName}>{candidate.age ?? "-"}</span>
-            <Tooltip>
-                <TooltipTrigger asChild>
-                    <span className={positionCandidateValueClassName}>{candidate.education || "-"}</span>
-                </TooltipTrigger>
-                <TooltipContent side="top"><p>{candidate.education || ""}</p></TooltipContent>
-            </Tooltip>
-            <Tooltip>
-                <TooltipTrigger asChild>
-                    <span className={positionCandidateValueClassName}>{candidate.years_of_experience || "-"}</span>
-                </TooltipTrigger>
-                <TooltipContent side="top"><p>{candidate.years_of_experience || ""}</p></TooltipContent>
-            </Tooltip>
-            <span className="text-right text-sm font-semibold text-teal-700 dark:text-teal-200">{formatPercent(candidate.match_percent)}</span>
-            <Badge className={cn("rounded-full border shrink-0 text-[14px] w-fit", statusBadgeClass("candidate", displayStatus))}>
-                {labelForCandidateStatus(displayStatus)}
-            </Badge>
+
+            <div className="min-w-0 space-y-1.5">
+                <Badge className={cn("w-fit rounded-full border px-2 py-0 text-[12px] font-medium", statusBadgeClass("candidate", displayStatus))}>
+                    {labelForCandidateStatus(displayStatus)}
+                </Badge>
+                <p className="truncate text-xs text-slate-500 dark:text-slate-400">{isZh ? "更新于" : "Updated"} {updatedText}</p>
+                <p className="truncate text-xs font-medium text-slate-600 dark:text-slate-300">{nextActionHint(displayStatus, isZh)}</p>
+            </div>
+
+            <div className="min-w-0 space-y-1.5">
+                <p className="truncate text-sm font-semibold text-slate-800 dark:text-slate-100">{cityText} → {expectedCityText}</p>
+                <p className="truncate text-xs text-slate-500 dark:text-slate-400">{companyText || (isZh ? "当前公司待补充" : "Company needed")}</p>
+                <p className="line-clamp-1 text-xs text-slate-400 dark:text-slate-500">{truncateText(aiReason || candidate.note_summary, 42) || (isZh ? "摘要待解析" : "Summary pending")}</p>
+            </div>
+
+            <div className="min-w-0 space-y-1.5">
+                <p className="truncate text-sm font-semibold text-slate-800 dark:text-slate-100">{sourceText}</p>
+                <p className="truncate text-xs text-slate-500 dark:text-slate-400">{sourceDetail || (isZh ? "来源详情待补充" : "Source detail needed")}</p>
+                <p className="truncate text-xs text-slate-400 dark:text-slate-500">{updatedText}</p>
+            </div>
+
+            <div className="flex items-center justify-end gap-1.5">
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <button
+                            type="button"
+                            className="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200/80 bg-white text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300 dark:hover:border-slate-700 dark:hover:bg-slate-900"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                onSelect(candidate.id);
+                            }}
+                        >
+                            <Eye className="h-3.5 w-3.5"/>
+                        </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top"><p>{isZh ? "查看详情" : "View details"}</p></TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <button
+                            type="button"
+                            disabled={!canViewResume}
+                            className="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200/80 bg-white text-red-500 transition hover:border-red-200 hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-35 dark:border-slate-800 dark:bg-slate-950 dark:hover:border-red-900 dark:hover:bg-red-950/30"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                if (canViewResume) {
+                                    onViewResume(candidate.id);
+                                }
+                            }}
+                        >
+                            <FileText className="h-3.5 w-3.5"/>
+                        </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top"><p>{canViewResume ? (isZh ? "查看简历" : "View resume") : (isZh ? "暂无简历" : "No resume")}</p></TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <button
+                            type="button"
+                            className="h-7 rounded-lg border border-transparent px-2 text-xs font-medium text-slate-500 transition hover:border-slate-200 hover:bg-white hover:text-slate-900 dark:text-slate-400 dark:hover:border-slate-800 dark:hover:bg-slate-950 dark:hover:text-slate-100"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                onSelect(candidate.id);
+                            }}
+                        >
+                            {isZh ? "更多" : "More"}
+                        </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top"><p>{isZh ? "更多操作在详情中完成" : "More actions in details"}</p></TooltipContent>
+                </Tooltip>
+            </div>
         </div>
     );
 }, (prev, next) => {
@@ -702,11 +936,24 @@ const PositionCandidateRow = React.memo(function PositionCandidateRow({
         && prev.candidate.name === next.candidate.name
         && prev.candidate.phone === next.candidate.phone
         && prev.candidate.email === next.candidate.email
+        && prev.candidate.current_company === next.candidate.current_company
         && prev.candidate.city === next.candidate.city
-        && prev.candidate.age === next.candidate.age
+        && prev.candidate.expected_city === next.candidate.expected_city
         && prev.candidate.education === next.candidate.education
         && prev.candidate.years_of_experience === next.candidate.years_of_experience
+        && prev.candidate.source === next.candidate.source
+        && prev.candidate.source_detail === next.candidate.source_detail
         && prev.candidate.match_percent === next.candidate.match_percent
+        && prev.candidate.latest_resume_file_id === next.candidate.latest_resume_file_id
+        && prev.candidate.latest_parse_result_id === next.candidate.latest_parse_result_id
+        && prev.candidate.latest_score_id === next.candidate.latest_score_id
+        && prev.candidate.latest_total_score === next.candidate.latest_total_score
+        && prev.candidate.ai_match_reason === next.candidate.ai_match_reason
+        && prev.candidate.ai_potential_position === next.candidate.ai_potential_position
+        && prev.candidate.ai_potential_reason === next.candidate.ai_potential_reason
+        && prev.candidate.note_summary === next.candidate.note_summary
+        && prev.candidate.updated_at === next.candidate.updated_at
+        && JSON.stringify(prev.candidate.tags || []) === JSON.stringify(next.candidate.tags || [])
         && prev.isSelected === next.isSelected
         && prev.isZh === next.isZh;
 });
@@ -910,16 +1157,13 @@ const PositionCandidatesView = React.memo(function PositionCandidatesView(props:
                 </div>
             </div>
             {/* 列头 */}
-            <div className="grid items-center gap-6 border-b border-slate-200/80 bg-slate-50/90 px-4 text-[14px] font-semibold uppercase tracking-wider text-slate-600 shadow-[inset_0_-1px_0_rgba(148,163,184,0.12)] dark:border-slate-700/80 dark:bg-slate-900/95 dark:text-slate-100 dark:shadow-[inset_0_-1px_0_rgba(148,163,184,0.18)]" style={{ height: 34, gridTemplateColumns: POSITION_CANDIDATE_GRID_COLUMNS }}>
-                <span>{isZh ? "姓名" : "Name"}</span>
-                <span>{isZh ? "手机/邮箱" : "Phone/Email"}</span>
-                <span>{isZh ? "简历" : "Resume"}</span>
-                <span>{isZh ? "所在城市" : "Current City"}</span>
-                <span>{isZh ? "年龄" : "Age"}</span>
-                <span>{isZh ? "学历" : "Education"}</span>
-                <span>{isZh ? "年限" : "Exp"}</span>
-                <span className="text-right">{isZh ? "匹配" : "Match"}</span>
-                <span>{isZh ? "状态" : "Status"}</span>
+            <div className="grid items-center gap-4 border-b border-slate-200/80 bg-slate-50/90 px-4 text-[12px] font-semibold uppercase tracking-wider text-slate-500 shadow-[inset_0_-1px_0_rgba(148,163,184,0.12)] dark:border-slate-700/80 dark:bg-slate-900/95 dark:text-slate-300 dark:shadow-[inset_0_-1px_0_rgba(148,163,184,0.18)]" style={{ height: 34, gridTemplateColumns: POSITION_CANDIDATE_GRID_COLUMNS }}>
+                <span>{isZh ? "候选人" : "Candidate"}</span>
+                <span>{isZh ? "AI 推荐" : "AI Recommendation"}</span>
+                <span>{isZh ? "流程状态" : "Stage"}</span>
+                <span>{isZh ? "简历亮点" : "Resume Highlights"}</span>
+                <span>{isZh ? "来源 / 意向" : "Source / Intent"}</span>
+                <span className="text-right">{isZh ? "操作" : "Actions"}</span>
             </div>
             {/* 候选人列表 */}
             <div className="min-h-0 flex-1 overflow-y-auto">
