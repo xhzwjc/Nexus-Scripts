@@ -21,13 +21,91 @@ def test_extract_text_from_pdf_prefers_pypdf():
     pdfium_mock.PdfDocument.assert_not_called()
 
 
-def test_extract_text_from_pdf_requires_explicit_pdfium_fallback():
+def test_extract_text_from_pdf_uses_pdfkit_fallback_on_macos():
     with patch("app.services.recruitment_utils.PdfReader", None), patch(
-        "app.services.recruitment_utils.pdfium", object()
-    ), patch.dict(os.environ, {}, clear=False):
+        "app.services.recruitment_utils.pdfium", None
+    ), patch(
+        "app.services.recruitment_utils.sys.platform", "darwin"
+    ), patch(
+        "app.services.recruitment_utils._extract_text_from_pdf_with_pdfkit", return_value="PDFKit 提取结果"
+    ) as pdfkit_mock:
+        text = extract_text_from_pdf(Path("/tmp/resume.pdf"))
+
+    assert text == "PDFKit 提取结果"
+    pdfkit_mock.assert_called_once_with(Path("/tmp/resume.pdf"))
+
+
+def test_extract_text_from_pdf_falls_back_when_pypdf_returns_empty():
+    page_one = Mock()
+    page_one.extract_text.return_value = ""
+    pdfium_mock = Mock()
+    pdfium_document = Mock()
+    pdfium_page = Mock()
+    text_page = Mock()
+    text_page.get_text_range.return_value = "pdfium 提取结果"
+    pdfium_page.get_textpage.return_value = text_page
+    pdfium_document.__len__ = Mock(return_value=1)
+    pdfium_document.__getitem__ = Mock(return_value=pdfium_page)
+    pdfium_mock.PdfDocument.return_value = pdfium_document
+
+    with patch("app.services.recruitment_utils.PdfReader", return_value=SimpleNamespace(pages=[page_one])), patch(
+        "app.services.recruitment_utils.pdfium", pdfium_mock
+    ):
+        text = extract_text_from_pdf(Path("/tmp/resume.pdf"))
+
+    assert text == "pdfium 提取结果"
+    pdfium_mock.PdfDocument.assert_called_once()
+
+
+def test_extract_text_from_pdf_uses_ocr_when_text_mapping_is_garbled():
+    page_one = Mock()
+    page_one.extract_text.return_value = "\x00\x01\x02\x03" * 20 + "SQL 2024"
+
+    with patch("app.services.recruitment_utils.PdfReader", return_value=SimpleNamespace(pages=[page_one])), patch(
+        "app.services.recruitment_utils.pdfium", None
+    ), patch(
+        "app.services.recruitment_utils.sys.platform", "darwin"
+    ), patch(
+        "app.services.recruitment_utils._extract_text_from_pdf_with_pdfkit", return_value="SQL Python 2024"
+    ), patch(
+        "app.services.recruitment_utils._extract_text_from_pdf_with_macos_vision_ocr",
+        return_value="冯筱楠 高级商务经理 工作经历",
+    ) as ocr_mock:
+        text = extract_text_from_pdf(Path("/tmp/resume.pdf"))
+
+    assert text == "冯筱楠 高级商务经理 工作经历"
+    ocr_mock.assert_called_once_with(Path("/tmp/resume.pdf"))
+
+
+def test_extract_text_from_pdf_uses_paddleocr_fallback_off_macos():
+    page_one = Mock()
+    page_one.extract_text.return_value = "\x00\x01\x02\x03" * 20 + "SQL 2024"
+
+    with patch("app.services.recruitment_utils.PdfReader", return_value=SimpleNamespace(pages=[page_one])), patch(
+        "app.services.recruitment_utils.pdfium", None
+    ), patch(
+        "app.services.recruitment_utils.sys.platform", "linux"
+    ), patch(
+        "app.services.recruitment_utils._extract_text_from_pdf_with_paddleocr",
+        return_value="PaddleOCR 简历正文",
+    ) as ocr_mock:
+        text = extract_text_from_pdf(Path("/tmp/resume.pdf"))
+
+    assert text == "PaddleOCR 简历正文"
+    ocr_mock.assert_called_once_with(Path("/tmp/resume.pdf"))
+
+
+def test_extract_text_from_pdf_requires_dependency_or_fallback():
+    with patch("app.services.recruitment_utils.PdfReader", None), patch(
+        "app.services.recruitment_utils.pdfium", None
+    ), patch(
+        "app.services.recruitment_utils.sys.platform", "linux"
+    ), patch.dict(
+        os.environ, {"RECRUITMENT_ENABLE_PDF_OCR": "0"}, clear=False
+    ):
         try:
             extract_text_from_pdf(Path("/tmp/resume.pdf"))
             assert False, "expected RuntimeError"
         except RuntimeError as exc:
             assert "install pypdf" in str(exc)
-            assert "RECRUITMENT_ENABLE_PDFIUM_FALLBACK=1" in str(exc)
+            assert "pypdfium2 fallback" in str(exc)

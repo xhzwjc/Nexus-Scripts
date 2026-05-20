@@ -50,6 +50,7 @@ import {
     type RecruitmentAssistantToolResultPayload,
 } from "@/lib/recruitment-assistant-protocol";
 import {
+    isRecruitmentRequestAborted,
     joinTags,
     recruitmentApi,
     splitTags,
@@ -1590,6 +1591,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     }, []);
 
     const [activePage, setActivePage] = useState<RecruitmentPage>(initialPage || "workspace");
+    const activePageRef = useRef<RecruitmentPage>(initialPage || "workspace");
     const recruitmentPageHistoryRef = useRef<RecruitmentPage[]>([initialPage || "workspace"]);
     const lastInitialPageRef = useRef<RecruitmentPage | null>(null);
 
@@ -1702,6 +1704,9 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const allTalentPoolCandidatesRef = useRef<CandidateSummary[]>(allTalentPoolCandidates);
     const candidateTotalRef = useRef(candidateTotal);
     const candidateListUsingVisibleFiltersRef = useRef(false);
+    const candidateListContextKeyRef = useRef("");
+    const candidateListLoadAbortControllerRef = useRef<AbortController | null>(null);
+    const candidateListLoadMoreAbortControllerRef = useRef<AbortController | null>(null);
     const skillsLoadedOnceRef = useRef(false);
     const mailSettingsLoadedOnceRef = useRef(false);
     const llmConfigsLoadedOnceRef = useRef(false);
@@ -1744,6 +1749,10 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const [candidateSourceFilter, setCandidateSourceFilter] = useState<string[]>([]);
     const [candidateTimeFilter, setCandidateTimeFilter] = useState("all");
     const [candidateMatchFilter, setCandidateMatchFilter] = useState("all");
+    const [candidateMatchSortOrder, setCandidateMatchSortOrder] = useState<"" | "asc" | "desc">("");
+    const [candidateMatchSortLoading, setCandidateMatchSortLoading] = useState(false);
+    const candidateMatchSortOrderRef = useRef<"" | "asc" | "desc">("");
+    const candidateMatchSortRequestTokenRef = useRef(0);
     const [candidateViewMode, setCandidateViewMode] = useState<CandidateViewMode>("list");
     const [candidateListColumnWidths, setCandidateListColumnWidths] = useState<Record<CandidateListColumnKey, number>>(
         candidateListColumnDefaultWidths,
@@ -2834,6 +2843,10 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     }, [pageVisible]);
 
     useEffect(() => {
+        activePageRef.current = activePage;
+    }, [activePage]);
+
+    useEffect(() => {
         if (typeof document === "undefined") {
             return undefined;
         }
@@ -2981,11 +2994,14 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             try {
                 // 设置 loading 状态，防止显示空状态
                 setCandidatesLoading(true);
+                candidateListContextKeyRef.current = buildCandidateListContextKey({ useVisibleFilters: false });
                 const queryString = buildCandidateListQueryString({
                     useVisibleFilters: false,
                 });
                 const url = `/candidates?${queryString}`;
-                const data = await recruitmentApi<{items: CandidateSummary[]; total: number}>(url);
+                const data = await recruitmentApi<{items: CandidateSummary[]; total: number}>(url, {
+                    timeoutMs: 45000,
+                });
                 if (!cancelled) {
                     candidateListUsingVisibleFiltersRef.current = false;
                     setAllCandidates(deduplicateCandidates(data?.items || []));
@@ -3107,6 +3123,10 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     }, [candidateListScrollEl]);
 
     useEffect(() => {
+        candidateMatchSortOrderRef.current = candidateMatchSortOrder;
+    }, [candidateMatchSortOrder]);
+
+    useEffect(() => {
         if (bootstrapping || activePage !== "candidates") {
             return;
         }
@@ -3117,13 +3137,14 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 force: true,
                 useVisibleFilters: true,
                 query: deferredCandidateQuery,
+                matchSortOrder: candidateMatchSortOrderRef.current,
             });
         }, 150);
         return () => window.clearTimeout(timer);
     }, [activePage, bootstrapping, candidatePositionFilter, candidateStatusFilter, deferredCandidateQuery, scrollCandidateListToTop]);
 
     const matchesActiveCandidateListFilters = useCallback((candidate: CandidateSummary) => {
-        if (!candidateListUsingVisibleFiltersRef.current) {
+        if (!candidateListUsingVisibleFiltersRef.current || activePageRef.current !== "candidates") {
             return true;
         }
         const activePositionId = candidatePositionFilter[0] || "";
@@ -3782,8 +3803,61 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         }));
     }
 
+    async function applyCandidateMatchSortOrder(nextMatchSortOrder: "" | "asc" | "desc") {
+        if (candidateMatchSortLoading || nextMatchSortOrder === candidateMatchSortOrderRef.current) {
+            return;
+        }
+        const previousMatchSortOrder = candidateMatchSortOrderRef.current;
+        const requestToken = candidateMatchSortRequestTokenRef.current + 1;
+        candidateMatchSortRequestTokenRef.current = requestToken;
+        candidateMatchSortOrderRef.current = nextMatchSortOrder;
+        setCandidateMatchSortLoading(true);
+        setCandidateMatchSortOrder(nextMatchSortOrder);
+        scrollCandidateListToTop();
+
+        try {
+            await loadCandidates({
+                silent: true,
+                force: true,
+                useVisibleFilters: true,
+                query: deferredCandidateQuery,
+                matchSortOrder: nextMatchSortOrder,
+            });
+        } catch (error) {
+            if (!mountedRef.current || candidateMatchSortRequestTokenRef.current !== requestToken) {
+                return;
+            }
+            candidateMatchSortOrderRef.current = previousMatchSortOrder;
+            setCandidateMatchSortOrder(previousMatchSortOrder);
+            candidateListContextKeyRef.current = buildCandidateListContextKey({
+                useVisibleFilters: true,
+                query: deferredCandidateQuery,
+                matchSortOrder: previousMatchSortOrder,
+            });
+            if (!isRecruitmentRequestAborted(error)) {
+                toast.error(
+                    isZh
+                        ? `匹配度排序失败，已保留原列表：${formatActionError(error)}`
+                        : `Failed to sort by match. Kept the previous list: ${formatActionError(error)}`,
+                );
+            }
+        } finally {
+            if (mountedRef.current && candidateMatchSortRequestTokenRef.current === requestToken) {
+                setCandidateMatchSortLoading(false);
+            }
+        }
+    }
+
     function renderCandidateListHeaderCell(key: CandidateListColumnKey, label: string) {
         const width = candidateListDisplayColumnWidths[key];
+        const isMatchColumn = key === "match";
+        const nextMatchSortOrder = (
+            candidateMatchSortOrder === ""
+                ? "desc"
+                : candidateMatchSortOrder === "desc"
+                    ? "asc"
+                    : ""
+        ) as "" | "asc" | "desc";
         return (
             <th
                 key={key}
@@ -3791,7 +3865,40 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 className="text-foreground sticky top-0 z-10 bg-inherit px-2 text-left align-middle font-medium whitespace-nowrap"
             >
                 <div className="group relative flex items-center gap-2 pr-3">
-                    <span className="truncate">{label}</span>
+                    {isMatchColumn ? (
+                        <button
+                            type="button"
+                            className="inline-flex items-center gap-1 rounded-md px-1 py-0.5 text-left transition hover:bg-slate-100 disabled:cursor-progress disabled:opacity-75 dark:hover:bg-slate-800"
+                            onClick={() => void applyCandidateMatchSortOrder(nextMatchSortOrder)}
+                            disabled={candidateMatchSortLoading}
+                            aria-busy={candidateMatchSortLoading}
+                            title={
+                                candidateMatchSortLoading
+                                    ? (isZh ? "正在按匹配度重新排序" : "Sorting by match")
+                                    : candidateMatchSortOrder === ""
+                                    ? (isZh ? "按匹配度降序排序" : "Sort by match descending")
+                                    : candidateMatchSortOrder === "desc"
+                                        ? (isZh ? "切换为匹配度升序" : "Switch to match ascending")
+                                        : (isZh ? "取消匹配度排序" : "Clear match sorting")
+                            }
+                        >
+                            <span className="truncate">{label}</span>
+                            {candidateMatchSortLoading ? (
+                                <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-amber-500"/>
+                            ) : candidateMatchSortOrder === "desc" ? (
+                                <ChevronDown className="h-3.5 w-3.5 shrink-0"/>
+                            ) : candidateMatchSortOrder === "asc" ? (
+                                <ChevronUp className="h-3.5 w-3.5 shrink-0"/>
+                            ) : (
+                                <div className="flex shrink-0 flex-col items-center justify-center text-slate-400">
+                                    <ChevronUp className="-mb-1 h-3 w-3"/>
+                                    <ChevronDown className="-mt-1 h-3 w-3"/>
+                                </div>
+                            )}
+                        </button>
+                    ) : (
+                        <span className="truncate">{label}</span>
+                    )}
                     <button
                         type="button"
                         className="absolute -right-2 top-1/2 h-7 w-3 -translate-y-1/2 cursor-col-resize rounded-full border border-transparent bg-transparent opacity-0 transition hover:border-slate-300 hover:bg-slate-100/90 group-hover:opacity-100 dark:hover:border-slate-600 dark:hover:bg-slate-800/90"
@@ -3967,6 +4074,38 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         return "";
     }
 
+    function abortCandidateListRequests() {
+        candidateListLoadAbortControllerRef.current?.abort();
+        candidateListLoadAbortControllerRef.current = null;
+        candidateListLoadMoreAbortControllerRef.current?.abort();
+        candidateListLoadMoreAbortControllerRef.current = null;
+        Array.from(requestInflightRef.current.keys()).forEach((key) => {
+            if (key.startsWith("candidates:first-page:")) {
+                requestInflightRef.current.delete(key);
+            }
+        });
+    }
+
+    function buildCandidateListContextKey(options?: {
+        departmentScope?: string;
+        orgScope?: string;
+        query?: string;
+        positionFilter?: string[];
+        statusFilter?: string[];
+        useVisibleFilters?: boolean;
+        matchSortOrder?: "" | "asc" | "desc";
+    }) {
+        return JSON.stringify({
+            departmentScope: options?.departmentScope ?? selectedDepartmentScope,
+            orgScope: options?.orgScope ?? selectedOrgScope,
+            query: String(options?.query ?? deferredCandidateQuery).trim(),
+            positionFilter: options?.positionFilter ?? candidatePositionFilter,
+            statusFilter: options?.statusFilter ?? candidateStatusFilter,
+            useVisibleFilters: options?.useVisibleFilters ?? activePageRef.current === "candidates",
+            matchSortOrder: options?.matchSortOrder ?? candidateMatchSortOrder,
+        });
+    }
+
     function buildCandidateListQueryString(options?: {
         departmentScope?: string;
         orgScope?: string;
@@ -3974,6 +4113,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         positionFilter?: string[];
         statusFilter?: string[];
         useVisibleFilters?: boolean;
+        matchSortOrder?: "" | "asc" | "desc";
         limit?: number;
         offset?: number;
     }) {
@@ -3984,11 +4124,12 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         if (scopedOrgCode) {
             params.set("org_code", scopedOrgCode);
         }
-        const useVisibleFilters = options?.useVisibleFilters ?? activePage === "candidates";
+        const useVisibleFilters = options?.useVisibleFilters ?? activePageRef.current === "candidates";
         if (useVisibleFilters) {
             const normalizedQuery = String(options?.query ?? deferredCandidateQuery).trim();
             const positionId = String((options?.positionFilter ?? candidatePositionFilter)[0] || "").trim();
             const status = String((options?.statusFilter ?? candidateStatusFilter)[0] || "").trim();
+            const matchSortOrder = String(options?.matchSortOrder ?? candidateMatchSortOrder).trim().toLowerCase();
             if (normalizedQuery) {
                 params.set("query", normalizedQuery);
             }
@@ -3997,6 +4138,10 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             }
             if (status) {
                 params.set("status", status);
+            }
+            if (matchSortOrder === "asc" || matchSortOrder === "desc") {
+                params.set("sort_by", "match_percent");
+                params.set("sort_order", matchSortOrder);
             }
         }
         return params.toString();
@@ -4011,6 +4156,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         positionFilter?: string[];
         statusFilter?: string[];
         useVisibleFilters?: boolean;
+        matchSortOrder?: "" | "asc" | "desc";
     }) {
         const requestId = candidatesLoadRequestIdRef.current + 1;
         candidatesLoadRequestIdRef.current = requestId;
@@ -4018,7 +4164,20 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             setCandidatesLoading(true);
         }
         try {
-            const useVisibleFilters = options?.useVisibleFilters ?? activePage === "candidates";
+            const useVisibleFilters = options?.useVisibleFilters ?? activePageRef.current === "candidates";
+            const contextKey = buildCandidateListContextKey({
+                departmentScope: options?.departmentScope,
+                orgScope: options?.orgScope,
+                query: options?.query,
+                positionFilter: options?.positionFilter,
+                statusFilter: options?.statusFilter,
+                useVisibleFilters,
+                matchSortOrder: options?.matchSortOrder,
+            });
+            candidateListContextKeyRef.current = contextKey;
+            abortCandidateListRequests();
+            const controller = new AbortController();
+            candidateListLoadAbortControllerRef.current = controller;
             const queryString = buildCandidateListQueryString({
                 departmentScope: options?.departmentScope,
                 orgScope: options?.orgScope,
@@ -4026,16 +4185,24 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 positionFilter: options?.positionFilter,
                 statusFilter: options?.statusFilter,
                 useVisibleFilters,
+                matchSortOrder: options?.matchSortOrder,
             });
             const url = `/candidates?${queryString}`;
-            const request = () => recruitmentApi<{items: CandidateSummary[]; total: number}>(url);
+            const request = () => recruitmentApi<{items: CandidateSummary[]; total: number}>(url, {
+                signal: controller.signal,
+                timeoutMs: 45000,
+            });
             const result = options?.force
                 ? await request()
                 : await runDedupedRequest(
                     `candidates:first-page:${queryString}`,
                     request,
                 );
-            if (!mountedRef.current || candidatesLoadRequestIdRef.current !== requestId) {
+            if (
+                !mountedRef.current
+                || candidatesLoadRequestIdRef.current !== requestId
+                || candidateListContextKeyRef.current !== contextKey
+            ) {
                 return result?.items || [];
             }
             candidateListUsingVisibleFiltersRef.current = useVisibleFilters;
@@ -4044,11 +4211,22 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             setCandidatesInitialLoaded(true);
             return result?.items || [];
         } catch (error) {
+            if (isRecruitmentRequestAborted(error)) {
+                return [];
+            }
             if (!options?.silent) {
                 toast.error(recruitmentToast.loadFailed(recruitmentToastEntities.candidates, formatActionError(error)));
             }
             throw error;
         } finally {
+            if (
+                candidateListLoadAbortControllerRef.current
+                && candidateListLoadAbortControllerRef.current.signal.aborted
+            ) {
+                candidateListLoadAbortControllerRef.current = null;
+            } else if (mountedRef.current && candidatesLoadRequestIdRef.current === requestId) {
+                candidateListLoadAbortControllerRef.current = null;
+            }
             if (!options?.silent && mountedRef.current && candidatesLoadRequestIdRef.current === requestId) {
                 setCandidatesLoading(false);
             }
@@ -4067,24 +4245,36 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
 
     const loadingMoreCandidatesRef = useRef(false);
     async function loadMoreCandidates() {
-        if (candidatesLoading || loadingMoreCandidatesRef.current || allCandidates.length >= candidateTotal) return;
+        if (candidatesLoading || candidateMatchSortLoading || loadingMoreCandidatesRef.current || allCandidates.length >= candidateTotal) return;
         loadingMoreCandidatesRef.current = true;
         setIsLoadingMoreCandidates(true);
         try {
             const offset = allCandidates.length;
+            const contextKey = candidateListContextKeyRef.current;
+            candidateListLoadMoreAbortControllerRef.current?.abort();
+            const controller = new AbortController();
+            candidateListLoadMoreAbortControllerRef.current = controller;
             const queryString = buildCandidateListQueryString({
                 offset,
                 useVisibleFilters: candidateListUsingVisibleFiltersRef.current,
+                matchSortOrder: candidateMatchSortOrderRef.current,
             });
-            const data = await recruitmentApi<{items: CandidateSummary[]; total: number}>(`/candidates?${queryString}`);
-            if (mountedRef.current) {
+            const data = await recruitmentApi<{items: CandidateSummary[]; total: number}>(`/candidates?${queryString}`, {
+                signal: controller.signal,
+                timeoutMs: 45000,
+            });
+            if (mountedRef.current && candidateListContextKeyRef.current === contextKey) {
                 setAllCandidates(prev => deduplicateCandidates([...prev, ...(data?.items || [])]));
                 setCandidateTotal(data?.total || 0);
             }
         } catch (error) {
+            if (isRecruitmentRequestAborted(error)) {
+                return;
+            }
             console.error("Failed to load more candidates:", error);
         } finally {
             loadingMoreCandidatesRef.current = false;
+            candidateListLoadMoreAbortControllerRef.current = null;
             setIsLoadingMoreCandidates(false);
         }
     }
@@ -4096,7 +4286,9 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         try {
             const scopedOrgCode = resolveScopedOrgCode(options?.departmentScope ?? selectedDepartmentScope, options?.orgScope ?? selectedOrgScope);
             const orgCodeParam = scopedOrgCode ? `?org_code=${encodeURIComponent(scopedOrgCode)}` : "";
-            const data = await recruitmentApi<CandidateSummary[]>(`/candidates/talent-pool${orgCodeParam}`);
+            const data = await recruitmentApi<CandidateSummary[]>(`/candidates/talent-pool${orgCodeParam}`, {
+                timeoutMs: 45000,
+            });
             if (mountedRef.current) {
                 setAllTalentPoolCandidates(data || []);
             }
@@ -4648,15 +4840,24 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         if (options?.batch) {
             setActiveBatchScreeningTaskIds((current) => Array.from(new Set([...current, taskId])));
         }
+        const queuedScreeningSnapshot: Partial<CandidateSummary> = {
+            id: candidateId,
+            active_screening_task_id: taskId,
+            active_screening_task_type: "screening_flow",
+            active_screening_task_status: "queued",
+            active_screening_status: "queued",
+            active_screening_stage: "queued",
+            active_screening_auto_retry_scheduled: false,
+            display_status_reason: "",
+        };
         // Optimistic update: immediately set active_screening_task_status on the candidate
         // so the left list shows "screening_running" without waiting for server refresh
-        setAllCandidates((current) =>
-            current.map((c) =>
-                c.id === candidateId
-                    ? { ...c, active_screening_task_id: taskId, active_screening_task_status: "queued" }
-                    : c,
-            ),
-        );
+        setAllCandidates((current) => current.map((candidate) => (
+            candidate.id === candidateId
+                ? { ...candidate, ...queuedScreeningSnapshot }
+                : candidate
+        )));
+        applyCandidateDetailSnapshot(queuedScreeningSnapshot);
         if (options?.batch) {
             // Batch tasks: skip startTaskMonitor polling, rely on SSE events
             // (task_completed / batch_summary) to drive UI updates instead of
@@ -7271,6 +7472,74 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             toast.error(recruitmentToast.screeningStartFailed(formatActionError(error)));
         } finally {
             screeningLaunchInFlightRef.current = false;
+            setScreeningSubmitting(false);
+        }
+    }
+
+    async function triggerFreshScreening(targetCandidateIds?: number[]) {
+        const candidateIds = Array.from(new Set(
+            (targetCandidateIds?.length ? targetCandidateIds : (selectedCandidateId ? [selectedCandidateId] : []))
+                .filter(Boolean),
+        ));
+        if (!candidateIds.length) {
+            toast.error(recruitmentUiText.noScreeningTarget);
+            return;
+        }
+        setScreeningSubmitting(true);
+        try {
+            if (candidateIds.length > 1) {
+                const response = await recruitmentApi<RecruitmentTaskBatchStartResponse>("/candidates/screen/batch-start", {
+                    method: "POST",
+                    timeoutMs: 45000,
+                    body: JSON.stringify({
+                        candidate_ids: candidateIds,
+                        skill_ids: [],
+                        use_candidate_memory: false,
+                        use_position_skills: true,
+                        allow_reuse_parse: false,
+                        allow_score_only_rerun: false,
+                    }),
+                });
+                response.tasks.forEach((task) => {
+                    if (!task.related_candidate_id || !task.task_id) return;
+                    if (task.status && isLiveTaskStatus(task.status)) {
+                        attachScreeningTaskMonitor(task.related_candidate_id, task.task_id, {
+                            batch: true,
+                            suppressFinishToast: true,
+                        });
+                    }
+                });
+                toast.success(
+                    isZh
+                        ? `已按当前岗位最新规则重新初筛 ${response.queued_count || 0} 位候选人`
+                        : `Queued fresh screening for ${response.queued_count || 0} candidate(s).`,
+                );
+                setSelectedCandidateIds((current) => current.filter((candidateId) => !candidateIds.includes(candidateId)));
+                return;
+            }
+
+            const candidateId = candidateIds[0];
+            const task = await recruitmentApi<RecruitmentTaskStartResponse>(`/candidates/${candidateId}/screen/start`, {
+                method: "POST",
+                timeoutMs: 45000,
+                body: JSON.stringify({
+                    skill_ids: [],
+                    use_candidate_memory: false,
+                    use_position_skills: true,
+                    allow_reuse_parse: false,
+                    allow_score_only_rerun: false,
+                }),
+            });
+            if (task.status && isLiveTaskStatus(task.status)) {
+                attachScreeningTaskMonitor(candidateId, task.task_id, {
+                    suppressFinishToast: false,
+                });
+            }
+            toast.success(isZh ? "已按当前岗位最新规则重新初筛" : "Fresh screening queued.");
+            setSelectedCandidateIds((current) => current.filter((item) => item !== candidateId));
+        } catch (error) {
+            toast.error(recruitmentToast.screeningStartFailed(formatActionError(error)));
+        } finally {
             setScreeningSubmitting(false);
         }
     }
@@ -10348,6 +10617,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 selectedCandidateIds={selectedCandidateIds}
                 setSelectedCandidateIds={setSelectedCandidateIds}
                 triggerScreening={triggerScreening}
+                triggerFreshScreening={triggerFreshScreening}
                 isBatchScreeningCancelling={isBatchScreeningCancelling}
                 screeningSubmitting={screeningSubmitting}
                 isBatchScreeningRunning={isBatchScreeningRunning}
@@ -10355,6 +10625,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 candidatesLoading={candidatesLoading}
                 candidatesInitialLoaded={candidatesInitialLoaded}
                 isLoadingMoreCandidates={isLoadingMoreCandidates}
+                candidateMatchSortLoading={candidateMatchSortLoading}
                 allCandidatesCount={allCandidates.length}
                 candidateTotal={candidateTotal}
                 candidateListScrollRef={candidateListScrollRef}
@@ -10508,10 +10779,21 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                         toast.success(recruitmentToast.refreshed(recruitmentToastEntities.talentPool));
                     }}
                     onReIdentify={async (candidateId) => {
-                        await triggerAIPositionMatch([candidateId]);
-                        setAllTalentPoolCandidates(prev => prev.map(c =>
-                            c.id === candidateId ? { ...c, status: "matching" } : c
-                        ));
+                        const result = await triggerAIPositionMatch([candidateId]);
+                        if ((result.total_candidates || 0) > 0) {
+                            setAllTalentPoolCandidates(prev => prev.map(c =>
+                                c.id === candidateId ? { ...c, status: "matching" } : c
+                            ));
+                        }
+                    }}
+                    onBatchReIdentify={async (candidateIds) => {
+                        const result = await triggerAIPositionMatch(candidateIds);
+                        if ((result.total_candidates || 0) > 0) {
+                            const idSet = new Set(candidateIds);
+                            setAllTalentPoolCandidates(prev => prev.map((candidate) => (
+                                idSet.has(candidate.id) ? { ...candidate, status: "matching" } : candidate
+                            )));
+                        }
                     }}
                     onCancelMatch={async (candidateId) => {
                         await recruitmentApi(`/candidates/${candidateId}/cancel-match`, { method: "POST" });

@@ -4,6 +4,9 @@ import html
 import json
 import os
 import re
+import shutil
+import subprocess
+import sys
 import xml.etree.ElementTree as ET
 import zipfile
 from datetime import datetime
@@ -944,13 +947,281 @@ def _extract_text_from_pdf_with_pdfium(file_path: Path) -> str:
     return "\n".join(chunk for chunk in chunks if chunk).strip()
 
 
+def _extract_text_from_pdf_with_pdfkit(file_path: Path) -> str:
+    swift_path = shutil.which("swift")
+    if not swift_path:
+        raise RuntimeError("Swift runtime unavailable for macOS PDFKit fallback.")
+    swift_script = """
+import Foundation
+import PDFKit
+
+guard let filePath = ProcessInfo.processInfo.environment["RECRUITMENT_PDFKIT_FILE_PATH"], !filePath.isEmpty else {
+    FileHandle.standardError.write(Data("missing_file_path\\n".utf8))
+    exit(1)
+}
+
+let url = URL(fileURLWithPath: filePath)
+guard let document = PDFDocument(url: url) else {
+    FileHandle.standardError.write(Data("open_failed\\n".utf8))
+    exit(2)
+}
+
+var pages: [String] = []
+pages.reserveCapacity(document.pageCount)
+for index in 0..<document.pageCount {
+    if let text = document.page(at: index)?.string, !text.isEmpty {
+        pages.append(text)
+    }
+}
+
+let output = pages.joined(separator: "\\n")
+if output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+    FileHandle.standardError.write(Data("empty_text\\n".utf8))
+    exit(3)
+}
+
+FileHandle.standardOutput.write(Data(output.utf8))
+"""
+    result = subprocess.run(
+        [swift_path, "-e", swift_script],
+        capture_output=True,
+        text=True,
+        timeout=20,
+        check=False,
+        env={
+            **os.environ,
+            "RECRUITMENT_PDFKIT_FILE_PATH": str(file_path),
+        },
+    )
+    if result.returncode != 0:
+        reason = (result.stderr or result.stdout or f"exit={result.returncode}").strip()
+        raise RuntimeError(f"PDFKit extraction failed: {reason}")
+    return result.stdout.strip()
+
+
+def _extract_text_from_pdf_with_macos_vision_ocr(file_path: Path) -> str:
+    swift_path = shutil.which("swift")
+    if not swift_path:
+        raise RuntimeError("Swift runtime unavailable for macOS Vision OCR fallback.")
+    max_pages = os.getenv("RECRUITMENT_PDF_OCR_MAX_PAGES", "3").strip() or "3"
+    swift_script = """
+import Foundation
+import PDFKit
+import AppKit
+import Vision
+
+guard let filePath = ProcessInfo.processInfo.environment["RECRUITMENT_PDFKIT_FILE_PATH"], !filePath.isEmpty else {
+    FileHandle.standardError.write(Data("missing_file_path\\n".utf8))
+    exit(1)
+}
+
+let maxPages = Int(ProcessInfo.processInfo.environment["RECRUITMENT_PDF_OCR_MAX_PAGES"] ?? "3") ?? 3
+let url = URL(fileURLWithPath: filePath)
+guard let document = PDFDocument(url: url) else {
+    FileHandle.standardError.write(Data("open_failed\\n".utf8))
+    exit(2)
+}
+
+var allLines: [String] = []
+let pageCount = min(document.pageCount, max(1, maxPages))
+
+for index in 0..<pageCount {
+    guard let page = document.page(at: index) else { continue }
+    let bounds = page.bounds(for: .mediaBox)
+    let scale: CGFloat = 3.0
+    let imageSize = NSSize(width: bounds.width * scale, height: bounds.height * scale)
+    let image = NSImage(size: imageSize)
+
+    image.lockFocus()
+    NSColor.white.setFill()
+    NSRect(origin: .zero, size: imageSize).fill()
+    guard let context = NSGraphicsContext.current?.cgContext else {
+        image.unlockFocus()
+        continue
+    }
+    context.saveGState()
+    context.scaleBy(x: scale, y: scale)
+    page.draw(with: .mediaBox, to: context)
+    context.restoreGState()
+    image.unlockFocus()
+
+    guard let tiff = image.tiffRepresentation,
+          let bitmap = NSBitmapImageRep(data: tiff),
+          let cgImage = bitmap.cgImage else {
+        continue
+    }
+
+    let request = VNRecognizeTextRequest()
+    request.recognitionLevel = .accurate
+    request.usesLanguageCorrection = true
+    request.recognitionLanguages = ["zh-Hans", "en-US"]
+    let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+    do {
+        try handler.perform([request])
+        let lines = (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }
+        allLines.append(contentsOf: lines)
+    } catch {
+        FileHandle.standardError.write(Data("\\(error)\\n".utf8))
+    }
+}
+
+let output = allLines.joined(separator: "\\n")
+if output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+    FileHandle.standardError.write(Data("empty_text\\n".utf8))
+    exit(3)
+}
+
+FileHandle.standardOutput.write(Data(output.utf8))
+"""
+    result = subprocess.run(
+        [swift_path, "-e", swift_script],
+        capture_output=True,
+        text=True,
+        timeout=45,
+        check=False,
+        env={
+            **os.environ,
+            "RECRUITMENT_PDFKIT_FILE_PATH": str(file_path),
+            "RECRUITMENT_PDF_OCR_MAX_PAGES": max_pages,
+        },
+    )
+    if result.returncode != 0:
+        reason = (result.stderr or result.stdout or f"exit={result.returncode}").strip()
+        raise RuntimeError(f"macOS Vision OCR extraction failed: {reason}")
+    return result.stdout.strip()
+
+
+def _extract_text_from_pdf_with_paddleocr(file_path: Path) -> str:
+    if pdfium is None:
+        raise RuntimeError("pypdfium2 is unavailable for PaddleOCR PDF rendering.")
+    try:
+        import numpy as np
+        from ..ocr_service import get_ocr_engine, parse_ocr_result
+    except Exception as exc:
+        raise RuntimeError(f"PaddleOCR dependencies unavailable: {exc}") from exc
+
+    max_pages = int(os.getenv("RECRUITMENT_PDF_OCR_MAX_PAGES", "3").strip() or "3")
+    document = pdfium.PdfDocument(str(file_path))
+    fragments: List[str] = []
+    try:
+        page_count = min(len(document), max(1, max_pages))
+        ocr = get_ocr_engine()
+        for index in range(page_count):
+            page = document[index]
+            try:
+                bitmap = page.render(scale=3)
+                image = np.array(bitmap.to_pil())
+                try:
+                    result = ocr.predict(image)
+                except Exception:
+                    result = ocr.ocr(image)
+                full_text, _ = parse_ocr_result(result)
+                if full_text.strip():
+                    fragments.append(full_text.strip())
+            finally:
+                try:
+                    page.close()
+                except Exception:
+                    pass
+    finally:
+        try:
+            document.close()
+        except Exception:
+            pass
+    output = "\n".join(fragments).strip()
+    if not output:
+        raise RuntimeError("PaddleOCR returned empty text.")
+    return output
+
+
+def _score_pdf_text_quality(text: str) -> int:
+    value = str(text or "")
+    cjk_chars = len(re.findall(r"[\u4e00-\u9fff]", value))
+    latin_words = len(re.findall(r"[A-Za-z]{2,}", value))
+    digit_groups = len(re.findall(r"\d{2,}", value))
+    control_chars = len(re.findall(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]", value))
+    return cjk_chars * 4 + latin_words * 2 + digit_groups - control_chars * 3
+
+
+def _should_try_pdf_ocr(best_text: str) -> bool:
+    ocr_enabled = os.getenv(
+        "RECRUITMENT_ENABLE_PDF_OCR",
+        os.getenv("RECRUITMENT_ENABLE_MACOS_VISION_OCR", "1"),
+    ).strip()
+    if ocr_enabled == "0":
+        return False
+    if not best_text.strip():
+        return True
+    cjk_chars = len(re.findall(r"[\u4e00-\u9fff]", best_text))
+    return cjk_chars < 12 and _score_pdf_text_quality(best_text) < 160
+
+
 def extract_text_from_pdf(file_path: Path) -> str:
+    errors: List[str] = []
+    low_signal_texts: List[Tuple[int, int, str, str]] = []
+    best_text = ""
+
+    def _use_text_or_continue(extractor_name: str, value: str) -> Optional[str]:
+        text = str(value or "").strip()
+        if not text:
+            errors.append(f"{extractor_name}: empty text")
+            return None
+        if _is_truncated_image_text(text):
+            meaningful_chars = len(re.findall(r"[A-Za-z0-9\u4e00-\u9fff]", text))
+            low_signal_texts.append((meaningful_chars, len(text), extractor_name, text))
+            errors.append(f"{extractor_name}: low-signal text")
+            return None
+        nonlocal best_text
+        if _score_pdf_text_quality(text) > _score_pdf_text_quality(best_text):
+            best_text = text
+        return text
+
     if PdfReader is not None:
-        return _extract_text_from_pdf_with_pypdf(file_path)
-    if os.getenv("RECRUITMENT_ENABLE_PDFIUM_FALLBACK", "").strip() == "1" and pdfium is not None:
-        return _extract_text_from_pdf_with_pdfium(file_path)
+        try:
+            text = _use_text_or_continue("pypdf", _extract_text_from_pdf_with_pypdf(file_path))
+            if text:
+                return text
+        except Exception as exc:
+            errors.append(f"pypdf: {exc}")
+    if pdfium is not None:
+        try:
+            text = _use_text_or_continue("pypdfium2", _extract_text_from_pdf_with_pdfium(file_path))
+            if text:
+                return text
+        except Exception as exc:
+            errors.append(f"pypdfium2: {exc}")
+    if sys.platform == "darwin":
+        try:
+            text = _use_text_or_continue("pdfkit", _extract_text_from_pdf_with_pdfkit(file_path))
+            if text:
+                if _should_try_pdf_ocr(text):
+                    try:
+                        ocr_text = _extract_text_from_pdf_with_macos_vision_ocr(file_path)
+                        if _score_pdf_text_quality(ocr_text) > _score_pdf_text_quality(text):
+                            return ocr_text
+                    except Exception as exc:
+                        errors.append(f"macos_vision_ocr: {exc}")
+                return text
+        except Exception as exc:
+            errors.append(f"pdfkit: {exc}")
+    if _should_try_pdf_ocr(best_text):
+        try:
+            ocr_text = (
+                _extract_text_from_pdf_with_macos_vision_ocr(file_path)
+                if sys.platform == "darwin"
+                else _extract_text_from_pdf_with_paddleocr(file_path)
+            )
+            if ocr_text.strip():
+                return ocr_text
+        except Exception as exc:
+            errors.append(f"pdf_ocr: {exc}")
+    if low_signal_texts:
+        low_signal_texts.sort(reverse=True)
+        return low_signal_texts[0][3]
+    if errors:
+        raise RuntimeError("PDF text extraction failed: " + " | ".join(errors))
     raise RuntimeError(
-        "PDF text extraction dependency unavailable: install pypdf, or set RECRUITMENT_ENABLE_PDFIUM_FALLBACK=1 to use pypdfium2."
+        "PDF text extraction dependency unavailable: install pypdf, enable pypdfium2 fallback, or use macOS PDFKit fallback."
     )
 
 

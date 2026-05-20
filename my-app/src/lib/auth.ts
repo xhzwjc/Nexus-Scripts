@@ -67,12 +67,60 @@ export function getScriptHubAuthHeaderRecord(init?: HeadersInit): Record<string,
     return Object.fromEntries(getScriptHubAuthHeaders(init).entries());
 }
 
-export async function authenticatedFetch(input: RequestInfo | URL, init: RequestInit = {}) {
-    const headers = getScriptHubAuthHeaders(init.headers);
-    return fetch(input, {
-        ...init,
-        headers,
-    });
+export type AuthenticatedFetchInit = RequestInit & {
+    timeoutMs?: number;
+};
+
+export async function authenticatedFetch(input: RequestInfo | URL, init: AuthenticatedFetchInit = {}) {
+    const { timeoutMs, signal: upstreamSignal, ...rest } = init;
+    const headers = getScriptHubAuthHeaders(rest.headers);
+
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    let didTimeout = false;
+    const controller = new AbortController();
+
+    const forwardAbort = () => {
+        try {
+            controller.abort((upstreamSignal as AbortSignal & { reason?: unknown })?.reason);
+        } catch {
+            controller.abort();
+        }
+    };
+
+    if (upstreamSignal) {
+        if (upstreamSignal.aborted) {
+            forwardAbort();
+        } else {
+            upstreamSignal.addEventListener('abort', forwardAbort, { once: true });
+        }
+    }
+
+    if (typeof timeoutMs === 'number' && Number.isFinite(timeoutMs) && timeoutMs > 0) {
+        timeoutId = setTimeout(() => {
+            didTimeout = true;
+            controller.abort(new Error('__SCRIPT_HUB_REQUEST_TIMEOUT__'));
+        }, timeoutMs);
+    }
+
+    try {
+        return await fetch(input, {
+            ...rest,
+            headers,
+            signal: controller.signal,
+        });
+    } catch (error) {
+        if (didTimeout) {
+            throw new Error('__SCRIPT_HUB_REQUEST_TIMEOUT__');
+        }
+        throw error;
+    } finally {
+        if (timeoutId) {
+            clearTimeout(timeoutId);
+        }
+        if (upstreamSignal) {
+            upstreamSignal.removeEventListener('abort', forwardAbort);
+        }
+    }
 }
 
 export class AuthError extends Error {

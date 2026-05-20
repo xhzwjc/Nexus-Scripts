@@ -8,6 +8,7 @@ import json
 import logging
 import mimetypes
 import os
+import random
 import shutil
 import threading
 import time
@@ -19,8 +20,8 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import httpx
-from sqlalchemy import and_, func, or_
-from sqlalchemy.exc import DataError, IntegrityError, SQLAlchemyError
+from sqlalchemy import and_, case, func, or_
+from sqlalchemy.exc import DataError, IntegrityError, OperationalError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from ..database import SessionLocal
@@ -574,6 +575,27 @@ def _extract_json_parse_failure_meta(exc: Exception, *, default_source: str) -> 
         "failure_code": "request_failed",
         "debug_meta": {},
     }
+
+
+def _extract_mysql_error_code(exc: Exception) -> Optional[int]:
+    for candidate in [exc, getattr(exc, "orig", None)]:
+        args = getattr(candidate, "args", None)
+        if isinstance(args, tuple) and args:
+            code = args[0]
+            try:
+                return int(code)
+            except (TypeError, ValueError):
+                continue
+    return None
+
+
+def _is_retryable_mysql_lock_error(exc: Exception, *, allowed_codes: Sequence[int]) -> bool:
+    return _extract_mysql_error_code(exc) in {int(code) for code in allowed_codes}
+
+
+def _lock_retry_sleep_seconds(attempt: int) -> float:
+    base = min(0.6, 0.08 * (attempt + 1))
+    return base + random.uniform(0.02, 0.08)
 
 
 def _copy_json_like(value: Any) -> Any:
@@ -5323,60 +5345,85 @@ class RecruitmentService:
             logger.debug("Batch email check skipped: no batch_id")
             return
 
-        # 使用数据库锁防止并发触发（原子性操作）
-        try:
-            # 先检查是否已经发送过邮件（快速路径）
-            already_sent = self.db.query(RecruitmentAITaskLog).filter(
-                RecruitmentAITaskLog.batch_id == batch_id,
-                RecruitmentAITaskLog.batch_email_sent.is_(True),
-            ).first()
-            if already_sent:
-                logger.info("Batch email check batch_id=%s already sent (fast path)", batch_id)
-                return
-
-            # 只查询根任务（screening_flow），不包括子任务
-            # 根任务的特征：task_type = 'screening_flow' 或 parent_task_id IS NULL
-            batch_root_tasks = (
-                self.db.query(RecruitmentAITaskLog)
-                .filter(
+        for attempt in range(3):
+            try:
+                already_sent = self.db.query(RecruitmentAITaskLog).filter(
                     RecruitmentAITaskLog.batch_id == batch_id,
-                    RecruitmentAITaskLog.task_type == 'screening_flow',  # 只查询根任务
+                    RecruitmentAITaskLog.batch_email_sent.is_(True),
+                ).first()
+                if already_sent:
+                    logger.info("Batch email check batch_id=%s already sent (fast path)", batch_id)
+                    return
+
+                batch_root_tasks = (
+                    self.db.query(RecruitmentAITaskLog)
+                    .filter(
+                        RecruitmentAITaskLog.batch_id == batch_id,
+                        RecruitmentAITaskLog.task_type == 'screening_flow',
+                    )
+                    .all()
                 )
-                .with_for_update()  # 悲观锁，防止并发修改
-                .all()
-            )
-            if not batch_root_tasks:
-                logger.debug("Batch email check skipped: no root tasks found for batch_id=%s", batch_id)
+                if not batch_root_tasks:
+                    logger.debug("Batch email check skipped: no root tasks found for batch_id=%s", batch_id)
+                    return
+
+                logger.info("Batch email check batch_id=%s root_task_count=%s", batch_id, len(batch_root_tasks))
+
+                all_completed = all(task.status in TERMINAL_AI_TASK_STATUSES for task in batch_root_tasks)
+                if not all_completed:
+                    pending_statuses = [task.status for task in batch_root_tasks if task.status not in TERMINAL_AI_TASK_STATUSES]
+                    logger.info("Batch email check batch_id=%s not all completed, pending_statuses=%s", batch_id, pending_statuses)
+                    return
+
+                if any(task.batch_email_sent for task in batch_root_tasks):
+                    logger.info("Batch email check batch_id=%s already sent (double check)", batch_id)
+                    return
+
+                root_task_ids = [task.id for task in batch_root_tasks]
+                claimed_count = (
+                    self.db.query(RecruitmentAITaskLog)
+                    .filter(
+                        RecruitmentAITaskLog.id.in_(root_task_ids),
+                        RecruitmentAITaskLog.batch_email_sent.is_(False),
+                    )
+                    .update(
+                        {RecruitmentAITaskLog.batch_email_sent: True},
+                        synchronize_session=False,
+                    )
+                )
+                self.db.commit()
+
+                if claimed_count != len(root_task_ids):
+                    logger.info(
+                        "Batch email check batch_id=%s skipped because another worker already claimed the batch claimed_count=%s total=%s",
+                        batch_id,
+                        claimed_count,
+                        len(root_task_ids),
+                    )
+                    return
+
+                logger.info("Batch email trigger batch_id=%s actor_id=%s root_task_count=%s", batch_id, actor_id, len(batch_root_tasks))
+                self._send_batch_auto_resume_mail_for_batch(batch_id, batch_root_tasks)
                 return
-
-            logger.info("Batch email check batch_id=%s root_task_count=%s", batch_id, len(batch_root_tasks))
-
-            # 检查是否所有根任务都已完成（终态）
-            all_completed = all(task.status in TERMINAL_AI_TASK_STATUSES for task in batch_root_tasks)
-            if not all_completed:
-                pending_statuses = [task.status for task in batch_root_tasks if task.status not in TERMINAL_AI_TASK_STATUSES]
-                logger.info("Batch email check batch_id=%s not all completed, pending_statuses=%s", batch_id, pending_statuses)
+            except OperationalError as exc:
+                self.db.rollback()
+                if _is_retryable_mysql_lock_error(exc, allowed_codes=(1205, 1213)) and attempt < 2:
+                    sleep_seconds = _lock_retry_sleep_seconds(attempt)
+                    logger.warning(
+                        "Retrying batch auto resume mail batch_id=%s attempt=%s sleep=%.2fs error=%s",
+                        batch_id,
+                        attempt + 1,
+                        sleep_seconds,
+                        exc,
+                    )
+                    time.sleep(sleep_seconds)
+                    continue
+                logger.exception("Failed to send batch auto resume mail batch_id=%s", batch_id)
                 return
-
-            # 再次检查是否已经发送过邮件（防止并发）
-            already_sent = any(task.batch_email_sent for task in batch_root_tasks)
-            if already_sent:
-                logger.info("Batch email check batch_id=%s already sent (double check)", batch_id)
+            except Exception:
+                logger.exception("Failed to send batch auto resume mail batch_id=%s", batch_id)
+                self.db.rollback()
                 return
-
-            # 标记为正在发送（防止其他线程重复触发）
-            for task in batch_root_tasks:
-                task.batch_email_sent = True
-                self.db.add(task)
-            self.db.commit()
-
-            # 触发该批次的邮件
-            logger.info("Batch email trigger batch_id=%s actor_id=%s root_task_count=%s", batch_id, actor_id, len(batch_root_tasks))
-            self._send_batch_auto_resume_mail_for_batch(batch_id, batch_root_tasks)
-
-        except Exception:
-            logger.exception("Failed to send batch auto resume mail batch_id=%s", batch_id)
-            self.db.rollback()
 
     def _send_batch_auto_resume_mail_for_batch(
         self,
@@ -6570,12 +6617,11 @@ class RecruitmentService:
             meaningful_chars = len(re.findall(r"[A-Za-z0-9\u4e00-\u9fff]", text))
             if _is_truncated_image_text(text) or meaningful_chars < 24:
                 logger.warning(
-                    "[AI_MATCH] Lenient extraction ignored low-signal resume text resume_file_id=%s meaningful_chars=%s file=%s",
+                    "[AI_MATCH] Lenient extraction accepted low-signal resume text resume_file_id=%s meaningful_chars=%s file=%s",
                     getattr(resume_file, "id", None),
                     meaningful_chars,
                     file_path,
                 )
-                return ""
             return text
         except Exception:
             logger.debug("[AI_MATCH] Lenient extraction failed for file %s", file_path, exc_info=True)
@@ -6759,63 +6805,91 @@ class RecruitmentService:
                     "max_concurrency": SCREENING_WORKER_MAX_CONCURRENCY,
                     "cooldown_until": _screening_provider_cooldown_until.isoformat() if _screening_provider_cooldown_until else None,
                 }
-            dispatch_db = SessionLocal()
-            try:
-                dispatch_service = RecruitmentService(dispatch_db)
-                stale_live_rows = dispatch_db.query(RecruitmentAITaskLog).filter(
-                    dispatch_service._screening_root_task_filter(),
-                    RecruitmentAITaskLog.status.in_(SCREENING_LIVE_TASK_STATUSES),
-                    RecruitmentAITaskLog.status != "queued",
-                ).order_by(
-                    RecruitmentAITaskLog.updated_at.asc(),
-                    RecruitmentAITaskLog.id.asc(),
-                ).all()
-                stale_rows_touched = False
-                for row in stale_live_rows:
-                    if dispatch_service._settle_orphaned_live_task(row):
-                        stale_rows_touched = True
-                if stale_rows_touched:
-                    dispatch_db.commit()
-                active_model_counts: Dict[str, int] = {}
-                for row in stale_live_rows:
-                    if row.status in SCREENING_LIVE_TASK_STATUSES and row.status != "queued":
-                        source = _normalize_screening_provider_source(getattr(row, "model_source", None))
-                        active_model_counts[source] = active_model_counts.get(source, 0) + 1
-                claim_now = datetime.now()
-                queued_query = dispatch_db.query(RecruitmentAITaskLog).filter(
-                    dispatch_service._screening_root_task_filter(),
-                    RecruitmentAITaskLog.status == "queued",
-                ).order_by(
-                    RecruitmentAITaskLog.created_at.asc(),
-                    RecruitmentAITaskLog.id.asc(),
-                )
-                queued_limit = min(500, max(SCREENING_DISPATCH_SCAN_LIMIT, available_slots * 20, SCREENING_BATCH_MAX_SIZE))
-                locked_query = queued_query.with_for_update(skip_locked=True)
-                queued_rows = locked_query.limit(queued_limit).all()
-                if not isinstance(queued_rows, list):
-                    queued_rows = queued_query.limit(queued_limit).all()
-                queue_was_empty_at_start = len(queued_rows) == 0
-                selected_rows = dispatch_service._select_screening_queue_rows_fairly(
-                    queued_rows,
-                    available_slots=available_slots,
-                    active_model_counts=active_model_counts,
-                )
-                if not selected_rows and queued_rows:
-                    future_retry_ats = [
-                        dispatch_service._task_next_retry_at(row)
-                        for row in queued_rows
-                        if not dispatch_service._task_is_ready_for_dispatch(row)
-                    ]
-                    future_retry_ats = [item for item in future_retry_ats if item is not None]
-                    if future_retry_ats:
-                        next_dispatch_at = min(future_retry_ats)
-                for row in selected_rows:
-                    dispatch_service._mark_screening_task_claimed(row, claimed_at=claim_now)
-                    scheduled_tasks.append((row.id, row.created_by or "system"))
-                if scheduled_tasks:
-                    dispatch_db.commit()
-            finally:
-                dispatch_db.close()
+            dispatch_error: Optional[Exception] = None
+            for dispatch_attempt in range(3):
+                dispatch_db = SessionLocal()
+                try:
+                    dispatch_service = RecruitmentService(dispatch_db)
+                    attempt_scheduled_tasks: List[Tuple[int, str]] = []
+                    stale_live_rows = dispatch_db.query(RecruitmentAITaskLog).filter(
+                        dispatch_service._screening_root_task_filter(),
+                        RecruitmentAITaskLog.status.in_(SCREENING_LIVE_TASK_STATUSES),
+                        RecruitmentAITaskLog.status != "queued",
+                    ).order_by(
+                        RecruitmentAITaskLog.updated_at.asc(),
+                        RecruitmentAITaskLog.id.asc(),
+                    ).all()
+                    stale_rows_touched = False
+                    for row in stale_live_rows:
+                        if dispatch_service._settle_orphaned_live_task(row):
+                            stale_rows_touched = True
+                    if stale_rows_touched:
+                        dispatch_db.commit()
+                    active_model_counts: Dict[str, int] = {}
+                    for row in stale_live_rows:
+                        if row.status in SCREENING_LIVE_TASK_STATUSES and row.status != "queued":
+                            source = _normalize_screening_provider_source(getattr(row, "model_source", None))
+                            active_model_counts[source] = active_model_counts.get(source, 0) + 1
+                    claim_now = datetime.now()
+                    queued_query = dispatch_db.query(RecruitmentAITaskLog).filter(
+                        dispatch_service._screening_root_task_filter(),
+                        RecruitmentAITaskLog.status == "queued",
+                    ).order_by(
+                        RecruitmentAITaskLog.created_at.asc(),
+                        RecruitmentAITaskLog.id.asc(),
+                    )
+                    queued_limit = min(500, max(SCREENING_DISPATCH_SCAN_LIMIT, available_slots * 20, SCREENING_BATCH_MAX_SIZE))
+                    locked_query = queued_query.with_for_update(skip_locked=True)
+                    queued_rows = locked_query.limit(queued_limit).all()
+                    if not isinstance(queued_rows, list):
+                        queued_rows = queued_query.limit(queued_limit).all()
+                    queue_was_empty_at_start = len(queued_rows) == 0
+                    selected_rows = dispatch_service._select_screening_queue_rows_fairly(
+                        queued_rows,
+                        available_slots=available_slots,
+                        active_model_counts=active_model_counts,
+                    )
+                    if not selected_rows and queued_rows:
+                        future_retry_ats = [
+                            dispatch_service._task_next_retry_at(row)
+                            for row in queued_rows
+                            if not dispatch_service._task_is_ready_for_dispatch(row)
+                        ]
+                        future_retry_ats = [item for item in future_retry_ats if item is not None]
+                        if future_retry_ats:
+                            next_dispatch_at = min(future_retry_ats)
+                    for row in selected_rows:
+                        dispatch_service._mark_screening_task_claimed(row, claimed_at=claim_now)
+                        attempt_scheduled_tasks.append((row.id, row.created_by or "system"))
+                    if attempt_scheduled_tasks:
+                        dispatch_db.commit()
+                    scheduled_tasks = attempt_scheduled_tasks
+                    dispatch_error = None
+                    break
+                except OperationalError as exc:
+                    dispatch_db.rollback()
+                    dispatch_error = exc
+                    if _is_retryable_mysql_lock_error(exc, allowed_codes=(1213,)):
+                        sleep_seconds = _lock_retry_sleep_seconds(dispatch_attempt)
+                        logger.warning(
+                            "Retrying screening queue dispatch after MySQL deadlock attempt=%s sleep=%.2fs error=%s",
+                            dispatch_attempt + 1,
+                            sleep_seconds,
+                            exc,
+                        )
+                        time.sleep(sleep_seconds)
+                        continue
+                    raise
+                finally:
+                    dispatch_db.close()
+            if dispatch_error is not None:
+                logger.exception("Failed to dispatch screening queue after retries")
+                return {
+                    "started_count": 0,
+                    "active_count": len(_screening_worker_active_task_ids),
+                    "max_concurrency": SCREENING_WORKER_MAX_CONCURRENCY,
+                    "cooldown_until": _screening_provider_cooldown_until.isoformat() if _screening_provider_cooldown_until else None,
+                }
             for task_id, _actor_id in scheduled_tasks:
                 _screening_worker_active_task_ids.add(task_id)
         for task_id, actor_id in scheduled_tasks:
@@ -10069,7 +10143,7 @@ class RecruitmentService:
             RecruitmentCandidate,
         )
 
-    def list_candidates(self, query: Optional[str] = None, status: Optional[str] = None, position_id: Optional[int] = None, tag: Optional[str] = None, limit: int = 0, offset: int = 0, org_code: Optional[str] = None, compact: bool = False) -> Dict[str, Any]:
+    def list_candidates(self, query: Optional[str] = None, status: Optional[str] = None, position_id: Optional[int] = None, tag: Optional[str] = None, limit: int = 0, offset: int = 0, org_code: Optional[str] = None, compact: bool = False, sort_by: Optional[str] = None, sort_order: Optional[str] = None) -> Dict[str, Any]:
         builder = self._build_candidate_scoped_query(org_code)
         # 排除待归岗候选人（这些候选人在人才库中显示）
         if not status:
@@ -10101,7 +10175,19 @@ class RecruitmentService:
                     "USE INDEX (idx_candidate_org_deleted_updated)",
                     dialect_name="mysql",
                 )
-        builder = builder.order_by(RecruitmentCandidate.updated_at.desc(), RecruitmentCandidate.id.desc())
+        normalized_sort_by = str(sort_by or "").strip().lower()
+        normalized_sort_order = str(sort_order or "").strip().lower()
+        if normalized_sort_by == "match_percent" and normalized_sort_order in {"asc", "desc"}:
+            null_rank = case((RecruitmentCandidate.match_percent.is_(None), 1), else_=0)
+            match_column = RecruitmentCandidate.match_percent.asc() if normalized_sort_order == "asc" else RecruitmentCandidate.match_percent.desc()
+            builder = builder.order_by(
+                null_rank.asc(),
+                match_column,
+                RecruitmentCandidate.updated_at.desc(),
+                RecruitmentCandidate.id.desc(),
+            )
+        else:
+            builder = builder.order_by(RecruitmentCandidate.updated_at.desc(), RecruitmentCandidate.id.desc())
         if limit > 0:
             builder = builder.limit(limit).offset(offset)
         rows = builder.all()
@@ -10795,7 +10881,7 @@ class RecruitmentService:
         normalized_text = str(raw_text or "").replace("\r\n", "\n").replace("\r", "\n").strip()
         normalized_text = re.sub(r"\n{3,}", "\n\n", normalized_text)
         meaningful_chars = len(re.findall(r"[A-Za-z0-9\u4e00-\u9fff]", normalized_text))
-        if normalized_text and meaningful_chars >= 24:
+        if normalized_text and meaningful_chars > 0:
             excerpt_limit = min(len(normalized_text), 18000)
             excerpt_target = min(len(normalized_text), max(len(normalized_text) // 2, 2000))
             return normalized_text[: min(excerpt_target, excerpt_limit)].strip()
@@ -10861,6 +10947,62 @@ class RecruitmentService:
                         candidate.id, candidate.ai_match_position_title, candidate.ai_potential_position)
         except Exception:
             logger.warning("[SCREENING_POSITION_MATCH] fallback path failed candidate_id=%s", candidate.id, exc_info=True)
+
+    def _log_llm_failure_context(
+        self,
+        *,
+        log_prefix: str,
+        candidate_id: Optional[int] = None,
+        task_type: Optional[str] = None,
+        prompt_snapshot: Optional[str] = None,
+        full_request_snapshot: Optional[str] = None,
+        raw_response_text: Optional[str] = None,
+        parsed_response_json: Optional[Any] = None,
+        extra: Optional[Dict[str, Any]] = None,
+        exc: Optional[Exception] = None,
+    ) -> None:
+        logger.error(
+            "%s candidate_id=%s task_type=%s exception=%s extra=%s\nPROMPT_SNAPSHOT:\n%s\nFULL_REQUEST_SNAPSHOT:\n%s\nRAW_RESPONSE_TEXT:\n%s\nPARSED_RESPONSE_JSON:\n%s",
+            log_prefix,
+            candidate_id,
+            task_type,
+            repr(exc) if exc is not None else None,
+            json.dumps(extra or {}, ensure_ascii=False, default=str),
+            str(prompt_snapshot or "").strip() or "<empty>",
+            str(full_request_snapshot or "").strip() or "<empty>",
+            str(raw_response_text or "").strip() or "<empty>",
+            json.dumps(parsed_response_json, ensure_ascii=False, default=str) if parsed_response_json is not None else "<empty>",
+        )
+
+    def _create_match_started_callback(self, actor_id: str):
+        async def _on_match_started(task, slot):
+            from ..database import SessionLocal
+
+            db = SessionLocal()
+            try:
+                updated_count = (
+                    db.query(RecruitmentCandidate)
+                    .filter(
+                        RecruitmentCandidate.id == task.candidate_id,
+                        RecruitmentCandidate.deleted.is_(False),
+                    )
+                    .update(
+                        {
+                            RecruitmentCandidate.updated_by: actor_id,
+                            RecruitmentCandidate.updated_at: datetime.now(),
+                        },
+                        synchronize_session=False,
+                    )
+                )
+                if updated_count:
+                    db.commit()
+            except Exception:
+                db.rollback()
+                logger.warning("[AI_MATCH] Failed to persist actual start timestamp candidate_id=%s", task.candidate_id, exc_info=True)
+            finally:
+                db.close()
+
+        return _on_match_started
 
     async def trigger_ai_position_match(
         self,
@@ -11022,14 +11164,11 @@ class RecruitmentService:
         logger.info("[AI_MATCH] Injecting callbacks into scheduler")
         scheduler.set_callbacks(
             match_callback=self._create_match_callback(session_token, task_type, actor_id, position_summaries),
-            error_callback=self._create_match_error_callback(session_token, task_type, actor_id, batch_id),
+            error_callback=self._create_match_error_callback(session_token, task_type, actor_id, batch_id, position_summaries),
+            task_started_callback=self._create_match_started_callback(actor_id),
         )
 
         logger.info("[AI_MATCH] Enqueuing %d candidates to scheduler, positions=%d", len(candidates), len(position_summaries))
-
-        # 提取简历内容的函数
-        def _extract_resume(candidate: RecruitmentCandidate) -> str:
-            return self._build_ai_match_resume_text(candidate)
 
         # 入队到调度器
         await scheduler.enqueue_batch(
@@ -11037,7 +11176,6 @@ class RecruitmentService:
             batch_id=batch_id,
             candidates=candidates,
             position_summaries=position_summaries,
-            resume_extractor=_extract_resume,
         )
 
         logger.info("[AI_MATCH] Enqueue complete: batch_id=%s, %d candidates queued, scheduler running=%s",
@@ -11073,30 +11211,60 @@ class RecruitmentService:
             final_status = None
             screening_enqueue_failed = False
             screening_enqueue_error_message = None
+            resume_text_failure_message = None
             try:
                 # 解析调度器分配的 key 的运行时配置
                 runtime_config = ai_gateway.resolve_config_by_id(slot.config_id)
 
-                # 在线程池中调用同步的 gateway
-                match_result = await asyncio.to_thread(
-                    ai_gateway.match_position,
-                    task.candidate_id,
-                    task.resume_content,
-                    position_summaries,
-                    runtime_config=runtime_config,
-                )
-                duration_ms = int((_time.time() - start_time) * 1000)
-
-                # 用独立 session 重新查询候选人
+                # 用独立 session 重新查询候选人，确保读取的是最新状态
                 candidate = db.query(RecruitmentCandidate).filter(
                     RecruitmentCandidate.id == task.candidate_id,
                 ).first()
                 if not candidate:
                     logger.error("[AI_MATCH] Candidate %d not found in DB, skipping", task.candidate_id)
                     return
+                callback_service = RecruitmentService(db)
+                callback_service._session_token = callback_service._normalize_task_session_token(session_token)
+
+                if not task.resume_content:
+                    try:
+                        task.resume_content = callback_service._build_ai_match_resume_text(candidate)
+                    except Exception as exc:
+                        resume_text_failure_message = str(exc or "").strip() or "简历未提取到可识别文本，AI 智能匹配未启动"
+                        logger.warning("[AI_MATCH] Candidate %d skipped because resume text is unavailable: %s", task.candidate_id, resume_text_failure_message)
+                    except Exception:
+                        db.rollback()
+                        raise
+
+                if resume_text_failure_message:
+                    match_result = {
+                        "position_id": None,
+                        "position_title": None,
+                        "confidence": None,
+                        "reason": resume_text_failure_message,
+                        "potential_position": None,
+                        "potential_reason": None,
+                        "provider": None,
+                        "model_name": None,
+                        "source": "resume_text_unavailable",
+                        "used_fallback": True,
+                        "error_message": resume_text_failure_message,
+                        "prompt_snapshot": None,
+                        "full_request_snapshot": None,
+                        "raw_response_text": None,
+                        "parsed_response": None,
+                    }
+                else:
+                    # 在线程池中调用同步的 gateway
+                    match_result = await asyncio.to_thread(
+                        ai_gateway.match_position,
+                        task.candidate_id,
+                        str(task.resume_content or ""),
+                        position_summaries,
+                        runtime_config=runtime_config,
+                    )
+                duration_ms = int((_time.time() - start_time) * 1000)
                 if match_result and match_result.get("position_id"):
-                    callback_service = RecruitmentService(db)
-                    callback_service._session_token = callback_service._normalize_task_session_token(session_token)
                     position = db.query(RecruitmentPosition).filter(
                         RecruitmentPosition.id == match_result["position_id"]
                     ).first()
@@ -11159,7 +11327,9 @@ class RecruitmentService:
                     candidate.ai_potential_reason = str((match_result or {}).get("potential_reason") or "").strip() or None
                     candidate.updated_by = actor_id
                     candidate.status = "unmatched"
-                    candidate.talent_pool_reason = "unmatched_by_ai"
+                    candidate.talent_pool_reason = "ai_error" if resume_text_failure_message else "unmatched_by_ai"
+                    candidate.talent_pool_source_status = "matching"
+                    candidate.talent_pool_moved_by = actor_id
                     candidate.talent_pool_moved_at = datetime.now()
                     db.commit()
                     db.refresh(candidate)
@@ -11187,7 +11357,13 @@ class RecruitmentService:
                         task_type=task_type,
                         org_code=org_code,
                         batch_id=task.batch_id,
-                        status="success" if match_result and match_result.get("position_id") else "no_match",
+                        status=(
+                            "success"
+                            if match_result and match_result.get("position_id")
+                            else "failed"
+                            if resume_text_failure_message
+                            else "no_match"
+                        ),
                         related_candidate_id=task.candidate_id,
                         related_position_id=match_result.get("position_id") if match_result else None,
                         model_provider=match_result.get("provider") if match_result else None,
@@ -11199,6 +11375,9 @@ class RecruitmentService:
                         full_request_snapshot=_to_text(match_result.get("full_request_snapshot")) if match_result else None,
                         raw_response_text=_to_text(match_result.get("raw_response_text")) if match_result else None,
                         parsed_response_json=_to_text(match_result.get("parsed_response")) if match_result else None,
+                        validation_meta_json=_prepare_ai_task_json_text({
+                            "failure_code": "resume_text_unavailable",
+                        }) if resume_text_failure_message else None,
                         session_token=self._normalize_task_session_token(session_token),
                         created_by=actor_id,
                         created_at=now,
@@ -11298,7 +11477,7 @@ class RecruitmentService:
 
         return _on_match_done
 
-    def _create_match_error_callback(self, session_token: str, task_type: str, actor_id: str, batch_id: str):
+    def _create_match_error_callback(self, session_token: str, task_type: str, actor_id: str, batch_id: str, position_summaries: List[Dict[str, Any]]):
         """创建匹配失败回调（供调度器 worker 调用）
 
         重试逻辑：最多重试 MATCH_MAX_RETRIES 次，间隔 MATCH_RETRY_DELAYS 秒。
@@ -11318,6 +11497,23 @@ class RecruitmentService:
             if hasattr(error, 'debug_meta'):
                 logger.warning("[AI_MATCH] Error debug_meta: %s", error.debug_meta)
             failure_code, failure_message = _classify_ai_match_failure(error)
+            self._log_llm_failure_context(
+                log_prefix="[AI_MATCH] exception context",
+                candidate_id=task.candidate_id,
+                task_type=task_type,
+                prompt_snapshot=getattr(error, "prompt_snapshot", None),
+                full_request_snapshot=getattr(error, "full_request_snapshot", None),
+                raw_response_text=getattr(error, "raw_response_text", None),
+                parsed_response_json=getattr(error, "parsed_response", None),
+                extra={
+                    "batch_id": batch_id,
+                    "failure_code": failure_code,
+                    "failure_message": failure_message,
+                    "position_count": len(position_summaries),
+                    "resume_excerpt": str(task.resume_content or "")[:4000],
+                },
+                exc=error if isinstance(error, Exception) else None,
+            )
 
             # 检查是否被用户取消
             if scheduler.is_cancelled(task.candidate_id):
@@ -11495,16 +11691,30 @@ class RecruitmentService:
     def _recover_stuck_matching_candidates(self):
         """恢复卡在 matching 状态的候选人（服务重启/断网等导致任务丢失）
 
-        超时逻辑：worker 开始执行时会更新 updated_at，所以超时从实际开始匹配算起。
-        如果任务还在排队（未开始匹配），updated_at 是入队时间，不会被误判。
+        超时逻辑：
+        - 当前进程内仍在调度器队列/执行中的任务，不应被恢复。
+        - worker 真正开始执行时会刷新 candidate.updated_at，因此超时从实际执行开始算起。
         """
         from datetime import timedelta
+        from .match_scheduler import scheduler
+
         timeout_threshold = datetime.now() - timedelta(seconds=MATCH_TIMEOUT_SECONDS)
-        stuck = self.db.query(RecruitmentCandidate).filter(
+        live_matching_ids = [
+            int(candidate_id)
+            for (candidate_id,) in self.db.query(RecruitmentCandidate.id).filter(
+                RecruitmentCandidate.status == "matching",
+                RecruitmentCandidate.deleted.is_(False),
+            ).all()
+            if scheduler.is_candidate_live(int(candidate_id))
+        ]
+        stuck_query = self.db.query(RecruitmentCandidate).filter(
             RecruitmentCandidate.status == "matching",
             RecruitmentCandidate.updated_at < timeout_threshold,
             RecruitmentCandidate.deleted.is_(False),
-        ).all()
+        )
+        if live_matching_ids:
+            stuck_query = stuck_query.filter(RecruitmentCandidate.id.notin_(live_matching_ids))
+        stuck = stuck_query.all()
         if stuck:
             for c in stuck:
                 c.status = "unmatched"
@@ -12831,6 +13041,25 @@ class RecruitmentService:
                 False,
                 failure_status,
             )
+            self._log_llm_failure_context(
+                log_prefix="[SCREENING_ONE_PASS] exception context",
+                candidate_id=candidate.id,
+                task_type=SCREENING_ONE_PASS_TASK_TYPE,
+                prompt_snapshot=task.get("prompt_snapshot") if task else request_context.get("prompt_snapshot") or prompt,
+                full_request_snapshot=task.get("full_request_snapshot") if task else request_context.get("full_request_snapshot"),
+                raw_response_text=task.get("raw_response_text") if task else getattr(exc, "raw_response_text", None),
+                parsed_response_json=task.get("content") if isinstance((task or {}).get("content"), dict) else None,
+                extra={
+                    "failure_status": failure_status,
+                    "failure_message": failure_message,
+                    "screening_run_id": screening_run_id,
+                    "response_debug": {
+                        **(dict(task.get("response_debug") or {}) if task else {}),
+                        **(dict(getattr(exc, "debug_meta", {}) or {}) if isinstance(exc, RecruitmentAIJSONParseError) else {}),
+                    },
+                },
+                exc=exc,
+            )
             self._finish_ai_task_log(
                 log_row,
                 status=failure_status,
@@ -13369,6 +13598,22 @@ class RecruitmentService:
             token_usage = safe_task.get("token_usage")
             raw_response_text = safe_task.get("raw_response_text") or parse_failure_meta.get("raw_response_text")
             parsed_response_json = safe_task.get("content") if isinstance(safe_task.get("content"), dict) else None
+            self._log_llm_failure_context(
+                log_prefix="[SCREENING_PARSE] exception context",
+                candidate_id=candidate.id,
+                task_type="resume_parse",
+                prompt_snapshot=prompt_snapshot,
+                full_request_snapshot=full_request_snapshot,
+                raw_response_text=raw_response_text,
+                parsed_response_json=parsed_response_json,
+                extra={
+                    "failure_status": failure_status,
+                    "failure_message": failure_message,
+                    "screening_run_id": screening_run_id,
+                    "debug_meta": response_debug,
+                },
+                exc=exc,
+            )
             validation_meta = {
                 "validation_warnings": [],
                 "invalid_result_reasons": [failure_message],
@@ -14046,6 +14291,23 @@ class RecruitmentService:
             token_usage = safe_task.get("token_usage")
             raw_response_text = safe_task.get("raw_response_text") or score_failure_meta.get("raw_response_text") or getattr(exc, "raw_response_text", None)
             parsed_response_json = safe_task.get("content") if isinstance(safe_task.get("content"), dict) else None
+            self._log_llm_failure_context(
+                log_prefix="[SCREENING_SCORE] exception context",
+                candidate_id=candidate.id,
+                task_type=parse_strategy,
+                prompt_snapshot=prompt_snapshot,
+                full_request_snapshot=full_request_snapshot,
+                raw_response_text=raw_response_text,
+                parsed_response_json=parsed_response_json,
+                extra={
+                    "failure_status": failure_status,
+                    "failure_message": failure_message,
+                    "screening_run_id": screening_run_id,
+                    "parse_strategy": parse_strategy,
+                    "debug_meta": failure_validation_meta.get("response_debug"),
+                },
+                exc=exc,
+            )
             if shared_flow_log:
                 current_timing = _decode_ai_task_json_text(log_row.timing_breakdown_json, {})
                 self._update_ai_task_log(
@@ -14244,7 +14506,9 @@ class RecruitmentService:
             raise ValueError("候选人暂无可用简历，无法发起初筛。")
         if not candidate.position_id:
             raise ValueError("候选人未绑定岗位，无法发起初筛。请先为候选人分配岗位后再发起初筛。")
-        force_fresh_screening = self._candidate_requires_fresh_screening_run(candidate)
+        force_fresh_screening = self._candidate_requires_fresh_screening_run(candidate) or (
+            not bool(allow_reuse_parse) and not bool(allow_score_only_rerun)
+        )
         allow_reuse_parse = bool(allow_reuse_parse) and not force_fresh_screening
         allow_score_only_rerun = bool(allow_score_only_rerun) and not force_fresh_screening
         normalized_screening_mode = _normalize_screening_mode(screening_mode, force_fallback=force_fallback)
@@ -15276,7 +15540,9 @@ class RecruitmentService:
                 self.db.add(candidate)
                 self.db.commit()
                 self.db.refresh(candidate)
-            force_fresh_screening = self._candidate_requires_fresh_screening_run(candidate)
+            force_fresh_screening = self._candidate_requires_fresh_screening_run(candidate) or (
+                not bool(allow_reuse_parse) and not bool(allow_score_only_rerun)
+            )
             allow_reuse_parse = bool(allow_reuse_parse) and not force_fresh_screening
             allow_score_only_rerun = bool(allow_score_only_rerun) and not force_fresh_screening
             existing_live_task = self._find_live_screening_task(candidate.id)

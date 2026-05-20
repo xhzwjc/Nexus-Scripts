@@ -2885,6 +2885,13 @@ class RecruitmentAIGateway:
 ## 输出格式
 {{“position_id”: 17, “position_title”: “税务会计”, “confidence”: 88, “reason”: “3年增值税申报经验，与岗位核心要求高度吻合”, “potential_position”: “财务分析”, “potential_reason”: “具备报表和数据分析基础，可向财务分析延展”}}
 {{“position_id”: null, “position_title”: “产品经理”, “confidence”: 65, “reason”: “具备需求分析和跨团队协作经验，适合产品经理方向”, “potential_position”: “售前解决方案”, “potential_reason”: “跨团队沟通和需求分析能力较强，可培养为售前方向”}}'''
+        prompt_snapshot = f"SYSTEM:\n{system_prompt}\n\nUSER:\n{user_prompt}"
+        full_request_snapshot = _build_request_snapshot(
+            effective_request_config,
+            response_mode="json",
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+        )
         try:
             result = self.generate_json(
                 task_type="ai_position_match",
@@ -2896,6 +2903,18 @@ class RecruitmentAIGateway:
         except RecruitmentAIJSONParseError as exc:
             recovered_payload = _extract_ai_position_match_recovery_from_text(exc.raw_response_text, positions)
             if not recovered_payload:
+                try:
+                    setattr(exc, "prompt_snapshot", prompt_snapshot)
+                    setattr(exc, "full_request_snapshot", full_request_snapshot)
+                except Exception:
+                    pass
+                logger.exception(
+                    "[AI_MATCH] match_position JSON parse failure candidate_id=%s\nPROMPT_SNAPSHOT:\n%s\nFULL_REQUEST_SNAPSHOT:\n%s\nRAW_RESPONSE_TEXT:\n%s",
+                    candidate_id,
+                    prompt_snapshot,
+                    full_request_snapshot,
+                    str(exc.raw_response_text or "").strip() or "<empty>",
+                )
                 raise
             recorded_raw_text = _sanitize_ai_position_match_recorded_text(exc.raw_response_text, recovered_payload)
             logger.warning(
@@ -2914,18 +2933,28 @@ class RecruitmentAIGateway:
                 "source": effective_request_config.source,
                 "used_fallback": True,
                 "error_message": "AI 返回非 JSON，已从原始文本恢复匹配结论",
-                "prompt_snapshot": f"SYSTEM:\n{system_prompt}\n\nUSER:\n{user_prompt}",
-                "full_request_snapshot": _build_request_snapshot(
-                    effective_request_config,
-                    response_mode="json",
-                    system_prompt=system_prompt,
-                    user_prompt=user_prompt,
-                ),
+                "prompt_snapshot": prompt_snapshot,
+                "full_request_snapshot": full_request_snapshot,
                 "input_summary": _truncate(user_prompt, 600),
                 "output_summary": _truncate(recorded_raw_text or recovered_payload, 600),
                 "raw_response_text": recorded_raw_text,
                 "parsed_response": recovered_payload,
             }
+        except Exception as exc:
+            raw_response_text = str(getattr(exc, "raw_response_text", "") or "").strip()
+            try:
+                setattr(exc, "prompt_snapshot", prompt_snapshot)
+                setattr(exc, "full_request_snapshot", full_request_snapshot)
+            except Exception:
+                pass
+            logger.exception(
+                "[AI_MATCH] match_position request failure candidate_id=%s\nPROMPT_SNAPSHOT:\n%s\nFULL_REQUEST_SNAPSHOT:\n%s\nRAW_RESPONSE_TEXT:\n%s",
+                candidate_id,
+                prompt_snapshot,
+                full_request_snapshot,
+                raw_response_text or "<empty>",
+            )
+            raise
 
         content = result.get("content") or {}
         parsed = content if isinstance(content, dict) else {}

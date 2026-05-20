@@ -57,6 +57,7 @@ function getTalentPoolLocale(language = getCurrentLanguage()) {
         sortByNameDesc: isZh ? "姓名 Z-A" : "Name Z-A",
         selectedCount: (n: number) => isZh ? `已选 ${n} 人` : `${n} selected`,
         batchAssign: isZh ? "批量分配岗位" : "Batch Assign Position",
+        batchReIdentify: isZh ? "批量重新识别" : "Batch Re-identify",
         batchDelete: isZh ? "批量删除" : "Batch Delete",
         aiRecognized: isZh ? "AI 识别" : "AI Match",
         unmatchedGroup: isZh ? "无法识别岗位" : "Unmatched",
@@ -136,6 +137,7 @@ type TalentPoolPageProps = {
     onRefresh?: () => void | Promise<void>;
     onUploadResume?: () => void;
     onReIdentify?: (candidateId: number) => Promise<void>;
+    onBatchReIdentify?: (candidateIds: number[]) => Promise<void>;
     onCancelMatch?: (candidateId: number) => Promise<void>;
     panelClass?: string;
 };
@@ -224,6 +226,7 @@ export function TalentPoolPage({
     onRefresh,
     onUploadResume,
     onReIdentify,
+    onBatchReIdentify,
     onCancelMatch,
 }: TalentPoolPageProps) {
     const {language} = useI18n();
@@ -302,6 +305,12 @@ export function TalentPoolPage({
         () => groupCandidatesByAIMatch(filteredCandidates),
         [filteredCandidates]
     );
+    const selectedReidentifiableCount = React.useMemo(() => (
+        Array.from(selectedIds).filter((candidateId) => {
+            const candidate = candidates.find((item) => item.id === candidateId);
+            return Boolean(candidate && isTalentPoolReidentifiable(candidate));
+        }).length
+    ), [candidates, selectedIds]);
 
     // 当候选人离开待处理分组（SSE驱动进入匹配中或从人才库移除），清除 reIdentifying 标记
     React.useEffect(() => {
@@ -386,6 +395,45 @@ export function TalentPoolPage({
             setReIdentifyingIds(prev => { const next = new Set(prev); next.delete(candidateId); return next; });
         }
     }, [onReIdentify]);
+
+    const handleBatchReIdentify = React.useCallback(async () => {
+        const candidateIds = Array.from(selectedIds).filter((candidateId) => {
+            const candidate = candidates.find((item) => item.id === candidateId);
+            return Boolean(candidate && isTalentPoolReidentifiable(candidate));
+        });
+        if (!candidateIds.length) {
+            return;
+        }
+        setReIdentifyingIds((prev) => {
+            const next = new Set(prev);
+            candidateIds.forEach((candidateId) => next.add(candidateId));
+            return next;
+        });
+        setReIdentifyFailedIds((prev) => {
+            const next = new Set(prev);
+            candidateIds.forEach((candidateId) => next.delete(candidateId));
+            return next;
+        });
+        try {
+            if (onBatchReIdentify) {
+                await onBatchReIdentify(candidateIds);
+            } else {
+                await triggerAIPositionMatch(candidateIds);
+            }
+            setSelectedIds(new Set());
+        } catch {
+            setReIdentifyFailedIds((prev) => {
+                const next = new Set(prev);
+                candidateIds.forEach((candidateId) => next.add(candidateId));
+                return next;
+            });
+            setReIdentifyingIds((prev) => {
+                const next = new Set(prev);
+                candidateIds.forEach((candidateId) => next.delete(candidateId));
+                return next;
+            });
+        }
+    }, [candidates, onBatchReIdentify, selectedIds]);
 
     /* ── 批量删除 ── */
     const handleBatchDelete = React.useCallback(async () => {
@@ -487,6 +535,16 @@ export function TalentPoolPage({
                         <Button size="sm" variant="outline" className="h-7 rounded-md border-sky-300 px-3 text-sm text-sky-700 hover:bg-sky-100 dark:border-sky-700 dark:text-sky-300 dark:hover:bg-sky-900/30" onClick={() => setAssignDialogOpen(true)}>
                             <Briefcase className="mr-1 h-3.5 w-3.5"/>
                             {tr.batchAssign}
+                        </Button>
+                        <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 rounded-md border-sky-300 px-3 text-sm text-sky-700 hover:bg-sky-100 dark:border-sky-700 dark:text-sky-300 dark:hover:bg-sky-900/30"
+                            onClick={() => void handleBatchReIdentify()}
+                            disabled={selectedReidentifiableCount === 0}
+                        >
+                            <RotateCcw className="mr-1 h-3.5 w-3.5"/>
+                            {tr.batchReIdentify}
                         </Button>
                         <Button size="sm" variant="outline" className="h-7 rounded-md px-3 text-sm text-rose-600 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-950/30" onClick={() => setDeleteDialogOpen(true)}>
                             <Trash2 className="mr-1 h-3.5 w-3.5"/>

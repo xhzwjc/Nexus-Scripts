@@ -1,6 +1,6 @@
 "use client";
 
-import { authenticatedFetch } from "@/lib/auth";
+import { authenticatedFetch, type AuthenticatedFetchInit } from "@/lib/auth";
 import type { ScriptHubOrganizationDefinition } from "@/lib/types";
 
 export interface RecruitmentOption {
@@ -643,6 +643,19 @@ export interface RecruitmentMailAutoPushGlobalConfig {
   global_auto_push_enabled: boolean;
 }
 
+export type RecruitmentRequestInit = AuthenticatedFetchInit;
+
+export function isRecruitmentRequestAborted(error: unknown): boolean {
+  if (!error) {
+    return false;
+  }
+  if (error instanceof DOMException && error.name === "AbortError") {
+    return true;
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes("__SCRIPT_HUB_REQUEST_TIMEOUT__") || message.includes("aborted");
+}
+
 interface ApiEnvelope<T> {
   success?: boolean;
   data?: T;
@@ -703,7 +716,7 @@ async function parseError(response: Response, payload: ApiEnvelope<unknown> | nu
   return `Request failed (${response.status})`;
 }
 
-export async function recruitmentApi<T>(path: string, init: RequestInit = {}): Promise<T> {
+export async function recruitmentApi<T>(path: string, init: RecruitmentRequestInit = {}): Promise<T> {
   const isFormData = typeof FormData !== "undefined" && init.body instanceof FormData;
   const headers = new Headers(init.headers);
 
@@ -711,11 +724,19 @@ export async function recruitmentApi<T>(path: string, init: RequestInit = {}): P
     headers.set("Content-Type", "application/json");
   }
 
-  const response = await authenticatedFetch(`/api/recruitment${path}`, {
-    ...init,
-    headers,
-    cache: "no-store",
-  });
+  let response: Response;
+  try {
+    response = await authenticatedFetch(`/api/recruitment${path}`, {
+      ...init,
+      headers,
+      cache: "no-store",
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("__SCRIPT_HUB_REQUEST_TIMEOUT__")) {
+      throw new Error("请求超时，请稍后重试。");
+    }
+    throw error;
+  }
 
   const raw = await response.text();
   let payload: ApiEnvelope<T> | null = null;
@@ -796,6 +817,7 @@ export async function triggerAIPositionMatch(
     "/candidates/ai-match-positions",
     {
       method: "POST",
+      timeoutMs: 45000,
       body: JSON.stringify(candidateIds),
     }
   );

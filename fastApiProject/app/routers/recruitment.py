@@ -459,8 +459,8 @@ async def get_source_stats(position_id: Optional[int] = Query(None), org_code: O
 
 
 @recruitment_router.get("/candidates")
-async def list_candidates(query: Optional[str] = Query(None), status: Optional[str] = Query(None), position_id: Optional[int] = Query(None), tag: Optional[str] = Query(None), limit: int = Query(0), offset: int = Query(0), org_code: Optional[str] = Query(None), compact: bool = Query(False), _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-dashboard-view")), service: RecruitmentService = Depends(get_recruitment_service)):
-    result = service.list_candidates(query=query, status=status, position_id=position_id, tag=tag, limit=limit, offset=offset, org_code=org_code, compact=compact)
+async def list_candidates(query: Optional[str] = Query(None), status: Optional[str] = Query(None), position_id: Optional[int] = Query(None), tag: Optional[str] = Query(None), limit: int = Query(0), offset: int = Query(0), org_code: Optional[str] = Query(None), compact: bool = Query(False), sort_by: Optional[str] = Query(None), sort_order: Optional[str] = Query(None), _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-dashboard-view")), service: RecruitmentService = Depends(get_recruitment_service)):
+    result = service.list_candidates(query=query, status=status, position_id=position_id, tag=tag, limit=limit, offset=offset, org_code=org_code, compact=compact, sort_by=sort_by, sort_order=sort_order)
     return {"success": True, "data": {"items": result["items"], "total": result["total"]}, "request_id": str(uuid.uuid4())}
 
 
@@ -747,7 +747,7 @@ async def upload_resumes(
                 ai_match_result = await service.trigger_ai_position_match(
                     candidate_ids,
                     actor_id,
-                    require_auto_screen_ready=True,
+                    require_auto_screen_ready=False,
                 )
                 logger.info(f"AI position match dispatched: {ai_match_result}")
             except Exception as exc:

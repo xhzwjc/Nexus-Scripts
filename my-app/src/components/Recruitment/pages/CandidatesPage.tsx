@@ -427,6 +427,7 @@ function getCandidatesLocale(language = getCurrentLanguage()) {
         status: isZh ? "状态" : "Status",
         allStatuses: isZh ? "全部状态" : "All Statuses",
         matchPercent: isZh ? "匹配度" : "Match",
+        sortingByMatchPercent: isZh ? "正在按匹配度重新排序，当前列表先保留，完成后自动更新。" : "Sorting by match. Keeping the current list visible until the new order is ready.",
         allMatchPercent: isZh ? "全部匹配度" : "All Match Scores",
         above80: isZh ? "80% 以上" : "80%+",
         above60: isZh ? "60% 以上" : "60%+",
@@ -458,6 +459,9 @@ function getCandidatesLocale(language = getCurrentLanguage()) {
         clearSelection: isZh ? "清空选择" : "Clear Selection",
         stopBatchScreening: isZh ? "停止批量初筛" : "Stop Batch Screening",
         queueBatch: isZh ? "批量入队" : "Queue Batch",
+        requeueFreshScreening: isZh ? "批量重新初筛" : "Fresh Screen Batch",
+        advancedActions: isZh ? "高级操作" : "Advanced Actions",
+        advancedActionsHint: isZh ? "归入人才库、导出、发送简历、设置岗位、变更状态和删除已收起，展开后使用。" : "Move to talent pool, export, send resumes, set position, change status, and delete are collapsed here.",
         sendResumesBatch: isZh ? "发送简历" : "Send Resumes",
         exportCandidates: isZh ? "导出" : "Export",
         exporting: isZh ? "导出中..." : "Exporting...",
@@ -497,6 +501,7 @@ function getCandidatesLocale(language = getCurrentLanguage()) {
         aiAssessmentTab: isZh ? "AI 评估" : "AI Review",
         interviewPrepTab: isZh ? "面试准备" : "Interview Prep",
         startScreening: isZh ? "开始初筛" : "Start Screening",
+        restartScreening: isZh ? "重新初筛" : "Re-screen",
         stopScreening: isZh ? "停止初筛" : "Stop Screening",
         viewResume: isZh ? "查看简历" : "View Resume",
         previewResume: isZh ? "预览简历" : "Preview Resume",
@@ -1502,6 +1507,7 @@ type CandidatesPageProps = {
     selectedCandidateIds: number[];
     setSelectedCandidateIds: React.Dispatch<React.SetStateAction<number[]>>;
     triggerScreening: (candidateIds?: number[]) => Promise<void>;
+    triggerFreshScreening: (candidateIds?: number[]) => Promise<void>;
     isBatchScreeningCancelling: boolean;
     screeningSubmitting: boolean;
     isBatchScreeningRunning: boolean;
@@ -1509,6 +1515,7 @@ type CandidatesPageProps = {
     candidatesLoading: boolean;
     candidatesInitialLoaded: boolean;
     isLoadingMoreCandidates: boolean;
+    candidateMatchSortLoading: boolean;
     allCandidatesCount: number;
     candidateTotal: number;
     candidateListScrollRef: (node: HTMLDivElement | null) => void;
@@ -1607,6 +1614,7 @@ export function CandidatesPage({
     selectedCandidateIds,
     setSelectedCandidateIds,
     triggerScreening,
+    triggerFreshScreening,
     isBatchScreeningCancelling,
     screeningSubmitting,
     isBatchScreeningRunning,
@@ -1614,6 +1622,7 @@ export function CandidatesPage({
     candidatesLoading,
     candidatesInitialLoaded,
     isLoadingMoreCandidates,
+    candidateMatchSortLoading,
     allCandidatesCount,
     candidateTotal,
     candidateListScrollRef,
@@ -1692,6 +1701,11 @@ export function CandidatesPage({
     const isZh = language !== "en-US";
     const tr = React.useMemo(() => getCandidatesLocale(language), [language]);
     const activeQuickStatus = candidateStatusFilter[0] || "";
+    const activeQuickScreeningStatus = (
+        activeQuickStatus === "screening_passed" || activeQuickStatus === "screening_rejected"
+            ? activeQuickStatus
+            : ""
+    );
     const activeQuickPosition = candidatePositionFilter[0] || "";
     const exportFieldOptions = React.useMemo(() => ([
         { key: "name", label: isZh ? "姓名" : "Name", defaultChecked: true },
@@ -1722,6 +1736,7 @@ export function CandidatesPage({
     const [candidateListViewportEl, setCandidateListViewportEl] = React.useState<HTMLDivElement | null>(null);
     const [candidateListCompactMode, setCandidateListCompactMode] = React.useState(false);
     const [candidateFilterBarExpanded, setCandidateFilterBarExpanded] = React.useState(false);
+    const [candidateAdvancedActionsExpanded, setCandidateAdvancedActionsExpanded] = React.useState(false);
     const [refreshing, setRefreshing] = React.useState(false);
     const [candidateAiOutputDialogOpen, setCandidateAiOutputDialogOpen] = React.useState(false);
     const [exportDialogOpen, setExportDialogOpen] = React.useState(false);
@@ -1735,6 +1750,11 @@ export function CandidatesPage({
     useEffect(() => {
         setExportFieldKeys(defaultExportFieldKeys);
     }, [defaultExportFieldKeys]);
+    useEffect(() => {
+        if (!selectedCandidateIds.length) {
+            setCandidateAdvancedActionsExpanded(false);
+        }
+    }, [selectedCandidateIds.length]);
     const [batchStatusValue, setBatchStatusValue] = React.useState<string>("");
     const [batchStatusReason, setBatchStatusReason] = React.useState<string>("");
     const [batchStatusSubmitting, setBatchStatusSubmitting] = React.useState(false);
@@ -2191,46 +2211,52 @@ export function CandidatesPage({
                 >
                 <Card className={cn(panelClass, "h-full !gap-0 overflow-hidden !py-0")}>
                     <CardHeader className="px-4 pt-2 pb-0 sm:px-5">
-                        <div className="flex items-center justify-between gap-3">
-                            <CardTitle className="text-[19px] leading-none">{tr.candidateList}</CardTitle>
-                            <div className="flex flex-wrap items-center gap-2">
-                                <Button
-                                    size="sm"
-                                    variant={activeQuickStatus === "screening_passed" ? "default" : "outline"}
-                                    className="h-7 rounded-md px-2.5 text-sm"
-                                    onClick={() => setCandidateStatusFilter(activeQuickStatus === "screening_passed" ? [] : ["screening_passed"])}
-                                >
-                                    {candidateStatusLabels.screening_passed || (isZh ? "初筛通过" : "Screening Passed")}
-                                </Button>
-                                <Button
-                                    size="sm"
-                                    variant={activeQuickStatus === "screening_rejected" ? "default" : "outline"}
-                                    className="h-7 rounded-md px-2.5 text-sm"
-                                    onClick={() => setCandidateStatusFilter(activeQuickStatus === "screening_rejected" ? [] : ["screening_rejected"])}
-                                >
-                                    {candidateStatusLabels.screening_rejected || (isZh ? "初筛淘汰" : "Screening Rejected")}
-                                </Button>
-                                <div className="w-[220px] max-w-[220px] min-w-0 shrink-0">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                            <CardTitle className="flex shrink-0 items-center gap-2 text-[19px] leading-none">
+                                <span>{tr.candidateList}</span>
+                                <Badge variant="outline" className="rounded-full text-sm font-normal">{visibleCandidates.length}{tr.peopleSuffix}</Badge>
+                            </CardTitle>
+                            <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
+                                <div className="flex min-w-0 items-center gap-1.5 rounded-lg border border-slate-200/80 bg-slate-50/80 p-1 dark:border-slate-800 dark:bg-slate-900/60">
                                     <NativeSelect
-                                        value={activeQuickPosition || "__all__"}
+                                        value={activeQuickScreeningStatus || "__all__"}
                                         title={
-                                            activeQuickPosition
-                                                ? (positions.find((position) => String(position.id) === activeQuickPosition)?.title || "")
-                                                : tr.allPositions
+                                            activeQuickScreeningStatus
+                                                ? (candidateStatusLabels[activeQuickScreeningStatus] || activeQuickScreeningStatus)
+                                                : (isZh ? "初筛状态" : "Screening Status")
                                         }
                                         onChange={(event) => {
                                             const nextValue = event.target.value;
-                                            setCandidatePositionFilter(nextValue === "__all__" ? [] : [nextValue]);
+                                            setCandidateStatusFilter(nextValue === "__all__" ? [] : [nextValue]);
                                         }}
-                                        className="h-7 w-full max-w-full truncate rounded-md pr-8 text-sm"
+                                        className="h-7 w-[112px] rounded-md border-transparent bg-white pr-7 text-sm shadow-none dark:bg-slate-950"
                                     >
-                                        <option value="__all__">{tr.allPositions}</option>
-                                        {positions.map((position) => (
-                                            <option key={position.id} value={String(position.id)}>
-                                                {position.title}
-                                            </option>
-                                        ))}
+                                        <option value="__all__">{isZh ? "初筛状态" : "Screening"}</option>
+                                        <option value="screening_passed">{candidateStatusLabels.screening_passed || (isZh ? "初筛通过" : "Screening Passed")}</option>
+                                        <option value="screening_rejected">{candidateStatusLabels.screening_rejected || (isZh ? "初筛淘汰" : "Screening Rejected")}</option>
                                     </NativeSelect>
+                                    <div className="w-[190px] max-w-[190px] min-w-0 shrink-0">
+                                        <NativeSelect
+                                            value={activeQuickPosition || "__all__"}
+                                            title={
+                                                activeQuickPosition
+                                                    ? (positions.find((position) => String(position.id) === activeQuickPosition)?.title || "")
+                                                    : tr.allPositions
+                                            }
+                                            onChange={(event) => {
+                                                const nextValue = event.target.value;
+                                                setCandidatePositionFilter(nextValue === "__all__" ? [] : [nextValue]);
+                                            }}
+                                            className="h-7 w-full max-w-full truncate rounded-md border-transparent bg-white pr-8 text-sm shadow-none dark:bg-slate-950"
+                                        >
+                                            <option value="__all__">{tr.allPositions}</option>
+                                            {positions.map((position) => (
+                                                <option key={position.id} value={String(position.id)}>
+                                                    {position.title}
+                                                </option>
+                                            ))}
+                                        </NativeSelect>
+                                    </div>
                                 </div>
                                 {onRefresh ? (
                                     <Button
@@ -2251,7 +2277,6 @@ export function CandidatesPage({
                                         {tr.refresh}
                                     </Button>
                                 ) : null}
-                                <Badge variant="outline" className="rounded-full">{visibleCandidates.length}{tr.peopleSuffix}</Badge>
                                 <Button
                                     size="sm"
                                     variant="outline"
@@ -2269,10 +2294,12 @@ export function CandidatesPage({
                             <p className="text-sm text-slate-500 dark:text-slate-400">
                                 {tr.selectedCandidates(selectedCandidateIds.length)}
                             </p>
-                            <div className="flex flex-wrap gap-2">
-                                <Button size="sm" variant="outline" className="h-7 rounded-md px-2.5 text-sm" onClick={() => setSelectedCandidateIds([])} disabled={!selectedCandidateIds.length}>
-                                    {tr.clearSelection}
-                                </Button>
+                            <div className="flex flex-wrap items-center gap-2">
+                                {selectedCandidateIds.length ? (
+                                    <Button size="sm" variant="ghost" className="h-7 rounded-md px-2.5 text-sm" onClick={() => setSelectedCandidateIds([])}>
+                                        {tr.clearSelection}
+                                    </Button>
+                                ) : null}
                                 <Button
                                     size="sm"
                                     variant="outline"
@@ -2283,15 +2310,35 @@ export function CandidatesPage({
                                     {isBatchScreeningCancelling ? <Loader2 className="h-4 w-4 animate-spin"/> : isBatchScreeningRunning ? <Square className="h-4 w-4"/> : screeningSubmitting ? <Loader2 className="h-4 w-4 animate-spin"/> : <Sparkles className="h-4 w-4"/>}
                                     {isBatchScreeningCancelling ? tr.stopping : isBatchScreeningRunning ? tr.stopBatchScreening : screeningSubmitting ? tr.queueing : tr.queueBatch}
                                 </Button>
-                                <Button size="sm" variant="outline" className="h-7 rounded-md px-2.5 text-sm" onClick={() => openResumeMailDialog(selectedCandidateIds)} disabled={!selectedCandidateIds.length}>
-                                    <Mail className="h-4 w-4"/>
-                                    {tr.sendResumesBatch}
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-7 rounded-md px-2.5 text-sm"
+                                    onClick={() => void triggerFreshScreening(selectedCandidateIds)}
+                                    disabled={screeningSubmitting || !selectedCandidateIds.length}
+                                >
+                                    <RotateCcw className="h-4 w-4"/>
+                                    {tr.requeueFreshScreening}
                                 </Button>
-                                <Button size="sm" variant="outline" className="h-7 rounded-md px-2.5 text-sm" onClick={() => { setBatchBindPositionId(""); setBatchBindDialogOpen(true); }} disabled={!selectedCandidateIds.length}>
-                                    <Briefcase className="h-4 w-4"/>
-                                    {tr.batchBindPosition}
-                                </Button>
-                                {/* 归入人才库 */}
+                                <div className="group relative inline-flex">
+                                    <Button
+                                        size="sm"
+                                        variant="outline"
+                                        className="h-7 rounded-md px-2.5 text-sm"
+                                        onClick={() => setCandidateAdvancedActionsExpanded((current) => !current)}
+                                        disabled={!selectedCandidateIds.length}
+                                    >
+                                        {candidateAdvancedActionsExpanded ? <ChevronUp className="h-4 w-4"/> : <ChevronDown className="h-4 w-4"/>}
+                                        {tr.advancedActions}
+                                    </Button>
+                                    <div className="pointer-events-none absolute right-0 top-full z-30 mt-2 w-72 translate-y-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 opacity-0 shadow-lg transition group-hover:translate-y-0 group-hover:opacity-100 group-focus-within:translate-y-0 group-focus-within:opacity-100 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300">
+                                        {tr.advancedActionsHint}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        {selectedCandidateIds.length && candidateAdvancedActionsExpanded ? (
+                            <div className="mb-2 flex flex-wrap items-center gap-2 rounded-md border border-slate-200/80 bg-slate-50/70 px-2.5 py-2 text-sm text-slate-500 dark:border-slate-800 dark:bg-slate-900/50 dark:text-slate-400">
                                 <Button
                                     size="sm"
                                     variant="outline"
@@ -2308,19 +2355,33 @@ export function CandidatesPage({
                                     <Users className="h-4 w-4"/>
                                     {isZh ? "归入人才库" : "Move to Talent Pool"}
                                 </Button>
-                                <Button size="sm" variant="outline" className="h-7 rounded-md px-2.5 text-sm" onClick={() => { setBatchStatusValue(""); setBatchStatusReason(""); setBatchStatusDialogOpen(true); }} disabled={!selectedCandidateIds.length}>
-                                    <ArrowRightLeft className="h-4 w-4"/>
-                                    {tr.batchUpdateStatus}
-                                </Button>
                                 <Button size="sm" variant="outline" className="h-7 rounded-md px-2.5 text-sm" onClick={() => setExportDialogOpen(true)} disabled={!selectedCandidateIds.length || exporting}>
                                     <Download className="h-4 w-4"/>
                                     {exporting ? tr.exporting : tr.exportCandidates}
+                                </Button>
+                                <Button size="sm" variant="outline" className="h-7 rounded-md px-2.5 text-sm" onClick={() => openResumeMailDialog(selectedCandidateIds)} disabled={!selectedCandidateIds.length}>
+                                    <Mail className="h-4 w-4"/>
+                                    {tr.sendResumesBatch}
+                                </Button>
+                                <Button size="sm" variant="outline" className="h-7 rounded-md px-2.5 text-sm" onClick={() => { setBatchBindPositionId(""); setBatchBindDialogOpen(true); }} disabled={!selectedCandidateIds.length}>
+                                    <Briefcase className="h-4 w-4"/>
+                                    {tr.batchBindPosition}
+                                </Button>
+                                <Button size="sm" variant="outline" className="h-7 rounded-md px-2.5 text-sm" onClick={() => { setBatchStatusValue(""); setBatchStatusReason(""); setBatchStatusDialogOpen(true); }} disabled={!selectedCandidateIds.length}>
+                                    <ArrowRightLeft className="h-4 w-4"/>
+                                    {tr.batchUpdateStatus}
                                 </Button>
                                 <Button size="sm" variant="outline" className="h-7 rounded-md px-2.5 text-sm text-rose-600 hover:text-rose-700 hover:bg-rose-50 dark:text-rose-400 dark:hover:text-rose-300 dark:hover:bg-rose-950/30" onClick={() => requestBatchDelete(selectedCandidateIds)} disabled={!selectedCandidateIds.length}>
                                     <Trash2 className="h-4 w-4"/>
                                 </Button>
                             </div>
-                        </div>
+                        ) : null}
+                        {candidateMatchSortLoading ? (
+                            <div className="mb-2 flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-2 text-sm text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200">
+                                <Loader2 className="h-4 w-4 animate-spin"/>
+                                <span>{tr.sortingByMatchPercent}</span>
+                            </div>
+                        ) : null}
                         {candidatesLoading || !candidatesInitialLoaded ? (
                             <LoadingCard label={tr.loadingCandidateList}/>
                         ) : candidateViewMode === "list" ? (
@@ -2598,28 +2659,6 @@ export function CandidatesPage({
                                             <div data-no-zoom className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-slate-500 dark:text-slate-400 cursor-text select-text">
                                                 {candidateDetailIdentityMeta ? <span>{candidateDetailIdentityMeta}</span> : null}
                                             </div>
-                                            {(candidateDetail.candidate.ai_potential_position || candidateDetail.candidate.ai_potential_reason) ? (
-                                                <div data-no-zoom className="mt-2 rounded-xl border border-sky-100 bg-sky-50/70 px-3 py-2 text-sm text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
-                                                    <div className="flex items-center">
-                                                        <span className="font-medium">
-                                                            {`${isZh ? "转岗潜力方向" : "Potential Transition"}：`}
-                                                            {candidateDetail.candidate.ai_potential_position || (isZh ? "暂无" : "N/A")}
-                                                        </span>
-                                                        {candidateDetail.candidate.ai_potential_reason ? (
-                                                            <button
-                                                                type="button"
-                                                                className="ml-1.5 shrink-0 text-xs text-sky-500 hover:text-sky-700 dark:text-sky-400 dark:hover:text-sky-200"
-                                                                onClick={() => setPotentialReasonExpanded((v) => !v)}
-                                                            >
-                                                                {potentialReasonExpanded ? (isZh ? "收起详情" : "Collapse") : (isZh ? "展开详情" : "Expand")}
-                                                            </button>
-                                                        ) : null}
-                                                    </div>
-                                                    {candidateDetail.candidate.ai_potential_reason && potentialReasonExpanded ? (
-                                                        <div className="mt-1 text-sky-600 dark:text-sky-200/80">{candidateDetail.candidate.ai_potential_reason}</div>
-                                                    ) : null}
-                                                </div>
-                                            ) : null}
                                         </div>
                                         <div data-no-zoom className="flex shrink-0 items-center gap-1 rounded-full border border-slate-200 bg-slate-50 p-1 dark:border-slate-800 dark:bg-slate-900">
                                             <Button size="sm" variant={candidateDetailPanel === "profile" ? "default" : "ghost"} onClick={() => setCandidateDetailPanel("profile")}>
@@ -2633,6 +2672,30 @@ export function CandidatesPage({
                                             </Button>
                                         </div>
                                     </div>
+                                    {(candidateDetail.candidate.ai_potential_position || candidateDetail.candidate.ai_potential_reason) ? (
+                                        <div data-no-zoom className="mt-2 w-full rounded-xl border border-sky-100 bg-sky-50/70 px-3 py-2.5 text-sm text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
+                                            <div className="flex flex-wrap items-start justify-between gap-2">
+                                                <div className="min-w-0 flex-1 font-medium">
+                                                    {`${isZh ? "转岗潜力方向" : "Potential Transition"}：`}
+                                                    {candidateDetail.candidate.ai_potential_position || (isZh ? "暂无" : "N/A")}
+                                                </div>
+                                                {candidateDetail.candidate.ai_potential_reason ? (
+                                                    <button
+                                                        type="button"
+                                                        className="shrink-0 rounded-full px-2 py-0.5 text-xs text-sky-500 transition hover:bg-sky-100 hover:text-sky-700 dark:text-sky-400 dark:hover:bg-sky-900/50 dark:hover:text-sky-200"
+                                                        onClick={() => setPotentialReasonExpanded((v) => !v)}
+                                                    >
+                                                        {potentialReasonExpanded ? (isZh ? "收起详情" : "Collapse") : (isZh ? "展开详情" : "Expand")}
+                                                    </button>
+                                                ) : null}
+                                            </div>
+                                            {candidateDetail.candidate.ai_potential_reason && potentialReasonExpanded ? (
+                                                <div className="mt-2 whitespace-pre-wrap break-words rounded-lg bg-white/65 px-2.5 py-2 leading-6 text-sky-700 dark:bg-sky-950/40 dark:text-sky-100/90">
+                                                    {candidateDetail.candidate.ai_potential_reason}
+                                                </div>
+                                            ) : null}
+                                        </div>
+                                    ) : null}
                                 </div>
                                 {ReactDOM.createPortal(
                                     <div
@@ -2669,6 +2732,16 @@ export function CandidatesPage({
                                             >
                                                 {isSelectedCandidateScreeningCancelling ? <Loader2 className="h-4 w-4 animate-spin"/> : selectedCandidateScreeningTaskId ? <Square className="h-4 w-4"/> : screeningSubmitting ? <Loader2 className="h-4 w-4 animate-spin"/> : <Sparkles className="h-4 w-4"/>}
                                                 {isSelectedCandidateScreeningCancelling ? tr.stopping : selectedCandidateScreeningTaskId ? tr.stopScreening : screeningSubmitting ? tr.queueing : tr.startScreening}
+                                            </Button>
+                                            <Button
+                                                className="shrink-0"
+                                                size="sm"
+                                                variant="outline"
+                                                onClick={() => void triggerFreshScreening()}
+                                                disabled={screeningSubmitting}
+                                            >
+                                                <RotateCcw className="h-4 w-4"/>
+                                                {tr.restartScreening}
                                             </Button>
                                             {primaryResumeFile ? (
                                                 <Button className="shrink-0" size="sm" variant="outline" onClick={() => previewResumeFile({ id: primaryResumeFile.id, original_name: primaryResumeFile.original_name }, candidateDetail.candidate.name)}>

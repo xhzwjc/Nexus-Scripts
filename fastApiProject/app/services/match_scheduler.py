@@ -9,6 +9,7 @@ AI 岗位匹配公平调度器
 
 import asyncio
 import logging
+import threading
 import time
 import uuid
 from collections import defaultdict, deque
@@ -160,8 +161,8 @@ class MatchTask:
     batch_id: str
     candidate_id: int
     candidate: Any  # RecruitmentCandidate 对象
-    resume_content: str
     position_summaries: List[Dict[str, Any]]
+    resume_content: Optional[str] = None
     enqueue_time: float = field(default_factory=time.monotonic)
     started_at: Optional[float] = None  # worker 真正开始执行的时间
     retry_count: int = 0  # 已重试次数
@@ -187,6 +188,9 @@ class FairMatchScheduler:
         self._user_queues: Dict[str, deque] = defaultdict(deque)
         self._active_users: deque = deque()
         self._queue_lock = asyncio.Lock()
+        self._live_candidate_ids: set[int] = set()
+        self._running_candidate_ids: set[int] = set()
+        self._state_lock = threading.Lock()
         self._has_tasks = asyncio.Event()
         self._workers: List[asyncio.Task] = []
         self.running = False
@@ -208,6 +212,20 @@ class FairMatchScheduler:
 
     def clear_cancelled(self, candidate_id: int):
         self._cancelled_ids.discard(candidate_id)
+
+    def is_candidate_live(self, candidate_id: int) -> bool:
+        with self._state_lock:
+            return int(candidate_id) in self._live_candidate_ids
+
+    def mark_candidate_running(self, candidate_id: int):
+        with self._state_lock:
+            self._running_candidate_ids.add(int(candidate_id))
+
+    def clear_live_candidate(self, candidate_id: int):
+        with self._state_lock:
+            normalized_id = int(candidate_id)
+            self._running_candidate_ids.discard(normalized_id)
+            self._live_candidate_ids.discard(normalized_id)
 
     async def reenqueue(self, task: MatchTask):
         """重新入队（重试场景），放到队列头部优先处理"""
@@ -245,12 +263,9 @@ class FairMatchScheduler:
         batch_id: str,
         candidates: List[Any],
         position_summaries: List[Dict[str, Any]],
-        resume_extractor: Callable[[Any], str],
     ):
         """
         批量入队。同一 batch_id 的任务属于同一次上传。
-
-        resume_extractor: 从 candidate 对象提取简历文本的函数
         """
         async with self._queue_lock:
             is_new_user = (
@@ -263,10 +278,11 @@ class FairMatchScheduler:
                     batch_id=batch_id,
                     candidate_id=candidate.id,
                     candidate=candidate,
-                    resume_content=resume_extractor(candidate),
                     position_summaries=position_summaries,
                 )
                 self._user_queues[user_id].append(task)
+                with self._state_lock:
+                    self._live_candidate_ids.add(int(candidate.id))
                 self._stats["total_enqueued"] += 1
 
             if is_new_user and user_id not in self._active_users:
@@ -311,6 +327,7 @@ class FairMatchScheduler:
             # 检查是否已被用户取消
             if self.is_cancelled(task.candidate_id):
                 self.clear_cancelled(task.candidate_id)
+                self.clear_live_candidate(task.candidate_id)
                 logger.info(
                     "MatchWorker-%d skipping cancelled candidate=%d",
                     worker_id, task.candidate_id,
@@ -323,10 +340,14 @@ class FairMatchScheduler:
             slot = None
             try:
                 slot = await self.key_rotator.acquire_slot()
+                self.mark_candidate_running(task.candidate_id)
                 logger.debug(
                     "MatchWorker-%d executing candidate=%d key=%s user=%s",
                     worker_id, task.candidate_id, slot.key_id, task.user_id,
                 )
+
+                if self._task_started_callback:
+                    await self._task_started_callback(task, slot)
 
                 # 调用回调执行实际匹配（由 service 层提供）
                 if self._match_callback:
@@ -346,6 +367,7 @@ class FairMatchScheduler:
                 if self._error_callback:
                     await self._error_callback(task, e)
             finally:
+                self.clear_live_candidate(task.candidate_id)
                 if slot:
                     slot.release()
 
@@ -354,15 +376,18 @@ class FairMatchScheduler:
     # 回调函数，由 service 层注入
     _match_callback: Optional[Callable] = None
     _error_callback: Optional[Callable] = None
+    _task_started_callback: Optional[Callable] = None
 
     def set_callbacks(
         self,
         match_callback: Callable,
         error_callback: Callable,
+        task_started_callback: Optional[Callable] = None,
     ):
         """设置匹配和错误回调（由 service 层注入）"""
         self._match_callback = match_callback
         self._error_callback = error_callback
+        self._task_started_callback = task_started_callback
 
     def stats(self) -> Dict[str, Any]:
         return {
