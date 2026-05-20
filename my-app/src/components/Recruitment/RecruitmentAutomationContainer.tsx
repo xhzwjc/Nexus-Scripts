@@ -1516,6 +1516,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const selectedLogIdRef = useRef<number | null>(null);
     const selectedPositionIdRef = useRef<number | null>(null);
     const selectedCandidateIdRef = useRef<number | null>(null);
+    const recentlyDeletedCandidateIdsRef = useRef<Set<number>>(new Set());
     const recentlyCompletedScreeningCandidatesRef = useRef<Map<number, number>>(new Map());
     const logsFiltersInitializedRef = useRef(false);
     const positionsLoadRequestIdRef = useRef(0);
@@ -2629,6 +2630,16 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const assistantModelLabel = assistantActiveLLMConfig
         ? `${labelForProvider(assistantActiveLLMConfig.resolved_provider || assistantActiveLLMConfig.provider)} / ${assistantActiveLLMConfig.resolved_model_name || assistantActiveLLMConfig.model_name}`
         : recruitmentUiText.modelUnrecognized;
+    const markCandidatesDeleted = useCallback((candidateIds: number[]) => {
+        const normalizedIds = Array.from(new Set(candidateIds.filter((id) => Number.isFinite(id) && id > 0)));
+        if (!normalizedIds.length) {
+            return;
+        }
+        normalizedIds.forEach((id) => recentlyDeletedCandidateIdsRef.current.add(id));
+        window.setTimeout(() => {
+            normalizedIds.forEach((id) => recentlyDeletedCandidateIdsRef.current.delete(id));
+        }, 60_000);
+    }, []);
     const buildOptimisticChatContext = useCallback((
         nextPositionId: number | null,
         nextSkillIds: number[],
@@ -3499,9 +3510,6 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
 
     useEffect(() => {
         if (activePage === "candidates" && candidateMenuSuppressStaleDetailRef.current) {
-            if (selectedCandidateId) {
-                return;
-            }
             candidateMenuSuppressStaleDetailRef.current = false;
         }
         if (!selectedCandidateId) {
@@ -5013,6 +5021,11 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             }
             return normalizedData;
         } catch (error) {
+            const isStaleDetailRequest = selectedCandidateIdRef.current !== candidateId;
+            const isRecentlyDeletedCandidate = recentlyDeletedCandidateIdsRef.current.has(candidateId);
+            if (isStaleDetailRequest || isRecentlyDeletedCandidate) {
+                return null;
+            }
             if (!options?.silent) {
                 toast.error(recruitmentToast.loadFailed(recruitmentToastEntities.candidateDetail, formatActionError(error)));
             }
@@ -9310,9 +9323,23 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             await recruitmentApi(`/candidates/${deletedCandidateId}`, {
                 method: "DELETE",
             });
+            markCandidatesDeleted([deletedCandidateId]);
+            setAllCandidates((current) => current.filter((candidate) => candidate.id !== deletedCandidateId));
+            setCandidateTotal((current) => Math.max(0, current - 1));
             setCandidateDeleteTarget(null);
             setSelectedCandidateIds((current) => current.filter((item) => item !== deletedCandidateId));
-            setCandidateDetail(null);
+            if (selectedCandidateIdRef.current === deletedCandidateId) {
+                setSelectedCandidateId(null);
+                selectedCandidateIdRef.current = null;
+                checkedDuplicateCandidateIdRef.current = null;
+                setCandidateDetail(null);
+                setDuplicateCandidates([]);
+                setInterviewSchedules([]);
+                setOffers([]);
+                setFollowUps([]);
+            } else {
+                setCandidateDetail(null);
+            }
             toast.success(recruitmentToast.candidateDeleted);
             const nextCandidates = await loadCandidates({silent: true});
             const nextCandidateId = nextCandidates[0]?.id ?? null;
@@ -9351,10 +9378,23 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             });
             const deletedCount = result.deleted_count ?? 0;
             const skipped = result.skipped ?? [];
+            const skippedIds = new Set(skipped.map((item) => item.candidate_id));
+            const actuallyDeletedIds = deletedIds.filter((id) => !skippedIds.has(id));
+            markCandidatesDeleted(actuallyDeletedIds);
+            const actuallyDeletedIdSet = new Set(actuallyDeletedIds);
+            setAllCandidates((current) => current.filter((candidate) => !actuallyDeletedIdSet.has(candidate.id)));
+            setCandidateTotal((current) => Math.max(0, current - actuallyDeletedIds.length));
             setBatchDeleteTargetIds(null);
             setSelectedCandidateIds((current) => current.filter((id) => !deletedIds.includes(id)));
-            if (deletedIds.includes(selectedCandidateIdRef.current ?? -1)) {
+            if (actuallyDeletedIds.includes(selectedCandidateIdRef.current ?? -1)) {
+                setSelectedCandidateId(null);
+                selectedCandidateIdRef.current = null;
+                checkedDuplicateCandidateIdRef.current = null;
                 setCandidateDetail(null);
+                setDuplicateCandidates([]);
+                setInterviewSchedules([]);
+                setOffers([]);
+                setFollowUps([]);
             }
             if (skipped.length > 0) {
                 const names = skipped.map((s) => `ID:${s.candidate_id}`).join(", ");

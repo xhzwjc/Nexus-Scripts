@@ -545,6 +545,122 @@ def test_strict_one_pass_merges_split_section_array_response():
     assert result["debug_meta"]["selected_candidate_source"] == "split_section_objects"
 
 
+def test_strict_one_pass_repairs_inner_quotes_and_missing_array_object_open():
+    raw_response = (
+        '{"parsed_resume":{"basic_info":{"name":"唐琳"},"work_experiences":[],"education_experiences":[],'
+        '"skills":[],"projects":[],"summary":""},'
+        '"score":{"total_score":5.2,"match_percent":52,"advantages":["产品经验"],"concerns":["AI经验不足"],'
+        '"recommendation":"建议不通过初筛","suggested_status":"screening_rejected",'
+        '"dimensions":[{"label":"AI智能化能力","score":0,"max_score":2.2,'
+        '"reason":"简历仅提及"了解AI绘画Stable diffusion"，未提及主流AI工具",'
+        '"evidence":"了解AI绘画Stable diffusion","is_inferred":false,"radar_category":"专业能力"}],'
+        '"radar_scores":[{"category":"专业能力","score":1.2,"max_score":2.0,"reason":"工具链完整",'
+        '"evidence":"Axure"},"category":"学习潜力","score":0.9,"max_score":2.0,'
+        '"reason":"有持续学习轨迹","evidence":"艺术设计本科"}]},'
+        '"position_match":{"recommended_position":"产品经理","confidence":55,"reason":"产品经验","potential_position":"数据产品经理","potential_reason":"数据工具基础"}}'
+    )
+
+    result = _parse_strict_json_response(raw_response, task_type=SCREENING_ONE_PASS_TASK_TYPE)
+
+    assert result["content"]["parsed_resume"]["basic_info"]["name"] == "唐琳"
+    assert result["content"]["score"]["dimensions"][0]["reason"] == '简历仅提及"了解AI绘画Stable diffusion",未提及主流AI工具'
+    assert len(result["content"]["score"]["radar_scores"]) == 2
+    assert result["content"]["score"]["radar_scores"][1]["category"] == "学习潜力"
+
+
+def test_strict_one_pass_repairs_extra_array_closer_after_string_field():
+    raw_response = (
+        '{"parsed_resume":{"basic_info":{"name":"罗艳艳"},"work_experiences":[],"education_experiences":[],'
+        '"skills":[],"projects":[],"summary":""},'
+        '"score":{"total_score":9.1,"match_percent":91,"advantages":["硬件测试经验丰富"],"concerns":["无明显硬性不足"],'
+        '"recommendation":"候选人硬件测试能力突出,建议进入下一轮面试"],'
+        '"suggested_status":"screening_passed","dimensions":[{"label":"硬件测试方法与流程","score":2.3,'
+        '"max_score":2.5,"reason":"测试经验完整","evidence":"硬件测试","is_inferred":false,'
+        '"radar_category":"专业能力"}],"radar_scores":[]},'
+        '"position_match":{"recommended_position":"硬件测试工程师","confidence":95,"reason":"经验匹配",'
+        '"potential_position":"硬件测试组长","potential_reason":"测试流程管理经验"}}'
+    )
+
+    result = _parse_strict_json_response(raw_response, task_type=SCREENING_ONE_PASS_TASK_TYPE)
+
+    assert result["content"]["parsed_resume"]["basic_info"]["name"] == "罗艳艳"
+    assert result["content"]["score"]["recommendation"] == "候选人硬件测试能力突出,建议进入下一轮面试"
+    assert result["content"]["score"]["suggested_status"] == "screening_passed"
+
+
+def test_strict_one_pass_recovers_parse_only_fragment_array_for_score_salvage():
+    raw_response = json.dumps(
+        [
+            {
+                "name": "王召",
+                "phone": "18910827602",
+                "email": "wangzhao6288@163.com",
+                "years_of_experience": "14年",
+                "education": "中国传媒大学 艺术设计 本科",
+                "location": "北京",
+                "expected_city": "北京",
+            },
+            {
+                "company": "昆仑数智",
+                "title": "产品经理",
+                "duration": "2024.04—2026.03",
+                "description": "油气专业软件共享数字化解决方案",
+            },
+            {
+                "school": "中国传媒大学",
+                "degree": "本科",
+                "major": "艺术设计",
+                "duration": "2015.03—2017.07",
+            },
+        ],
+        ensure_ascii=False,
+    )
+
+    result = _parse_strict_json_response(raw_response, task_type=SCREENING_ONE_PASS_TASK_TYPE)
+
+    assert result["content"]["parsed_resume"]["basic_info"]["name"] == "王召"
+    assert result["content"]["parsed_resume"]["work_experiences"][0]["company"] == "昆仑数智"
+    assert result["content"]["parsed_resume"]["education_experiences"][0]["school"] == "中国传媒大学"
+    assert result["content"]["score"] == {}
+    assert result["debug_meta"]["selected_candidate_source"] == "parse_only_fragment_array"
+
+
+def test_strict_one_pass_merges_raw_parse_fragments_with_score_object():
+    raw_response = json.dumps(
+        [
+            {"name": "王召", "phone": "18910827602", "years_of_experience": "14年"},
+            {"company": "昆仑数智", "title": "产品经理", "duration": "2024.04—2026.03"},
+            {
+                "total_score": 6.5,
+                "match_percent": 65,
+                "advantages": ["数字化产品经验"],
+                "concerns": ["履约系统经验不足"],
+                "recommendation": "建议进入人才库",
+                "suggested_status": "talent_pool",
+                "dimensions": [
+                    {
+                        "label": "履约系统产品经验",
+                        "score": 1.0,
+                        "max_score": 2.5,
+                        "reason": "有数字化平台经验",
+                        "evidence": "数字化解决方案",
+                        "is_inferred": False,
+                        "radar_category": "岗位匹配度",
+                    }
+                ],
+            },
+        ],
+        ensure_ascii=False,
+    )
+
+    result = _parse_strict_json_response(raw_response, task_type=SCREENING_ONE_PASS_TASK_TYPE)
+
+    assert result["content"]["parsed_resume"]["basic_info"]["name"] == "王召"
+    assert result["content"]["parsed_resume"]["work_experiences"][0]["company"] == "昆仑数智"
+    assert result["content"]["score"]["suggested_status"] == "talent_pool"
+    assert result["debug_meta"]["selected_candidate_source"] == "split_section_objects"
+
+
 def test_one_pass_selects_more_salvageable_candidate_over_empty_shell_score():
     skill_snapshots = _build_screening_rule_skill_snapshots()
     schema_config = _build_screening_schema_config(skill_snapshots)

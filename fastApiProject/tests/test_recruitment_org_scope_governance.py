@@ -289,6 +289,42 @@ def test_recruitment_positions_and_candidates_follow_group_company_department_sc
         db.close()
 
 
+def test_position_title_is_unique_only_inside_same_org():
+    db = _build_test_db()
+    try:
+        _seed_org_tree(db)
+        _seed_catalog(db)
+        admin = _session("group-admin", "group", DATA_SCOPE_ALL, super_admin=True)
+        service = _service(db, admin)
+
+        group_position = service.create_position(
+            {"org_code": "group", "title": "硬件工程师", "headcount": 1},
+            "group-admin",
+        )
+        same_title_other_org = service.create_position(
+            {"org_code": "haoshi", "title": "硬件工程师", "headcount": 1},
+            "group-admin",
+        )
+        assert same_title_other_org["org_code"] == "haoshi"
+
+        with pytest.raises(ValueError, match="当前组织下已存在岗位"):
+            service.create_position(
+                {"org_code": "group", "title": " 硬件工程师 ", "headcount": 1},
+                "group-admin",
+            )
+
+        another_group_position = service.create_position(
+            {"org_code": "group", "title": "软件工程师", "headcount": 1},
+            "group-admin",
+        )
+        updated = service.update_position(group_position["id"], {"title": "硬件工程师"}, "group-admin")
+        assert updated["title"] == "硬件工程师"
+        with pytest.raises(ValueError, match="当前组织下已存在岗位"):
+            service.update_position(another_group_position["id"], {"title": "硬件工程师"}, "group-admin")
+    finally:
+        db.close()
+
+
 def test_recruitment_organization_scope_exposes_only_authorized_nodes_and_ancestors():
     db = _build_test_db()
     try:

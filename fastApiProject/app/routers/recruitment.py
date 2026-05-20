@@ -304,9 +304,12 @@ async def list_positions(query: Optional[str] = Query(None), status: Optional[st
 
 @recruitment_router.post("/positions")
 async def create_position(http_request: Request, payload: PositionCreateRequest, db: Session = Depends(get_db), session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-position-manage")), service: RecruitmentService = Depends(get_recruitment_service)):
-    data = service.create_position(payload.model_dump(), session.get("id") or "unknown")
-    write_audit_log(db, actor=session, request=http_request, action="recruitment.position.create", target_type="recruitment-position", target_code=data["position_code"], details={"title": data["title"]})
-    return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
+    try:
+        data = service.create_position(payload.model_dump(), session.get("id") or "unknown")
+        write_audit_log(db, actor=session, request=http_request, action="recruitment.position.create", target_type="recruitment-position", target_code=data["position_code"], details={"title": data["title"]})
+        return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @recruitment_router.get("/positions/{position_id}")
@@ -326,7 +329,8 @@ async def update_position(http_request: Request, position_id: int, payload: Posi
         write_audit_log(db, actor=session, request=http_request, action="recruitment.position.update", target_type="recruitment-position", target_code=data["position_code"], details={"position_id": position_id})
         return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        status_code = 400 if "当前组织下已存在岗位" in str(exc) or "岗位名称不能为空" in str(exc) else 404
+        raise HTTPException(status_code=status_code, detail=str(exc))
 
 
 @recruitment_router.delete("/positions/{position_id}")
@@ -748,7 +752,7 @@ async def upload_resumes(
                 ai_match_result = await service.trigger_ai_position_match(
                     candidate_ids,
                     actor_id,
-                    require_auto_screen_ready=False,
+                    require_auto_screen_ready=True,
                 )
                 logger.info(f"AI position match dispatched: {ai_match_result}")
             except Exception as exc:

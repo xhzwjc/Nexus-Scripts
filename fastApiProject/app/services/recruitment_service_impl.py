@@ -9070,10 +9070,38 @@ class RecruitmentService:
             for row in rows
         ]
 
+    @staticmethod
+    def _normalize_position_title_for_unique(title: Any) -> str:
+        return re.sub(r"\s+", " ", str(title or "").strip()).casefold()
+
+    def _assert_position_title_unique_in_org(
+        self,
+        *,
+        org_code: str,
+        title: Any,
+        exclude_position_id: Optional[int] = None,
+    ) -> str:
+        title_text = str(title or "").strip()
+        normalized_title = self._normalize_position_title_for_unique(title_text)
+        if not normalized_title:
+            raise ValueError("岗位名称不能为空")
+        normalized_org_code = normalize_org_code(org_code)
+        rows = self.db.query(RecruitmentPosition).filter(
+            RecruitmentPosition.deleted.is_(False),
+            RecruitmentPosition.org_code == normalized_org_code,
+        ).all()
+        for row in rows:
+            if exclude_position_id and int(row.id) == int(exclude_position_id):
+                continue
+            if self._normalize_position_title_for_unique(row.title) == normalized_title:
+                raise ValueError(f"当前组织下已存在岗位「{row.title}」，请更换岗位名称。")
+        return title_text
+
     def create_position(self, payload: Dict[str, Any], actor_id: str) -> Dict[str, Any]:
         org_code = normalize_org_code(payload.get("org_code") or self._current_org_code())
         self._assert_can_create_in_org(org_code)
-        row = RecruitmentPosition(position_code=f"TMP-{uuid.uuid4().hex[:8]}", org_code=org_code, title=str(payload.get("title") or "").strip(), department=payload.get("department"), location=payload.get("location"), employment_type=payload.get("employment_type"), salary_range=payload.get("salary_range"), headcount=int(payload.get("headcount") or 1), key_requirements=payload.get("key_requirements"), bonus_points=payload.get("bonus_points"), summary=payload.get("summary"), status=payload.get("status") or "draft", auto_screen_on_upload=bool(payload.get("auto_screen_on_upload")), auto_advance_on_screening=payload.get("auto_advance_on_screening") is not False, jd_skill_ids_json=json_dumps_safe(_dedupe_ints(payload.get("jd_skill_ids") or [])), screening_skill_ids_json=json_dumps_safe(_dedupe_ints(payload.get("screening_skill_ids") or [])), interview_skill_ids_json=json_dumps_safe(_dedupe_ints(payload.get("interview_skill_ids") or [])), tags_json=json_dumps_safe(payload.get("tags") or []), created_by=actor_id, updated_by=actor_id, deleted=False)
+        title = self._assert_position_title_unique_in_org(org_code=org_code, title=payload.get("title"))
+        row = RecruitmentPosition(position_code=f"TMP-{uuid.uuid4().hex[:8]}", org_code=org_code, title=title, department=payload.get("department"), location=payload.get("location"), employment_type=payload.get("employment_type"), salary_range=payload.get("salary_range"), headcount=int(payload.get("headcount") or 1), key_requirements=payload.get("key_requirements"), bonus_points=payload.get("bonus_points"), summary=payload.get("summary"), status=payload.get("status") or "draft", auto_screen_on_upload=bool(payload.get("auto_screen_on_upload")), auto_advance_on_screening=payload.get("auto_advance_on_screening") is not False, jd_skill_ids_json=json_dumps_safe(_dedupe_ints(payload.get("jd_skill_ids") or [])), screening_skill_ids_json=json_dumps_safe(_dedupe_ints(payload.get("screening_skill_ids") or [])), interview_skill_ids_json=json_dumps_safe(_dedupe_ints(payload.get("interview_skill_ids") or [])), tags_json=json_dumps_safe(payload.get("tags") or []), created_by=actor_id, updated_by=actor_id, deleted=False)
         self.db.add(row)
         self.db.flush()
         row.position_code = f"POS-{row.id:05d}"
@@ -9099,6 +9127,15 @@ class RecruitmentService:
 
     def update_position(self, position_id: int, payload: Dict[str, Any], actor_id: str) -> Dict[str, Any]:
         row = self._get_position(position_id)
+        if "title" in payload:
+            payload = {
+                **payload,
+                "title": self._assert_position_title_unique_in_org(
+                    org_code=normalize_org_code(getattr(row, "org_code", None)),
+                    title=payload.get("title"),
+                    exclude_position_id=row.id,
+                ),
+            }
         for field in ["title", "department", "location", "employment_type", "salary_range", "headcount", "key_requirements", "bonus_points", "summary", "status", "auto_screen_on_upload", "auto_advance_on_screening"]:
             if field in payload:
                 setattr(row, field, payload.get(field))

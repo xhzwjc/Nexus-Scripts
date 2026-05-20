@@ -45,6 +45,7 @@ Rules:
 
 _COMMON_STRICT_JSON_OUTPUT_RULES = """- Return exactly one final JSON object.
 - Do not return a JSON array. Do not split schema sections into separate objects.
+- Do not output <think> or reasoning; start with { and end with }.
 - Self-check before output: braces, brackets, quotes, and commas must all be valid.
 - Every array item must be a complete JSON value. If an item is an object, it must start with { and end with }.
 - Do not output markdown, comments, explanations, drafts, or multiple variants."""
@@ -271,8 +272,8 @@ RESUME_SCORE_SYSTEM_PROMPT_V3 = """你是 ATS 评分引擎。基于已有 parsed
 输出 schema：
 """ + SCORE_ONLY_OUTPUT_SCHEMA_V3
 
-RESUME_SCREENING_PROMPT_VERSION = "resume_screening_one_pass_v4"
-RESUME_SCORE_PROMPT_VERSION = "resume_score_only_v4"
+RESUME_SCREENING_PROMPT_VERSION = "resume_screening_one_pass_v5"
+RESUME_SCORE_PROMPT_VERSION = "resume_score_only_v5"
 # V3 versions — activate by changing the above two lines
 RESUME_SCREENING_PROMPT_VERSION_V3 = "resume_screening_one_pass_v3"
 RESUME_SCORE_PROMPT_VERSION_V3 = "resume_score_only_v3"

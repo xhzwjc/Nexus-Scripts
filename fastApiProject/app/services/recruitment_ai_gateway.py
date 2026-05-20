@@ -220,6 +220,47 @@ def _repair_missing_commas_globally(value: str) -> str:
     return repaired
 
 
+def _remove_mismatched_json_closers(value: str) -> str:
+    text = str(value or "")
+    if not text:
+        return ""
+    result: list[str] = []
+    stack: list[str] = []
+    in_string = False
+    escape = False
+    for char in text:
+        if escape:
+            result.append(char)
+            escape = False
+            continue
+        if char == "\\":
+            result.append(char)
+            escape = True
+            continue
+        if char == "\"":
+            result.append(char)
+            in_string = not in_string
+            continue
+        if in_string:
+            result.append(char)
+            continue
+        if char == "{":
+            stack.append("}")
+            result.append(char)
+            continue
+        if char == "[":
+            stack.append("]")
+            result.append(char)
+            continue
+        if char in "}]":
+            if stack and char == stack[-1]:
+                stack.pop()
+                result.append(char)
+            continue
+        result.append(char)
+    return "".join(result)
+
+
 def _escape_unescaped_inner_quotes_in_json_strings(value: str) -> str:
     text = str(value or "")
     if not text:
@@ -240,6 +281,12 @@ def _escape_unescaped_inner_quotes_in_json_strings(value: str) -> str:
             if in_string:
                 next_index = _next_nonspace_index(text, index + 1)
                 next_char = text[next_index] if next_index is not None and next_index < len(text) else ""
+                if next_char == ",":
+                    after_comma_index = _next_nonspace_index(text, next_index + 1)
+                    after_comma_char = text[after_comma_index] if after_comma_index is not None and after_comma_index < len(text) else ""
+                    if after_comma_char and after_comma_char not in {"\"", "{", "[", "]", "}", "-", "t", "f", "n"} and not after_comma_char.isdigit():
+                        result.append('\\"')
+                        continue
                 if next_char and next_char not in {":", ",", "}", "]"}:
                     result.append('\\"')
                     continue
@@ -303,6 +350,8 @@ def _find_implicit_object_end_in_array(value: str, start: int) -> Optional[int]:
             stack.append("]")
         elif char in "}]" and stack and char == stack[-1]:
             stack.pop()
+        elif not stack and char == "}":
+            return cursor + 1
         elif not stack and char == ",":
             next_index = _next_nonspace_index(value, cursor + 1)
             if next_index is None:
@@ -359,10 +408,12 @@ def _repair_missing_object_wrappers_in_arrays(value: str) -> str:
             if next_index is not None and _looks_like_object_key_start(text, next_index):
                 end_index = _find_implicit_object_end_in_array(text, next_index)
                 if end_index is not None and end_index > next_index:
+                    segment = text[next_index:end_index]
                     result.append(text[index + 1:next_index])
                     result.append("{")
-                    result.append(text[next_index:end_index])
-                    result.append("}")
+                    result.append(segment)
+                    if not segment.rstrip().endswith("}"):
+                        result.append("}")
                     index = end_index
                     continue
             index += 1
@@ -386,10 +437,12 @@ def _repair_missing_object_wrappers_in_arrays(value: str) -> str:
                 if next_index is not None and _looks_like_object_key_start(text, next_index):
                     end_index = _find_implicit_object_end_in_array(text, next_index)
                     if end_index is not None and end_index > next_index:
+                        segment = text[next_index:end_index]
                         result.append(text[index + 1:next_index])
                         result.append("{")
-                        result.append(text[next_index:end_index])
-                        result.append("}")
+                        result.append(segment)
+                        if not segment.rstrip().endswith("}"):
+                            result.append("}")
                         index = end_index
                         continue
             index += 1
@@ -404,6 +457,7 @@ def _repair_json_candidate(value: str) -> str:
     repaired = _escape_control_chars_in_json_strings(repaired)
     repaired = _escape_unescaped_inner_quotes_in_json_strings(repaired)
     repaired = _repair_missing_object_wrappers_in_arrays(repaired)
+    repaired = _remove_mismatched_json_closers(repaired)
     repaired = _repair_missing_commas_globally(repaired)
     repaired = re.sub(r",(\s*[}\]])", r"\1", repaired)
     repaired = _balance_json_closers(repaired)
@@ -831,15 +885,28 @@ def _select_one_pass_candidate(records: Sequence[Dict[str, Any]]) -> Dict[str, A
             position_match = _position_match_payload(payload)
             if position_match:
                 position_match_records.append({**record, "position_match_payload": position_match})
-        if not parsed_resume_records or not score_records:
+        parse_only_payload = None
+        if not parsed_resume_records:
+            parse_only_payload = _build_parse_only_fragment_payload()
+        if (not parsed_resume_records and not parse_only_payload) or not score_records:
             return None
-        parsed_record = max(parsed_resume_records, key=lambda item: _parsed_resume_score(item.get("payload") or {}))
+        parsed_resume_payload = (
+            dict(parse_only_payload.get("parsed_resume") or {})
+            if isinstance(parse_only_payload, dict)
+            else dict(
+                (
+                    max(parsed_resume_records, key=lambda item: _parsed_resume_score(item.get("payload") or {})).get("payload")
+                    or {}
+                ).get("parsed_resume")
+                or {}
+            )
+        )
         score_record = max(
             score_records,
             key=lambda item: (_score_field_count(item.get("score_payload") or {}), len(str(item.get("score_payload") or ""))),
         )
         merged = {
-            "parsed_resume": dict((parsed_record.get("payload") or {}).get("parsed_resume") or {}),
+            "parsed_resume": parsed_resume_payload,
             "score": dict(score_record.get("score_payload") or {}),
         }
         if position_match_records:
@@ -853,6 +920,81 @@ def _select_one_pass_candidate(records: Sequence[Dict[str, Any]]) -> Dict[str, A
             )
             merged["position_match"] = dict(selected_position_match.get("position_match_payload") or {})
         return merged
+
+    def _build_parse_only_fragment_payload() -> Optional[Dict[str, Any]]:
+        basic_info: Dict[str, Any] = {}
+        work_experiences: List[Dict[str, Any]] = []
+        education_experiences: List[Dict[str, Any]] = []
+        projects: List[Dict[str, Any]] = []
+        skills: List[Any] = []
+        summary = ""
+
+        def _dedupe_dict_items(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+            seen: set[str] = set()
+            result: List[Dict[str, Any]] = []
+            for item in items:
+                marker = json.dumps(item, ensure_ascii=False, sort_keys=True)
+                if marker in seen:
+                    continue
+                seen.add(marker)
+                result.append(item)
+            return result
+
+        basic_fields = ("name", "phone", "email", "age", "years_of_experience", "education", "location", "expected_city")
+        for record in records:
+            payload = record.get("payload")
+            if not isinstance(payload, dict):
+                continue
+            if isinstance(payload.get("parsed_resume"), dict) or isinstance(payload.get("score"), dict):
+                continue
+            if _score_field_count(payload) > 0:
+                continue
+            if _position_match_payload(payload):
+                continue
+
+            has_basic_info = any(_has_meaningful_field(payload, field) for field in basic_fields)
+            has_work_info = any(_has_meaningful_field(payload, field) for field in ("company", "company_name", "title", "position"))
+            has_education_info = _has_meaningful_field(payload, "school")
+            has_project_info = any(_has_meaningful_field(payload, field) for field in ("project_name", "project", "name")) and _has_meaningful_field(payload, "description")
+
+            if has_basic_info and not has_work_info and not has_education_info:
+                for field in basic_fields:
+                    if _has_meaningful_field(payload, field) and not _has_meaningful_field(basic_info, field):
+                        basic_info[field] = payload.get(field)
+                continue
+
+            if has_work_info:
+                work_experiences.append(dict(payload))
+                continue
+
+            if has_education_info:
+                education_experiences.append(dict(payload))
+                continue
+
+            if has_project_info:
+                projects.append(dict(payload))
+                continue
+
+            payload_skills = payload.get("skills")
+            if isinstance(payload_skills, list):
+                skills.extend(payload_skills)
+            if _has_meaningful_field(payload, "summary") and not summary:
+                summary = str(payload.get("summary") or "").strip()
+
+        if not (basic_info or work_experiences or education_experiences or projects or skills or summary):
+            return None
+
+        return {
+            "parsed_resume": {
+                "basic_info": basic_info,
+                "work_experiences": _dedupe_dict_items(work_experiences),
+                "education_experiences": _dedupe_dict_items(education_experiences),
+                "skills": list(dict.fromkeys(str(item).strip() for item in skills if str(item or "").strip())),
+                "projects": _dedupe_dict_items(projects),
+                "summary": summary,
+            },
+            "score": {},
+        }
 
     eligible = []
     for record in records:
@@ -876,6 +1018,19 @@ def _select_one_pass_candidate(records: Sequence[Dict[str, Any]]) -> Dict[str, A
                     "selected_candidate_index": None,
                     "selected_candidate_source": "split_section_objects",
                     "merged_split_sections": True,
+                },
+            }
+        parse_only_payload = _build_parse_only_fragment_payload()
+        if parse_only_payload:
+            return {
+                "content": parse_only_payload,
+                "warnings": ["one-pass 只返回解析片段，已保存解析并触发 score-only 补评"],
+                "debug_meta": {
+                    "candidate_count": len(records),
+                    "parsed_candidate_count": len(records),
+                    "selected_candidate_index": None,
+                    "selected_candidate_source": "parse_only_fragment_array",
+                    "recovered_parse_only_fragments": True,
                 },
             }
         raise RecruitmentAIJSONParseError(
