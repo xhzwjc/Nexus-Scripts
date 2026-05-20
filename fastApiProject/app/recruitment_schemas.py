@@ -159,6 +159,10 @@ class CandidateScreenBatchCancelRequest(BaseModel):
     batch_id: str = Field(..., min_length=1, max_length=80)
 
 
+class CandidateScreenVisibleCancelRequest(BaseModel):
+    org_code: Optional[str] = Field(None, max_length=100)
+
+
 class SkillUpsertRequest(BaseModel):
     org_code: Optional[str] = Field(None, max_length=100)
     scope_level: str = Field("ORG", max_length=40)

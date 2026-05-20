@@ -75,6 +75,7 @@ import {
     type RecruitmentMetadata,
     type RecruitmentSkill,
     type RecruitmentTaskBatchStartResponse,
+    type RecruitmentVisibleScreeningCancelResponse,
     type ResumeFile,
     type ResumeUploadResponse,
     type RecruitmentTaskStartResponse,
@@ -1498,6 +1499,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             isZh ? `已停止 ${count} 个批量初筛任务` : `Stopped ${count} batch screening task(s)`
         ),
         stopBatchScreeningRequested: isZh ? "批量初筛停止请求已发送" : "Batch screening stop request sent",
+        noBatchScreeningToStop: isZh ? "当前可见范围内没有正在进行的初筛任务" : "No running screening tasks in the current visible scope",
         noScreeningTarget: recruitmentToast.noCandidatesSelected,
         noScreeningQueued: recruitmentToast.noScreeningQueued,
         noCandidates: isZh ? "暂无候选人" : "No Candidates",
@@ -1726,6 +1728,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const [skills, setSkills] = useState<RecruitmentSkill[]>([]);
     const [allAiLogs, setAllAiLogs] = useState<AITaskLog[]>([]);
     const [aiLogs, setAiLogs] = useState<AITaskLog[]>([]);
+    const [candidateStatsData, setCandidateStatsData] = useState<import("@/lib/recruitment-api").CandidateStatsData | null>(null);
     const [funnelData, setFunnelData] = useState<import("@/lib/recruitment-api").RecruitmentFunnelData | null>(null);
     const [sourceStatsData, setSourceStatsData] = useState<import("@/lib/recruitment-api").SourceStatsData | null>(null);
     const [candidateTotal, setCandidateTotal] = useState(0);
@@ -1824,6 +1827,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const [mailDispatchActionKey, setMailDispatchActionKey] = useState<string | null>(null);
     const [chatSending, setChatSending] = useState(false);
     const [cancellingTaskIds, setCancellingTaskIds] = useState<number[]>([]);
+    const [batchScreeningStopSubmitting, setBatchScreeningStopSubmitting] = useState(false);
     const [activeJDTaskId, setActiveJDTaskId] = useState<number | null>(null);
     const [activeJDPositionId, setActiveJDPositionId] = useState<number | null>(null);
     const [activeScreeningTaskMap, setActiveScreeningTaskMap] = useState<Record<number, number>>({});
@@ -2545,9 +2549,12 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         Array.from(new Set([...activeBatchScreeningTaskIds, ...visibleLiveScreeningTaskIds]))
     ), [activeBatchScreeningTaskIds, visibleLiveScreeningTaskIds]);
 
-    const isBatchScreeningRunning = batchStopScreeningTaskIds.length > 0;
-    const isBatchScreeningCancelling = batchStopScreeningTaskIds.length > 0
-        && batchStopScreeningTaskIds.every((taskId) => cancellingTaskIds.includes(taskId));
+    const visibleScopeScreeningRunningCount = Number(candidateStatsData?.status_counts?.screening_running || 0);
+    const isBatchScreeningRunning = batchStopScreeningTaskIds.length > 0 || visibleScopeScreeningRunningCount > 0;
+    const isBatchScreeningCancelling = batchScreeningStopSubmitting || (
+        batchStopScreeningTaskIds.length > 0
+        && batchStopScreeningTaskIds.every((taskId) => cancellingTaskIds.includes(taskId))
+    );
 
     const visibleCandidateIdSet = useMemo(
         () => new Set(visibleCandidates.map((c) => c.id)),
@@ -4881,6 +4888,12 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     }
 
     async function refreshCandidateStats(departmentScope?: string, orgScope?: string) {
+        try {
+            const scopedOrgCode = resolveScopedOrgCode(departmentScope ?? selectedDepartmentScope, orgScope ?? selectedOrgScope);
+            const orgCodeParam = scopedOrgCode ? `?org_code=${encodeURIComponent(scopedOrgCode)}` : "";
+            const stats = await recruitmentApi<import("@/lib/recruitment-api").CandidateStatsData>(`/candidates/stats${orgCodeParam}`);
+            setCandidateStatsData(stats);
+        } catch {}
         try {
             const scopedOrgCode = resolveScopedOrgCode(departmentScope ?? selectedDepartmentScope, orgScope ?? selectedOrgScope);
             const orgCodeParam = scopedOrgCode ? `?org_code=${encodeURIComponent(scopedOrgCode)}` : "";
@@ -7637,35 +7650,46 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
 
     async function triggerScreening(targetCandidateIds?: number[]) {
         const isBatchRequest = Array.isArray(targetCandidateIds);
-        if (isBatchRequest && batchStopScreeningTaskIds.length) {
+        if (isBatchRequest && isBatchScreeningRunning) {
             if (isBatchScreeningCancelling) {
                 return;
             }
+            setBatchScreeningStopSubmitting(true);
             try {
-                const taskIdsToStop = batchStopScreeningTaskIds;
-                const logs = await Promise.all(taskIdsToStop.map((taskId) => cancelTaskGeneration(taskId, recruitmentUiText.batchScreening, {silent: true})));
-                const cancelledTaskIds = logs
-                    .filter((log): log is AITaskLog => Boolean(log && log.status === "cancelled"))
-                    .map((log) => log.id);
-                if (cancelledTaskIds.length) {
-                    cancelledTaskIds.forEach((taskId) => stopTaskMonitor(taskId));
-                    clearScreeningTaskSnapshotsByTaskIds(cancelledTaskIds);
-                    setActiveBatchScreeningTaskIds((current) => current.filter((taskId) => !cancelledTaskIds.includes(taskId)));
+                const scopedOrgCode = resolveScopedOrgCode(selectedDepartmentScope, selectedOrgScope);
+                const response = await recruitmentApi<RecruitmentVisibleScreeningCancelResponse>("/candidates/screen/visible/cancel", {
+                    method: "POST",
+                    body: JSON.stringify({
+                        org_code: scopedOrgCode || null,
+                    }),
+                });
+                const stoppedTaskIds = Array.from(new Set(response.task_ids || []));
+                if (stoppedTaskIds.length) {
+                    stoppedTaskIds.forEach((taskId) => stopTaskMonitor(taskId));
+                    clearScreeningTaskSnapshotsByTaskIds(stoppedTaskIds);
+                    setActiveBatchScreeningTaskIds((current) => current.filter((taskId) => !stoppedTaskIds.includes(taskId)));
                     setActiveScreeningTaskMap((current) => {
                         const next = {...current};
                         Object.entries(next).forEach(([candidateId, taskId]) => {
-                            if (cancelledTaskIds.includes(taskId)) {
+                            if (stoppedTaskIds.includes(taskId)) {
                                 delete next[Number(candidateId)];
                             }
                         });
                         return next;
                     });
-                    toast.success(recruitmentUiText.stopBatchScreeningCompleted(cancelledTaskIds.length));
-                } else if (logs.some((log) => log?.status === "cancelling")) {
-                    toast.success(recruitmentUiText.stopBatchScreeningRequested);
+                    toast.success(recruitmentUiText.stopBatchScreeningCompleted(response.cancelled_count || stoppedTaskIds.length));
+                    void Promise.all([
+                        loadCandidates({silent: true, force: true}),
+                        refreshCandidateStats(),
+                    ]).catch(() => {});
+                } else {
+                    toast.success(recruitmentUiText.noBatchScreeningToStop);
+                    void refreshCandidateStats();
                 }
             } catch (error) {
                 toast.error(recruitmentToast.stopFailed(recruitmentUiText.batchScreening, formatActionError(error)));
+            } finally {
+                setBatchScreeningStopSubmitting(false);
             }
             return;
         }

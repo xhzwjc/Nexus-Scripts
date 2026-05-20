@@ -28,6 +28,7 @@ from ..recruitment_schemas import (
     CandidateScreenBatchCancelRequest,
     CandidateScreenBatchQueryRequest,
     CandidateScreenBatchStartRequest,
+    CandidateScreenVisibleCancelRequest,
     CandidateStatusUpdateRequest,
     CandidateScreenRequest,
     CandidateUpdateRequest,
@@ -1053,6 +1054,24 @@ async def cancel_screening_batch(request: Request, payload: CandidateScreenBatch
         raise HTTPException(status_code=404, detail=str(exc))
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
+
+
+@recruitment_router.post("/candidates/screen/visible/cancel")
+async def cancel_visible_screening_tasks(request: Request, payload: CandidateScreenVisibleCancelRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-process-execute"))):
+    try:
+        data = await run_in_threadpool(
+            _run_recruitment_service_call,
+            "cancel_visible_screening_tasks",
+            _session.get("id") or "unknown",
+            org_code=payload.org_code,
+            governance_session=_with_session_token(request, _session),
+        )
+        return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
 
 @recruitment_router.post("/candidates/{candidate_id}/score")
 async def trigger_candidate_score(request: Request, candidate_id: int, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-process-execute"))):

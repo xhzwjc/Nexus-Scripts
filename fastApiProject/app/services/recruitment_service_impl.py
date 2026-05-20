@@ -15980,6 +15980,54 @@ class RecruitmentService:
             "results": results,
         }
 
+    def cancel_visible_screening_tasks(self, actor_id: str, *, org_code: Optional[str] = None) -> Dict[str, Any]:
+        candidate_query = self.db.query(RecruitmentCandidate.id).filter(
+            RecruitmentCandidate.deleted.is_(False),
+        )
+        normalized_org_code = normalize_org_code(org_code) if org_code else ""
+        if normalized_org_code:
+            candidate_query = candidate_query.filter(
+                RecruitmentCandidate.org_code.in_(self._get_org_and_descendant_codes(normalized_org_code)),
+            )
+        candidate_query = self._apply_business_org_filter(candidate_query, RecruitmentCandidate)
+        visible_candidate_ids = candidate_query.subquery()
+
+        rows = self.db.query(RecruitmentAITaskLog).join(
+            visible_candidate_ids,
+            RecruitmentAITaskLog.related_candidate_id == visible_candidate_ids.c.id,
+        ).filter(
+            self._screening_root_task_filter(),
+            RecruitmentAITaskLog.status.in_(SCREENING_LIVE_TASK_STATUSES),
+        ).order_by(
+            RecruitmentAITaskLog.created_at.asc(),
+            RecruitmentAITaskLog.id.asc(),
+        ).all()
+
+        task_ids = [int(row.id) for row in rows if row.id]
+        results: List[Dict[str, Any]] = []
+        stop_requested_count = 0
+        already_terminal_count = 0
+        for task_id in task_ids:
+            result = self.cancel_ai_task(task_id, actor_id)
+            results.append(result)
+            result_status = str(result.get("status") or "").strip()
+            if result_status in {"cancelled", "cancelling"}:
+                stop_requested_count += 1
+            elif result_status in TERMINAL_AI_TASK_STATUSES:
+                already_terminal_count += 1
+            else:
+                stop_requested_count += 1
+
+        return {
+            "org_code": normalized_org_code or None,
+            "total": len(task_ids),
+            "cancelled_count": stop_requested_count,
+            "stop_requested_count": stop_requested_count,
+            "already_terminal_count": already_terminal_count,
+            "task_ids": task_ids,
+            "results": results,
+        }
+
     def start_screen_candidate(
         self,
         candidate_id: int,

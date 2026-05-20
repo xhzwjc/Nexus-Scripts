@@ -456,6 +456,14 @@ export interface SourceStatsData {
   sources: SourceStatItem[];
 }
 
+export interface CandidateStatsData {
+  total: number;
+  pending_screening: number;
+  status_counts: Record<string, number>;
+  today_total: number;
+  today_status_counts: Record<string, number>;
+}
+
 export interface PositionDetail {
   position: PositionSummary;
   current_jd_version?: JDVersion | null;
@@ -531,11 +539,22 @@ export interface RecruitmentTaskStartResponse {
 }
 
 export interface RecruitmentTaskBatchStartResponse {
+  batch_id?: string | null;
   queued_count: number;
   skipped_existing_live_task_count: number;
   failed_count?: number;
   task_ids: number[];
   tasks: RecruitmentTaskStartResponse[];
+}
+
+export interface RecruitmentVisibleScreeningCancelResponse {
+  org_code?: string | null;
+  total: number;
+  cancelled_count: number;
+  stop_requested_count?: number;
+  already_terminal_count?: number;
+  task_ids: number[];
+  results: AITaskLog[];
 }
 
 export interface ResumeUploadItem extends CandidateSummary {
