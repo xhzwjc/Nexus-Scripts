@@ -315,6 +315,8 @@ type OrgScopedItem = {
 
 type PositionSkillBindingField = "jdSkillIds" | "screeningSkillIds" | "interviewSkillIds";
 type PositionSkillSectionExpandedState = Record<PositionSkillBindingField, boolean>;
+type PositionAssessmentDraft = Record<PositionSkillBindingField, number[]>;
+type SkillAutoBindDestination = "positionForm" | "assessmentDraft";
 
 const DEFAULT_POSITION_SKILL_SECTION_EXPANDED_STATE: PositionSkillSectionExpandedState = {
     jdSkillIds: false,
@@ -1851,6 +1853,16 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
 
     const [positionDialogOpen, setPositionDialogOpen] = useState(false);
     const [positionDialogMode, setPositionDialogMode] = useState<"create" | "edit">("create");
+    const [positionActionMenuOpen, setPositionActionMenuOpen] = useState(false);
+    const positionActionMenuCloseTimerRef = useRef<number | null>(null);
+    const [positionJDConfigOpen, setPositionJDConfigOpen] = useState(false);
+    const [positionAssessmentDialogOpen, setPositionAssessmentDialogOpen] = useState(false);
+    const [positionAssessmentDraft, setPositionAssessmentDraft] = useState<PositionAssessmentDraft>({
+        jdSkillIds: [],
+        screeningSkillIds: [],
+        interviewSkillIds: [],
+    });
+    const [positionAssessmentSaving, setPositionAssessmentSaving] = useState(false);
     const [positionForm, setPositionForm] = useState<PositionFormState>(emptyPositionForm);
     const [positionFormErrors, setPositionFormErrors] = useState<PositionFormErrors>({});
     const [positionFormSubmitError, setPositionFormSubmitError] = useState<string | null>(null);
@@ -1980,6 +1992,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const [skillEditorPositionId, setSkillEditorPositionId] = useState<number | null>(null);
     const [skillGenerating, setSkillGenerating] = useState(false);
     const [skillAutoBindCategory, setSkillAutoBindCategory] = useState<"jdSkillIds" | "screeningSkillIds" | "interviewSkillIds" | null>(null);
+    const [skillAutoBindDestination, setSkillAutoBindDestination] = useState<SkillAutoBindDestination>("positionForm");
     const [skillBoundPositionId, setSkillBoundPositionId] = useState<string>("");
     const [skillExtraConditions, setSkillExtraConditions] = useState("");
     const [positionSkillSearch, setPositionSkillSearch] = useState("");
@@ -2201,6 +2214,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         skillMap,
     ]);
     const skillDialogBindingTaskKind = skillDialogMode === "structured" ? "screening" : (skillForm.taskTypes[0] || null);
+    const isAssessmentDraftSkillCreation = skillAutoBindDestination === "assessmentDraft" && Boolean(skillAutoBindCategory);
     const bindablePositionsForSkillDialog = useMemo(() => {
         if (!skillDialogBindingTaskKind) {
             return positions;
@@ -2820,6 +2834,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
 
     useEffect(() => {
         setPositionWorkspaceView("candidates");
+        setPositionActionMenuOpen(false);
         defaultTabSetForPositionRef.current = null;
         setPositionSecondaryPanelOpen(false);
         setPositionCandidateDetailOpen(false);
@@ -2829,6 +2844,12 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         setPositionCandidatesTotal(0);
         setPositionCandidatesInitialLoaded(false);
     }, [selectedPositionId]);
+
+    useEffect(() => () => {
+        if (positionActionMenuCloseTimerRef.current != null) {
+            window.clearTimeout(positionActionMenuCloseTimerRef.current);
+        }
+    }, []);
 
     useEffect(() => {
         if (activePage !== "talent-pool") {
@@ -6375,6 +6396,82 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         setPositionFormSubmitError(null);
     }
 
+    function updatePositionAssessmentDraftBinding(field: PositionSkillBindingField, nextIds: number[]) {
+        const dedupedIds = Array.from(new Set(nextIds)).slice(-1);
+        setPositionAssessmentDraft((current) => ({
+            ...current,
+            [field]: dedupedIds,
+        }));
+    }
+
+    function clearPositionActionMenuCloseTimer() {
+        if (positionActionMenuCloseTimerRef.current != null) {
+            window.clearTimeout(positionActionMenuCloseTimerRef.current);
+            positionActionMenuCloseTimerRef.current = null;
+        }
+    }
+
+    function openPositionActionMenu() {
+        if (!positionDetail?.position) {
+            return;
+        }
+        clearPositionActionMenuCloseTimer();
+        setPositionActionMenuOpen(true);
+    }
+
+    function schedulePositionActionMenuClose() {
+        clearPositionActionMenuCloseTimer();
+        positionActionMenuCloseTimerRef.current = window.setTimeout(() => {
+            setPositionActionMenuOpen(false);
+            positionActionMenuCloseTimerRef.current = null;
+        }, 180);
+    }
+
+    function openPositionJDConfigDialog() {
+        if (!positionDetail?.position) {
+            return;
+        }
+        setPositionJDConfigOpen(true);
+    }
+
+    function openPositionAssessmentDialog() {
+        if (!positionDetail?.position) {
+            return;
+        }
+        void ensureSkillsLoaded();
+        setPositionAssessmentDraft({
+            jdSkillIds: (positionDetail.position.jd_skill_ids || []).slice(0, 1),
+            screeningSkillIds: (positionDetail.position.screening_skill_ids || []).slice(0, 1),
+            interviewSkillIds: (positionDetail.position.interview_skill_ids || []).slice(0, 1),
+        });
+        setPositionAssessmentSaving(false);
+        setPositionAssessmentDialogOpen(true);
+    }
+
+    async function submitPositionAssessmentBindings() {
+        if (!selectedPositionId) {
+            return;
+        }
+        setPositionAssessmentSaving(true);
+        try {
+            await recruitmentApi<PositionSummary>(`/positions/${selectedPositionId}`, {
+                method: "PATCH",
+                body: JSON.stringify({
+                    jd_skill_ids: positionAssessmentDraft.jdSkillIds,
+                    screening_skill_ids: positionAssessmentDraft.screeningSkillIds,
+                    interview_skill_ids: positionAssessmentDraft.interviewSkillIds,
+                }),
+            });
+            toast.success(isZh ? "评估方案已绑定到当前岗位" : "Assessment plans bound to the current position");
+            setPositionAssessmentDialogOpen(false);
+            await refreshSkillBindingViews([selectedPositionId]);
+        } catch (error) {
+            toast.error(recruitmentToast.saveFailed(isZh ? "评估方案配置" : "Assessment plans", formatActionError(error)));
+        } finally {
+            setPositionAssessmentSaving(false);
+        }
+    }
+
     async function refreshSkillBindingViews(affectedPositionIds: Array<number | null | undefined>) {
         const normalizedIds = Array.from(
             new Set(
@@ -9090,6 +9187,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         }
         setSkillEditorDefaultTab("structured");
         setSkillAutoBindCategory(null);
+        setSkillAutoBindDestination("positionForm");
         setSkillFormErrors({});
         setSkillFormSubmitError(null);
         setSkillDialogOpen(true);
@@ -9108,6 +9206,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         setSkillEditorDefaultTab(taskKind === "screening" ? "ai" : "advanced");
         setSkillEditorPositionId(null);
         setSkillAutoBindCategory(null);
+        setSkillAutoBindDestination("positionForm");
         setSkillBoundPositionId("");
         setSkillExtraConditions("");
         setSkillFormErrors({});
@@ -9124,6 +9223,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         setSkillEditorDefaultTab("ai");
         setSkillEditorPositionId(boundPositionId);
         setSkillAutoBindCategory(null);
+        setSkillAutoBindDestination("positionForm");
         setSkillBoundPositionId(boundPositionId ? String(boundPositionId) : "");
         setSkillExtraConditions("");
         setSkillFormErrors({});
@@ -9153,7 +9253,37 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         setSkillEditorDefaultTab(taskKind === "screening" ? "ai" : "advanced");
         setSkillEditorPositionId(bindingPositionId);
         setSkillAutoBindCategory(bindCategory);
+        setSkillAutoBindDestination("positionForm");
         setSkillBoundPositionId(bindingPositionId ? String(bindingPositionId) : "");
+        setSkillExtraConditions("");
+        setSkillFormErrors({});
+        setSkillFormSubmitError(null);
+        setSkillDialogOpen(true);
+    }
+
+    function openSkillEditorForAssessmentConfig(taskKind: SkillTaskKind, bindCategory: PositionSkillBindingField) {
+        void ensureSkillsLoaded();
+        const roleName = positionDetail?.position.title?.trim() || "";
+        const empty = emptyScreeningSkillForm();
+        empty.taskTypes = [taskKind];
+        if (roleName) {
+            empty.roleName = roleName;
+            empty.name = taskKind === "jd" ? `${roleName} JD 分析方案` : taskKind === "screening" ? `${roleName}初筛评分评估方案` : `${roleName}面试题评估方案`;
+        }
+        const skillFormState = emptySkillForm();
+        skillFormState.taskTypes = [taskKind];
+        if (roleName) {
+            skillFormState.name = empty.name;
+        }
+        setSkillEditingId(null);
+        setSkillForm(skillFormState);
+        setSkillEditorData(empty);
+        setSkillDialogMode(taskKind === "screening" ? "structured" : "basic");
+        setSkillEditorDefaultTab(taskKind === "screening" ? "ai" : "advanced");
+        setSkillEditorPositionId(selectedPositionId);
+        setSkillAutoBindCategory(bindCategory);
+        setSkillAutoBindDestination("assessmentDraft");
+        setSkillBoundPositionId("");
         setSkillExtraConditions("");
         setSkillFormErrors({});
         setSkillFormSubmitError(null);
@@ -9201,11 +9331,16 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 upsertSkillInLocalState(result);
                 const newSkillId = result?.id;
                 if (newSkillId && skillAutoBindCategory) {
-                    updatePositionSkillBinding(skillAutoBindCategory, [newSkillId], {expandSection: true});
+                    if (skillAutoBindDestination === "assessmentDraft") {
+                        updatePositionAssessmentDraftBinding(skillAutoBindCategory, [newSkillId]);
+                    } else {
+                        updatePositionSkillBinding(skillAutoBindCategory, [newSkillId], {expandSection: true});
+                    }
                 }
                 toast.success(recruitmentToast.created(recruitmentToastEntities.skill));
             }
             setSkillAutoBindCategory(null);
+            setSkillAutoBindDestination("positionForm");
             setSkillDialogOpen(false);
             await refreshSkillBindingViews([previousBoundPositionId, nextBoundPositionId]);
         } catch (error) {
@@ -9357,11 +9492,16 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 upsertSkillInLocalState(result);
                 const newSkillId = result?.id;
                 if (newSkillId && skillAutoBindCategory) {
-                    updatePositionSkillBinding(skillAutoBindCategory, [newSkillId], {expandSection: true});
+                    if (skillAutoBindDestination === "assessmentDraft") {
+                        updatePositionAssessmentDraftBinding(skillAutoBindCategory, [newSkillId]);
+                    } else {
+                        updatePositionSkillBinding(skillAutoBindCategory, [newSkillId], {expandSection: true});
+                    }
                 }
                 toast.success(recruitmentToast.created(recruitmentToastEntities.skill));
             }
             setSkillAutoBindCategory(null);
+            setSkillAutoBindDestination("positionForm");
             setSkillDialogOpen(false);
             await refreshSkillBindingViews([previousBoundPositionId, nextBoundPositionId]);
         } catch (error) {
@@ -10197,9 +10337,104 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                             </div>
                         ) : (
                             <div>
-                                <div className="flex items-center justify-between">
+                                <div className="flex items-center justify-between gap-2">
                                     <span className="position-panel-title">{isZh ? "岗位列表" : "Position List"}</span>
-                                    <span className="position-panel-count">({visiblePositions.length}/{positions.length})</span>
+                                    <div className="flex items-center gap-1.5">
+                                        <span className="position-panel-count">({visiblePositions.length}/{positions.length})</span>
+                                        <Popover open={positionActionMenuOpen} onOpenChange={(open) => {
+                                            clearPositionActionMenuCloseTimer();
+                                            setPositionActionMenuOpen(open);
+                                        }}>
+                                            <div onMouseEnter={openPositionActionMenu} onMouseLeave={schedulePositionActionMenuClose}>
+                                                <Tooltip>
+                                                    <TooltipTrigger asChild>
+                                                        <PopoverTrigger asChild>
+                                                            <button
+                                                                type="button"
+                                                                disabled={!positionDetail?.position}
+                                                                className="flex h-8 w-8 items-center justify-center rounded-full border border-slate-200/80 bg-white/85 text-slate-500 shadow-sm transition hover:border-slate-300 hover:bg-white hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-800 dark:bg-slate-950/70 dark:text-slate-300 dark:hover:border-slate-700 dark:hover:bg-slate-900 dark:hover:text-slate-100"
+                                                                aria-label={isZh ? "岗位操作" : "Position actions"}
+                                                                onClick={(event) => {
+                                                                    event.preventDefault();
+                                                                    event.stopPropagation();
+                                                                    openPositionActionMenu();
+                                                                }}
+                                                            >
+                                                                <Settings2 className="h-4 w-4"/>
+                                                            </button>
+                                                        </PopoverTrigger>
+                                                    </TooltipTrigger>
+                                                    <TooltipContent side="bottom">
+                                                        <p>{isZh ? "高级岗位操作" : "Advanced position actions"}</p>
+                                                    </TooltipContent>
+                                                </Tooltip>
+                                            </div>
+                                            <PopoverContent
+                                                align="end"
+                                                className="w-72 rounded-2xl border-slate-200/80 bg-white/95 p-2 shadow-xl shadow-slate-900/10 backdrop-blur dark:border-slate-800 dark:bg-slate-950/95"
+                                                onMouseEnter={openPositionActionMenu}
+                                                onMouseLeave={schedulePositionActionMenuClose}
+                                            >
+                                                <button
+                                                    type="button"
+                                                    className="flex w-full items-start gap-3 rounded-xl px-3 py-2.5 text-left transition hover:bg-slate-50 dark:hover:bg-slate-900"
+                                                    onClick={() => {
+                                                        setPositionActionMenuOpen(false);
+                                                        openPositionJDConfigDialog();
+                                                    }}
+                                                >
+                                                    <Sparkles className="mt-0.5 h-4 w-4 text-slate-500"/>
+                                                    <span>
+                                                        <span className="block text-sm font-semibold text-slate-900 dark:text-slate-100">{isZh ? "JD 配置" : "JD Config"}</span>
+                                                        <span className="mt-0.5 block text-xs text-slate-500 dark:text-slate-400">{isZh ? "生成、编辑和保存当前岗位 JD" : "Generate, edit, and save the current JD"}</span>
+                                                    </span>
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    className="flex w-full items-start gap-3 rounded-xl px-3 py-2.5 text-left transition hover:bg-slate-50 dark:hover:bg-slate-900"
+                                                    onClick={() => {
+                                                        setPositionActionMenuOpen(false);
+                                                        openPositionAssessmentDialog();
+                                                    }}
+                                                >
+                                                    <ClipboardCheck className="mt-0.5 h-4 w-4 text-slate-500"/>
+                                                    <span>
+                                                        <span className="block text-sm font-semibold text-slate-900 dark:text-slate-100">{isZh ? "评估方案配置" : "Assessment Plans"}</span>
+                                                        <span className="mt-0.5 block text-xs text-slate-500 dark:text-slate-400">{isZh ? "维护 JD、初筛和面试题方案" : "Manage JD, screening, and interview plans"}</span>
+                                                    </span>
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    className="flex w-full items-start gap-3 rounded-xl px-3 py-2.5 text-left transition hover:bg-slate-50 dark:hover:bg-slate-900"
+                                                    onClick={() => {
+                                                        setPositionActionMenuOpen(false);
+                                                        openEditPosition();
+                                                    }}
+                                                >
+                                                    <FilePlus2 className="mt-0.5 h-4 w-4 text-slate-500"/>
+                                                    <span>
+                                                        <span className="block text-sm font-semibold text-slate-900 dark:text-slate-100">{isZh ? "岗位编辑" : "Edit Position"}</span>
+                                                        <span className="mt-0.5 block text-xs text-slate-500 dark:text-slate-400">{isZh ? "修改岗位基础信息" : "Edit basic position information"}</span>
+                                                    </span>
+                                                </button>
+                                                <div className="my-1 h-px bg-slate-100 dark:bg-slate-800"/>
+                                                <button
+                                                    type="button"
+                                                    className="flex w-full items-start gap-3 rounded-xl px-3 py-2.5 text-left text-rose-600 transition hover:bg-rose-50 dark:text-rose-300 dark:hover:bg-rose-950/25"
+                                                    onClick={() => {
+                                                        setPositionActionMenuOpen(false);
+                                                        setPositionDeleteConfirmOpen(true);
+                                                    }}
+                                                >
+                                                    <Trash2 className="mt-0.5 h-4 w-4"/>
+                                                    <span>
+                                                        <span className="block text-sm font-semibold">{isZh ? "删除岗位" : "Delete Position"}</span>
+                                                        <span className="mt-0.5 block text-xs text-rose-500/80 dark:text-rose-300/80">{isZh ? "需要二次确认，候选人和日志保留" : "Requires confirmation; candidates and logs stay"}</span>
+                                                    </span>
+                                                </button>
+                                            </PopoverContent>
+                                        </Popover>
+                                    </div>
                                 </div>
                                 <div className="mt-3 flex gap-2">
                                     <Button
@@ -10360,17 +10595,10 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 <div className="relative min-h-0 overflow-hidden">
                     {positionDetailLoading ? <LoadingPanel label={isZh ? "正在加载岗位详情" : "Loading position details"}/> : positionDetail ? (
                         <div className="flex h-full min-h-0 flex-col gap-3 2xl:gap-5">
-                            <div
-                                className={cn(
-                                    "grid min-h-0 gap-4 2xl:gap-6 xl:flex-1",
-                                    positionSecondaryPanelOpen
-                                        ? "xl:grid-cols-[minmax(0,1fr)_300px] 2xl:grid-cols-[minmax(0,1fr)_336px]"
-                                        : "grid-cols-1",
-                                )}
-                            >
+                            <div className="grid min-h-0 grid-cols-1 gap-4 2xl:gap-6 xl:flex-1">
                                 <div className="min-h-0 space-y-4 overflow-y-auto xl:pr-2 xl:[scrollbar-gutter:stable] 2xl:space-y-6 [scrollbar-width:auto] [scrollbar-color:rgba(148,163,184,0.9)_transparent] [&::-webkit-scrollbar]:h-3 [&::-webkit-scrollbar]:w-3 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:border-2 [&::-webkit-scrollbar-thumb]:border-transparent [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-thumb]:bg-clip-content hover:[&::-webkit-scrollbar-thumb]:bg-slate-400 dark:[scrollbar-color:rgba(71,85,105,0.95)_transparent] dark:[&::-webkit-scrollbar-thumb]:bg-slate-700 dark:hover:[&::-webkit-scrollbar-thumb]:bg-slate-600">
                                     <div
-                                        className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200/80 bg-white/70 px-3 py-2 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-950/60"
+                                        className="hidden"
                                     >
                                         <div className="flex min-w-0 shrink flex-wrap items-center gap-2">
                                             <Button
@@ -10794,14 +11022,14 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                     )}
                                 </div>
 
-                                {positionSecondaryPanelOpen ? (
+                                {false && positionSecondaryPanelOpen ? (
                                     <div className="min-h-0 space-y-4 overflow-y-auto xl:pr-1 xl:[scrollbar-gutter:stable] 2xl:space-y-6">
                                         <Card className={panelClass}>
                                             <CardHeader className="space-y-2">
                                                 <CardTitle className="text-xl">{isZh ? "JD 历史版本" : "JD History"}</CardTitle>
                                             </CardHeader>
                                             <CardContent className="space-y-3">
-                                                {positionDetail.jd_versions.length ? positionDetail.jd_versions.map((version) => (
+                                                {positionDetail?.jd_versions.length ? positionDetail?.jd_versions.map((version) => (
                                                     <div key={version.id} className="rounded-2xl border border-slate-200/80 px-4 py-4 dark:border-slate-800">
                                                         <div className="flex items-start justify-between gap-3">
                                                             <div>
@@ -10832,7 +11060,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                                 <CardTitle className="text-xl">{isZh ? "关联候选人" : "Linked Candidates"}</CardTitle>
                                             </CardHeader>
                                             <CardContent className="space-y-3">
-                                                {positionDetail.candidates.length ? positionDetail.candidates.map((candidate) => {
+                                                {positionDetail?.candidates.length ? positionDetail?.candidates.map((candidate) => {
                                                     const displayStatus = resolveCandidateDisplayStatus(candidate);
                                                     return (
                                                         <button
@@ -10866,7 +11094,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                                 <CardTitle className="text-xl">{isZh ? "发布状态" : "Publish Status"}</CardTitle>
                                             </CardHeader>
                                             <CardContent className="space-y-3">
-                                                {positionDetail.publish_tasks.length ? positionDetail.publish_tasks.map((task) => (
+                                                {positionDetail?.publish_tasks.length ? positionDetail?.publish_tasks.map((task) => (
                                                     <div key={task.id} className="rounded-2xl border border-slate-200/80 px-4 py-4 dark:border-slate-800">
                                                         <div className="flex items-center justify-between gap-3">
                                                             <div>
@@ -11875,6 +12103,248 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 </DialogContent>
             </Dialog>
 
+            <Dialog open={positionJDConfigOpen} onOpenChange={setPositionJDConfigOpen}>
+                <DialogContent className="flex h-[min(92vh,960px)] max-h-[92vh] flex-col overflow-hidden sm:max-w-6xl">
+                    <DialogHeader>
+                        <DialogTitle>{isZh ? `JD 配置 · ${positionDetail?.position.title || ""}` : `JD Config · ${positionDetail?.position.title || ""}`}</DialogTitle>
+                        <DialogDescription>
+                            {isZh ? "生成、编辑并保存当前岗位 JD，关闭后仍回到候选人列表。" : "Generate, edit, and save the current JD. Closing returns to the candidate list."}
+                        </DialogDescription>
+                    </DialogHeader>
+                    <ScrollArea className="min-h-0 flex-1">
+                        {positionDetail ? (
+                            <div className="space-y-4 px-1 py-1">
+                                <div className="flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-slate-200/80 bg-white/80 px-4 py-3 shadow-sm dark:border-slate-800 dark:bg-slate-950/70">
+                                    <div className="flex flex-wrap items-center gap-2.5">
+                                        <span className="text-base font-semibold text-slate-950 dark:text-slate-100">{positionDetail.position.title}</span>
+                                        <Badge className={cn("rounded-full border text-[14px]", statusBadgeClass("task", currentJDGenerationStatus === "syncing" ? "running" : currentJDGenerationStatus))}>
+                                            {labelForJDGenerationStatus(currentJDGenerationStatus)}
+                                        </Badge>
+                                        <Badge variant="outline" className="rounded-full text-[14px]">
+                                            {currentJDVersion ? `V${currentJDVersion.version_no} ${isZh ? "生效中" : "Active"}` : (isZh ? "未生成" : "Not generated")}
+                                        </Badge>
+                                    </div>
+                                    <div className="text-sm text-slate-500 dark:text-slate-400">
+                                        {positionDetail.jd_generation?.last_generated_at
+                                            ? (isZh ? `上次生成 ${formatDateTime(positionDetail.jd_generation.last_generated_at)}` : `Last generated ${formatDateTime(positionDetail.jd_generation.last_generated_at)}`)
+                                            : (isZh ? "暂无生成记录" : "No generation history")}
+                                    </div>
+                                </div>
+
+                                <div className="rounded-3xl border border-slate-200/80 bg-white/85 shadow-sm dark:border-slate-800 dark:bg-slate-950/70">
+                                    <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3 dark:border-slate-800/80">
+                                        <span className="flex items-center gap-1.5 text-sm font-semibold text-slate-700 dark:text-slate-200">
+                                            <Sparkles className="h-3.5 w-3.5"/>
+                                            {isZh ? "AI 生成 JD" : "AI Generate JD"}
+                                        </span>
+                                        <span className="text-sm text-slate-400 dark:text-slate-500">
+                                            {positionDetail.jd_generation?.model_name || positionDetail.jd_generation?.model_provider
+                                                ? (isZh ? `模型：${positionDetail.jd_generation?.model_name || positionDetail.jd_generation?.model_provider}` : `Model: ${positionDetail.jd_generation?.model_name || positionDetail.jd_generation?.model_provider}`)
+                                                : ""}
+                                        </span>
+                                    </div>
+                                    <div className="space-y-3 px-4 py-4">
+                                        <Textarea
+                                            value={jdExtraPrompt}
+                                            onChange={(event) => setJdExtraPrompt(event.target.value)}
+                                            rows={2}
+                                            placeholder={isZh ? "补充本次生成要求（选填），例如：强调 IoT 场景、自动化测试、设备联调经验等" : "Add generation-specific requirements (optional)"}
+                                            className="resize-none text-sm"
+                                        />
+                                        {latestJDGenerationError ? (
+                                            <div className="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2.5 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-200">
+                                                <span className="shrink-0">!</span>
+                                                <span>{isZh ? `上次生成失败：${latestJDGenerationError}` : `Last generation failed: ${latestJDGenerationError}`}</span>
+                                            </div>
+                                        ) : null}
+                                        <div className="flex items-center justify-end gap-2">
+                                            {isJDGenerating ? (
+                                                <Button variant="outline" size="sm" onClick={() => void stopJDGeneration()} className="rounded-xl text-sm">
+                                                    <Square className="mr-1 h-3.5 w-3.5"/>
+                                                    {isZh ? "停止生成" : "Stop"}
+                                                </Button>
+                                            ) : (
+                                                <>
+                                                    {currentJDVersion ? (
+                                                        <Button variant="outline" size="sm" onClick={() => void generateJD()} className="rounded-xl text-sm">
+                                                            <RefreshCw className="mr-1 h-3.5 w-3.5"/>
+                                                            {isZh ? "重新生成" : "Regenerate"}
+                                                        </Button>
+                                                    ) : null}
+                                                    <Button size="sm" onClick={() => void generateJD()} className="rounded-xl text-sm">
+                                                        <Wand2 className="mr-1 h-3.5 w-3.5"/>
+                                                        {isZh ? "AI 生成 JD" : "Generate JD"}
+                                                    </Button>
+                                                </>
+                                            )}
+                                        </div>
+                                        {isJDGenerating ? (
+                                            <div className="rounded-2xl border border-sky-200 bg-sky-50/80 px-4 py-3.5 dark:border-sky-900 dark:bg-sky-950/30">
+                                                <div className="flex items-center gap-2 text-sm font-medium text-sky-700 dark:text-sky-200">
+                                                    <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin"/>
+                                                    {jdGenerationStatus === "syncing" ? (isZh ? "正在同步最新 JD 到页面…" : "Syncing the latest JD to page…") : (isZh ? "正在生成 JD…" : "Generating JD…")}
+                                                </div>
+                                                {jdStreamingContent ? (
+                                                    <div className="mt-3 max-h-[220px] overflow-y-auto whitespace-pre-wrap rounded-xl border bg-white/80 px-3 py-2.5 text-sm leading-7 text-slate-700 dark:bg-slate-900/70 dark:text-slate-200">
+                                                        {jdStreamingContent}
+                                                    </div>
+                                                ) : null}
+                                            </div>
+                                        ) : null}
+                                    </div>
+                                </div>
+
+                                <div className="rounded-3xl border border-slate-200/80 bg-white/85 shadow-sm dark:border-slate-800 dark:bg-slate-950/70">
+                                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-3 dark:border-slate-800/80">
+                                        <div className="flex gap-1.5">
+                                            <Button variant={jdViewMode === "publish" ? "default" : "outline"} size="sm" className="h-8 rounded-xl px-3 text-sm" onClick={() => setJdViewMode("publish")}>{isZh ? "可发布版" : "Publish Copy"}</Button>
+                                            <Button variant={jdViewMode === "markdown" ? "default" : "outline"} size="sm" className="h-8 rounded-xl px-3 text-sm" onClick={() => setJdViewMode("markdown")}>{isZh ? "编辑源文本" : "Edit Source"}</Button>
+                                            <Button variant={jdViewMode === "preview" ? "default" : "outline"} size="sm" className="h-8 rounded-xl px-3 text-sm" onClick={() => setJdViewMode("preview")}>{isZh ? "排版预览" : "Preview"}</Button>
+                                        </div>
+                                        {jdViewMode === "publish" ? (
+                                            <Button variant="outline" size="sm" className="h-8 rounded-xl px-3 text-sm" onClick={() => void copyPublishJDText()} disabled={!currentPublishText.trim()}>
+                                                <ClipboardCheck className="mr-1 h-3.5 w-3.5"/>
+                                                {isZh ? "复制发布文案" : "Copy Publish Copy"}
+                                            </Button>
+                                        ) : null}
+                                    </div>
+                                    {jdViewMode === "publish" ? (
+                                        <div className="min-h-[320px] whitespace-pre-wrap px-5 py-4 text-base leading-7 text-slate-700 dark:text-slate-200">
+                                            {currentPublishText || <span className="text-slate-400 dark:text-slate-500">{isZh ? '暂无可发布的 JD 文案，点击"AI 生成 JD"后将在此展示。' : 'No publish-ready JD yet. Click "Generate JD" and it will appear here.'}</span>}
+                                        </div>
+                                    ) : null}
+                                    {jdViewMode === "markdown" ? (
+                                        <div className="px-4 py-3">
+                                            <Textarea
+                                                value={jdDraft.jdMarkdown}
+                                                onChange={(event) => setJdDraft((current) => ({...current, jdMarkdown: event.target.value}))}
+                                                rows={18}
+                                                className="font-mono text-sm"
+                                            />
+                                            <p className="mt-1.5 text-sm text-slate-400 dark:text-slate-500">{isZh ? "编辑完成后点击下方「保存新版本」即可更新" : "Edit and click 'Save New Version' below to update"}</p>
+                                        </div>
+                                    ) : null}
+                                    {jdViewMode === "preview" ? (
+                                        <div className="min-h-[320px] px-5 py-4 text-base leading-7 text-slate-700 dark:text-slate-200" dangerouslySetInnerHTML={{__html: currentPreviewHtml}}/>
+                                    ) : null}
+                                    <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/70 px-4 py-3 dark:border-slate-800/80 dark:bg-slate-900/30">
+                                        <div className="flex flex-wrap items-center gap-3">
+                                            <label className="flex cursor-pointer items-center gap-1.5 text-sm text-slate-600 dark:text-slate-300">
+                                                <input type="checkbox" checked={jdDraft.autoActivate} onChange={(event) => setJdDraft((current) => ({...current, autoActivate: event.target.checked}))}/>
+                                                {isZh ? "保存后设为生效版本" : "Set as Active After Saving"}
+                                            </label>
+                                            <Input value={jdDraft.title} onChange={(event) => setJdDraft((current) => ({...current, title: event.target.value}))} className="h-8 w-44 rounded-xl text-sm" placeholder={isZh ? "版本标题" : "Version title"}/>
+                                            <Input value={jdDraft.notes} onChange={(event) => setJdDraft((current) => ({...current, notes: event.target.value}))} className="h-8 w-40 rounded-xl text-sm" placeholder={isZh ? "备注（选填）" : "Notes (optional)"}/>
+                                        </div>
+                                        <Button onClick={() => void saveJDVersion()} disabled={jdVersionSaving} size="sm" className="rounded-xl text-sm">
+                                            <Save className="mr-1 h-3.5 w-3.5"/>
+                                            {jdVersionSaving ? (isZh ? "保存中…" : "Saving…") : (isZh ? "保存新版本" : "Save New Version")}
+                                        </Button>
+                                    </div>
+                                </div>
+                            </div>
+                        ) : null}
+                    </ScrollArea>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setPositionJDConfigOpen(false)}>{recruitmentUiText.cancelButton}</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            <Dialog open={positionAssessmentDialogOpen} onOpenChange={(open) => {
+                setPositionAssessmentDialogOpen(open);
+                if (!open) {
+                    setPositionAssessmentSaving(false);
+                }
+            }}>
+                <DialogContent className="flex max-h-[88vh] flex-col overflow-hidden sm:max-w-3xl">
+                    <DialogHeader>
+                        <DialogTitle>{isZh ? `评估方案配置 · ${positionDetail?.position.title || ""}` : `Assessment Plans · ${positionDetail?.position.title || ""}`}</DialogTitle>
+                        <DialogDescription>
+                            {isZh ? "只展示当前岗位已绑定或本次新建待绑定的方案，点击确定后才会写入岗位。" : "Only current or newly pending plans are shown. Changes are saved after confirmation."}
+                        </DialogDescription>
+                    </DialogHeader>
+                    <ScrollArea className="min-h-0 flex-1">
+                        <div className="space-y-3 px-1 py-1">
+                            {([
+                                ["jdSkillIds", positionSkillFieldConfig.jdSkillIds],
+                                ["screeningSkillIds", positionSkillFieldConfig.screeningSkillIds],
+                                ["interviewSkillIds", positionSkillFieldConfig.interviewSkillIds],
+                            ] as const).map(([formKey, config]) => {
+                                const selectedSkillId = positionAssessmentDraft[formKey][0] || null;
+                                const selectedSkill = selectedSkillId ? skillMap.get(selectedSkillId) || null : null;
+                                const boundIds = formKey === "jdSkillIds"
+                                    ? (positionDetail?.position.jd_skill_ids || [])
+                                    : formKey === "screeningSkillIds"
+                                        ? (positionDetail?.position.screening_skill_ids || [])
+                                        : (positionDetail?.position.interview_skill_ids || []);
+                                const isPending = Boolean(selectedSkillId && !boundIds.includes(selectedSkillId));
+                                return (
+                                    <div key={`assessment-config-${formKey}`} className="rounded-3xl border border-slate-200/80 bg-white/85 p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950/70">
+                                        <div className="flex items-start justify-between gap-3">
+                                            <div>
+                                                <p className="text-base font-semibold text-slate-950 dark:text-slate-100">{config.label}</p>
+                                                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                                                    {selectedSkill
+                                                        ? (isPending ? (isZh ? "本次新增，待确认绑定" : "New this time, pending confirmation") : (isZh ? "当前岗位已绑定" : "Currently bound to this position"))
+                                                        : (isZh ? "当前未绑定，系统会使用内置通用基座" : "No plan bound. The system uses its built-in base.")}
+                                                </p>
+                                            </div>
+                                            <Button type="button" variant="outline" size="sm" className="rounded-xl" onClick={() => openSkillEditorForAssessmentConfig(config.taskKind, formKey)}>
+                                                <Plus className="mr-1 h-4 w-4"/>
+                                                {isZh ? "添加" : "Add"}
+                                            </Button>
+                                        </div>
+                                        <div className="mt-4 rounded-2xl border border-slate-100 bg-slate-50/80 px-4 py-3 dark:border-slate-800 dark:bg-slate-900/40">
+                                            {selectedSkill ? (
+                                                <div className="space-y-3">
+                                                    <div className="flex flex-wrap items-start justify-between gap-3">
+                                                        <div className="min-w-0">
+                                                            <p className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">{selectedSkill.name}</p>
+                                                            <p className="mt-1 line-clamp-2 text-sm leading-5 text-slate-500 dark:text-slate-400">
+                                                                {selectedSkill.description || shortText(selectedSkill.content, 120)}
+                                                            </p>
+                                                        </div>
+                                                        {isPending ? (
+                                                            <Badge className="rounded-full border border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+                                                                {isZh ? "待绑定" : "Pending"}
+                                                            </Badge>
+                                                        ) : (
+                                                            <Badge variant="outline" className="rounded-full">{isZh ? "已绑定" : "Bound"}</Badge>
+                                                        )}
+                                                    </div>
+                                                    <details className="group rounded-2xl border border-slate-200/70 bg-white/70 px-3 py-2 dark:border-slate-800 dark:bg-slate-950/50">
+                                                        <summary className="cursor-pointer select-none text-sm font-medium text-slate-600 transition hover:text-slate-900 dark:text-slate-300 dark:hover:text-slate-100">
+                                                            {isZh ? "查看当前方案详情" : "View Current Plan Details"}
+                                                        </summary>
+                                                        <div className="mt-3 max-h-52 overflow-y-auto whitespace-pre-wrap rounded-xl bg-slate-50 px-3 py-2 text-sm leading-6 text-slate-600 dark:bg-slate-900/70 dark:text-slate-300">
+                                                            {selectedSkill.content || selectedSkill.description || (isZh ? "暂无方案内容" : "No plan content yet")}
+                                                        </div>
+                                                    </details>
+                                                </div>
+                                            ) : (
+                                                <p className="text-sm text-slate-400 dark:text-slate-500">{isZh ? "暂无当前岗位方案" : "No plan for this position yet"}</p>
+                                            )}
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </ScrollArea>
+                    <DialogFooter className="items-center justify-between gap-3 sm:justify-between">
+                        <p className="text-sm text-slate-500 dark:text-slate-400">
+                            {isZh ? "取消不会保存本次新增或选择的绑定关系。" : "Cancel will not save pending bindings."}
+                        </p>
+                        <div className="flex items-center gap-2">
+                            <Button variant="outline" onClick={() => setPositionAssessmentDialogOpen(false)} disabled={positionAssessmentSaving}>{recruitmentUiText.cancelButton}</Button>
+                            <Button onClick={() => void submitPositionAssessmentBindings()} disabled={positionAssessmentSaving || !selectedPositionId}>
+                                {positionAssessmentSaving ? (isZh ? "绑定中..." : "Binding...") : (isZh ? "确定绑定到岗位" : "Bind to Position")}
+                            </Button>
+                        </div>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
             <Dialog open={resumeUploadOpen} onOpenChange={(open) => {
                 setResumeUploadOpen(open);
                 if (!open) {
@@ -12131,6 +12601,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                     skillAbortControllerRef.current?.abort();
                     skillAbortControllerRef.current = null;
                     skillActiveTaskIdRef.current = null;
+                    setSkillAutoBindCategory(null);
+                    setSkillAutoBindDestination("positionForm");
                 }
             }}>
                 <DialogContent className="flex h-[min(88vh,840px)] max-h-[88vh] flex-col overflow-hidden sm:max-w-4xl">
@@ -12142,20 +12614,28 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                         <div className="flex min-h-0 flex-1 flex-col gap-4">
                             <div className="shrink-0 rounded-2xl border border-slate-200/80 bg-slate-50/70 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/50">
                                 <Field label={isZh ? "关联岗位" : "Bound Position"}>
-                                        <NativeSelect
-                                            value={skillBoundPositionId}
-                                            onChange={(event) => {
-                                                setSkillBoundPositionId(event.target.value);
-                                                setSkillEditorPositionId(event.target.value ? Number(event.target.value) : null);
-                                            }}
-                                        >
-                                            <option value="">{isZh ? "通用方案（未绑定岗位）" : "Generic Plan (Unbound)"}</option>
-                                            {bindablePositionsForSkillDialog.map((position) => (
-                                                <option key={`structured-skill-bound-position-${position.id}`} value={position.id}>
-                                                    {position.title}
-                                                </option>
-                                            ))}
-                                        </NativeSelect>
+                                    {isAssessmentDraftSkillCreation ? (
+                                        <div className="rounded-xl border border-slate-200/80 bg-white/80 px-3 py-2 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-950/60 dark:text-slate-300">
+                                            {isZh
+                                                ? `先加入「${positionDetail?.position.title || "当前岗位"}」的待绑定方案，点击确定后再绑定到岗位`
+                                                : `Added to pending plans for ${positionDetail?.position.title || "current position"} first; bind after confirmation.`}
+                                        </div>
+                                    ) : (
+                                            <NativeSelect
+                                                value={skillBoundPositionId}
+                                                onChange={(event) => {
+                                                    setSkillBoundPositionId(event.target.value);
+                                                    setSkillEditorPositionId(event.target.value ? Number(event.target.value) : null);
+                                                }}
+                                            >
+                                                <option value="">{isZh ? "通用方案（未绑定岗位）" : "Generic Plan (Unbound)"}</option>
+                                                {bindablePositionsForSkillDialog.map((position) => (
+                                                    <option key={`structured-skill-bound-position-${position.id}`} value={position.id}>
+                                                        {position.title}
+                                                    </option>
+                                                ))}
+                                            </NativeSelect>
+                                    )}
                                 </Field>
                             </div>
                             <StructuredSkillEditor
@@ -12188,20 +12668,28 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                         />
                                     </Field>
                                     <Field label={isZh ? "关联岗位" : "Bound Position"}>
-                                        <NativeSelect
-                                            value={skillBoundPositionId}
-                                            onChange={(event) => {
-                                                setSkillBoundPositionId(event.target.value);
-                                                setSkillEditorPositionId(event.target.value ? Number(event.target.value) : null);
-                                            }}
-                                        >
-                                            <option value="">{isZh ? "通用方案（未绑定岗位）" : "Generic Plan (Unbound)"}</option>
-                                            {bindablePositionsForSkillDialog.map((position) => (
-                                                <option key={`skill-bound-position-${position.id}`} value={position.id}>
-                                                    {position.title}
-                                                </option>
-                                            ))}
-                                        </NativeSelect>
+                                        {isAssessmentDraftSkillCreation ? (
+                                            <div className="rounded-xl border border-slate-200/80 bg-white/80 px-3 py-2 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-950/60 dark:text-slate-300">
+                                                {isZh
+                                                    ? `先加入「${positionDetail?.position.title || "当前岗位"}」的待绑定方案，点击确定后再绑定到岗位`
+                                                    : `Added to pending plans for ${positionDetail?.position.title || "current position"} first; bind after confirmation.`}
+                                            </div>
+                                        ) : (
+                                            <NativeSelect
+                                                value={skillBoundPositionId}
+                                                onChange={(event) => {
+                                                    setSkillBoundPositionId(event.target.value);
+                                                    setSkillEditorPositionId(event.target.value ? Number(event.target.value) : null);
+                                                }}
+                                            >
+                                                <option value="">{isZh ? "通用方案（未绑定岗位）" : "Generic Plan (Unbound)"}</option>
+                                                {bindablePositionsForSkillDialog.map((position) => (
+                                                    <option key={`skill-bound-position-${position.id}`} value={position.id}>
+                                                        {position.title}
+                                                    </option>
+                                                ))}
+                                            </NativeSelect>
+                                        )}
                                     </Field>
                                     <div className="space-y-2">
                                         <span className="text-base font-medium text-slate-700 dark:text-slate-300">{isZh ? "适用场景" : "Applies To"}</span>
