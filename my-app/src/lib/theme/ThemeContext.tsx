@@ -13,6 +13,7 @@ interface ThemeContextValue {
 const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
 
 const THEME_STORAGE_KEY = 'scripthub-theme';
+const DEFAULT_THEME: Theme = 'light';
 
 function getSystemTheme(): 'light' | 'dark' {
     if (typeof window === 'undefined') return 'light';
@@ -29,7 +30,7 @@ function applyTheme(resolvedTheme: 'light' | 'dark') {
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-    const [theme, setThemeState] = useState<Theme>('system');
+    const [theme, setThemeState] = useState<Theme>(DEFAULT_THEME);
     const [resolvedTheme, setResolvedTheme] = useState<'light' | 'dark'>('light');
     const [mounted, setMounted] = useState(false);
 
