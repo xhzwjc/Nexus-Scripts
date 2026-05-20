@@ -132,8 +132,6 @@ type CandidateRowProps = {
     getOrganizationLabel: (orgCode: string | null | undefined) => string;
     tr: ReturnType<typeof getCandidatesLocale>;
     language: string;
-    measureRef?: (node: HTMLTableRowElement | null) => void;
-    dataIndex?: number;
 };
 
 const CandidateRow = React.memo(function CandidateRow({
@@ -148,8 +146,6 @@ const CandidateRow = React.memo(function CandidateRow({
     getOrganizationLabel,
     tr,
     language,
-    measureRef,
-    dataIndex,
 }: CandidateRowProps) {
     const isChecked = selectedCandidateIdSet.has(candidate.id);
     const resumeMailSummary = getResumeMailSummary(candidate.id);
@@ -158,9 +154,8 @@ const CandidateRow = React.memo(function CandidateRow({
 
     return (
         <tr
-            ref={measureRef}
-            data-index={dataIndex}
             data-candidate-id={candidate.id}
+            style={{height: CANDIDATE_LIST_ESTIMATED_ROW_HEIGHT}}
             className={cn("cursor-pointer", isSelected && "bg-slate-100 dark:bg-slate-900")}
             onClick={onSelect}
         >
@@ -2563,8 +2558,6 @@ export function CandidatesPage({
                                                                     getOrganizationLabel={getOrganizationLabel}
                                                                     tr={tr}
                                                                     language={language}
-                                                                    measureRef={rowVirtualizer.measureElement}
-                                                                    dataIndex={virtualRow.index}
                                                                 />
                                                             )})}
                                                         {bottomSpacerHeight > 0 ? (

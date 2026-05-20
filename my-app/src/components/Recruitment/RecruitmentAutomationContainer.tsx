@@ -1523,8 +1523,10 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const positionDetailLoadRequestIdRef = useRef(0);
     const defaultTabSetForPositionRef = useRef<number | null>(null);
     const mountedRef = useRef(true);
+    const candidateListScrollElRef = useRef<HTMLDivElement | null>(null);
     const [candidateListScrollEl, setCandidateListScrollEl] = useState<HTMLDivElement | null>(null);
     const candidateListScrollRef = useCallback((node: HTMLDivElement | null) => {
+        candidateListScrollElRef.current = node;
         setCandidateListScrollEl(node);
     }, []);
     const [candidateListHorizontalRailEl, setCandidateListHorizontalRailEl] = useState<HTMLDivElement | null>(null);
@@ -2122,6 +2124,9 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const [selectedCandidateId, setSelectedCandidateId] = useState<number | null>(null);
     const [selectedCandidateIds, setSelectedCandidateIds] = useState<number[]>([]);
     const [selectedLogId, setSelectedLogId] = useState<number | null>(null);
+    const lastCandidateMenuPageRef = useRef<RecruitmentPage>(initialPage || "workspace");
+    const candidateMenuSelectionResetRef = useRef(false);
+    const candidateMenuSuppressStaleDetailRef = useRef(false);
 
     const [positionsLoading, setPositionsLoading] = useState(false);
     const [positionDetailLoading, setPositionDetailLoading] = useState(false);
@@ -3060,13 +3065,36 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     }, [visiblePositions]);
 
     useEffect(() => {
+        const targetPage = initialPage || "workspace";
+        const previousPage = lastCandidateMenuPageRef.current;
+        lastCandidateMenuPageRef.current = targetPage;
+        if (targetPage !== "candidates" || previousPage === targetPage) {
+            return;
+        }
+        candidateMenuSelectionResetRef.current = true;
+        candidateMenuSuppressStaleDetailRef.current = true;
+        setSelectedCandidateId(null);
+        selectedCandidateIdRef.current = null;
+        checkedDuplicateCandidateIdRef.current = null;
+        setCandidateDetail(null);
+        setDuplicateCandidates([]);
+        setInterviewSchedules([]);
+        setOffers([]);
+        setFollowUps([]);
+    }, [initialPage]);
+
+    useEffect(() => {
         setSelectedCandidateId((current) => {
+            if (candidateMenuSelectionResetRef.current) {
+                candidateMenuSelectionResetRef.current = false;
+                return null;
+            }
             if (current && visibleCandidateIdSet.has(current)) {
                 return current;
             }
             return visibleCandidates[0]?.id || null;
         });
-    }, [visibleCandidateIdSet, visibleCandidates]);
+    }, [activePage, selectedCandidateId, visibleCandidateIdSet, visibleCandidates]);
 
     useEffect(() => {
         setSelectedLogId((current) => {
@@ -3470,6 +3498,12 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     }, [selectedPositionId, activePage]);
 
     useEffect(() => {
+        if (activePage === "candidates" && candidateMenuSuppressStaleDetailRef.current) {
+            if (selectedCandidateId) {
+                return;
+            }
+            candidateMenuSuppressStaleDetailRef.current = false;
+        }
         if (!selectedCandidateId) {
             setCandidateDetail(null);
             checkedDuplicateCandidateIdRef.current = null;
@@ -3525,7 +3559,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     }, [activePage, canManageLLMConfig]);
 
     const scrollCandidateListToTop = useCallback(() => {
-        const viewport = resolveScrollAreaViewport(candidateListScrollEl);
+        const viewport = resolveScrollAreaViewport(candidateListScrollElRef.current);
         if (!viewport) {
             return;
         }
@@ -3533,7 +3567,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             top: 0,
             behavior: "auto",
         });
-    }, [candidateListScrollEl]);
+    }, []);
 
     useEffect(() => {
         candidateMatchSortOrderRef.current = candidateMatchSortOrder;
@@ -4199,30 +4233,44 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             return;
         }
 
+        let syncFrame: number | null = null;
+
         const releaseLock = (owner: "table" | "rail") => {
-            requestAnimationFrame(() => {
-                if (candidateListScrollSyncLockRef.current === owner) {
-                    candidateListScrollSyncLockRef.current = null;
+            if (candidateListScrollSyncLockRef.current === owner) {
+                candidateListScrollSyncLockRef.current = null;
+            }
+        };
+
+        const scheduleSync = (
+            owner: "table" | "rail",
+            source: HTMLDivElement,
+            target: HTMLDivElement,
+        ) => {
+            if (candidateListScrollSyncLockRef.current && candidateListScrollSyncLockRef.current !== owner) {
+                return;
+            }
+            if (source.scrollLeft === target.scrollLeft) {
+                return;
+            }
+            candidateListScrollSyncLockRef.current = owner;
+            if (syncFrame !== null) {
+                cancelAnimationFrame(syncFrame);
+            }
+            syncFrame = requestAnimationFrame(() => {
+                syncFrame = null;
+                if (target.scrollLeft !== source.scrollLeft) {
+                    target.scrollLeft = source.scrollLeft;
                 }
+                releaseLock(owner);
             });
         };
 
         const syncFromTable = () => {
-            if (candidateListScrollSyncLockRef.current === "rail") {
-                return;
-            }
-            candidateListScrollSyncLockRef.current = "table";
-            horizontalRail.scrollLeft = tableScroller.scrollLeft;
-            releaseLock("table");
+            scheduleSync("table", tableScroller, horizontalRail);
         };
 
         const syncFromRail = () => {
-            if (candidateListScrollSyncLockRef.current === "table") {
-                return;
-            }
-            candidateListScrollSyncLockRef.current = "rail";
-            tableScroller.scrollLeft = horizontalRail.scrollLeft;
-            releaseLock("rail");
+            scheduleSync("rail", horizontalRail, tableScroller);
         };
 
         tableScroller.addEventListener("scroll", syncFromTable, {passive: true});
@@ -4230,6 +4278,9 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         horizontalRail.scrollLeft = tableScroller.scrollLeft;
 
         return () => {
+            if (syncFrame !== null) {
+                cancelAnimationFrame(syncFrame);
+            }
             tableScroller.removeEventListener("scroll", syncFromTable);
             horizontalRail.removeEventListener("scroll", syncFromRail);
         };
