@@ -203,7 +203,7 @@ import {ModelSettingsPage} from "./pages/ModelSettingsPage";
 import {SkillSettingsPage} from "./pages/SkillSettingsPage";
 import {TalentPoolPage} from "./pages/TalentPoolPage";
 import {WorkspacePage} from "./pages/WorkspacePage";
-import { useOptimizedStats, useCachedListData, useCachedObjectData, useTaskSSE } from "./hooks";
+import { useOptimizedStats, useCachedListData, useCachedObjectData, useTaskSSE, type TaskSSEEvent } from "./hooks";
 import {
     navigateToRecruitmentPage,
     recruitmentNavBus,
@@ -215,6 +215,7 @@ const TASK_MONITOR_VISIBLE_INTERVAL_MS = 30_000;
 const TASK_MONITOR_HIDDEN_INTERVAL_MS = 60_000;
 const TASK_MONITOR_MAX_INTERVAL_MS = 30_000;
 const TASK_MONITOR_BATCH_SCALE_THRESHOLD = 8;
+const CANDIDATE_SSE_BATCH_WINDOW_MS = 100;
 const ALL_COMPANY_DEPARTMENTS_VALUE = "__all_company_departments__";
 const TERMINAL_SCREENING_TASK_STATUSES = new Set([
     "success",
@@ -231,6 +232,23 @@ const TERMINAL_SCREENING_TASK_STATUSES = new Set([
     "request_failed",
     "screening_total_timeout",
 ]);
+
+type CandidateSnapshotBatchUpdate = {
+    snapshot: Partial<CandidateSummary>;
+    insertIntoCandidateList?: boolean;
+};
+
+function mergeCandidatePatch<T extends Partial<CandidateSummary>>(current: T, patch: Partial<CandidateSummary>): T {
+    let changed = false;
+    const currentRecord = current as Record<string, unknown>;
+    const patchRecord = patch as Record<string, unknown>;
+    Object.keys(patchRecord).forEach((key) => {
+        if (!Object.is(currentRecord[key], patchRecord[key])) {
+            changed = true;
+        }
+    });
+    return changed ? ({ ...current, ...patch } as T) : current;
+}
 
 function resolveStableCandidateDisplayStatus(candidate: Partial<CandidateSummary>) {
     const explicitDisplayStatus = String(candidate.display_status || "").trim();
@@ -518,6 +536,9 @@ interface RecruitmentAutomationContainerProps {
 
 // ---- 岗位内嵌候选人列表：行组件（模块级，稳定引用） ----
 const POSITION_CANDIDATE_ROW_HEIGHT = 48;
+const POSITION_CANDIDATE_GRID_COLUMNS = "minmax(80px,1.2fr) minmax(120px,1.8fr) minmax(40px,0.5fr) minmax(60px,0.8fr) minmax(40px,0.4fr) minmax(70px,0.8fr) minmax(50px,0.6fr) minmax(50px,0.6fr) minmax(70px,0.9fr)";
+const positionCandidateValueClassName = "truncate text-sm font-medium text-slate-700 dark:text-slate-100";
+const positionCandidateScalarValueClassName = "text-sm font-medium text-slate-700 dark:text-slate-100";
 
 const PositionCandidateRow = React.memo(function PositionCandidateRow({
     candidate,
@@ -538,12 +559,12 @@ const PositionCandidateRow = React.memo(function PositionCandidateRow({
             role="button"
             tabIndex={0}
             className={cn(
-                "grid w-full items-center gap-6 px-4 text-left transition-colors border-b border-slate-100 dark:border-slate-800/50 cursor-pointer",
+                "grid w-full items-center gap-6 px-4 text-left transition-colors border-b border-slate-100 dark:border-slate-800/80 cursor-pointer",
                 isSelected
-                    ? "bg-teal-50/80 dark:bg-teal-900/20"
-                    : "hover:bg-slate-50 dark:hover:bg-slate-800/50"
+                    ? "bg-teal-50/80 dark:bg-teal-900/30"
+                    : "hover:bg-slate-50 dark:hover:bg-slate-900/80"
             )}
-            style={{ height: POSITION_CANDIDATE_ROW_HEIGHT, gridTemplateColumns: "minmax(80px,1.2fr) minmax(120px,1.8fr) minmax(40px,0.5fr) minmax(60px,0.8fr) minmax(40px,0.4fr) minmax(70px,0.8fr) minmax(50px,0.6fr) minmax(50px,0.6fr) minmax(70px,0.9fr)" }}
+            style={{ height: POSITION_CANDIDATE_ROW_HEIGHT, gridTemplateColumns: POSITION_CANDIDATE_GRID_COLUMNS }}
             onClick={() => onSelect(candidate.id)}
             onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onSelect(candidate.id); }}
         >
@@ -555,7 +576,7 @@ const PositionCandidateRow = React.memo(function PositionCandidateRow({
             </Tooltip>
             <Tooltip>
                 <TooltipTrigger asChild>
-                    <span className="truncate text-sm text-slate-500">{candidate.phone || candidate.email || "-"}</span>
+                    <span className={positionCandidateValueClassName}>{candidate.phone || candidate.email || "-"}</span>
                 </TooltipTrigger>
                 <TooltipContent side="top"><p>{candidate.phone || candidate.email || ""}</p></TooltipContent>
             </Tooltip>
@@ -574,24 +595,24 @@ const PositionCandidateRow = React.memo(function PositionCandidateRow({
             </Tooltip>
             <Tooltip>
                 <TooltipTrigger asChild>
-                    <span className="truncate text-sm text-slate-500">{candidate.city || "-"}</span>
+                    <span className={positionCandidateValueClassName}>{candidate.city || "-"}</span>
                 </TooltipTrigger>
                 <TooltipContent side="top"><p>{candidate.city || ""}</p></TooltipContent>
             </Tooltip>
-            <span className="text-sm text-slate-500">{candidate.age ?? "-"}</span>
+            <span className={positionCandidateScalarValueClassName}>{candidate.age ?? "-"}</span>
             <Tooltip>
                 <TooltipTrigger asChild>
-                    <span className="truncate text-sm text-slate-500">{candidate.education || "-"}</span>
+                    <span className={positionCandidateValueClassName}>{candidate.education || "-"}</span>
                 </TooltipTrigger>
                 <TooltipContent side="top"><p>{candidate.education || ""}</p></TooltipContent>
             </Tooltip>
             <Tooltip>
                 <TooltipTrigger asChild>
-                    <span className="truncate text-sm text-slate-500">{candidate.years_of_experience || "-"}</span>
+                    <span className={positionCandidateValueClassName}>{candidate.years_of_experience || "-"}</span>
                 </TooltipTrigger>
                 <TooltipContent side="top"><p>{candidate.years_of_experience || ""}</p></TooltipContent>
             </Tooltip>
-            <span className="text-right text-sm text-slate-500">{formatPercent(candidate.match_percent)}</span>
+            <span className="text-right text-sm font-semibold text-teal-700 dark:text-teal-200">{formatPercent(candidate.match_percent)}</span>
             <Badge className={cn("rounded-full border shrink-0 text-[14px] w-fit", statusBadgeClass("candidate", displayStatus))}>
                 {labelForCandidateStatus(displayStatus)}
             </Badge>
@@ -601,6 +622,13 @@ const PositionCandidateRow = React.memo(function PositionCandidateRow({
     return prev.candidate.id === next.candidate.id
         && prev.candidate.status === next.candidate.status
         && prev.candidate.display_status === next.candidate.display_status
+        && prev.candidate.name === next.candidate.name
+        && prev.candidate.phone === next.candidate.phone
+        && prev.candidate.email === next.candidate.email
+        && prev.candidate.city === next.candidate.city
+        && prev.candidate.age === next.candidate.age
+        && prev.candidate.education === next.candidate.education
+        && prev.candidate.years_of_experience === next.candidate.years_of_experience
         && prev.candidate.match_percent === next.candidate.match_percent
         && prev.isSelected === next.isSelected
         && prev.isZh === next.isZh;
@@ -805,7 +833,7 @@ const PositionCandidatesView = React.memo(function PositionCandidatesView(props:
                 </div>
             </div>
             {/* 列头 */}
-            <div className="grid items-center gap-6 border-b border-slate-200/80 px-4 text-[14px] font-medium uppercase tracking-wider text-slate-400 dark:border-slate-800 dark:text-slate-500" style={{ height: 32, gridTemplateColumns: "minmax(80px,1.2fr) minmax(120px,1.8fr) minmax(40px,0.5fr) minmax(60px,0.8fr) minmax(40px,0.4fr) minmax(70px,0.8fr) minmax(50px,0.6fr) minmax(50px,0.6fr) minmax(70px,0.9fr)" }}>
+            <div className="grid items-center gap-6 border-b border-slate-200/80 bg-slate-50/90 px-4 text-[14px] font-semibold uppercase tracking-wider text-slate-600 shadow-[inset_0_-1px_0_rgba(148,163,184,0.12)] dark:border-slate-700/80 dark:bg-slate-900/95 dark:text-slate-100 dark:shadow-[inset_0_-1px_0_rgba(148,163,184,0.18)]" style={{ height: 34, gridTemplateColumns: POSITION_CANDIDATE_GRID_COLUMNS }}>
                 <span>{isZh ? "姓名" : "Name"}</span>
                 <span>{isZh ? "手机/邮箱" : "Phone/Email"}</span>
                 <span>{isZh ? "简历" : "Resume"}</span>
@@ -1160,6 +1188,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const taskMonitorTokensRef = useRef<Map<number, symbol>>(new Map());
     const pendingLogUpdatesRef = useRef<AITaskLog[]>([]);
     const logFlushRafRef = useRef<number | null>(null);
+    const pendingCandidateUpdateEventsRef = useRef<TaskSSEEvent[]>([]);
+    const candidateUpdateBatchTimerRef = useRef<number | null>(null);
     const requestInflightRef = useRef<Map<string, Promise<unknown>>>(new Map());
     const selectedLogIdRef = useRef<number | null>(null);
     const selectedPositionIdRef = useRef<number | null>(null);
@@ -1659,7 +1689,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
 
     const [assistantOpen, setAssistantOpen] = useState(false);
     const [positionListCollapsed, setPositionListCollapsed] = useState(false);
-    const [positionWorkspaceView, setPositionWorkspaceView] = useState<"jd" | "config" | "candidates">("jd");
+    const [positionWorkspaceView, setPositionWorkspaceView] = useState<"jd" | "config" | "candidates">("candidates");
     const [positionSecondaryPanelOpen, setPositionSecondaryPanelOpen] = useState(false);
     // 岗位内嵌候选人列表状态
     const [positionCandidateSearch, setPositionCandidateSearch] = useState("");
@@ -2343,7 +2373,6 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             {quiet: true},
         );
     }, [assistantContextSkillIds, chatContext.candidate_id, chatContext.position_id, chatContext.skill_ids.length]);
-    const activeScreeningTaskIds = useMemo(() => Object.values(activeScreeningTaskMap), [activeScreeningTaskMap]);
     const selectedCandidateScreeningTaskId = selectedCandidateId
         ? (
             activeScreeningTaskMap[selectedCandidateId]
@@ -2352,7 +2381,6 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             || null
         )
         : null;
-    const isBatchScreeningRunning = activeBatchScreeningTaskIds.length > 0;
     const currentCandidateInterviewTaskId = activeInterviewCandidateId === selectedCandidateId ? activeInterviewTaskId : null;
     const isTaskCancelling = useCallback((taskId?: number | null) => {
         if (!taskId) {
@@ -2367,8 +2395,6 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const canStopCurrentRun = Boolean(activeChatTaskId || currentAssistantRunId || assistantStreamAbortRef.current);
     const isCurrentRunStopping = isCurrentChatTaskCancelling || assistantStreamStopping;
     const showScrollToBottomButton = isUserScrolledUp && chatMessages.length > 0;
-    const isBatchScreeningCancelling = activeBatchScreeningTaskIds.length > 0
-        && activeBatchScreeningTaskIds.every((taskId) => cancellingTaskIds.includes(taskId));
     const resumeMailTargetCandidates = useMemo(() => {
         return resumeMailForm.candidateIds
             .map((candidateId) => (
@@ -2494,6 +2520,34 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             return true;
         });
     }, [candidateMatchFilter, candidatePositionFilter, candidateSourceFilter, candidateStatusFilter, candidateTimeFilter, candidates, deferredCandidateQuery, isCandidatePageActive]);
+
+    function getLiveScreeningTaskId(candidate?: CandidateSummary | null) {
+        const taskId = Number(candidate?.active_screening_task_id || 0);
+        if (!taskId) {
+            return null;
+        }
+        const taskStatus = candidate?.active_screening_task_status || candidate?.active_screening_status;
+        return isLiveTaskStatus(taskStatus) ? taskId : null;
+    }
+
+    const visibleLiveScreeningTaskIds = useMemo(() => {
+        const taskIds = new Set<number>();
+        visibleCandidates.forEach((candidate) => {
+            const taskId = getLiveScreeningTaskId(candidate);
+            if (taskId) {
+                taskIds.add(taskId);
+            }
+        });
+        return Array.from(taskIds);
+    }, [visibleCandidates]);
+
+    const batchStopScreeningTaskIds = useMemo(() => (
+        Array.from(new Set([...activeBatchScreeningTaskIds, ...visibleLiveScreeningTaskIds]))
+    ), [activeBatchScreeningTaskIds, visibleLiveScreeningTaskIds]);
+
+    const isBatchScreeningRunning = batchStopScreeningTaskIds.length > 0;
+    const isBatchScreeningCancelling = batchStopScreeningTaskIds.length > 0
+        && batchStopScreeningTaskIds.every((taskId) => cancellingTaskIds.includes(taskId));
 
     const visibleCandidateIdSet = useMemo(
         () => new Set(visibleCandidates.map((c) => c.id)),
@@ -2758,7 +2812,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     }, [selectedPositionId]);
 
     useEffect(() => {
-        setPositionWorkspaceView("jd");
+        setPositionWorkspaceView("candidates");
         defaultTabSetForPositionRef.current = null;
         setPositionSecondaryPanelOpen(false);
         setPositionCandidateDetailOpen(false);
@@ -2876,6 +2930,11 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 window.cancelAnimationFrame(logFlushRafRef.current);
                 logFlushRafRef.current = null;
             }
+            if (candidateUpdateBatchTimerRef.current != null) {
+                window.clearTimeout(candidateUpdateBatchTimerRef.current);
+                candidateUpdateBatchTimerRef.current = null;
+            }
+            pendingCandidateUpdateEventsRef.current = [];
         };
     }, []);
 
@@ -3167,6 +3226,128 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         ].some((value) => String(value || "").toLowerCase().includes(normalizedQuery));
     }, [candidatePositionFilter, candidateQuery, candidateStatusFilter]);
 
+    const syncRealtimeCandidateListsBatch = useCallback((updates: CandidateSnapshotBatchUpdate[]) => {
+        const normalizedUpdates = updates
+            .map((update) => {
+                const candidateId = Number(update.snapshot?.id);
+                if (!Number.isFinite(candidateId)) {
+                    return null;
+                }
+                return {
+                    ...update,
+                    snapshot: { ...update.snapshot, id: candidateId } as CandidateSummary,
+                };
+            })
+            .filter((item): item is CandidateSnapshotBatchUpdate & { snapshot: CandidateSummary } => Boolean(item));
+        if (!normalizedUpdates.length) {
+            return;
+        }
+
+        let nextCandidates = allCandidatesRef.current;
+        let nextTalentPoolCandidates = allTalentPoolCandidatesRef.current;
+        let candidatesChanged = false;
+        let talentPoolChanged = false;
+        let candidateTotalDelta = 0;
+
+        const ensureCandidatesCopy = () => {
+            if (!candidatesChanged) {
+                nextCandidates = [...nextCandidates];
+                candidatesChanged = true;
+            }
+        };
+        const ensureTalentPoolCopy = () => {
+            if (!talentPoolChanged) {
+                nextTalentPoolCandidates = [...nextTalentPoolCandidates];
+                talentPoolChanged = true;
+            }
+        };
+        const removeCandidateListItem = (candidateId: number) => {
+            const index = nextCandidates.findIndex((candidate) => candidate.id === candidateId);
+            if (index === -1) {
+                return false;
+            }
+            ensureCandidatesCopy();
+            nextCandidates.splice(index, 1);
+            return true;
+        };
+        const removeTalentPoolItem = (candidateId: number) => {
+            const index = nextTalentPoolCandidates.findIndex((candidate) => candidate.id === candidateId);
+            if (index === -1) {
+                return false;
+            }
+            ensureTalentPoolCopy();
+            nextTalentPoolCandidates.splice(index, 1);
+            return true;
+        };
+
+        normalizedUpdates.forEach(({ snapshot, insertIntoCandidateList }) => {
+            const candidateId = Number(snapshot.id);
+            const nextItem = snapshot as CandidateSummary;
+            const normalizedStatus = String(nextItem.status || "").trim().toLowerCase();
+            const shouldShowInCandidateList = normalizedStatus !== "" && !CANDIDATE_LIST_EXCLUDED_STATUSES.has(normalizedStatus);
+            const candidateIndex = nextCandidates.findIndex((candidate) => candidate.id === candidateId);
+            const matchesCurrentCandidateList = matchesActiveCandidateListFilters(nextItem);
+
+            if (shouldShowInCandidateList && !matchesCurrentCandidateList) {
+                if (removeCandidateListItem(candidateId)) {
+                    candidateTotalDelta -= 1;
+                }
+                removeTalentPoolItem(candidateId);
+                return;
+            }
+
+            if (shouldShowInCandidateList) {
+                if (candidateIndex !== -1) {
+                    const merged = mergeCandidatePatch(nextCandidates[candidateIndex], nextItem);
+                    if (merged !== nextCandidates[candidateIndex]) {
+                        ensureCandidatesCopy();
+                        nextCandidates[candidateIndex] = merged;
+                    }
+                } else if (insertIntoCandidateList) {
+                    ensureCandidatesCopy();
+                    nextCandidates.unshift(nextItem);
+                    candidateTotalDelta += 1;
+                }
+                removeTalentPoolItem(candidateId);
+                return;
+            }
+
+            if (removeCandidateListItem(candidateId)) {
+                candidateTotalDelta -= 1;
+            }
+
+            if (!normalizedStatus || !CANDIDATE_LIST_EXCLUDED_STATUSES.has(normalizedStatus)) {
+                return;
+            }
+
+            const talentPoolIndex = nextTalentPoolCandidates.findIndex((candidate) => candidate.id === candidateId);
+            if (talentPoolIndex !== -1) {
+                const merged = mergeCandidatePatch(nextTalentPoolCandidates[talentPoolIndex], nextItem);
+                if (merged !== nextTalentPoolCandidates[talentPoolIndex]) {
+                    ensureTalentPoolCopy();
+                    nextTalentPoolCandidates[talentPoolIndex] = merged;
+                }
+                return;
+            }
+            ensureTalentPoolCopy();
+            nextTalentPoolCandidates.unshift(nextItem);
+        });
+
+        if (candidatesChanged) {
+            allCandidatesRef.current = nextCandidates;
+            setAllCandidates(nextCandidates);
+        }
+        if (talentPoolChanged) {
+            allTalentPoolCandidatesRef.current = nextTalentPoolCandidates;
+            setAllTalentPoolCandidates(nextTalentPoolCandidates);
+        }
+        if (candidateTotalDelta !== 0) {
+            const nextTotal = Math.max(0, candidateTotalRef.current + candidateTotalDelta);
+            candidateTotalRef.current = nextTotal;
+            setCandidateTotal(nextTotal);
+        }
+    }, [matchesActiveCandidateListFilters]);
+
     const syncRealtimeCandidateLists = useCallback((
         snapshot?: Partial<CandidateSummary> | null,
         options?: { insertIntoCandidateList?: boolean },
@@ -3174,59 +3355,11 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         if (!snapshot?.id) {
             return;
         }
-        const candidateId = Number(snapshot.id);
-        if (!Number.isFinite(candidateId)) {
-            return;
-        }
-        const nextItem = { ...snapshot, id: candidateId } as CandidateSummary;
-        const normalizedStatus = String(nextItem.status || "").trim().toLowerCase();
-        const shouldShowInCandidateList = normalizedStatus !== "" && !CANDIDATE_LIST_EXCLUDED_STATUSES.has(normalizedStatus);
-        const existsInCandidateList = allCandidatesRef.current.some((candidate) => candidate.id === candidateId);
-        const matchesCurrentCandidateList = matchesActiveCandidateListFilters(nextItem);
-
-        if (shouldShowInCandidateList && !matchesCurrentCandidateList) {
-            if (existsInCandidateList) {
-                setAllCandidates((current) => current.filter((candidate) => candidate.id !== candidateId));
-                setCandidateTotal((current) => Math.max(0, current - 1));
-            }
-            if (allTalentPoolCandidatesRef.current.some((candidate) => candidate.id === candidateId)) {
-                setAllTalentPoolCandidates((current) => current.filter((candidate) => candidate.id !== candidateId));
-            }
-            return;
-        }
-
-        if (shouldShowInCandidateList) {
-            if (existsInCandidateList) {
-                setAllCandidates((current) => current.map((candidate) => (
-                    candidate.id === candidateId ? { ...candidate, ...nextItem } : candidate
-                )));
-            } else if (options?.insertIntoCandidateList) {
-                setAllCandidates((current) => deduplicateCandidates([nextItem, ...current]));
-                setCandidateTotal((current) => current + 1);
-            }
-            if (allTalentPoolCandidatesRef.current.some((candidate) => candidate.id === candidateId)) {
-                setAllTalentPoolCandidates((current) => current.filter((candidate) => candidate.id !== candidateId));
-            }
-            return;
-        }
-
-        if (allCandidatesRef.current.some((candidate) => candidate.id === candidateId)) {
-            setAllCandidates((current) => current.filter((candidate) => candidate.id !== candidateId));
-            setCandidateTotal((current) => Math.max(0, current - 1));
-        }
-
-        if (!normalizedStatus || !CANDIDATE_LIST_EXCLUDED_STATUSES.has(normalizedStatus)) {
-            return;
-        }
-
-        if (allTalentPoolCandidatesRef.current.some((candidate) => candidate.id === candidateId)) {
-            setAllTalentPoolCandidates((current) => current.map((candidate) => (
-                candidate.id === candidateId ? { ...candidate, ...nextItem } : candidate
-            )));
-            return;
-        }
-        setAllTalentPoolCandidates((current) => deduplicateCandidates([nextItem, ...current]));
-    }, [matchesActiveCandidateListFilters]);
+        syncRealtimeCandidateListsBatch([{
+            snapshot,
+            insertIntoCandidateList: options?.insertIntoCandidateList,
+        }]);
+    }, [syncRealtimeCandidateListsBatch]);
 
     const applyCandidateDetailSnapshot = useCallback((snapshot?: Partial<CandidateSummary> | null) => {
         if (!snapshot?.id) {
@@ -3251,6 +3384,228 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         });
     }, []);
 
+    const applyCandidateDetailSnapshotsBatch = useCallback((snapshots: Partial<CandidateSummary>[]) => {
+        if (!snapshots.length) {
+            return;
+        }
+        const latestByCandidateId = new Map<number, Partial<CandidateSummary>>();
+        snapshots.forEach((snapshot) => {
+            const candidateId = Number(snapshot.id);
+            if (Number.isFinite(candidateId)) {
+                latestByCandidateId.set(candidateId, { ...snapshot, id: candidateId });
+            }
+        });
+        if (!latestByCandidateId.size) {
+            return;
+        }
+        setCandidateDetail((current) => {
+            if (!current) {
+                return current;
+            }
+            const patch = latestByCandidateId.get(current.candidate.id);
+            if (!patch) {
+                return current;
+            }
+            const nextCandidate = mergeCandidatePatch(current.candidate, patch);
+            if (nextCandidate === current.candidate) {
+                return current;
+            }
+            return {
+                ...current,
+                candidate: nextCandidate,
+            };
+        });
+    }, []);
+
+    const applyCandidateReasonUpdatesBatch = useCallback((updates: Map<number, string>) => {
+        if (!updates.size) {
+            return;
+        }
+        let nextCandidates = allCandidatesRef.current;
+        let changed = false;
+        updates.forEach((reason, candidateId) => {
+            const index = nextCandidates.findIndex((candidate) => candidate.id === candidateId);
+            if (index === -1 || nextCandidates[index].display_status_reason === reason) {
+                return;
+            }
+            if (!changed) {
+                nextCandidates = [...nextCandidates];
+                changed = true;
+            }
+            nextCandidates[index] = {
+                ...nextCandidates[index],
+                display_status_reason: reason,
+            };
+        });
+        if (changed) {
+            allCandidatesRef.current = nextCandidates;
+            setAllCandidates(nextCandidates);
+        }
+    }, []);
+
+    const applyScreeningAutoRequeueUpdatesBatch = useCallback((updates: Map<number, TaskSSEEvent>) => {
+        if (!updates.size) {
+            return;
+        }
+        let nextCandidates = allCandidatesRef.current;
+        let changed = false;
+        updates.forEach((event, candidateId) => {
+            const index = nextCandidates.findIndex((candidate) => candidate.id === candidateId);
+            if (index === -1) {
+                return;
+            }
+            const patch: Partial<CandidateSummary> = {
+                active_screening_task_id: event.task_id ?? nextCandidates[index].active_screening_task_id,
+                active_screening_task_type: event.task_type ?? nextCandidates[index].active_screening_task_type,
+                active_screening_task_status: "queued",
+                active_screening_status: "queued",
+                active_screening_stage: "queued",
+                active_screening_auto_retry_scheduled: true,
+            };
+            const merged = mergeCandidatePatch(nextCandidates[index], patch);
+            if (merged === nextCandidates[index]) {
+                return;
+            }
+            if (!changed) {
+                nextCandidates = [...nextCandidates];
+                changed = true;
+            }
+            nextCandidates[index] = merged;
+        });
+        if (changed) {
+            allCandidatesRef.current = nextCandidates;
+            setAllCandidates(nextCandidates);
+        }
+    }, []);
+
+    const flushPendingCandidateUpdatedEvents = useCallback(() => {
+        candidateUpdateBatchTimerRef.current = null;
+        const events = pendingCandidateUpdateEventsRef.current;
+        pendingCandidateUpdateEventsRef.current = [];
+        if (!events.length) {
+            return;
+        }
+
+        const listUpdates: CandidateSnapshotBatchUpdate[] = [];
+        const detailSnapshots: Partial<CandidateSummary>[] = [];
+        const reasonUpdates = new Map<number, string>();
+        const autoRequeueUpdates = new Map<number, TaskSSEEvent>();
+        const aiPositionNoSnapshotEvents: TaskSSEEvent[] = [];
+        const detailLoadCandidateIds = new Set<number>();
+
+        events.forEach((event) => {
+            const isRootScreeningTask = event.task_type === "screening_flow";
+            const isAIPositionTask = Boolean(event.task_type?.startsWith("ai_position"));
+            const isTerminalScreeningTask = isRootScreeningTask
+                && TERMINAL_SCREENING_TASK_STATUSES.has(String(event.status || "").trim().toLowerCase());
+            const sanitizedCandidateSnapshot = isTerminalScreeningTask
+                ? sanitizeTerminalScreeningCandidateSnapshot(event.candidate_snapshot, event.status)
+                : event.candidate_snapshot;
+            if (sanitizedCandidateSnapshot) {
+                const nextSnapshot = event.screening_enqueue_failed
+                    ? {
+                        ...sanitizedCandidateSnapshot,
+                        display_status_reason: event.error_message || "自动初筛入队失败，请稍后重试",
+                    }
+                    : sanitizedCandidateSnapshot;
+                if (isRootScreeningTask || isAIPositionTask) {
+                    const nextStatus = String(event.status || sanitizedCandidateSnapshot.status || "").trim().toLowerCase();
+                    listUpdates.push({
+                        snapshot: nextSnapshot,
+                        insertIntoCandidateList: isAIPositionTask
+                            ? (nextStatus !== "" && !CANDIDATE_LIST_EXCLUDED_STATUSES.has(nextStatus))
+                            : (nextStatus === "pending_screening" || nextStatus === "screening_running"),
+                    });
+                }
+                detailSnapshots.push(nextSnapshot);
+            } else if (event.candidate_id && event.screening_enqueue_failed) {
+                reasonUpdates.set(
+                    event.candidate_id,
+                    event.error_message || "自动初筛入队失败，请稍后重试",
+                );
+            }
+            if (event.candidate_id && event.task_type === "screening_flow" && event.auto_requeue_scheduled) {
+                if (!event.candidate_snapshot) {
+                    autoRequeueUpdates.set(event.candidate_id, event);
+                }
+                return;
+            }
+            if (event.candidate_id && event.task_type?.startsWith("ai_position")) {
+                if (!event.candidate_snapshot) {
+                    aiPositionNoSnapshotEvents.push(event);
+                }
+                if (
+                    selectedCandidateIdRef.current === event.candidate_id
+                    && (activePage === "candidates" || positionCandidateDetailOpen || talentPoolCandidateDetailOpen)
+                ) {
+                    detailLoadCandidateIds.add(event.candidate_id);
+                }
+            }
+        });
+
+        syncRealtimeCandidateListsBatch(listUpdates);
+        applyCandidateDetailSnapshotsBatch(detailSnapshots);
+        applyCandidateReasonUpdatesBatch(reasonUpdates);
+        applyScreeningAutoRequeueUpdatesBatch(autoRequeueUpdates);
+
+        aiPositionNoSnapshotEvents.forEach((event) => {
+            const newStatus = event.status;
+            if (newStatus === "pending_screening" || newStatus === "screening_running") {
+                const existingTalentPoolCandidate = allTalentPoolCandidatesRef.current.find((candidate) => candidate.id === event.candidate_id);
+                if (existingTalentPoolCandidate) {
+                    syncRealtimeCandidateLists({
+                        ...existingTalentPoolCandidate,
+                        status: newStatus,
+                        ai_match_position_id: event.ai_match_position_id ?? existingTalentPoolCandidate.ai_match_position_id,
+                        ai_match_position_title: event.ai_match_position_title ?? existingTalentPoolCandidate.ai_match_position_title,
+                        ai_match_reason: event.ai_match_reason ?? existingTalentPoolCandidate.ai_match_reason,
+                        ai_potential_position: event.ai_potential_position ?? existingTalentPoolCandidate.ai_potential_position,
+                        ai_potential_reason: event.ai_potential_reason ?? existingTalentPoolCandidate.ai_potential_reason,
+                    }, { insertIntoCandidateList: true });
+                } else {
+                    setAllTalentPoolCandidates((current) => current.filter((candidate) => candidate.id !== event.candidate_id));
+                }
+            } else {
+                setAllTalentPoolCandidates((current) => current.map((candidate) => (
+                    candidate.id === event.candidate_id
+                        ? {
+                            ...candidate,
+                            status: newStatus ?? candidate.status,
+                            ai_match_position_id: event.ai_match_position_id ?? candidate.ai_match_position_id,
+                            ai_match_position_title: event.ai_match_position_title ?? candidate.ai_match_position_title,
+                            ai_match_reason: event.ai_match_reason ?? candidate.ai_match_reason,
+                            ai_potential_position: event.ai_potential_position ?? candidate.ai_potential_position,
+                            ai_potential_reason: event.ai_potential_reason ?? candidate.ai_potential_reason,
+                        }
+                        : candidate
+                )));
+            }
+        });
+        detailLoadCandidateIds.forEach((candidateId) => {
+            void loadCandidateDetail(candidateId, { silent: true, force: true, skipChatContextSave: true });
+        });
+    }, [
+        activePage,
+        applyCandidateDetailSnapshotsBatch,
+        applyCandidateReasonUpdatesBatch,
+        applyScreeningAutoRequeueUpdatesBatch,
+        positionCandidateDetailOpen,
+        syncRealtimeCandidateLists,
+        syncRealtimeCandidateListsBatch,
+        talentPoolCandidateDetailOpen,
+    ]);
+
+    const queueCandidateUpdatedEvent = useCallback((event: TaskSSEEvent) => {
+        pendingCandidateUpdateEventsRef.current.push(event);
+        if (candidateUpdateBatchTimerRef.current != null) {
+            return;
+        }
+        candidateUpdateBatchTimerRef.current = window.setTimeout(
+            flushPendingCandidateUpdatedEvents,
+            CANDIDATE_SSE_BATCH_WINDOW_MS,
+        );
+    }, [flushPendingCandidateUpdatedEvents]);
+
     useTaskSSE(
         activePage === "candidates" || activePage === "audit" || activePage === "workspace" || activePage === "talent-pool",
         {
@@ -3271,36 +3626,49 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                     recentlyCompletedScreeningCandidatesRef.current.set(event.related_candidate_id, Date.now());
                 }
                 if (sanitizedCandidateSnapshot) {
-                    // 只有 screening_flow 根任务完成时才更新候选人列表的 display_status
-                    // 子任务（resume_screening_one_pass/resume_parse/resume_score）完成时
-                    // snapshot 的 display_status 可能还是 screening_running，不应写入列表
-                    if (isRootScreeningTask) {
-                        syncRealtimeCandidateLists(sanitizedCandidateSnapshot);
-                    }
                     applyCandidateDetailSnapshot(sanitizedCandidateSnapshot);
                 }
                 if (event.related_candidate_id && event.task_type === "screening_flow") {
-                    setAllCandidates((current) => current.map((candidate) => (
-                        candidate.id === event.related_candidate_id
-                            ? {
-                                ...candidate,
-                                active_screening_task_id: null,
-                                active_screening_task_type: null,
-                                active_screening_task_status: null,
-                                active_screening_status: null,
-                                active_screening_stage: null,
-                                active_screening_auto_retry_scheduled: false,
+                    const failedLike = new Set(["failed", "invalid_result", "json_parse_failed", "timeout", "retry_exhausted", "quota_exceeded", "rate_limited", "upstream_timeout", "request_failed"]);
+                    if (!event.candidate_snapshot) {
+                        setAllCandidates((current) => {
+                            let changed = false;
+                            const next = current.map((candidate) => {
+                                if (candidate.id !== event.related_candidate_id) {
+                                    return candidate;
+                                }
+                                const failed = failedLike.has(String(event.status || "").trim());
+                                const nextCandidate = mergeCandidatePatch(candidate, {
+                                    status: failed ? "screening_failed" : candidate.status,
+                                    display_status: failed ? "screening_failed" : candidate.display_status,
+                                    display_status_reason: failed
+                                        ? sanitizeCandidateFacingErrorText(event.status || "", { context: "screening", language })
+                                        : candidate.display_status_reason,
+                                    active_screening_task_id: null,
+                                    active_screening_task_type: null,
+                                    active_screening_task_status: "",
+                                    active_screening_status: "",
+                                    active_screening_stage: "",
+                                    active_screening_auto_retry_scheduled: false,
+                                });
+                                if (nextCandidate !== candidate) {
+                                    changed = true;
+                                }
+                                return nextCandidate;
+                            });
+                            return changed ? next : current;
+                        });
+                        setCandidateDetail((current) => {
+                            if (!current || current.candidate.id !== event.related_candidate_id) {
+                                return current;
                             }
-                            : candidate
-                    )));
-                    setCandidateDetail((current) => {
-                        if (!current || current.candidate.id !== event.related_candidate_id) {
-                            return current;
-                        }
-                        return {
-                            ...current,
-                            candidate: {
-                                ...current.candidate,
+                            const failed = failedLike.has(String(event.status || "").trim());
+                            const nextCandidate = mergeCandidatePatch(current.candidate, {
+                                status: failed ? "screening_failed" : current.candidate.status,
+                                display_status: failed ? "screening_failed" : current.candidate.display_status,
+                                display_status_reason: failed
+                                    ? sanitizeCandidateFacingErrorText(event.status || "", { context: "screening", language })
+                                    : current.candidate.display_status_reason,
                                 active_screening_run_id: null,
                                 active_screening_task_id: null,
                                 active_screening_task_type: null,
@@ -3308,148 +3676,29 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                 active_screening_status: null,
                                 active_screening_stage: null,
                                 active_screening_auto_retry_scheduled: false,
-                                ...(sanitizedCandidateSnapshot || {}),
-                            },
-                        };
-                    });
-                    const failedLike = new Set(["failed", "invalid_result", "json_parse_failed", "timeout", "retry_exhausted", "quota_exceeded", "rate_limited", "upstream_timeout", "request_failed"]);
-                    if (!event.candidate_snapshot) {
-                        setAllCandidates((current) => current.map((candidate) => {
-                            if (candidate.id !== event.related_candidate_id) {
-                                return candidate;
+                            });
+                            if (nextCandidate === current.candidate) {
+                                return current;
                             }
-                            const nextStatus = failedLike.has(String(event.status || "").trim()) ? "screening_failed" : candidate.status;
                             return {
-                                ...candidate,
-                                status: nextStatus,
-                                display_status: failedLike.has(String(event.status || "").trim()) ? "screening_failed" : candidate.display_status,
-                                display_status_reason: failedLike.has(String(event.status || "").trim())
-                                    ? sanitizeCandidateFacingErrorText(event.status || "", { context: "screening", language })
-                                    : candidate.display_status_reason,
-                                active_screening_task_id: undefined,
-                                active_screening_task_status: "",
-                                active_screening_status: "",
-                                active_screening_stage: "",
-                                active_screening_auto_retry_scheduled: false,
+                                ...current,
+                                candidate: nextCandidate,
                             };
-                        }));
+                        });
                     }
                     if (
                         selectedCandidateIdRef.current === event.related_candidate_id
+                        && (event.candidate_snapshot || failedLike.has(String(event.status || "").trim()))
                         && (activePage === "candidates" || positionCandidateDetailOpen || talentPoolCandidateDetailOpen)
                     ) {
                         void loadCandidateDetail(event.related_candidate_id, { silent: true, force: true, skipChatContextSave: true });
                     }
                 }
-                if (activePage === "audit") {
-                    void loadLogs({ silent: true });
-                }
             },
-            onCandidateUpdated: (event) => {
-                const isRootScreeningTask = event.task_type === "screening_flow";
-                const isAIPositionTask = Boolean(event.task_type?.startsWith("ai_position"));
-                const isTerminalScreeningTask = isRootScreeningTask
-                    && TERMINAL_SCREENING_TASK_STATUSES.has(String(event.status || "").trim().toLowerCase());
-                const sanitizedCandidateSnapshot = isTerminalScreeningTask
-                    ? sanitizeTerminalScreeningCandidateSnapshot(event.candidate_snapshot, event.status)
-                    : event.candidate_snapshot;
-                if (sanitizedCandidateSnapshot) {
-                    const nextSnapshot = event.screening_enqueue_failed
-                        ? {
-                            ...sanitizedCandidateSnapshot,
-                            display_status_reason: event.error_message || "自动初筛入队失败，请稍后重试",
-                        }
-                        : sanitizedCandidateSnapshot;
-                    if (isRootScreeningTask || isAIPositionTask) {
-                        const nextStatus = String(event.status || sanitizedCandidateSnapshot.status || "").trim().toLowerCase();
-                        syncRealtimeCandidateLists(nextSnapshot, {
-                            insertIntoCandidateList: isAIPositionTask
-                                ? (nextStatus !== "" && !CANDIDATE_LIST_EXCLUDED_STATUSES.has(nextStatus))
-                                : (nextStatus === "pending_screening" || nextStatus === "screening_running"),
-                        });
-                    }
-                    applyCandidateDetailSnapshot(nextSnapshot);
-                } else if (event.candidate_id && event.screening_enqueue_failed) {
-                    setAllCandidates((current) => current.map((candidate) => (
-                        candidate.id === event.candidate_id
-                            ? {
-                                ...candidate,
-                                display_status_reason: event.error_message || "自动初筛入队失败，请稍后重试",
-                            }
-                            : candidate
-                    )));
-                }
-                if (event.candidate_id && event.task_type === "screening_flow" && event.auto_requeue_scheduled) {
-                    if (!event.candidate_snapshot) {
-                        setAllCandidates((current) => current.map((candidate) => (
-                            candidate.id === event.candidate_id
-                                ? {
-                                    ...candidate,
-                                    active_screening_task_id: event.task_id ?? candidate.active_screening_task_id,
-                                    active_screening_task_type: event.task_type ?? candidate.active_screening_task_type,
-                                    active_screening_task_status: "queued",
-                                    active_screening_status: "queued",
-                                    active_screening_stage: "queued",
-                                    active_screening_auto_retry_scheduled: true,
-                                }
-                                : candidate
-                        )));
-                    }
-                    return;
-                }
-                if (event.candidate_id && event.task_type?.startsWith("ai_position")) {
-                    const newStatus = event.status;
-                    if (!event.candidate_snapshot) {
-                        if (newStatus === "pending_screening" || newStatus === "screening_running") {
-                            const existingTalentPoolCandidate = allTalentPoolCandidatesRef.current.find((candidate) => candidate.id === event.candidate_id);
-                            if (existingTalentPoolCandidate) {
-                                syncRealtimeCandidateLists({
-                                    ...existingTalentPoolCandidate,
-                                    status: newStatus,
-                                    ai_match_position_id: event.ai_match_position_id ?? existingTalentPoolCandidate.ai_match_position_id,
-                                    ai_match_position_title: event.ai_match_position_title ?? existingTalentPoolCandidate.ai_match_position_title,
-                                    ai_match_reason: event.ai_match_reason ?? existingTalentPoolCandidate.ai_match_reason,
-                                    ai_potential_position: event.ai_potential_position ?? existingTalentPoolCandidate.ai_potential_position,
-                                    ai_potential_reason: event.ai_potential_reason ?? existingTalentPoolCandidate.ai_potential_reason,
-                                }, { insertIntoCandidateList: true });
-                            } else {
-                                setAllTalentPoolCandidates((current) => current.filter((candidate) => candidate.id !== event.candidate_id));
-                            }
-                        } else {
-                            setAllTalentPoolCandidates((current) => current.map((candidate) => (
-                                candidate.id === event.candidate_id
-                                    ? {
-                                        ...candidate,
-                                        status: newStatus ?? candidate.status,
-                                        ai_match_position_id: event.ai_match_position_id ?? candidate.ai_match_position_id,
-                                        ai_match_position_title: event.ai_match_position_title ?? candidate.ai_match_position_title,
-                                        ai_match_reason: event.ai_match_reason ?? candidate.ai_match_reason,
-                                        ai_potential_position: event.ai_potential_position ?? candidate.ai_potential_position,
-                                        ai_potential_reason: event.ai_potential_reason ?? candidate.ai_potential_reason,
-                                    }
-                                    : candidate
-                            )));
-                        }
-                    }
-                    if (
-                        selectedCandidateIdRef.current === event.candidate_id
-                        && (activePage === "candidates" || positionCandidateDetailOpen || talentPoolCandidateDetailOpen)
-                    ) {
-                        void loadCandidateDetail(event.candidate_id, { silent: true, force: true, skipChatContextSave: true });
-                    }
-                }
-            },
+            onCandidateUpdated: queueCandidateUpdatedEvent,
             onBatchSummary: () => {
                 if (activePage === "workspace") {
                     void refreshCandidateStats();
-                }
-                if (activePage === "audit") {
-                    void loadLogs({ silent: true });
-                }
-            },
-            onReconnect: () => {
-                if (activePage === "audit") {
-                    void loadLogs({ silent: true });
                 }
             },
             // onTaskProgress 移除：审计日志不在初筛过程中实时更新
@@ -4049,7 +4298,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             // 智能默认 Tab：仅首次加载时设置，后续刷新不重置
             if (defaultTabSetForPositionRef.current !== positionId) {
                 defaultTabSetForPositionRef.current = positionId;
-                setPositionWorkspaceView(data.current_jd_version ? "candidates" : "jd");
+                setPositionWorkspaceView("candidates");
             }
             return data;
         } catch (error) {
@@ -4816,13 +5065,50 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
 
     function clearActiveScreeningTask(candidateId: number, taskId: number) {
         setActiveScreeningTaskMap((current) => {
-            const next = {...current};
-            if (next[candidateId] === taskId) {
-                delete next[candidateId];
+            if (current[candidateId] !== taskId) {
+                return current;
             }
+            const next = {...current};
+            delete next[candidateId];
             return next;
         });
-        setActiveBatchScreeningTaskIds((current) => current.filter((item) => item !== taskId));
+        setActiveBatchScreeningTaskIds((current) => (
+            current.includes(taskId)
+                ? current.filter((item) => item !== taskId)
+                : current
+        ));
+    }
+
+    function clearScreeningTaskSnapshotsByTaskIds(taskIds: number[]) {
+        if (!taskIds.length) {
+            return;
+        }
+        const taskIdSet = new Set(taskIds);
+        setAllCandidates((current) => {
+            let changed = false;
+            const next = current.map((candidate) => {
+                const taskId = Number(candidate.active_screening_task_id || 0);
+                if (!taskId || !taskIdSet.has(taskId)) {
+                    return candidate;
+                }
+                const sanitized = sanitizeTerminalScreeningCandidateSnapshot(candidate, "cancelled");
+                if (!sanitized) {
+                    return candidate;
+                }
+                changed = true;
+                return mergeCandidatePatch(candidate, sanitized);
+            });
+            return changed ? next : current;
+        });
+        if (
+            candidateDetail?.candidate.active_screening_task_id
+            && taskIdSet.has(candidateDetail.candidate.active_screening_task_id)
+        ) {
+            const sanitized = sanitizeTerminalScreeningCandidateSnapshot(candidateDetail.candidate, "cancelled");
+            if (sanitized) {
+                applyCandidateDetailSnapshot(sanitized);
+            }
+        }
     }
 
     function attachScreeningTaskMonitor(
@@ -7350,18 +7636,20 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     }
 
     async function triggerScreening(targetCandidateIds?: number[]) {
-        const isBatchRequest = Boolean(targetCandidateIds?.length);
-        if (isBatchRequest && activeBatchScreeningTaskIds.length) {
+        const isBatchRequest = Array.isArray(targetCandidateIds);
+        if (isBatchRequest && batchStopScreeningTaskIds.length) {
             if (isBatchScreeningCancelling) {
                 return;
             }
             try {
-                const logs = await Promise.all(activeBatchScreeningTaskIds.map((taskId) => cancelTaskGeneration(taskId, recruitmentUiText.batchScreening, {silent: true})));
+                const taskIdsToStop = batchStopScreeningTaskIds;
+                const logs = await Promise.all(taskIdsToStop.map((taskId) => cancelTaskGeneration(taskId, recruitmentUiText.batchScreening, {silent: true})));
                 const cancelledTaskIds = logs
                     .filter((log): log is AITaskLog => Boolean(log && log.status === "cancelled"))
                     .map((log) => log.id);
                 if (cancelledTaskIds.length) {
                     cancelledTaskIds.forEach((taskId) => stopTaskMonitor(taskId));
+                    clearScreeningTaskSnapshotsByTaskIds(cancelledTaskIds);
                     setActiveBatchScreeningTaskIds((current) => current.filter((taskId) => !cancelledTaskIds.includes(taskId)));
                     setActiveScreeningTaskMap((current) => {
                         const next = {...current};
@@ -10934,6 +11222,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             candidateMatchFilter, candidateSourceFilter, candidateTimeFilter,
             candidateQuery, interviewSchedules, followUps, offers,
             screeningSubmitting, isBatchScreeningRunning, isBatchScreeningCancelling,
+            batchStopScreeningTaskIds,
             candidateProcessLogsExpanded, interviewRoundName, interviewCustomRequirements,
             interviewSkillSelectionDirty, selectedInterviewSkillIds,
         ]

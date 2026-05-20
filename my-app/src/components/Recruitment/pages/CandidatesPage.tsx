@@ -116,6 +116,8 @@ type CandidateInterviewQuestion = CandidateDetail["interview_questions"][number]
 
 const CANDIDATE_LIST_ESTIMATED_ROW_HEIGHT = 96;
 const CANDIDATE_LIST_OVERSCAN = 6;
+const CANDIDATE_BOARD_ESTIMATED_CARD_HEIGHT = 150;
+const CANDIDATE_BOARD_OVERSCAN = 5;
 const SCORE_SUGGESTED_STATUS_VALUES = new Set(["screening_passed", "talent_pool", "screening_rejected"]);
 
 type CandidateRowProps = {
@@ -376,6 +378,109 @@ const CandidateRow = React.memo(function CandidateRow({
         && prev.candidate.expected_city === next.candidate.expected_city
         && prev.language === next.language
         && prev.getResumeMailSummary(prev.candidate.id) === next.getResumeMailSummary(next.candidate.id);
+});
+
+type CandidateBoardColumnProps = {
+    group: CandidateBoardGroup;
+    scrollElement: HTMLDivElement | null;
+    selectedCandidateId: number | null;
+    selectedCandidateIdSet: ReadonlySet<number>;
+    setSelectedCandidateId: React.Dispatch<React.SetStateAction<number | null>>;
+    toggleCandidateSelection: (candidateId: number, nextChecked?: boolean) => void;
+    getCandidateResumeMailSummary: (candidateId: number) => string | null;
+    tr: ReturnType<typeof getCandidatesLocale>;
+};
+
+const CandidateBoardColumn = React.memo(function CandidateBoardColumn({
+    group,
+    scrollElement,
+    selectedCandidateId,
+    selectedCandidateIdSet,
+    setSelectedCandidateId,
+    toggleCandidateSelection,
+    getCandidateResumeMailSummary,
+    tr,
+}: CandidateBoardColumnProps) {
+    const virtualizer = useVirtualizer({
+        count: group.items.length,
+        getScrollElement: () => scrollElement,
+        estimateSize: () => CANDIDATE_BOARD_ESTIMATED_CARD_HEIGHT,
+        overscan: CANDIDATE_BOARD_OVERSCAN,
+    });
+
+    return (
+        <div className="rounded-2xl border border-slate-200/80 bg-slate-50/60 p-4 dark:border-slate-800 dark:bg-slate-900/60">
+            <div className="mb-4 flex items-center justify-between gap-2">
+                <p className="text-base font-semibold text-slate-900 dark:text-slate-100">{group.label}</p>
+                <Badge variant="outline" className="rounded-full">{group.items.length}</Badge>
+            </div>
+            {group.items.length ? (
+                <div className="relative" style={{ height: virtualizer.getTotalSize() }}>
+                    {virtualizer.getVirtualItems().map((virtualItem) => {
+                        const candidate = group.items[virtualItem.index];
+                        const mailSummary = getCandidateResumeMailSummary(candidate.id);
+                        return (
+                            <div
+                                key={candidate.id}
+                                ref={virtualizer.measureElement}
+                                data-index={virtualItem.index}
+                                className="absolute left-0 top-0 w-full pb-3"
+                                style={{ transform: `translateY(${virtualItem.start}px)` }}
+                            >
+                                <div
+                                    className={cn(
+                                        "w-full rounded-2xl border px-4 py-4 transition",
+                                        selectedCandidateId === candidate.id
+                                            ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
+                                            : "border-slate-200 bg-white hover:border-slate-400 dark:border-slate-800 dark:bg-slate-950",
+                                    )}
+                                >
+                                    <div className="flex items-start justify-between gap-3">
+                                        <button
+                                            type="button"
+                                            onClick={() => setSelectedCandidateId(candidate.id)}
+                                            className="min-w-0 flex-1 text-left"
+                                        >
+                                            <div className="flex flex-wrap items-center gap-2">
+                                                <p className="line-clamp-2 break-words text-base font-medium leading-6">
+                                                    {candidate.name}
+                                                </p>
+                                                {mailSummary ? (
+                                                    <Badge className="rounded-full border border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
+                                                        {tr.resumeSent}
+                                                    </Badge>
+                                                ) : null}
+                                            </div>
+                                            <p className="mt-1 line-clamp-2 break-words text-sm leading-5 opacity-80">
+                                                {candidate.position_title || tr.unassignedPosition}
+                                            </p>
+                                            {mailSummary ? (
+                                                <p className="mt-2 text-[15px] opacity-80">{mailSummary}</p>
+                                            ) : null}
+                                            <div className="mt-3 flex items-center justify-between text-sm opacity-80">
+                                                <span>{tr.matchBadge} {formatPercent(resolveCandidateSummaryMatchPercent(candidate))}</span>
+                                                <span>{formatDateTime(candidate.updated_at)}</span>
+                                            </div>
+                                        </button>
+                                        <input
+                                            type="checkbox"
+                                            checked={selectedCandidateIdSet.has(candidate.id)}
+                                            onChange={(event) => toggleCandidateSelection(candidate.id, event.target.checked)}
+                                            aria-label={tr.selectCandidate(candidate.name)}
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            ) : (
+                <p className="rounded-2xl border border-dashed border-slate-200 px-4 py-6 text-center text-base text-slate-500 dark:border-slate-800 dark:text-slate-400">
+                    {tr.noCandidatesInStatus}
+                </p>
+            )}
+        </div>
+    );
 });
 
 function getCandidatesLocale(language = getCurrentLanguage()) {
@@ -1734,6 +1839,7 @@ export function CandidatesPage({
         [exportFieldOptions],
     );
     const [candidateListViewportEl, setCandidateListViewportEl] = React.useState<HTMLDivElement | null>(null);
+    const [candidateBoardViewportEl, setCandidateBoardViewportEl] = React.useState<HTMLDivElement | null>(null);
     const [candidateListCompactMode, setCandidateListCompactMode] = React.useState(false);
     const [candidateFilterBarExpanded, setCandidateFilterBarExpanded] = React.useState(false);
     const [candidateAdvancedActionsExpanded, setCandidateAdvancedActionsExpanded] = React.useState(false);
@@ -2496,70 +2602,23 @@ export function CandidatesPage({
                                 </div>
                             )
                         ) : (
-                            <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable]">
+                            <div
+                                ref={setCandidateBoardViewportEl}
+                                className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable]"
+                            >
                                 <div className="grid gap-4 xl:grid-cols-2 2xl:grid-cols-3">
                                     {groupedCandidates.map((group) => (
-                                        <div key={group.status} className="rounded-2xl border border-slate-200/80 bg-slate-50/60 p-4 dark:border-slate-800 dark:bg-slate-900/60">
-                                            <div className="mb-4 flex items-center justify-between gap-2">
-                                                <p className="text-base font-semibold text-slate-900 dark:text-slate-100">{group.label}</p>
-                                                <Badge variant="outline" className="rounded-full">{group.items.length}</Badge>
-                                            </div>
-                                            <div className="space-y-3">
-                                                {group.items.length ? (group.items.map((candidate) => {
-                                                    const mailSummary = getCandidateResumeMailSummary(candidate.id);
-                                                    return (
-                                                    <div
-                                                        key={candidate.id}
-                                                        className={cn(
-                                                            "w-full rounded-2xl border px-4 py-4 transition",
-                                                            selectedCandidateId === candidate.id
-                                                                ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
-                                                                : "border-slate-200 bg-white hover:border-slate-400 dark:border-slate-800 dark:bg-slate-950",
-                                                        )}
-                                                    >
-                                                        <div className="flex items-start justify-between gap-3">
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => setSelectedCandidateId(candidate.id)}
-                                                                className="min-w-0 flex-1 text-left"
-                                                            >
-                                                                <div className="flex flex-wrap items-center gap-2">
-                                                                    <p className="line-clamp-2 break-words text-base font-medium leading-6">
-                                                                        {candidate.name}
-                                                                    </p>
-                                                                    {mailSummary ? (
-                                                                        <Badge className="rounded-full border border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
-                                                                            {tr.resumeSent}
-                                                                        </Badge>
-                                                                    ) : null}
-                                                                </div>
-                                                                <p className="mt-1 line-clamp-2 break-words text-sm leading-5 opacity-80">
-                                                                    {candidate.position_title || tr.unassignedPosition}
-                                                                </p>
-                                                                {mailSummary ? (
-                                                                    <p className="mt-2 text-[15px] opacity-80">{mailSummary}</p>
-                                                                ) : null}
-                                                                <div className="mt-3 flex items-center justify-between text-sm opacity-80">
-                                                                    <span>{tr.matchBadge} {formatPercent(resolveCandidateSummaryMatchPercent(candidate))}</span>
-                                                                    <span>{formatDateTime(candidate.updated_at)}</span>
-                                                                </div>
-                                                            </button>
-                                                            <input
-                                                                type="checkbox"
-                                                                checked={selectedCandidateIdSet.has(candidate.id)}
-                                                                onChange={(event) => toggleCandidateSelection(candidate.id, event.target.checked)}
-                                                                aria-label={tr.selectCandidate(candidate.name)}
-                                                            />
-                                                        </div>
-                                                    </div>
-                                                    );
-                                                })) : (
-                                                    <p className="rounded-2xl border border-dashed border-slate-200 px-4 py-6 text-center text-base text-slate-500 dark:border-slate-800 dark:text-slate-400">
-                                                        {tr.noCandidatesInStatus}
-                                                    </p>
-                                                )}
-                                            </div>
-                                        </div>
+                                        <CandidateBoardColumn
+                                            key={group.status}
+                                            group={group}
+                                            scrollElement={candidateBoardViewportEl}
+                                            selectedCandidateId={selectedCandidateId}
+                                            selectedCandidateIdSet={selectedCandidateIdSet}
+                                            setSelectedCandidateId={setSelectedCandidateId}
+                                            toggleCandidateSelection={toggleCandidateSelection}
+                                            getCandidateResumeMailSummary={getCandidateResumeMailSummary}
+                                            tr={tr}
+                                        />
                                     ))}
                                 </div>
                             </div>

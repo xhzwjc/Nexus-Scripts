@@ -5293,7 +5293,15 @@ class RecruitmentService:
                 )
             )
             event_type = "task_completed" if is_terminal else "task_progress"
-            candidate_snapshot = self._build_candidate_sse_snapshot(row.related_candidate_id)
+            is_screening_child_task = row.task_type in {"resume_parse", *SCREENING_SCORE_TASK_TYPES}
+            should_attach_candidate_snapshot = bool(
+                row.related_candidate_id
+                and (
+                    (row.task_type == SCREENING_FLOW_TASK_TYPE and (is_terminal or auto_requeue_scheduled))
+                    or (is_terminal and row.task_type != SCREENING_FLOW_TASK_TYPE and not is_screening_child_task)
+                )
+            )
+            candidate_snapshot = self._build_candidate_sse_snapshot(row.related_candidate_id) if should_attach_candidate_snapshot else None
             payload = {
                 "task_id": row.id,
                 "status": row.status,
@@ -5303,7 +5311,7 @@ class RecruitmentService:
             if candidate_snapshot is not None:
                 payload["candidate_snapshot"] = candidate_snapshot
             TaskEventBus.emit(token, event_type, payload)
-            if (is_terminal or auto_requeue_scheduled) and row.related_candidate_id:
+            if (is_terminal or auto_requeue_scheduled) and row.related_candidate_id and not is_screening_child_task:
                 candidate_updated_payload = {
                     "candidate_id": row.related_candidate_id,
                     "task_id": row.id,
