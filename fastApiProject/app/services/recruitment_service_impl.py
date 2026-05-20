@@ -9158,16 +9158,7 @@ class RecruitmentService:
         latest_log = self.db.query(RecruitmentAITaskLog).filter(RecruitmentAITaskLog.task_type == "jd_generation", RecruitmentAITaskLog.related_position_id == row.id).order_by(RecruitmentAITaskLog.created_at.desc(), RecruitmentAITaskLog.id.desc()).first()
         jd_generation = None if not latest_log else {"status": latest_log.status, "task_id": latest_log.id, "last_generated_at": isoformat_or_none(latest_log.updated_at or latest_log.created_at), "started_at": isoformat_or_none(latest_log.created_at), "error_message": latest_log.error_message, "model_provider": latest_log.model_provider, "model_name": latest_log.model_name}
         publish_tasks = self.db.query(RecruitmentPublishTask).filter(RecruitmentPublishTask.position_id == row.id).order_by(RecruitmentPublishTask.created_at.desc(), RecruitmentPublishTask.id.desc()).all()
-        candidate_builder = self._apply_business_org_filter(
-            self.db.query(RecruitmentCandidate).filter(
-                RecruitmentCandidate.position_id == row.id,
-                RecruitmentCandidate.deleted.is_(False),
-            ),
-            RecruitmentCandidate,
-        )
-        candidate_builder = self._apply_position_pipeline_candidate_filter(candidate_builder)
-        candidates = candidate_builder.order_by(RecruitmentCandidate.updated_at.desc(), RecruitmentCandidate.id.desc()).all()
-        return {"position": self._serialize_position(row), "current_jd_version": self._serialize_jd_version(current_jd) if current_jd else None, "jd_versions": [self._serialize_jd_version(item) for item in jd_versions], "jd_generation": jd_generation, "publish_tasks": [self._serialize_publish_task(item) for item in publish_tasks], "candidates": [self._serialize_candidate_summary(item) for item in candidates]}
+        return {"position": self._serialize_position(row), "current_jd_version": self._serialize_jd_version(current_jd) if current_jd else None, "jd_versions": [self._serialize_jd_version(item) for item in jd_versions], "jd_generation": jd_generation, "publish_tasks": [self._serialize_publish_task(item) for item in publish_tasks], "candidates": []}
 
     def list_skills(self) -> List[Dict[str, Any]]:
         rows = self.db.query(RecruitmentSkill).filter(RecruitmentSkill.deleted.is_(False)).order_by(RecruitmentSkill.sort_order.asc(), RecruitmentSkill.created_at.desc(), RecruitmentSkill.id.desc()).all()
@@ -10264,7 +10255,6 @@ class RecruitmentService:
             ))
         if tag:
             builder = builder.filter(RecruitmentCandidate.tags_json.like(f"%{tag}%"))
-        total = builder.count()
         db_engine = self.db.get_bind()
         if db_engine and db_engine.dialect.name == "mysql":
             if position_id:
@@ -10279,6 +10269,7 @@ class RecruitmentService:
                     "USE INDEX (idx_candidate_org_deleted_updated)",
                     dialect_name="mysql",
                 )
+        total = builder.count()
         normalized_sort_by = str(sort_by or "").strip().lower()
         normalized_sort_order = str(sort_order or "").strip().lower()
         if normalized_sort_by == "match_percent" and normalized_sort_order in {"asc", "desc"}:
@@ -10301,7 +10292,7 @@ class RecruitmentService:
         # Batch preload positions
         position_ids = {row.position_id for row in rows if row.position_id}
         position_map: Dict[int, RecruitmentPosition] = {}
-        if position_ids:
+        if position_ids and not compact:
             for pos in self.db.query(RecruitmentPosition).filter(
                 RecruitmentPosition.id.in_(position_ids),
                 RecruitmentPosition.deleted.is_(False),
@@ -10375,7 +10366,11 @@ class RecruitmentService:
                     seen_cids_score.add(cid)
                     completed_score_map[cid] = sr
 
-        ai_match_snapshot_map: Dict[int, Dict[str, Any]] = self._build_candidate_ai_match_snapshot_map(rows)
+        ai_match_snapshot_map: Dict[int, Dict[str, Any]] = (
+            {row.id: self._build_direct_candidate_ai_match_snapshot(row) for row in rows}
+            if compact
+            else self._build_candidate_ai_match_snapshot_map(rows)
+        )
 
         serialized_rows = []
         serializer = self._serialize_position_candidate_item if compact else self._serialize_candidate_list_item

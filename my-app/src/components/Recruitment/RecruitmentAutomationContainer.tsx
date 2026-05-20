@@ -538,6 +538,7 @@ interface RecruitmentAutomationContainerProps {
 }
 
 // ---- 岗位内嵌候选人列表：行组件（模块级，稳定引用） ----
+const POSITION_CANDIDATE_PAGE_SIZE = 10;
 const POSITION_CANDIDATE_ROW_HEIGHT = 88;
 const POSITION_CANDIDATE_GRID_COLUMNS = "minmax(170px,1.45fr) minmax(170px,1.35fr) minmax(130px,0.9fr) minmax(170px,1.25fr) minmax(130px,0.9fr) minmax(96px,0.62fr)";
 
@@ -6262,7 +6263,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             const queryParam = query ? `&query=${encodeURIComponent(query)}` : "";
             const statusParam = status ? `&status=${encodeURIComponent(status)}` : "";
             const data = await recruitmentApi<{items: CandidateSummary[]; total: number}>(
-                `/candidates?position_id=${positionId}&limit=25&offset=0&compact=1${queryParam}${statusParam}`
+                `/candidates?position_id=${positionId}&limit=${POSITION_CANDIDATE_PAGE_SIZE}&offset=0&compact=1${queryParam}${statusParam}`
             );
             if (mountedRef.current && positionCandidatesLoadRequestIdRef.current === requestId) {
                 setPositionCandidatesData(data?.items || []);
@@ -6277,7 +6278,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 && !query
                 && !status
             ) {
-                setPositionCandidatesData(positionDetail.candidates);
+                setPositionCandidatesData((positionDetail.candidates || []).slice(0, POSITION_CANDIDATE_PAGE_SIZE));
+                setPositionCandidatesTotal(positionDetail.position.candidate_count || positionDetail.candidates?.length || 0);
                 setPositionCandidatesInitialLoaded(true);
             }
         } finally {
@@ -6298,7 +6300,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 ? `&status=${encodeURIComponent(positionCandidateStatusFilter)}`
                 : "";
             const data = await recruitmentApi<{items: CandidateSummary[]; total: number}>(
-                `/candidates?position_id=${positionId}&limit=25&offset=${positionCandidatesData.length}&compact=1${queryParam}${statusParam}`
+                `/candidates?position_id=${positionId}&limit=${POSITION_CANDIDATE_PAGE_SIZE}&offset=${positionCandidatesData.length}&compact=1${queryParam}${statusParam}`
             );
             if (mountedRef.current && positionCandidatesLoadRequestIdRef.current === currentRequestId) {
                 setPositionCandidatesData(prev => [...prev, ...(data?.items || [])]);
@@ -11094,7 +11096,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                         <div className="flex min-w-0 flex-1 flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[15px] leading-none text-slate-500 dark:text-slate-400">
                                             <span className="whitespace-nowrap">{isZh ? `招聘人数 ${positionDetail.position.headcount}` : `Headcount ${positionDetail.position.headcount}`}</span>
                                             <span className="whitespace-nowrap">{isZh ? `JD 版本 ${positionDetail.jd_versions.length}` : `JD Versions ${positionDetail.jd_versions.length}`}</span>
-                                            <span className="whitespace-nowrap">{isZh ? `候选人 ${positionDetail.candidates.length}` : `Candidates ${positionDetail.candidates.length}`}</span>
+                                            <span className="whitespace-nowrap">{isZh ? `候选人 ${positionDetail.position.candidate_count}` : `Candidates ${positionDetail.position.candidate_count}`}</span>
                                             <span className="whitespace-nowrap">{isZh ? `最近更新 ${formatDateTime(positionDetail.position.updated_at)}` : `Updated ${formatDateTime(positionDetail.position.updated_at)}`}</span>
                                         </div>
                                         <Button
@@ -11126,7 +11128,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                                 <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[15px] text-slate-500 dark:text-slate-400">
                                                     <span>{isZh ? `招聘人数 ${positionDetail.position.headcount}` : `Headcount ${positionDetail.position.headcount}`}</span>
                                                     <span>{isZh ? `JD 版本 ${positionDetail.jd_versions.length}` : `JD Versions ${positionDetail.jd_versions.length}`}</span>
-                                                    <span>{isZh ? `候选人 ${positionDetail.candidates.length}` : `Candidates ${positionDetail.candidates.length}`}</span>
+                                                    <span>{isZh ? `候选人 ${positionDetail.position.candidate_count}` : `Candidates ${positionDetail.position.candidate_count}`}</span>
                                                     <span>{isZh ? `最近更新 ${formatDateTime(positionDetail.position.updated_at)}` : `Updated ${formatDateTime(positionDetail.position.updated_at)}`}</span>
                                                     <div className="flex items-center gap-2">
                                                         <Button
