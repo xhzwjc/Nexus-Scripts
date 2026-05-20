@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch
 import httpx
 
 from app.recruitment_models import RecruitmentSkill
-from app.services.recruitment_ai_gateway import RecruitmentAIGateway, RecruitmentAIJSONParseError, RecruitmentLLMRuntimeConfig, _compose_json_user_prompt, _parse_llm_json_response
+from app.services.recruitment_ai_gateway import RecruitmentAIGateway, RecruitmentAIJSONParseError, RecruitmentLLMRuntimeConfig, _compose_json_user_prompt, _parse_llm_json_response, _parse_strict_json_response
 from app.services.recruitment_ai_gateway import RecruitmentAIScreeningTotalTimeoutError, SCREENING_TOTAL_TIMEOUT_SECONDS
 from app.services.recruitment_prompts import (
     RESUME_SCREENING_SYSTEM_PROMPT,
@@ -483,6 +483,66 @@ def test_one_pass_selects_usable_candidate_over_empty_shell_score():
     assert selected["score"]["recommendation"] == "建议安排首面"
     assert meta["selected_candidate_index"] == 1
     assert meta["selected_candidate_empty_score"] is False
+
+
+def test_strict_one_pass_merges_split_section_array_response():
+    raw_response = json.dumps(
+        [
+            {
+                "parsed_resume": {
+                    "basic_info": {"name": "冯筱楠", "phone": "187-0100-2872"},
+                    "work_experiences": [{"company": "北京神州租车汽车租赁有限公司"}],
+                    "education_experiences": [],
+                    "skills": ["SQL", "Python"],
+                    "projects": [],
+                    "summary": "商务拓展经验丰富",
+                }
+            },
+            {
+                "total_score": 1.8,
+                "match_percent": 18,
+                "advantages": ["学历背景良好"],
+                "concerns": ["缺少产品经理经验"],
+                "recommendation": "建议不通过初筛",
+                "suggested_status": "screening_rejected",
+                "dimensions": [
+                    {
+                        "label": "履约系统产品经验",
+                        "score": 0,
+                        "max_score": 2.5,
+                        "reason": "简历未提及",
+                        "evidence": "",
+                        "is_inferred": False,
+                        "radar_category": "专业能力",
+                    }
+                ],
+                "radar_scores": [
+                    {
+                        "category": "专业能力",
+                        "score": 0.7,
+                        "max_score": 2.0,
+                        "reason": "缺少产品经验",
+                        "evidence": "SQL、Python数据分析工具",
+                    }
+                ],
+            },
+            {
+                "recommended_position": "高级商务经理",
+                "confidence": 95,
+                "reason": "商务经验匹配",
+                "potential_position": "商务总监",
+                "potential_reason": "渠道管理经验丰富",
+            },
+        ],
+        ensure_ascii=False,
+    )
+
+    result = _parse_strict_json_response(raw_response, task_type=SCREENING_ONE_PASS_TASK_TYPE)
+
+    assert result["content"]["parsed_resume"]["basic_info"]["name"] == "冯筱楠"
+    assert result["content"]["score"]["suggested_status"] == "screening_rejected"
+    assert result["content"]["position_match"]["recommended_position"] == "高级商务经理"
+    assert result["debug_meta"]["selected_candidate_source"] == "split_section_objects"
 
 
 def test_one_pass_selects_more_salvageable_candidate_over_empty_shell_score():

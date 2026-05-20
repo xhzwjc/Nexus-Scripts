@@ -767,11 +767,14 @@ def _select_resume_parse_candidate(records: Sequence[Dict[str, Any]]) -> Dict[st
 def _select_one_pass_candidate(records: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
     BASIC_INFO_SUBFIELDS = ("name", "phone", "email", "years_of_experience", "education", "location")
 
+    def _score_field_count(payload: Dict[str, Any]) -> int:
+        return sum(1 for field in STRICT_SCORE_REQUIRED_FIELDS if _has_meaningful_field(payload, field))
+
     def completeness(payload: Dict[str, Any]) -> tuple[int, int, int, int]:
         parsed_resume = payload.get("parsed_resume") if isinstance(payload.get("parsed_resume"), dict) else {}
         nested_score = payload.get("score") if isinstance(payload.get("score"), dict) else {}
-        top_level_score_fields = sum(1 for field in STRICT_SCORE_REQUIRED_FIELDS if _has_meaningful_field(payload, field))
-        nested_score_fields = sum(1 for field in STRICT_SCORE_REQUIRED_FIELDS if _has_meaningful_field(nested_score, field))
+        top_level_score_fields = _score_field_count(payload)
+        nested_score_fields = _score_field_count(nested_score)
         parsed_resume_fields = sum(1 for field in STRICT_PARSE_PRIMARY_FIELDS if _has_meaningful_field(parsed_resume, field))
         basic_info = parsed_resume.get("basic_info") if isinstance(parsed_resume, dict) else None
         basic_info_subfield_count = (
@@ -785,6 +788,72 @@ def _select_one_pass_candidate(records: Sequence[Dict[str, Any]]) -> Dict[str, A
             basic_info_subfield_count,
         )
 
+    def _parsed_resume_score(payload: Dict[str, Any]) -> tuple[int, int, int]:
+        parsed_resume = payload.get("parsed_resume") if isinstance(payload.get("parsed_resume"), dict) else {}
+        basic_info = parsed_resume.get("basic_info") if isinstance(parsed_resume.get("basic_info"), dict) else {}
+        return (
+            sum(1 for field in STRICT_PARSE_PRIMARY_FIELDS if _has_meaningful_field(parsed_resume, field)),
+            sum(1 for field in BASIC_INFO_SUBFIELDS if _has_meaningful_field(basic_info, field)),
+            len(str(payload or "")),
+        )
+
+    def _position_match_payload(payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        nested = payload.get("position_match")
+        if isinstance(nested, dict):
+            return dict(nested)
+        fields = ("recommended_position", "position_title", "confidence", "reason", "potential_position", "potential_reason")
+        if not any(_has_meaningful_field(payload, field) for field in fields):
+            return None
+        result = {
+            "recommended_position": payload.get("recommended_position") or payload.get("position_title") or "",
+            "confidence": payload.get("confidence") if payload.get("confidence") not in (None, "") else 0,
+            "reason": payload.get("reason") or "",
+            "potential_position": payload.get("potential_position") or "",
+            "potential_reason": payload.get("potential_reason") or "",
+        }
+        return result
+
+    def _build_split_section_payload() -> Optional[Dict[str, Any]]:
+        parsed_resume_records: List[Dict[str, Any]] = []
+        score_records: List[Dict[str, Any]] = []
+        position_match_records: List[Dict[str, Any]] = []
+        for record in records:
+            payload = record.get("payload")
+            if not isinstance(payload, dict):
+                continue
+            if isinstance(payload.get("parsed_resume"), dict):
+                parsed_resume_records.append(record)
+            nested_score = payload.get("score") if isinstance(payload.get("score"), dict) else None
+            if nested_score and _score_field_count(nested_score) > 0:
+                score_records.append({**record, "score_payload": nested_score})
+            elif _score_field_count(payload) > 0:
+                score_records.append({**record, "score_payload": payload})
+            position_match = _position_match_payload(payload)
+            if position_match:
+                position_match_records.append({**record, "position_match_payload": position_match})
+        if not parsed_resume_records or not score_records:
+            return None
+        parsed_record = max(parsed_resume_records, key=lambda item: _parsed_resume_score(item.get("payload") or {}))
+        score_record = max(
+            score_records,
+            key=lambda item: (_score_field_count(item.get("score_payload") or {}), len(str(item.get("score_payload") or ""))),
+        )
+        merged = {
+            "parsed_resume": dict((parsed_record.get("payload") or {}).get("parsed_resume") or {}),
+            "score": dict(score_record.get("score_payload") or {}),
+        }
+        if position_match_records:
+            selected_position_match = max(
+                position_match_records,
+                key=lambda item: sum(
+                    1
+                    for field in ("recommended_position", "confidence", "reason", "potential_position", "potential_reason")
+                    if _has_meaningful_field(item.get("position_match_payload") or {}, field)
+                ),
+            )
+            merged["position_match"] = dict(selected_position_match.get("position_match_payload") or {})
+        return merged
+
     eligible = []
     for record in records:
         payload = record.get("payload")
@@ -796,6 +865,19 @@ def _select_one_pass_candidate(records: Sequence[Dict[str, Any]]) -> Dict[str, A
             continue
         eligible.append(record)
     if not eligible:
+        split_payload = _build_split_section_payload()
+        if split_payload:
+            return {
+                "content": split_payload,
+                "warnings": ["one-pass 返回分片 JSON，已合并 parsed_resume、score 与 position_match"],
+                "debug_meta": {
+                    "candidate_count": len(records),
+                    "parsed_candidate_count": len(records),
+                    "selected_candidate_index": None,
+                    "selected_candidate_source": "split_section_objects",
+                    "merged_split_sections": True,
+                },
+            }
         raise RecruitmentAIJSONParseError(
             "AI screening JSON 解析失败: 未找到同时包含 parsed_resume 与 score 的完整 one-pass JSON",
             raw_response_text=json.dumps([record.get("payload") for record in records], ensure_ascii=False),
@@ -1186,6 +1268,28 @@ def _parse_strict_json_response(
                     "error_code": getattr(exc, "error_code", "json_parse_failed"),
                     "error_message": str(exc),
                     "repaired_candidate": dict(getattr(exc, "provider_payload", {}) or {}).get("repaired_candidate"),
+                }
+            )
+            continue
+        if isinstance(parsed_payload, list):
+            appended = False
+            for item_index, item in enumerate(parsed_payload):
+                if isinstance(item, dict):
+                    parsed_records.append(
+                        {
+                            "index": f"{index}.{item_index}",
+                            "candidate_text": json.dumps(item, ensure_ascii=False),
+                            "payload": item,
+                        }
+                    )
+                    appended = True
+            if appended:
+                continue
+            parse_errors.append(
+                {
+                    "candidate_index": index,
+                    "error_code": "invalid_json_root_type",
+                    "error_message": "解析后的 JSON 数组不包含对象元素",
                 }
             )
             continue

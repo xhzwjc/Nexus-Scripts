@@ -44,6 +44,7 @@ Rules:
 """
 
 _COMMON_STRICT_JSON_OUTPUT_RULES = """- Return exactly one final JSON object.
+- Do not return a JSON array. Do not split schema sections into separate objects.
 - Self-check before output: braces, brackets, quotes, and commas must all be valid.
 - Every array item must be a complete JSON value. If an item is an object, it must start with { and end with }.
 - Do not output markdown, comments, explanations, drafts, or multiple variants."""
@@ -142,7 +143,7 @@ SCREENING_OUTPUT_SCHEMA = """{
         "reason": "",
         "evidence": "",
         "is_inferred": false,
-      "radar_category": "专业能力|学习潜力|工作经验|综合素质|岗位匹配度"
+        "radar_category": "专业能力|学习潜力|工作经验|综合素质|岗位匹配度"
       }
     ],
     "radar_scores": [
