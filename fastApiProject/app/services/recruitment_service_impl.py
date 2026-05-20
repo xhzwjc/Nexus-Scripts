@@ -1306,6 +1306,21 @@ def sanitize_screening_payload(
     }
 
 
+def _validate_screening_payload_warnings(payload: Any, schema_config: Dict[str, Any]) -> List[str]:
+    sanitized_payload, meta = sanitize_screening_payload(payload, schema_config)
+    warnings = _normalize_score_warning_items(meta.get("warnings"), limit=12)
+    score_payload = sanitized_payload.get("score") if isinstance(sanitized_payload.get("score"), dict) else {}
+    recommendation = _normalize_helper_semantic_text(score_payload.get("recommendation"))
+    suggested_status = _normalize_suggested_status(score_payload.get("suggested_status"))
+    positive_recommendation = any(token in recommendation for token in ["建议通过", "通过初筛", "安排首面", "继续评估", "推荐进入"])
+    negative_recommendation = any(token in recommendation for token in ["不建议", "淘汰", "不通过", "暂不推荐"])
+    if suggested_status == "screening_rejected" and positive_recommendation:
+        warnings.append("score.recommendation 与 suggested_status 不一致。")
+    if suggested_status == "screening_passed" and negative_recommendation:
+        warnings.append("score.recommendation 与 suggested_status 不一致。")
+    return _normalize_score_warning_items(warnings, limit=12)
+
+
 def sanitize_screening_payload_fast(
     payload: Any,
     schema_config: Dict[str, Any],
@@ -2197,6 +2212,30 @@ def _looks_like_noisy_helper_school(value: Any) -> bool:
     if re.search(r"\d{11}", text):
         return True
     if any(token in normalized for token in ["联系电话", "邮箱", "email", "个人简历", "personalresume", "出生年月", "求职岗位", "婚姻状况", "自我评价", "英语四级", "英语六级", "普通话", "证书", "荣誉", "奖学金"]):
+        return True
+    if "现场实操经验" in normalized or (normalized.endswith("经验") and any(token in normalized for token in ["知识", "实操", "管理", "协调"])):
+        return True
+    if len(text) > 48 and any(
+        token in normalized
+        for token in [
+            "熟悉",
+            "具备",
+            "擅长",
+            "负责",
+            "协调",
+            "解决",
+            "现场",
+            "施工",
+            "项目",
+            "经验",
+            "能力",
+            "质量",
+            "安全",
+            "评价",
+        ]
+    ):
+        return True
+    if len(text) > 60 and text.count("。") >= 1 and not re.search(r"(大学|学院|学校|中学|职校|职业|college|university)", text, flags=re.IGNORECASE):
         return True
     if len(text) > 80 and re.search(r"\d{4}", text):
         return True
@@ -3677,6 +3716,8 @@ def _is_valid_education_resume_item(item: Any) -> bool:
     major = str(item.get("major") or "").strip()
     if _looks_like_noisy_helper_school(school):
         return False
+    if _looks_like_noisy_helper_school(major):
+        return False
     if "@" in major or any(token in major for token in ["联系电话", "邮箱", "Email", "email"]):
         return False
     if any(keyword in school for keyword in ["英语四级", "英语六级", "普通话", "证书", "荣誉", "资格证"]):
@@ -3745,6 +3786,19 @@ def _sanitize_resume_list(
 
 
 GENERIC_EDUCATION_LABELS = {"博士", "硕士", "本科", "大专", "专科", "中专", "高中"}
+CANDIDATE_EDUCATION_MAX_LENGTH = 120
+
+
+def _sanitize_candidate_education_value(value: Any, *, max_length: int = CANDIDATE_EDUCATION_MAX_LENGTH) -> str:
+    text = sanitize_string(value)
+    if not text:
+        return ""
+    text = re.sub(r"\s+", " ", text).strip(" ，,；;。")
+    if not text or _looks_like_noisy_helper_school(text):
+        return ""
+    if len(text) > max_length:
+        text = text[:max_length].strip(" ，,；;。")
+    return text
 
 
 def _build_education_summary_from_experiences(items: Any) -> str:
@@ -3757,10 +3811,14 @@ def _build_education_summary_from_experiences(items: Any) -> str:
         major = sanitize_string(item.get("major"))
         if _looks_like_noisy_helper_school(school):
             continue
+        if _looks_like_noisy_helper_school(major):
+            continue
         parts = [part for part in [school, degree, major] if part]
         if len(parts) < 2:
             continue
-        candidates.append(" ".join(parts[:3]).strip())
+        summary = _sanitize_candidate_education_value(" ".join(parts[:3]).strip())
+        if summary:
+            candidates.append(summary)
     if not candidates:
         return ""
     candidates.sort(key=lambda value: (len(value), value), reverse=True)
@@ -3820,13 +3878,18 @@ def _sanitize_resume_basic_info(
         elif value.lower() in searchable or value in str(raw_text or ""):
             fallback[field] = value
     education_summary = _build_education_summary_from_experiences(education_experiences)
-    current_education = str(fallback.get("education") or "").strip()
+    current_education = _sanitize_candidate_education_value(fallback.get("education"))
     if education_summary and (
         not current_education
         or current_education in GENERIC_EDUCATION_LABELS
-        or len(education_summary) > len(current_education) + 2
+        or (_looks_like_noisy_helper_school(current_education) and not _looks_like_noisy_helper_school(education_summary))
+        or (len(education_summary) > len(current_education) + 2 and not _looks_like_noisy_helper_school(education_summary))
     ):
-        fallback["education"] = education_summary
+        current_education = education_summary
+    if current_education:
+        fallback["education"] = current_education
+    else:
+        fallback.pop("education", None)
     return fallback
 
 
@@ -4277,6 +4340,8 @@ def _sanitize_basic_info_value(field: str, value: Any) -> str:
             return ""
     if field == "email" and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", text):
         return ""
+    if field == "education":
+        return _sanitize_candidate_education_value(text)
     return text
 
 
@@ -13137,7 +13202,7 @@ class RecruitmentService:
         candidate.phone = sanitized_phone or None
         candidate.email = str(basic_info.get("email") or "").strip() or None
         candidate.years_of_experience = str(basic_info.get("years_of_experience") or "").strip() or None
-        candidate.education = str(basic_info.get("education") or "").strip() or None
+        candidate.education = _sanitize_basic_info_value("education", basic_info.get("education")) or None
         parsed_age = _parse_age_value(basic_info.get("age"))
         if parsed_age is not None:
             candidate.age = parsed_age
@@ -13422,7 +13487,7 @@ class RecruitmentService:
             if parsed_email:
                 candidate.email = parsed_email
             candidate.years_of_experience = str(basic_info.get("years_of_experience") or "").strip() or None
-            candidate.education = str(basic_info.get("education") or "").strip() or None
+            candidate.education = _sanitize_basic_info_value("education", basic_info.get("education")) or None
             parsed_age = _parse_age_value(basic_info.get("age"))
             if parsed_age is not None:
                 candidate.age = parsed_age
@@ -13778,7 +13843,7 @@ class RecruitmentService:
         if parsed_email:
             candidate.email = parsed_email
         candidate.years_of_experience = str(basic_info.get("years_of_experience") or "").strip() or None
-        candidate.education = str(basic_info.get("education") or "").strip() or None
+        candidate.education = _sanitize_basic_info_value("education", basic_info.get("education")) or None
         parsed_age = _parse_age_value(basic_info.get("age"))
         if parsed_age is not None:
             candidate.age = parsed_age

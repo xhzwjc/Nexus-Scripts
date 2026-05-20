@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch
 import httpx
 
 from app.recruitment_models import RecruitmentSkill
-from app.services.recruitment_ai_gateway import RecruitmentAIGateway, RecruitmentAIJSONParseError, RecruitmentLLMRuntimeConfig, _compose_json_user_prompt
+from app.services.recruitment_ai_gateway import RecruitmentAIGateway, RecruitmentAIJSONParseError, RecruitmentLLMRuntimeConfig, _compose_json_user_prompt, _parse_llm_json_response
 from app.services.recruitment_ai_gateway import RecruitmentAIScreeningTotalTimeoutError, SCREENING_TOTAL_TIMEOUT_SECONDS
 from app.services.recruitment_prompts import (
     RESUME_SCREENING_SYSTEM_PROMPT,
@@ -1133,15 +1133,85 @@ def test_generate_json_strict_json_retries_once_for_resume_score_and_then_succee
         ]
     )
 
-    payload = gateway.generate_json(
-        task_type="resume_score",
-        system_prompt="SYSTEM",
-        user_prompt="USER",
-    )
+    with patch("app.services.recruitment_ai_gateway.logger.warning") as log_warning:
+        payload = gateway.generate_json(
+            task_type="resume_score",
+            system_prompt="SYSTEM",
+            user_prompt="USER",
+        )
 
     assert gateway._call_openai_compatible_json.call_count == 2
     assert payload["response_debug"]["strict_json_recovery_retry_count"] == 1
     assert "strict JSON 首次解析失败，已自动进行一次同 prompt 恢复重试" in payload["warnings"]
+    assert any("[STRICT_JSON_RECOVERY]" in str(call.args[0]) for call in log_warning.call_args_list)
+    assert any('{"total_score":7.8 "match_percent":78}' in str(call.args) for call in log_warning.call_args_list)
+
+
+def test_parse_llm_json_response_repairs_unescaped_inner_quotes():
+    raw_text = (
+        '{"projects":[{"name":"旅游线路及滴滴导游平台",'
+        '"description":"构建"出行+导游"场景融合规划,完成"三重一大"事项决策监督"}],'
+        '"score":{"recommendation":"建议继续评估"}}'
+    )
+
+    payload = _parse_llm_json_response(raw_text)
+
+    assert payload["projects"][0]["description"] == '构建"出行+导游"场景融合规划,完成"三重一大"事项决策监督'
+
+
+def test_ai_position_match_corrects_copied_example_id_by_title():
+    gateway = RecruitmentAIGateway(Mock())
+    config = RecruitmentLLMRuntimeConfig(
+        provider="minimax",
+        runtime_provider="openai-compatible",
+        model_name="MiniMax-M2.7-highspeed",
+        base_url="https://example.test/v1",
+        api_key="secret",
+        source="test",
+        api_key_masked="***",
+        extra_config={"read_timeout_seconds": 45, "use_stream_json": False},
+    )
+    raw_payload = {
+        "position_id": 17,
+        "position_title": "IoT测试工程师（研发部）",
+        "confidence": 92,
+        "reason": "8年测试经验，含小米智能门锁等IoT产品全流程测试",
+        "potential_position": "测试开发工程师",
+        "potential_reason": "具备接口测试和自动化测试思维",
+    }
+    gateway.generate_json = Mock(
+        return_value={
+            "content": raw_payload,
+            "provider": "minimax",
+            "model_name": "MiniMax-M2.7-highspeed",
+            "source": "test",
+            "used_fallback": False,
+            "error_message": None,
+            "prompt_snapshot": "snapshot",
+            "full_request_snapshot": "{}",
+            "input_summary": "summary",
+            "output_summary": "summary",
+            "raw_response_text": json.dumps(raw_payload, ensure_ascii=False),
+        }
+    )
+
+    result = gateway.match_position(
+        1472,
+        "岳珊珊 8年测试经验 小米智能门锁 IOT 全功能测试",
+        [
+            {"id": 1, "title": "IoT测试工程师", "department": "研发部门", "key_requirements": "iot测试"},
+            {"id": 19, "title": "iot测试工程师", "department": "研发部", "key_requirements": ""},
+            {"id": 24, "title": "硬件测试工程师", "department": "研发部", "key_requirements": ""},
+        ],
+        runtime_config=config,
+    )
+
+    assert result["position_id"] == 19
+    assert result["position_title"] == "iot测试工程师（研发部）"
+    user_prompt = gateway.generate_json.call_args.kwargs["user_prompt"]
+    assert "岗位ID=19" in user_prompt
+    assert "税务会计" not in user_prompt
+    assert '"position_id": 17' not in user_prompt
 
 
 def test_generate_json_strict_json_retry_is_bounded_to_once():
@@ -3202,6 +3272,55 @@ Python BLE
     assert sanitized["projects"] == model_parse["projects"]
     assert sanitized["summary"] == model_parse["summary"]
     assert "raw_text" not in sanitized
+
+
+def test_parse_sanitize_does_not_replace_education_with_self_evaluation_noise():
+    raw_text = """邓友志
+江西交通职业技术学院 建筑工程技术 大专 2017-09 至 2020-06
+熟悉主流房企精装工程标准与管理要求。具备扎实的精装专业知识、丰富的现场实操经验，擅长工艺把控、班组管理与多方协调。
+"""
+    model_parse = {
+        "basic_info": {
+            "name": "邓友志",
+            "phone": "18760406393",
+            "email": "1006898386@qq.com",
+            "years_of_experience": "6",
+            "education": "江西交通职业技术学院 建筑工程技术 大专",
+        },
+        "work_experiences": [],
+        "education_experiences": [
+            {
+                "school": "江西交通职业技术学院",
+                "degree": "大专",
+                "major": "建筑工程技术",
+                "start_date": "2017-09",
+                "end_date": "2020-06",
+            },
+            {
+                "school": "熟悉主流房企精装工程标准与管理要求。具备扎实的精装专业知识、丰富的现场实操经验，擅长工艺把控、班组管理与多方协调。",
+                "major": "知识、丰富的现场实操经验",
+            },
+        ],
+        "skills": [],
+        "projects": [],
+        "summary": "",
+    }
+
+    with patch("app.services.recruitment_service_impl.extract_resume_structured_data", return_value=model_parse):
+        sanitized, warnings = _sanitize_ai_parsed_resume_with_meta(model_parse, raw_text, "邓友志")
+
+    assert sanitized["basic_info"]["education"] == "江西交通职业技术学院 建筑工程技术 大专"
+    assert len(sanitized["basic_info"]["education"]) <= 120
+    assert sanitized["education_experiences"] == [
+        {
+            "school": "江西交通职业技术学院",
+            "degree": "大专",
+            "major": "建筑工程技术",
+            "start_date": "2017-09",
+            "end_date": "2020-06",
+        }
+    ]
+    assert warnings == []
 
 
 def test_parse_sanitize_dedupes_work_filters_generic_skills_and_normalizes_project_highlights():

@@ -220,6 +220,39 @@ def _repair_missing_commas_globally(value: str) -> str:
     return repaired
 
 
+def _escape_unescaped_inner_quotes_in_json_strings(value: str) -> str:
+    text = str(value or "")
+    if not text:
+        return ""
+    result: list[str] = []
+    in_string = False
+    escape = False
+    for index, char in enumerate(text):
+        if escape:
+            result.append(char)
+            escape = False
+            continue
+        if char == "\\":
+            result.append(char)
+            escape = True
+            continue
+        if char == "\"":
+            if in_string:
+                next_index = _next_nonspace_index(text, index + 1)
+                next_char = text[next_index] if next_index is not None and next_index < len(text) else ""
+                if next_char and next_char not in {":", ",", "}", "]"}:
+                    result.append('\\"')
+                    continue
+                in_string = False
+                result.append(char)
+                continue
+            in_string = True
+            result.append(char)
+            continue
+        result.append(char)
+    return "".join(result)
+
+
 def _looks_like_object_key_start(value: str, start: int) -> bool:
     index = _next_nonspace_index(value, start)
     if index is None or index >= len(value) or value[index] != '"':
@@ -369,6 +402,7 @@ def _repair_missing_object_wrappers_in_arrays(value: str) -> str:
 def _repair_json_candidate(value: str) -> str:
     repaired = _normalize_json_candidate_text(_extract_json_candidate(value or "{}").strip() or "{}")
     repaired = _escape_control_chars_in_json_strings(repaired)
+    repaired = _escape_unescaped_inner_quotes_in_json_strings(repaired)
     repaired = _repair_missing_object_wrappers_in_arrays(repaired)
     repaired = _repair_missing_commas_globally(repaired)
     repaired = re.sub(r",(\s*[}\]])", r"\1", repaired)
@@ -972,6 +1006,130 @@ def _sanitize_ai_position_match_recorded_text(raw_text: Any, parsed_response: Op
     return ""
 
 
+def _normalize_position_match_title(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    if not text:
+        return ""
+    text = re.sub(r"（[^）]*）|\([^)]*\)", "", text)
+    text = re.sub(r"[\s\u3000,，。！？!?:：;；、“”\"'‘’（）()【】\[\]<>《》\-—_/|]+", "", text)
+    return text
+
+
+def _normalize_position_match_display(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    if not text:
+        return ""
+    text = re.sub(r"[\s\u3000,，。！？!?:：;；、“”\"'‘’（）()【】\[\]<>《》\-—_/|]+", "", text)
+    return text
+
+
+def _position_match_display_title(position: Dict[str, Any]) -> str:
+    title = str(position.get("title") or "").strip()
+    department = str(position.get("department") or "").strip()
+    return f"{title}（{department}）" if title and department else title
+
+
+def _position_title_matches(returned_title: Any, position: Dict[str, Any]) -> bool:
+    normalized_returned = _normalize_position_match_title(returned_title)
+    if not normalized_returned:
+        return False
+    normalized_title = _normalize_position_match_title(position.get("title"))
+    normalized_returned_display = _normalize_position_match_display(returned_title)
+    normalized_display = _normalize_position_match_display(_position_match_display_title(position))
+    return bool(
+        normalized_returned
+        and (
+            normalized_returned == normalized_title
+            or normalized_returned_display == normalized_display
+            or (normalized_title and normalized_title in normalized_returned)
+        )
+    )
+
+
+def _find_position_by_returned_title(returned_title: Any, positions: Sequence[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    normalized_returned = _normalize_position_match_title(returned_title)
+    if not normalized_returned:
+        return None
+    exact_display_matches = [
+        position
+        for position in positions
+        if _normalize_position_match_display(returned_title) == _normalize_position_match_display(_position_match_display_title(position))
+    ]
+    if exact_display_matches:
+        return exact_display_matches[0]
+    exact_title_matches = [
+        position
+        for position in positions
+        if normalized_returned == _normalize_position_match_title(position.get("title"))
+    ]
+    if exact_title_matches:
+        return exact_title_matches[0]
+    contains_matches = [
+        position
+        for position in positions
+        if _position_title_matches(returned_title, position)
+    ]
+    if contains_matches:
+        return contains_matches[0]
+    return None
+
+
+def _normalize_ai_position_match_payload(
+    payload: Dict[str, Any],
+    positions: Sequence[Dict[str, Any]],
+) -> Dict[str, Any]:
+    normalized = dict(payload if isinstance(payload, dict) else {})
+    positions_by_id: Dict[int, Dict[str, Any]] = {}
+    for position in positions:
+        try:
+            positions_by_id[int(position.get("id"))] = position
+        except (TypeError, ValueError):
+            continue
+
+    returned_title = str(normalized.get("position_title") or "").strip()
+    returned_id = normalized.get("position_id")
+    normalized_position_id: Optional[int] = None
+    if returned_id not in (None, "", 0, "0"):
+        try:
+            normalized_position_id = int(returned_id)
+        except (TypeError, ValueError):
+            normalized_position_id = None
+
+    matched_position: Optional[Dict[str, Any]] = None
+    if normalized_position_id is not None:
+        candidate_position = positions_by_id.get(normalized_position_id)
+        if candidate_position and (not returned_title or _position_title_matches(returned_title, candidate_position)):
+            matched_position = candidate_position
+        else:
+            title_matched_position = _find_position_by_returned_title(returned_title, positions)
+            if title_matched_position:
+                logger.warning(
+                    "[AI_MATCH] Corrected mismatched position id from model: returned_id=%s returned_title=%s corrected_id=%s corrected_title=%s",
+                    returned_id,
+                    returned_title,
+                    title_matched_position.get("id"),
+                    title_matched_position.get("title"),
+                )
+                matched_position = title_matched_position
+            else:
+                logger.warning(
+                    "[AI_MATCH] Rejected model position id not present/title-mismatched in current pool: returned_id=%s returned_title=%s",
+                    returned_id,
+                    returned_title,
+                )
+    elif returned_title:
+        matched_position = _find_position_by_returned_title(returned_title, positions)
+
+    if matched_position:
+        normalized["position_id"] = matched_position.get("id")
+        normalized["position_title"] = _position_match_display_title(matched_position) or matched_position.get("title")
+    else:
+        normalized["position_id"] = None
+        if returned_title:
+            normalized["position_title"] = returned_title
+    return normalized
+
+
 def _parse_strict_json_response(
     raw_text: str,
     *,
@@ -1100,6 +1258,41 @@ def _should_retry_strict_json_recovery(task_type: str, exc: Exception) -> bool:
         return False
     error_code = str(getattr(exc, "error_code", "") or "json_parse_failed").strip() or "json_parse_failed"
     return error_code in {"json_parse_failed", "invalid_provider_payload", "empty_response", "invalid_json_variant_conflict"}
+
+
+def _log_strict_json_recovery_context(
+    *,
+    task_type: str,
+    exc: RecruitmentAIJSONParseError,
+    prompt_snapshot: str,
+    full_request_snapshot: str,
+) -> None:
+    provider_payload = getattr(exc, "provider_payload", None)
+    debug_meta = getattr(exc, "debug_meta", None)
+    try:
+        provider_payload_text = json.dumps(provider_payload, ensure_ascii=False, indent=2, default=str)
+    except Exception:
+        provider_payload_text = str(provider_payload)
+    try:
+        debug_meta_text = json.dumps(debug_meta, ensure_ascii=False, indent=2, default=str)
+    except Exception:
+        debug_meta_text = str(debug_meta)
+    logger.warning(
+        "[STRICT_JSON_RECOVERY] task=%s hit malformed JSON before retry\n"
+        "ERROR: %s\n"
+        "PROMPT_SNAPSHOT:\n%s\n"
+        "FULL_REQUEST_SNAPSHOT:\n%s\n"
+        "RAW_RESPONSE_TEXT:\n%s\n"
+        "PROVIDER_PAYLOAD:\n%s\n"
+        "DEBUG_META:\n%s",
+        task_type,
+        exc,
+        prompt_snapshot,
+        full_request_snapshot,
+        getattr(exc, "raw_response_text", "") or "",
+        provider_payload_text,
+        debug_meta_text,
+    )
 
 
 def _dump_request_snapshot(value: Dict[str, Any]) -> str:
@@ -2721,6 +2914,13 @@ class RecruitmentAIGateway:
                     raise RecruitmentTaskCancelled("任务已被用户停止。") from exc
                 if _should_retry_strict_json_recovery(task_type, exc) and strict_json_recovery_retry_count < 1:
                     strict_json_recovery_retry_count += 1
+                    if isinstance(exc, RecruitmentAIJSONParseError):
+                        _log_strict_json_recovery_context(
+                            task_type=task_type,
+                            exc=exc,
+                            prompt_snapshot=prompt_snapshot,
+                            full_request_snapshot=full_request_snapshot,
+                        )
                     logger.warning(
                         "Recruitment JSON task %s hit malformed strict JSON, retrying once with the same prompt: %s",
                         task_type,
@@ -2854,7 +3054,14 @@ class RecruitmentAIGateway:
 
         # 构建结构化岗位列表（比 JSON 更省 token）
         position_list = "\n".join(
-            f"{p.get('id')}. {p.get('title')}（{p.get('department') or ''}）：{(p.get('key_requirements') or p.get('summary') or '')[:150]}"
+            "；".join(
+                [
+                    f"岗位ID={p.get('id')}",
+                    f"岗位名称={p.get('title')}",
+                    f"部门={p.get('department') or '未填写'}",
+                    f"要求={(p.get('key_requirements') or p.get('summary') or '未填写')[:150]}",
+                ]
+            )
             for p in positions
         )
         effective_runtime_config = runtime_config or self.resolve_config("ai_position_match")
@@ -2874,16 +3081,16 @@ class RecruitmentAIGateway:
 
 ## 规则
 1. 你作为招聘主管，看完简历后推荐一个最合适的岗位名称（不限于系统岗位列表，可自行判断）
-2. 如果系统岗位列表中有匹配的，优先使用并返回 position_id；没有则 position_id 返回 null，position_title 仍要填写你推荐的岗位
+2. 如果系统岗位列表中有匹配的，position_id 必须严格使用上方“岗位ID=”后的真实数字，position_title 必须与该岗位名称一致；没有匹配则 position_id 返回 null，position_title 仍要填写你推荐的岗位
 3. confidence 返回 0-100，表示你对推荐岗位的把握程度
 4. 转岗建议（potential_position）：推荐1个该候选人可以转岗的方向，**必须与推荐岗位（position_title）不同**，基于其技能可迁移性判断
 5. 转岗原因（potential_reason）：50字以内，说明为什么具备该转岗潜力
 6. reason：50字以内，说明推荐该岗位的核心依据
 7. **只有简历信息严重缺失（如无工作经历、无技能、内容为空）时，才允许 potential_position 和 potential_reason 返回 null**
-8. 不要输出推理过程、Markdown 标题或列表，只输出最终 JSON
+8. 禁止复制示例中的 position_id；示例只说明字段结构，实际 position_id 只能来自本次岗位列表
+9. 不要输出推理过程、Markdown 标题或列表，只输出最终 JSON
 
 ## 输出格式
-{{“position_id”: 17, “position_title”: “税务会计”, “confidence”: 88, “reason”: “3年增值税申报经验，与岗位核心要求高度吻合”, “potential_position”: “财务分析”, “potential_reason”: “具备报表和数据分析基础，可向财务分析延展”}}
 {{“position_id”: null, “position_title”: “产品经理”, “confidence”: 65, “reason”: “具备需求分析和跨团队协作经验，适合产品经理方向”, “potential_position”: “售前解决方案”, “potential_reason”: “跨团队沟通和需求分析能力较强，可培养为售前方向”}}'''
         prompt_snapshot = f"SYSTEM:\n{system_prompt}\n\nUSER:\n{user_prompt}"
         full_request_snapshot = _build_request_snapshot(
@@ -2921,6 +3128,7 @@ class RecruitmentAIGateway:
                 "Recruitment JSON task ai_position_match returned non-JSON content, recovered structured fields from raw text for candidate_id=%s",
                 candidate_id,
             )
+            recovered_payload = _normalize_ai_position_match_payload(recovered_payload, positions)
             return {
                 "position_id": recovered_payload.get("position_id"),
                 "position_title": recovered_payload.get("position_title"),
@@ -2957,7 +3165,7 @@ class RecruitmentAIGateway:
             raise
 
         content = result.get("content") or {}
-        parsed = content if isinstance(content, dict) else {}
+        parsed = _normalize_ai_position_match_payload(content if isinstance(content, dict) else {}, positions)
         position_id = parsed.get("position_id")
         normalized_position_id: Optional[int] = None
         if position_id not in (None, ""):
@@ -2985,6 +3193,7 @@ class RecruitmentAIGateway:
         ):
             recovered_payload = _extract_ai_position_match_recovery_from_text(result.get("raw_response_text"), positions)
             if recovered_payload:
+                recovered_payload = _normalize_ai_position_match_payload(recovered_payload, positions)
                 logger.warning(
                     "Recruitment JSON task ai_position_match produced low-signal JSON, recovered supplemental fields from raw text for candidate_id=%s",
                     candidate_id,
