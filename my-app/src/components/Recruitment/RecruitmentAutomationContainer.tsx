@@ -543,6 +543,80 @@ const POSITION_CANDIDATE_GRID_COLUMNS = "minmax(80px,1.2fr) minmax(120px,1.8fr) 
 const positionCandidateValueClassName = "truncate text-sm font-medium text-slate-700 dark:text-slate-100";
 const positionCandidateScalarValueClassName = "text-sm font-medium text-slate-700 dark:text-slate-100";
 
+const JDStreamingPreview = React.memo(function JDStreamingPreview({
+    content,
+    jdGenerationStatus,
+    isZh,
+}: {
+    content: string;
+    jdGenerationStatus: string;
+    isZh: boolean;
+}) {
+    const contentRef = useRef<HTMLDivElement | null>(null);
+    const shouldAutoFollowRef = useRef(true);
+    const [autoFollowPaused, setAutoFollowPaused] = useState(false);
+
+    const scrollToLatest = useCallback(() => {
+        const element = contentRef.current;
+        if (!element) {
+            return;
+        }
+        element.scrollTop = element.scrollHeight;
+        shouldAutoFollowRef.current = true;
+        setAutoFollowPaused(false);
+    }, []);
+
+    const handleScroll = useCallback((event: React.UIEvent<HTMLDivElement>) => {
+        const element = event.currentTarget;
+        const distanceToBottom = element.scrollHeight - element.scrollTop - element.clientHeight;
+        const nextPaused = distanceToBottom > 32;
+        shouldAutoFollowRef.current = !nextPaused;
+        setAutoFollowPaused((current) => (current === nextPaused ? current : nextPaused));
+    }, []);
+
+    useEffect(() => {
+        if (!content) {
+            shouldAutoFollowRef.current = true;
+            setAutoFollowPaused(false);
+            return;
+        }
+        if (!shouldAutoFollowRef.current) {
+            return;
+        }
+        const frameId = window.requestAnimationFrame(scrollToLatest);
+        return () => window.cancelAnimationFrame(frameId);
+    }, [content, scrollToLatest]);
+
+    return (
+        <div className="rounded-2xl border border-sky-200 bg-sky-50/80 px-4 py-3.5 dark:border-sky-900 dark:bg-sky-950/30">
+            <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 text-sm font-medium text-sky-700 dark:text-sky-200">
+                    <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin"/>
+                    {jdGenerationStatus === "syncing" ? (isZh ? "正在同步最新 JD 到页面…" : "Syncing the latest JD to page…") : (isZh ? "正在生成 JD…" : "Generating JD…")}
+                </div>
+                {autoFollowPaused ? (
+                    <button
+                        type="button"
+                        className="rounded-full border border-sky-200 bg-white/80 px-2.5 py-1 text-xs font-medium text-sky-700 transition hover:border-sky-300 hover:bg-white dark:border-sky-900 dark:bg-sky-950/70 dark:text-sky-200 dark:hover:border-sky-700"
+                        onClick={scrollToLatest}
+                    >
+                        {isZh ? "回到最新" : "Jump to latest"}
+                    </button>
+                ) : null}
+            </div>
+            {content ? (
+                <div
+                    ref={contentRef}
+                    className="mt-3 max-h-[220px] overflow-y-auto whitespace-pre-wrap rounded-xl border bg-white/80 px-3 py-2.5 text-sm leading-7 text-slate-700 dark:bg-slate-900/70 dark:text-slate-200"
+                    onScroll={handleScroll}
+                >
+                    {content}
+                </div>
+            ) : null}
+        </div>
+    );
+});
+
 const PositionCandidateRow = React.memo(function PositionCandidateRow({
     candidate,
     isSelected,
@@ -1898,6 +1972,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const [jdGenerationStatus, setJdGenerationStatus] = useState<string>("idle");
     const [jdGenerationError, setJdGenerationError] = useState("");
     const [jdStreamingContent, setJdStreamingContent] = useState("");
+    const [jdGeneratedDraftUnsaved, setJdGeneratedDraftUnsaved] = useState(false);
+    const [jdUnsavedCloseConfirmOpen, setJdUnsavedCloseConfirmOpen] = useState(false);
     const [jdVersionSaving, setJdVersionSaving] = useState(false);
     const [jdVersionActivating, setJdVersionActivating] = useState(false);
     const [screeningSubmitting, setScreeningSubmitting] = useState(false);
@@ -1982,6 +2058,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const llmExtraConfigInputRef = useRef<HTMLTextAreaElement | null>(null);
 
     const [skillDialogOpen, setSkillDialogOpen] = useState(false);
+    const [skillGeneratedDraftUnsaved, setSkillGeneratedDraftUnsaved] = useState(false);
+    const [skillUnsavedCloseConfirmOpen, setSkillUnsavedCloseConfirmOpen] = useState(false);
     const [skillEditingId, setSkillEditingId] = useState<number | null>(null);
     const [skillForm, setSkillForm] = useState<SkillFormState>(emptySkillForm);
     const [skillFormErrors, setSkillFormErrors] = useState<SkillFormErrors>({});
@@ -2240,6 +2318,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const mailRecipientMap = useMemo(() => new Map(mailRecipients.map((item) => [item.id, item])), [mailRecipients]);
     const currentJDVersion = positionDetail?.current_jd_version || null;
     const isJDDraftDirty = jdDraft.jdMarkdown.trim() !== (currentJDVersion?.jd_markdown || "").trim();
+    const hasUnsavedGeneratedJDDraft = jdGeneratedDraftUnsaved && jdDraft.jdMarkdown.trim().length > 0;
     const currentPublishText = useMemo(
         () => (isJDDraftDirty
             ? extractPublishText(jdDraft.jdMarkdown, null)
@@ -3741,6 +3820,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             notes: current?.notes || "",
             autoActivate: true,
         });
+        setJdGeneratedDraftUnsaved(false);
+        setJdUnsavedCloseConfirmOpen(false);
     }, [positionDetail]);
 
     useEffect(() => {
@@ -6852,6 +6933,32 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         }
     }
 
+    function resetJDDraftToCurrentVersion() {
+        setJdDraft({
+            title: currentJDVersion?.title || `${positionDetail?.position.title || (isZh ? "岗位" : "Position")} JD`,
+            jdMarkdown: currentJDVersion?.jd_markdown || "",
+            notes: currentJDVersion?.notes || "",
+            autoActivate: true,
+        });
+        setJdGeneratedDraftUnsaved(false);
+        setJdUnsavedCloseConfirmOpen(false);
+        setJdStreamingContent("");
+        setJdGenerationError("");
+    }
+
+    function requestClosePositionJDConfigDialog() {
+        if (hasUnsavedGeneratedJDDraft) {
+            setJdUnsavedCloseConfirmOpen(true);
+            return;
+        }
+        setPositionJDConfigOpen(false);
+    }
+
+    function discardGeneratedJDDraftAndClose() {
+        resetJDDraftToCurrentVersion();
+        setPositionJDConfigOpen(false);
+    }
+
     async function generateJD() {
         if (!selectedPositionId) {
             return;
@@ -6925,22 +7032,25 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             if (errorData) {
                 throw new Error(String(errorData.message || (isZh ? "JD 生成失败" : "JD generation failed")));
             }
-            setJdGenerationStatus("syncing");
-            await Promise.all([
-                loadLogs({silent: true}),
-                loadPositions(),
-                selectedPositionIdRef.current === positionId
-                    ? loadPositionDetail(positionId)
-                    : Promise.resolve(null),
-            ]);
+            const generatedMarkdown = typeof completedData?.markdown === "string" && completedData.markdown.trim()
+                ? completedData.markdown.trim()
+                : fullContent.trim();
+            setJdDraft((current) => ({
+                ...current,
+                title: current.title.trim() || `${positionDetail?.position.title || (isZh ? "岗位" : "Position")} JD`,
+                jdMarkdown: generatedMarkdown,
+                notes: jdExtraPrompt.trim() || current.notes,
+            }));
             setJdExtraPrompt("");
             setJdStreamingContent("");
             setJdViewMode("publish");
+            setJdGeneratedDraftUnsaved(Boolean(generatedMarkdown));
             setJdGenerationStatus("idle");
+            void loadLogs({silent: true});
             if (completedData?.used_fallback) {
                 toast.warning(recruitmentToast.generatedWithFallback("岗位 JD"));
             } else {
-                toast.success(recruitmentToast.generated("岗位 JD", false));
+                toast.success(isZh ? "JD 草稿已生成，确认后请点击保存新版本" : "JD draft generated. Save it as a new version when ready.");
             }
         } catch (error) {
             if (!mountedRef.current) return;
@@ -6987,6 +7097,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 }),
             });
             toast.success(recruitmentToast.newJdVersionSaved);
+            setJdGeneratedDraftUnsaved(false);
+            setJdUnsavedCloseConfirmOpen(false);
             await Promise.all([loadPositionDetail(selectedPositionId), loadPositions()]);
             setJdViewMode("publish");
         } catch (error) {
@@ -9083,6 +9195,36 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         }
     }
 
+    function resetSkillDialogTransientState() {
+        setSkillFormErrors({});
+        setSkillFormSubmitError(null);
+        setSkillSubmitting(false);
+        setSkillDialogMode("structured");
+        setSkillBoundPositionId("");
+        setSkillExtraConditions("");
+        skillAbortControllerRef.current?.abort();
+        skillAbortControllerRef.current = null;
+        skillActiveTaskIdRef.current = null;
+        setSkillAutoBindCategory(null);
+        setSkillAutoBindDestination("positionForm");
+        setSkillGeneratedDraftUnsaved(false);
+        setSkillUnsavedCloseConfirmOpen(false);
+    }
+
+    function requestCloseSkillDialog() {
+        if (skillGeneratedDraftUnsaved && !skillSubmitting) {
+            setSkillUnsavedCloseConfirmOpen(true);
+            return;
+        }
+        setSkillDialogOpen(false);
+        resetSkillDialogTransientState();
+    }
+
+    function discardGeneratedSkillDraftAndClose() {
+        setSkillDialogOpen(false);
+        resetSkillDialogTransientState();
+    }
+
     async function loadOffers(candidateId: number) {
         try {
             const data = await recruitmentApi<RecruitmentOffer[]>(`/candidates/${candidateId}/offers`);
@@ -9190,6 +9332,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         setSkillAutoBindDestination("positionForm");
         setSkillFormErrors({});
         setSkillFormSubmitError(null);
+        setSkillGeneratedDraftUnsaved(false);
+        setSkillUnsavedCloseConfirmOpen(false);
         setSkillDialogOpen(true);
     }
 
@@ -9211,6 +9355,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         setSkillExtraConditions("");
         setSkillFormErrors({});
         setSkillFormSubmitError(null);
+        setSkillGeneratedDraftUnsaved(false);
+        setSkillUnsavedCloseConfirmOpen(false);
         setSkillDialogOpen(true);
     }
 
@@ -9228,6 +9374,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         setSkillExtraConditions("");
         setSkillFormErrors({});
         setSkillFormSubmitError(null);
+        setSkillGeneratedDraftUnsaved(false);
+        setSkillUnsavedCloseConfirmOpen(false);
         setSkillDialogOpen(true);
     }
 
@@ -9258,6 +9406,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         setSkillExtraConditions("");
         setSkillFormErrors({});
         setSkillFormSubmitError(null);
+        setSkillGeneratedDraftUnsaved(false);
+        setSkillUnsavedCloseConfirmOpen(false);
         setSkillDialogOpen(true);
     }
 
@@ -9287,6 +9437,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         setSkillExtraConditions("");
         setSkillFormErrors({});
         setSkillFormSubmitError(null);
+        setSkillGeneratedDraftUnsaved(false);
+        setSkillUnsavedCloseConfirmOpen(false);
         setSkillDialogOpen(true);
     }
 
@@ -9341,6 +9493,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             }
             setSkillAutoBindCategory(null);
             setSkillAutoBindDestination("positionForm");
+            setSkillGeneratedDraftUnsaved(false);
+            setSkillUnsavedCloseConfirmOpen(false);
             setSkillDialogOpen(false);
             await refreshSkillBindingViews([previousBoundPositionId, nextBoundPositionId]);
         } catch (error) {
@@ -9502,6 +9656,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             }
             setSkillAutoBindCategory(null);
             setSkillAutoBindDestination("positionForm");
+            setSkillGeneratedDraftUnsaved(false);
+            setSkillUnsavedCloseConfirmOpen(false);
             setSkillDialogOpen(false);
             await refreshSkillBindingViews([previousBoundPositionId, nextBoundPositionId]);
         } catch (error) {
@@ -10772,25 +10928,11 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                                             </div>
                                                             {/* 生成进度区（生成中时展示） */}
                                                             {isJDGenerating ? (
-                                                                <div className="rounded-xl border border-sky-200 bg-sky-50/80 px-4 py-3.5 dark:border-sky-900 dark:bg-sky-950/30">
-                                                                    <div className="flex items-center gap-2 text-sm font-medium text-sky-700 dark:text-sky-200">
-                                                                        <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0"/>
-                                                                        {jdGenerationStatus === "syncing"
-                                                                            ? (isZh ? "正在同步最新 JD 到页面…" : "Syncing the latest JD to page…")
-                                                                            : (isZh ? "正在生成 JD…" : "Generating JD…")}
-                                                                    </div>
-                                                                    {jdStreamingContent ? (
-                                                                        <div className="mt-3 max-h-[200px] overflow-y-auto whitespace-pre-wrap rounded-xl border bg-white/80 px-3 py-2.5 text-sm leading-7 text-slate-700 dark:bg-slate-900/70 dark:text-slate-200">
-                                                                            {jdStreamingContent}
-                                                                        </div>
-                                                                    ) : (
-                                                                        <div className="mt-3 grid gap-2">
-                                                                            <div className="h-3 rounded-full bg-sky-100 dark:bg-sky-900/60"/>
-                                                                            <div className="h-3 w-10/12 rounded-full bg-sky-100 dark:bg-sky-900/60"/>
-                                                                            <div className="h-16 rounded-xl bg-white/80 dark:bg-slate-900/70"/>
-                                                                        </div>
-                                                                    )}
-                                                                </div>
+                                                                <JDStreamingPreview
+                                                                    content={jdStreamingContent}
+                                                                    jdGenerationStatus={jdGenerationStatus}
+                                                                    isZh={isZh}
+                                                                />
                                                             ) : null}
                                                         </div>
                                                     </div>
@@ -12103,7 +12245,13 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 </DialogContent>
             </Dialog>
 
-            <Dialog open={positionJDConfigOpen} onOpenChange={setPositionJDConfigOpen}>
+            <Dialog open={positionJDConfigOpen} onOpenChange={(open) => {
+                if (open) {
+                    setPositionJDConfigOpen(true);
+                    return;
+                }
+                requestClosePositionJDConfigDialog();
+            }}>
                 <DialogContent className="flex h-[min(92vh,960px)] max-h-[92vh] flex-col overflow-hidden sm:max-w-6xl">
                     <DialogHeader>
                         <DialogTitle>{isZh ? `JD 配置 · ${positionDetail?.position.title || ""}` : `JD Config · ${positionDetail?.position.title || ""}`}</DialogTitle>
@@ -12130,6 +12278,22 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                             : (isZh ? "暂无生成记录" : "No generation history")}
                                     </div>
                                 </div>
+                                {hasUnsavedGeneratedJDDraft ? (
+                                    <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
+                                        <span className="flex items-center gap-2">
+                                            <Save className="h-4 w-4"/>
+                                            {isZh ? "这是一份未保存的 AI 生成草稿，关闭前请先保存，或确认放弃本次生成。" : "This AI-generated draft is not saved yet. Save it before closing, or confirm discard."}
+                                        </span>
+                                        <Button
+                                            size="sm"
+                                            className="h-8 rounded-xl"
+                                            onClick={() => void saveJDVersion()}
+                                            disabled={jdVersionSaving || isJDGenerating || !jdDraft.jdMarkdown.trim()}
+                                        >
+                                            {jdVersionSaving ? (isZh ? "保存中..." : "Saving...") : (isZh ? "立即保存" : "Save now")}
+                                        </Button>
+                                    </div>
+                                ) : null}
 
                                 <div className="rounded-3xl border border-slate-200/80 bg-white/85 shadow-sm dark:border-slate-800 dark:bg-slate-950/70">
                                     <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3 dark:border-slate-800/80">
@@ -12179,17 +12343,11 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                             )}
                                         </div>
                                         {isJDGenerating ? (
-                                            <div className="rounded-2xl border border-sky-200 bg-sky-50/80 px-4 py-3.5 dark:border-sky-900 dark:bg-sky-950/30">
-                                                <div className="flex items-center gap-2 text-sm font-medium text-sky-700 dark:text-sky-200">
-                                                    <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin"/>
-                                                    {jdGenerationStatus === "syncing" ? (isZh ? "正在同步最新 JD 到页面…" : "Syncing the latest JD to page…") : (isZh ? "正在生成 JD…" : "Generating JD…")}
-                                                </div>
-                                                {jdStreamingContent ? (
-                                                    <div className="mt-3 max-h-[220px] overflow-y-auto whitespace-pre-wrap rounded-xl border bg-white/80 px-3 py-2.5 text-sm leading-7 text-slate-700 dark:bg-slate-900/70 dark:text-slate-200">
-                                                        {jdStreamingContent}
-                                                    </div>
-                                                ) : null}
-                                            </div>
+                                            <JDStreamingPreview
+                                                content={jdStreamingContent}
+                                                jdGenerationStatus={jdGenerationStatus}
+                                                isZh={isZh}
+                                            />
                                         ) : null}
                                     </div>
                                 </div>
@@ -12245,8 +12403,41 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                             </div>
                         ) : null}
                     </ScrollArea>
+                    <DialogFooter className="items-center justify-between gap-3 sm:justify-between">
+                        <p className="text-sm text-slate-500 dark:text-slate-400">
+                            {hasUnsavedGeneratedJDDraft ? (isZh ? "当前草稿尚未保存" : "Current draft is not saved") : ""}
+                        </p>
+                        <div className="flex items-center gap-2">
+                            <Button variant="outline" onClick={requestClosePositionJDConfigDialog}>{recruitmentUiText.cancelButton}</Button>
+                            <Button
+                                onClick={() => void saveJDVersion()}
+                                disabled={jdVersionSaving || isJDGenerating || !jdDraft.jdMarkdown.trim()}
+                            >
+                                <Save className="mr-1 h-4 w-4"/>
+                                {jdVersionSaving ? (isZh ? "保存中..." : "Saving...") : (isZh ? "保存新版本" : "Save New Version")}
+                            </Button>
+                        </div>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            <Dialog open={jdUnsavedCloseConfirmOpen} onOpenChange={setJdUnsavedCloseConfirmOpen}>
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>{isZh ? "这次生成的 JD 还没有保存" : "This generated JD has not been saved"}</DialogTitle>
+                        <DialogDescription>
+                            {isZh
+                                ? "关闭后，本次 AI 生成的草稿内容会被放弃，不会写入 JD 版本记录。你可以继续编辑并点击「保存新版本」，也可以确认不保存直接关闭。"
+                                : "If you close now, this AI-generated draft will be discarded and will not be added to JD version history. You can keep editing and save it, or close without saving."}
+                        </DialogDescription>
+                    </DialogHeader>
                     <DialogFooter>
-                        <Button variant="outline" onClick={() => setPositionJDConfigOpen(false)}>{recruitmentUiText.cancelButton}</Button>
+                        <Button variant="outline" onClick={() => setJdUnsavedCloseConfirmOpen(false)}>
+                            {isZh ? "继续编辑" : "Keep Editing"}
+                        </Button>
+                        <Button variant="destructive" onClick={discardGeneratedJDDraftAndClose}>
+                            {isZh ? "不保存，关闭" : "Close Without Saving"}
+                        </Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
@@ -12590,59 +12781,53 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             </Dialog>
 
             <Dialog open={skillDialogOpen} onOpenChange={(open) => {
-                setSkillDialogOpen(open);
-                if (!open) {
-                    setSkillFormErrors({});
-                    setSkillFormSubmitError(null);
-                    setSkillSubmitting(false);
-                    setSkillDialogMode("structured");
-                    setSkillBoundPositionId("");
-                    setSkillExtraConditions("");
-                    skillAbortControllerRef.current?.abort();
-                    skillAbortControllerRef.current = null;
-                    skillActiveTaskIdRef.current = null;
-                    setSkillAutoBindCategory(null);
-                    setSkillAutoBindDestination("positionForm");
+                if (open) {
+                    setSkillDialogOpen(true);
+                    return;
                 }
+                requestCloseSkillDialog();
             }}>
                 <DialogContent className="flex h-[min(88vh,840px)] max-h-[88vh] flex-col overflow-hidden sm:max-w-4xl">
                     <DialogHeader>
                         <DialogTitle>{skillEditingId ? recruitmentUiText.skillEditTitle : recruitmentUiText.skillCreateTitle}</DialogTitle>
-                        <DialogDescription>{recruitmentUiText.skillDialogDescription}</DialogDescription>
+                        <DialogDescription className="text-sm text-slate-500">
+                            {isZh ? "管理配置项" : "Admin configuration"}
+                        </DialogDescription>
                     </DialogHeader>
                     {skillDialogMode === "structured" ? (
-                        <div className="flex min-h-0 flex-1 flex-col gap-4">
-                            <div className="shrink-0 rounded-2xl border border-slate-200/80 bg-slate-50/70 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/50">
-                                <Field label={isZh ? "关联岗位" : "Bound Position"}>
-                                    {isAssessmentDraftSkillCreation ? (
-                                        <div className="rounded-xl border border-slate-200/80 bg-white/80 px-3 py-2 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-950/60 dark:text-slate-300">
-                                            {isZh
-                                                ? `先加入「${positionDetail?.position.title || "当前岗位"}」的待绑定方案，点击确定后再绑定到岗位`
-                                                : `Added to pending plans for ${positionDetail?.position.title || "current position"} first; bind after confirmation.`}
-                                        </div>
-                                    ) : (
-                                            <NativeSelect
-                                                value={skillBoundPositionId}
-                                                onChange={(event) => {
-                                                    setSkillBoundPositionId(event.target.value);
-                                                    setSkillEditorPositionId(event.target.value ? Number(event.target.value) : null);
-                                                }}
-                                            >
-                                                <option value="">{isZh ? "通用方案（未绑定岗位）" : "Generic Plan (Unbound)"}</option>
-                                                {bindablePositionsForSkillDialog.map((position) => (
-                                                    <option key={`structured-skill-bound-position-${position.id}`} value={position.id}>
-                                                        {position.title}
-                                                    </option>
-                                                ))}
-                                            </NativeSelect>
-                                    )}
-                                </Field>
-                            </div>
+                        <div className="flex min-h-0 flex-1 flex-col gap-3">
+                            {isAssessmentDraftSkillCreation ? (
+                                <div className="shrink-0 rounded-xl border border-slate-200/80 bg-slate-50/70 px-3 py-2 text-sm text-slate-500 dark:border-slate-800 dark:bg-slate-900/40 dark:text-slate-400">
+                                    {isZh
+                                        ? `待绑定到「${positionDetail?.position.title || "当前岗位"}」，保存方案后回到评估配置弹窗确认绑定。`
+                                        : `Pending for ${positionDetail?.position.title || "current position"}. Save this plan, then confirm binding in the assessment dialog.`}
+                                </div>
+                            ) : (
+                                <div className="shrink-0 rounded-xl border border-slate-200/80 bg-slate-50/70 px-3 py-2 dark:border-slate-800 dark:bg-slate-900/40">
+                                    <div className="flex items-center gap-3">
+                                        <span className="shrink-0 text-sm font-medium text-slate-600 dark:text-slate-300">{isZh ? "关联岗位" : "Bound Position"}</span>
+                                        <NativeSelect
+                                            value={skillBoundPositionId}
+                                            onChange={(event) => {
+                                                setSkillBoundPositionId(event.target.value);
+                                                setSkillEditorPositionId(event.target.value ? Number(event.target.value) : null);
+                                            }}
+                                        >
+                                            <option value="">{isZh ? "通用方案（未绑定岗位）" : "Generic Plan (Unbound)"}</option>
+                                            {bindablePositionsForSkillDialog.map((position) => (
+                                                <option key={`structured-skill-bound-position-${position.id}`} value={position.id}>
+                                                    {position.title}
+                                                </option>
+                                            ))}
+                                        </NativeSelect>
+                                    </div>
+                                </div>
+                            )}
                             <StructuredSkillEditor
                                 initialData={skillEditorData}
                                 editingSkillId={skillEditingId}
                                 onSubmit={submitStructuredSkill}
-                                onCancel={() => setSkillDialogOpen(false)}
+                                onCancel={requestCloseSkillDialog}
                                 submitting={skillSubmitting}
                                 submitError={skillFormSubmitError}
                                 onGenerateAI={generateSkillWithAI}
@@ -12651,6 +12836,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                 defaultTab={skillEditorDefaultTab}
                                 positionId={skillEditorPositionId}
                                 positionJdContent={skillEditorPositionId ? (positionDetail?.current_jd_version?.jd_markdown || null) : null}
+                                onGeneratedDirtyChange={setSkillGeneratedDraftUnsaved}
                             />
                         </div>
                     ) : (
@@ -12667,14 +12853,14 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                             onChange={(event) => setSkillForm((current) => ({...current, name: event.target.value.slice(0, 120)}))}
                                         />
                                     </Field>
-                                    <Field label={isZh ? "关联岗位" : "Bound Position"}>
-                                        {isAssessmentDraftSkillCreation ? (
-                                            <div className="rounded-xl border border-slate-200/80 bg-white/80 px-3 py-2 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-950/60 dark:text-slate-300">
-                                                {isZh
-                                                    ? `先加入「${positionDetail?.position.title || "当前岗位"}」的待绑定方案，点击确定后再绑定到岗位`
-                                                    : `Added to pending plans for ${positionDetail?.position.title || "current position"} first; bind after confirmation.`}
-                                            </div>
-                                        ) : (
+                                    {isAssessmentDraftSkillCreation ? (
+                                        <div className="rounded-xl border border-slate-200/80 bg-slate-50/70 px-3 py-2 text-sm text-slate-500 dark:border-slate-800 dark:bg-slate-900/40 dark:text-slate-400">
+                                            {isZh
+                                                ? `待绑定到「${positionDetail?.position.title || "当前岗位"}」，保存方案后回到评估配置弹窗确认绑定。`
+                                                : `Pending for ${positionDetail?.position.title || "current position"}. Save this plan, then confirm binding in the assessment dialog.`}
+                                        </div>
+                                    ) : (
+                                        <Field label={isZh ? "关联岗位" : "Bound Position"}>
                                             <NativeSelect
                                                 value={skillBoundPositionId}
                                                 onChange={(event) => {
@@ -12689,8 +12875,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                                     </option>
                                                 ))}
                                             </NativeSelect>
-                                        )}
-                                    </Field>
+                                        </Field>
+                                    )}
                                     <div className="space-y-2">
                                         <span className="text-base font-medium text-slate-700 dark:text-slate-300">{isZh ? "适用场景" : "Applies To"}</span>
                                         <div className="flex flex-wrap gap-2">
@@ -12762,7 +12948,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                 </div>
                             ) : null}
                             <DialogFooter className="shrink-0">
-                                <Button variant="outline" onClick={() => setSkillDialogOpen(false)} disabled={skillSubmitting}>
+                                <Button variant="outline" onClick={requestCloseSkillDialog} disabled={skillSubmitting}>
                                     {recruitmentUiText.cancel}
                                 </Button>
                                 <Button onClick={() => void submitSkill()} disabled={skillSubmitting}>
@@ -12771,6 +12957,27 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                             </DialogFooter>
                         </>
                     )}
+                </DialogContent>
+            </Dialog>
+
+            <Dialog open={skillUnsavedCloseConfirmOpen} onOpenChange={setSkillUnsavedCloseConfirmOpen}>
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>{isZh ? "这次生成的评估方案还没有保存" : "This generated assessment plan has not been saved"}</DialogTitle>
+                        <DialogDescription>
+                            {isZh
+                                ? "关闭后，本次 AI 生成并代入编辑区的内容会被放弃，不会创建评估方案。你可以继续检查并点击「创建」，也可以确认不保存直接关闭。"
+                                : "If you close now, the AI-generated content applied to the editor will be discarded and no assessment plan will be created. You can keep editing and click Create, or close without saving."}
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setSkillUnsavedCloseConfirmOpen(false)}>
+                            {isZh ? "继续编辑" : "Keep Editing"}
+                        </Button>
+                        <Button variant="destructive" onClick={discardGeneratedSkillDraftAndClose}>
+                            {isZh ? "不保存，关闭" : "Close Without Saving"}
+                        </Button>
+                    </DialogFooter>
                 </DialogContent>
             </Dialog>
 

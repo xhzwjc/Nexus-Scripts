@@ -1,7 +1,7 @@
 "use client";
 
 import React, {useCallback, useEffect, useDeferredValue, useMemo, useRef, useState} from "react";
-import {GripVertical, Pencil, Plus, Sparkles, Square, Trash2, X} from "lucide-react";
+import {ChevronDown, GripVertical, Pencil, Plus, Sparkles, Square, Trash2, X} from "lucide-react";
 
 import type {ScreeningSkillDimension, ScreeningSkillFormData, SkillTaskKind} from "../types";
 import {
@@ -24,7 +24,6 @@ import {Select, SelectContent, SelectItem, SelectTrigger, SelectValue} from "@/c
 import {Separator} from "@/components/ui/separator";
 import {Tabs, TabsContent, TabsList, TabsTrigger} from "@/components/ui/tabs";
 import {Textarea} from "@/components/ui/textarea";
-import {toast} from "@/lib/toast";
 
 type StructuredSkillEditorProps = {
     initialData?: ScreeningSkillFormData;
@@ -44,6 +43,7 @@ type StructuredSkillEditorProps = {
     defaultTab?: "structured" | "advanced" | "ai";
     positionId?: number | null;
     positionJdContent?: string | null;
+    onGeneratedDirtyChange?: (dirty: boolean) => void;
 };
 
 /* ── Debounced text input: local state for typing, syncs to parent on blur ── */
@@ -227,6 +227,85 @@ const DimensionRow = React.memo(function DimensionRow({
     );
 });
 
+const AiGeneratedContentPreview = React.memo(function AiGeneratedContentPreview({
+    content,
+    aiGenerating,
+    isZh,
+}: {
+    content: string;
+    aiGenerating?: boolean;
+    isZh: boolean;
+}) {
+    const contentRef = useRef<HTMLDivElement | null>(null);
+    const shouldAutoFollowRef = useRef(true);
+    const [autoFollowPaused, setAutoFollowPaused] = useState(false);
+
+    const scrollToLatest = useCallback(() => {
+        const element = contentRef.current;
+        if (!element) {
+            return;
+        }
+        element.scrollTop = element.scrollHeight;
+        shouldAutoFollowRef.current = true;
+        setAutoFollowPaused(false);
+    }, []);
+
+    const handleScroll = useCallback((event: React.UIEvent<HTMLDivElement>) => {
+        const element = event.currentTarget;
+        const distanceToBottom = element.scrollHeight - element.scrollTop - element.clientHeight;
+        const nextPaused = distanceToBottom > 32;
+        shouldAutoFollowRef.current = !nextPaused;
+        setAutoFollowPaused((current) => (current === nextPaused ? current : nextPaused));
+    }, []);
+
+    useEffect(() => {
+        if (!content) {
+            shouldAutoFollowRef.current = true;
+            setAutoFollowPaused(false);
+            return;
+        }
+        if (!shouldAutoFollowRef.current) {
+            return;
+        }
+        const frameId = window.requestAnimationFrame(scrollToLatest);
+        return () => window.cancelAnimationFrame(frameId);
+    }, [content, scrollToLatest]);
+
+    return (
+        <div className="mt-4 rounded-xl border border-white/80 bg-white/80 p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950/70">
+            <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
+                    <span className={cn(
+                        "inline-flex h-2 w-2 rounded-full",
+                        aiGenerating ? "animate-pulse bg-sky-500" : "bg-emerald-500",
+                    )} />
+                    <span>
+                        {aiGenerating
+                            ? (isZh ? "正在实时输出内容" : "Streaming content live")
+                            : (isZh ? "已完成本次生成，可继续检查并保存内容" : "Generation finished. Review and save when ready.")}
+                    </span>
+                </div>
+                {autoFollowPaused ? (
+                    <button
+                        type="button"
+                        className="rounded-full border border-sky-200 bg-white px-2.5 py-1 text-xs font-medium text-sky-700 transition hover:border-sky-300 hover:bg-sky-50 dark:border-sky-900 dark:bg-slate-900 dark:text-sky-300 dark:hover:border-sky-700"
+                        onClick={scrollToLatest}
+                    >
+                        {isZh ? "回到最新" : "Jump to latest"}
+                    </button>
+                ) : null}
+            </div>
+            <div
+                ref={contentRef}
+                className="mt-3 max-h-[320px] min-h-[180px] overflow-y-auto whitespace-pre-wrap rounded-lg bg-slate-50/80 px-3 py-3 text-base leading-relaxed text-slate-700 dark:bg-slate-900/70 dark:text-slate-200"
+                onScroll={handleScroll}
+            >
+                {content || (isZh ? "请稍候，实时内容将在这里继续更新..." : "Please wait. Live content will continue updating here...")}
+            </div>
+        </div>
+    );
+});
+
 export function StructuredSkillEditor({
     initialData,
     editingSkillId,
@@ -240,6 +319,7 @@ export function StructuredSkillEditor({
     defaultTab = "structured",
     positionId,
     positionJdContent,
+    onGeneratedDirtyChange,
 }: StructuredSkillEditorProps) {
     const { t, language } = useI18n();
     const isZh = language === "zh-CN";
@@ -259,6 +339,7 @@ export function StructuredSkillEditor({
     const [aiExtraRequirements, setAiExtraRequirements] = useState("");
     const [aiGeneratedContent, setAiGeneratedContent] = useState("");
     const [aiAppliedNotice, setAiAppliedNotice] = useState<string | null>(null);
+    const [aiSettingsExpanded, setAiSettingsExpanded] = useState(true);
     const [hasReceivedFirstAiToken, setHasReceivedFirstAiToken] = useState(false);
     const [streamProgressVisible, setStreamProgressVisible] = useState(false);
     const [streamProgressPercent, setStreamProgressPercent] = useState(0);
@@ -287,11 +368,12 @@ export function StructuredSkillEditor({
         if (initialData) {
             setForm(initialData);
             setAdvancedContent(generateSkillContent(initialData));
+            onGeneratedDirtyChange?.(false);
             if (initialData.roleName) {
                 setAiRoleName(initialData.roleName);
             }
         }
-    }, [initialData]);
+    }, [initialData, onGeneratedDirtyChange]);
 
     useEffect(() => {
         if (!aiGenerating || hasReceivedFirstAiToken) {
@@ -393,11 +475,9 @@ export function StructuredSkillEditor({
             isEnabled: prev.isEnabled ?? parsed.isEnabled ?? true,
         }));
         setAdvancedContent(normalizedContent);
-        setAiAppliedNotice("AI 已生成评估方案，内容已自动代入“结构化编辑”和“高级模式”，请检查后保存。");
-        if (announce) {
-            toast.success("AI 已生成评估方案，内容已自动代入编辑区，请检查后保存。");
-        }
-    }, [aiRoleName]);
+        setAiAppliedNotice("已代入结构化编辑和高级模式，请检查后保存。");
+        onGeneratedDirtyChange?.(true);
+    }, [aiRoleName, onGeneratedDirtyChange]);
 
     const handleGenerate = useCallback(async () => {
         if (!onGenerateAI || !aiRoleName.trim()) return;
@@ -407,12 +487,14 @@ export function StructuredSkillEditor({
         }
         setAiGeneratedContent("");
         setAiAppliedNotice(null);
+        onGeneratedDirtyChange?.(false);
         setAiLoadingIndex(0);
         setHasReceivedFirstAiToken(false);
         setStreamProgressVisible(false);
         setStreamProgressPercent(0);
         setStreamEstimatedTotalChars(0);
         setStreamCompleted(false);
+        setAiSettingsExpanded(false);
         firstTokenReceivedRef.current = false;
         const result = await onGenerateAI(
             aiRoleName.trim(),
@@ -422,6 +504,7 @@ export function StructuredSkillEditor({
                 if (delta.length > 0 && !firstTokenReceivedRef.current) {
                     firstTokenReceivedRef.current = true;
                     setHasReceivedFirstAiToken(true);
+                    onGeneratedDirtyChange?.(true);
                     setStreamProgressVisible(true);
                     setStreamProgressPercent(0);
                     setStreamEstimatedTotalChars(Math.max(220, delta.length + 140));
@@ -434,7 +517,7 @@ export function StructuredSkillEditor({
         if (result.completed && result.content.trim()) {
             applyAIResult(result.content, { announce: true });
         }
-    }, [onGenerateAI, aiRoleName, aiExtraRequirements, positionJdContent, applyAIResult]);
+    }, [onGenerateAI, aiRoleName, aiExtraRequirements, positionJdContent, applyAIResult, onGeneratedDirtyChange]);
 
     const handleSubmit = useCallback(async () => {
         if (tab === "advanced") {
@@ -451,7 +534,8 @@ export function StructuredSkillEditor({
         } else {
             await onSubmit(form);
         }
-    }, [tab, form, advancedContent, onSubmit]);
+        onGeneratedDirtyChange?.(false);
+    }, [tab, form, advancedContent, onSubmit, onGeneratedDirtyChange]);
 
     const canSave = form.taskTypes.length > 0 && (tab === "advanced" || deferredDimValidation.valid);
     const showAiWaitingPhase = aiGenerating && !hasReceivedFirstAiToken;
@@ -510,15 +594,15 @@ export function StructuredSkillEditor({
                 setTab(v);
             }} className="flex flex-col flex-1 min-h-0">
                 {aiAppliedNotice ? (
-                    <div className="mb-3 flex items-start justify-between gap-3 rounded-2xl border border-emerald-200 bg-emerald-50/90 px-4 py-3 text-base text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200">
-                        <p>{aiAppliedNotice}</p>
+                    <div className="mb-2 flex items-center justify-between gap-3 rounded-full border border-emerald-200 bg-emerald-50/70 px-3 py-1.5 text-sm text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/20 dark:text-emerald-200">
+                        <p className="truncate">{aiAppliedNotice}</p>
                         <button
                             type="button"
-                            className="rounded-full p-1 text-emerald-700 transition hover:bg-emerald-100 dark:text-emerald-200 dark:hover:bg-emerald-900/40"
+                            className="shrink-0 rounded-full p-0.5 text-emerald-700 transition hover:bg-emerald-100 dark:text-emerald-200 dark:hover:bg-emerald-900/40"
                             onClick={() => setAiAppliedNotice(null)}
                             aria-label="Dismiss AI success notice"
                         >
-                            <X className="h-4 w-4" />
+                            <X className="h-3.5 w-3.5" />
                         </button>
                     </div>
                 ) : null}
@@ -718,41 +802,98 @@ export function StructuredSkillEditor({
                 </TabsContent>
 
                 <TabsContent value="ai" className="flex-1 min-h-0 overflow-y-auto pr-1 mt-3 space-y-4">
-                    <div className="space-y-1.5">
-                        <Label>{t.recruitment.skillRoleName} {t.recruitment.required}</Label>
-                        <Input value={aiRoleName} onChange={(e) => setAiRoleName(e.target.value)} placeholder={t.recruitment.placeholderRoleName} />
-                    </div>
-                    <div className="space-y-1.5">
-                        <Label>{t.recruitment.aiGenerationNotes}</Label>
-                        <Textarea
-                            rows={4}
-                            value={aiExtraRequirements}
-                            onChange={(e) => setAiExtraRequirements(e.target.value)}
-                            placeholder={
-                                positionId && positionJdContent
-                                    ? t.recruitment.aiGenerationNotesWithJD
-                                    : positionId
-                                        ? t.recruitment.aiGenerationNotesNoJD
-                                        : t.recruitment.aiGenerationNotesNoPosition
-                            }
-                        />
-                    </div>
-                    <div className="flex gap-2">
-                        {aiGenerating ? (
-                            <Button
-                                variant="outline"
-                                className="border-rose-300 bg-rose-50 text-rose-700 shadow-sm hover:bg-rose-100 hover:text-rose-800 dark:border-rose-800 dark:bg-rose-950/30 dark:text-rose-200 dark:hover:bg-rose-950/50"
-                                onClick={() => onStopGeneration?.()}
-                            >
-                                <Square className="h-4 w-4 mr-1" />
-                                {isZh ? "停止生成" : "Stop"}
-                            </Button>
-                        ) : (
-                            <Button onClick={() => void handleGenerate()} disabled={!aiRoleName.trim()}>
-                                <Sparkles className="h-4 w-4 ml-1" />
-                                {t.recruitment.aiGenerate}
-                            </Button>
-                        )}
+                    {showAiStreamingPhase && (
+                        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50/90 p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950/60">
+                            <div className="flex items-center justify-between gap-3">
+                                <div>
+                                    <p className="text-base font-semibold text-slate-900 dark:text-slate-100">
+                                        {isZh ? "AI 生成结果" : "AI generated result"}
+                                    </p>
+                                    <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                                        {aiGenerating
+                                            ? (isZh ? "内容正在实时输出，可随时停止生成。" : "Streaming content live. You can stop generation at any time.")
+                                            : (isZh ? "内容已自动代入结构化编辑和高级模式，请检查后保存。" : "The content has been applied to structured and advanced modes. Review and save when ready.")}
+                                    </p>
+                                </div>
+                                {streamProgressVisible ? (
+                                    <div className="rounded-full bg-white px-3 py-1 text-sm font-medium text-sky-700 shadow-sm dark:bg-slate-900 dark:text-sky-300">
+                                        {streamProgressPercent}%
+                                    </div>
+                                ) : null}
+                            </div>
+                            {streamProgressVisible ? (
+                                <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-200/80 dark:bg-slate-800/80">
+                                    <div
+                                        className="h-full rounded-full bg-gradient-to-r from-sky-500 via-cyan-500 to-emerald-400 transition-all duration-500"
+                                        style={{ width: `${streamProgressPercent}%` }}
+                                    />
+                                </div>
+                            ) : null}
+                            <AiGeneratedContentPreview
+                                content={aiGeneratedContent}
+                                aiGenerating={aiGenerating}
+                                isZh={isZh}
+                            />
+                        </div>
+                    )}
+                    <div className="rounded-2xl border border-slate-200 bg-white/80 p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950/60">
+                        <button
+                            type="button"
+                            className="flex w-full items-center justify-between gap-3 text-left"
+                            onClick={() => setAiSettingsExpanded((current) => !current)}
+                        >
+                            <span>
+                                <span className="block text-base font-semibold text-slate-900 dark:text-slate-100">
+                                    {showAiStreamingPhase ? (isZh ? "重新生成设置" : "Regeneration settings") : (isZh ? "AI 生成设置" : "AI generation settings")}
+                                </span>
+                                <span className="mt-1 block text-sm text-slate-500 dark:text-slate-400">
+                                    {aiSettingsExpanded
+                                        ? (isZh ? "填写岗位名称和补充要求。" : "Edit role name and extra requirements.")
+                                        : (isZh ? "已收起，展开后可修改要求或重新生成。" : "Collapsed. Expand to edit requirements or regenerate.")}
+                                </span>
+                            </span>
+                            <ChevronDown className={cn("h-4 w-4 text-slate-500 transition-transform", aiSettingsExpanded && "rotate-180")} />
+                        </button>
+                        {aiSettingsExpanded ? (
+                            <div className="mt-4 space-y-3">
+                                <div className="space-y-1.5">
+                                    <Label>{t.recruitment.skillRoleName} {t.recruitment.required}</Label>
+                                    <Input value={aiRoleName} onChange={(e) => setAiRoleName(e.target.value)} placeholder={t.recruitment.placeholderRoleName} />
+                                </div>
+                                <div className="space-y-1.5">
+                                    <Label>{t.recruitment.aiGenerationNotes}</Label>
+                                    <Textarea
+                                        rows={showAiStreamingPhase ? 2 : 4}
+                                        value={aiExtraRequirements}
+                                        onChange={(e) => setAiExtraRequirements(e.target.value)}
+                                        placeholder={
+                                            positionId && positionJdContent
+                                                ? t.recruitment.aiGenerationNotesWithJD
+                                                : positionId
+                                                    ? t.recruitment.aiGenerationNotesNoJD
+                                                    : t.recruitment.aiGenerationNotesNoPosition
+                                        }
+                                    />
+                                </div>
+                                <div className="flex gap-2">
+                                    {aiGenerating ? (
+                                        <Button
+                                            variant="outline"
+                                            className="border-rose-300 bg-rose-50 text-rose-700 shadow-sm hover:bg-rose-100 hover:text-rose-800 dark:border-rose-800 dark:bg-rose-950/30 dark:text-rose-200 dark:hover:bg-rose-950/50"
+                                            onClick={() => onStopGeneration?.()}
+                                        >
+                                            <Square className="h-4 w-4 mr-1" />
+                                            {isZh ? "停止生成" : "Stop"}
+                                        </Button>
+                                    ) : (
+                                        <Button onClick={() => void handleGenerate()} disabled={!aiRoleName.trim()}>
+                                            <Sparkles className="h-4 w-4 ml-1" />
+                                            {showAiStreamingPhase ? (isZh ? "重新生成" : "Regenerate") : t.recruitment.aiGenerate}
+                                        </Button>
+                                    )}
+                                </div>
+                            </div>
+                        ) : null}
                     </div>
                     {showAiWaitingPhase && (
                         <div className="overflow-hidden rounded-2xl border border-sky-200 bg-[radial-gradient(circle_at_top_left,_rgba(56,189,248,0.18),_transparent_45%),linear-gradient(135deg,rgba(248,250,252,0.98),rgba(239,246,255,0.92))] p-4 dark:border-sky-900 dark:bg-[radial-gradient(circle_at_top_left,_rgba(14,165,233,0.18),_transparent_45%),linear-gradient(135deg,rgba(2,6,23,0.95),rgba(15,23,42,0.92))]">
@@ -777,51 +918,6 @@ export function StructuredSkillEditor({
                                         {isZh ? "正在等待模型开始输出内容，生成开始后会立即在下方实时展示。" : "Waiting for the model to begin streaming. Live content will appear below as soon as the first token arrives."}
                                     </p>
                                 </div>
-                            </div>
-                        </div>
-                    )}
-                    {showAiStreamingPhase && (
-                        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50/90 p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950/60">
-                            <div className="flex items-center justify-between gap-3">
-                                <div>
-                                    <p className="text-base font-semibold text-slate-900 dark:text-slate-100">
-                                        {isZh ? "AI 生成结果" : "AI generated result"}
-                                    </p>
-                                    <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                                        {aiGenerating
-                                            ? (isZh ? "内容正在实时输出，可随时停止生成。" : "Streaming content live. You can stop generation at any time.")
-                                            : (isZh ? "内容生成完成后已保留在这里，方便你继续检查和编辑。" : "The generated content stays here so you can review and edit it.")}
-                                    </p>
-                                </div>
-                                {streamProgressVisible ? (
-                                    <div className="rounded-full bg-white px-3 py-1 text-sm font-medium text-sky-700 shadow-sm dark:bg-slate-900 dark:text-sky-300">
-                                        {streamProgressPercent}%
-                                    </div>
-                                ) : null}
-                            </div>
-                            {streamProgressVisible ? (
-                                <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-200/80 dark:bg-slate-800/80">
-                                    <div
-                                        className="h-full rounded-full bg-gradient-to-r from-sky-500 via-cyan-500 to-emerald-400 transition-all duration-500"
-                                        style={{ width: `${streamProgressPercent}%` }}
-                                    />
-                                </div>
-                            ) : null}
-                            <div className="mt-4 rounded-xl border border-white/80 bg-white/80 p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950/70">
-                                <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
-                                    <span className={cn(
-                                        "inline-flex h-2 w-2 rounded-full",
-                                        aiGenerating ? "animate-pulse bg-sky-500" : "bg-emerald-500",
-                                    )} />
-                                    <span>
-                                        {aiGenerating
-                                            ? (isZh ? "正在实时输出内容" : "Streaming content live")
-                                            : (isZh ? "已完成本次生成，可继续检查并保存内容" : "Generation finished. Review and save when ready.")}
-                                    </span>
-                                </div>
-                                <pre className="mt-3 min-h-[180px] whitespace-pre-wrap text-base leading-relaxed font-sans text-slate-700 dark:text-slate-200">
-                                    {aiGeneratedContent || (isZh ? "请稍候，实时内容将在这里继续更新..." : "Please wait. Live content will continue updating here...")}
-                                </pre>
                             </div>
                         </div>
                     )}
