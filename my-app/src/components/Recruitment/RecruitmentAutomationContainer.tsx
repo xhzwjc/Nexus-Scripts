@@ -1928,6 +1928,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const [positionDialogOpen, setPositionDialogOpen] = useState(false);
     const [positionDialogMode, setPositionDialogMode] = useState<"create" | "edit">("create");
     const [positionActionMenuOpen, setPositionActionMenuOpen] = useState(false);
+    const [positionCardActionMenuOpen, setPositionCardActionMenuOpen] = useState(false);
     const positionActionMenuCloseTimerRef = useRef<number | null>(null);
     const [positionJDConfigOpen, setPositionJDConfigOpen] = useState(false);
     const [positionAssessmentDialogOpen, setPositionAssessmentDialogOpen] = useState(false);
@@ -2914,6 +2915,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     useEffect(() => {
         setPositionWorkspaceView("candidates");
         setPositionActionMenuOpen(false);
+        setPositionCardActionMenuOpen(false);
         defaultTabSetForPositionRef.current = null;
         setPositionSecondaryPanelOpen(false);
         setPositionCandidateDetailOpen(false);
@@ -6506,6 +6508,76 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             setPositionActionMenuOpen(false);
             positionActionMenuCloseTimerRef.current = null;
         }, 180);
+    }
+
+    function closePositionActionMenus() {
+        clearPositionActionMenuCloseTimer();
+        setPositionActionMenuOpen(false);
+        setPositionCardActionMenuOpen(false);
+    }
+
+    function renderPositionActionMenuContent() {
+        return (
+            <>
+                <button
+                    type="button"
+                    className="flex w-full items-start gap-3 rounded-xl px-3 py-2.5 text-left transition hover:bg-slate-50 dark:hover:bg-slate-900"
+                    onClick={() => {
+                        closePositionActionMenus();
+                        openPositionJDConfigDialog();
+                    }}
+                >
+                    <Sparkles className="mt-0.5 h-4 w-4 text-slate-500"/>
+                    <span>
+                        <span className="block text-sm font-semibold text-slate-900 dark:text-slate-100">{isZh ? "JD 配置" : "JD Config"}</span>
+                        <span className="mt-0.5 block text-xs text-slate-500 dark:text-slate-400">{isZh ? "生成、编辑和保存当前岗位 JD" : "Generate, edit, and save the current JD"}</span>
+                    </span>
+                </button>
+                <button
+                    type="button"
+                    className="flex w-full items-start gap-3 rounded-xl px-3 py-2.5 text-left transition hover:bg-slate-50 dark:hover:bg-slate-900"
+                    onClick={() => {
+                        closePositionActionMenus();
+                        openPositionAssessmentDialog();
+                    }}
+                >
+                    <ClipboardCheck className="mt-0.5 h-4 w-4 text-slate-500"/>
+                    <span>
+                        <span className="block text-sm font-semibold text-slate-900 dark:text-slate-100">{isZh ? "评估方案配置" : "Assessment Plans"}</span>
+                        <span className="mt-0.5 block text-xs text-slate-500 dark:text-slate-400">{isZh ? "维护 JD、初筛和面试题方案" : "Manage JD, screening, and interview plans"}</span>
+                    </span>
+                </button>
+                <button
+                    type="button"
+                    className="flex w-full items-start gap-3 rounded-xl px-3 py-2.5 text-left transition hover:bg-slate-50 dark:hover:bg-slate-900"
+                    onClick={() => {
+                        closePositionActionMenus();
+                        openEditPosition();
+                    }}
+                >
+                    <FilePlus2 className="mt-0.5 h-4 w-4 text-slate-500"/>
+                    <span>
+                        <span className="block text-sm font-semibold text-slate-900 dark:text-slate-100">{isZh ? "岗位编辑" : "Edit Position"}</span>
+                        <span className="mt-0.5 block text-xs text-slate-500 dark:text-slate-400">{isZh ? "修改岗位基础信息" : "Edit basic position information"}</span>
+                    </span>
+                </button>
+                <div className="my-1 h-px bg-slate-100 dark:bg-slate-800"/>
+                <button
+                    type="button"
+                    className="flex w-full items-start gap-3 rounded-xl px-3 py-2.5 text-left text-rose-600 transition hover:bg-rose-50 dark:text-rose-300 dark:hover:bg-rose-950/25"
+                    onClick={() => {
+                        closePositionActionMenus();
+                        setPositionDeleteConfirmOpen(true);
+                    }}
+                >
+                    <Trash2 className="mt-0.5 h-4 w-4"/>
+                    <span>
+                        <span className="block text-sm font-semibold">{isZh ? "删除岗位" : "Delete Position"}</span>
+                        <span className="mt-0.5 block text-xs text-rose-500/80 dark:text-rose-300/80">{isZh ? "需要二次确认，候选人和日志保留" : "Requires confirmation; candidates and logs stay"}</span>
+                    </span>
+                </button>
+            </>
+        );
     }
 
     function openPositionJDConfigDialog() {
@@ -10482,7 +10554,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                     "grid h-full min-h-0 items-stretch gap-4 2xl:gap-6 overflow-hidden transition-all duration-300",
                     positionListCollapsed
                         ? "xl:grid-cols-[56px_minmax(0,1fr)] 2xl:grid-cols-[60px_minmax(0,1fr)]"
-                        : "xl:grid-cols-[300px_minmax(0,1fr)] 2xl:grid-cols-[320px_minmax(0,1fr)]",
+                        : "xl:grid-cols-[288px_minmax(0,1fr)] 2xl:grid-cols-[304px_minmax(0,1fr)]",
                 )}
             >
                 <div className="position-panel relative min-h-0">
@@ -10494,7 +10566,20 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                         ) : (
                             <div>
                                 <div className="flex items-center justify-between gap-2">
-                                    <span className="position-panel-title">{isZh ? "岗位列表" : "Position List"}</span>
+                                    <div className="flex min-w-0 items-center gap-2">
+                                        <span className="position-panel-title shrink-0">{isZh ? "岗位列表" : "Position List"}</span>
+                                        <Select value={positionStatusFilter} onValueChange={setPositionStatusFilter}>
+                                            <SelectTrigger className="h-7 w-[88px] rounded-full border-slate-200/80 bg-white/80 px-2.5 text-xs font-medium text-slate-600 shadow-none hover:border-slate-300 dark:border-slate-800 dark:bg-slate-950/60 dark:text-slate-300 dark:hover:border-slate-700">
+                                                <SelectValue placeholder={isZh ? "全部" : "All"}/>
+                                            </SelectTrigger>
+                                            <SelectContent align="start" className="min-w-[112px]">
+                                                <SelectItem value="all">{isZh ? "全部" : "All"}</SelectItem>
+                                                {Object.entries(positionStatusLabels).map(([value, label]) => (
+                                                    <SelectItem key={value} value={value}>{label}</SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
                                     <div className="flex items-center gap-1.5">
                                         <span className="position-panel-count">({visiblePositions.length}/{positions.length})</span>
                                         <Popover open={positionActionMenuOpen} onOpenChange={(open) => {
@@ -10531,63 +10616,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                                 onMouseEnter={openPositionActionMenu}
                                                 onMouseLeave={schedulePositionActionMenuClose}
                                             >
-                                                <button
-                                                    type="button"
-                                                    className="flex w-full items-start gap-3 rounded-xl px-3 py-2.5 text-left transition hover:bg-slate-50 dark:hover:bg-slate-900"
-                                                    onClick={() => {
-                                                        setPositionActionMenuOpen(false);
-                                                        openPositionJDConfigDialog();
-                                                    }}
-                                                >
-                                                    <Sparkles className="mt-0.5 h-4 w-4 text-slate-500"/>
-                                                    <span>
-                                                        <span className="block text-sm font-semibold text-slate-900 dark:text-slate-100">{isZh ? "JD 配置" : "JD Config"}</span>
-                                                        <span className="mt-0.5 block text-xs text-slate-500 dark:text-slate-400">{isZh ? "生成、编辑和保存当前岗位 JD" : "Generate, edit, and save the current JD"}</span>
-                                                    </span>
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    className="flex w-full items-start gap-3 rounded-xl px-3 py-2.5 text-left transition hover:bg-slate-50 dark:hover:bg-slate-900"
-                                                    onClick={() => {
-                                                        setPositionActionMenuOpen(false);
-                                                        openPositionAssessmentDialog();
-                                                    }}
-                                                >
-                                                    <ClipboardCheck className="mt-0.5 h-4 w-4 text-slate-500"/>
-                                                    <span>
-                                                        <span className="block text-sm font-semibold text-slate-900 dark:text-slate-100">{isZh ? "评估方案配置" : "Assessment Plans"}</span>
-                                                        <span className="mt-0.5 block text-xs text-slate-500 dark:text-slate-400">{isZh ? "维护 JD、初筛和面试题方案" : "Manage JD, screening, and interview plans"}</span>
-                                                    </span>
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    className="flex w-full items-start gap-3 rounded-xl px-3 py-2.5 text-left transition hover:bg-slate-50 dark:hover:bg-slate-900"
-                                                    onClick={() => {
-                                                        setPositionActionMenuOpen(false);
-                                                        openEditPosition();
-                                                    }}
-                                                >
-                                                    <FilePlus2 className="mt-0.5 h-4 w-4 text-slate-500"/>
-                                                    <span>
-                                                        <span className="block text-sm font-semibold text-slate-900 dark:text-slate-100">{isZh ? "岗位编辑" : "Edit Position"}</span>
-                                                        <span className="mt-0.5 block text-xs text-slate-500 dark:text-slate-400">{isZh ? "修改岗位基础信息" : "Edit basic position information"}</span>
-                                                    </span>
-                                                </button>
-                                                <div className="my-1 h-px bg-slate-100 dark:bg-slate-800"/>
-                                                <button
-                                                    type="button"
-                                                    className="flex w-full items-start gap-3 rounded-xl px-3 py-2.5 text-left text-rose-600 transition hover:bg-rose-50 dark:text-rose-300 dark:hover:bg-rose-950/25"
-                                                    onClick={() => {
-                                                        setPositionActionMenuOpen(false);
-                                                        setPositionDeleteConfirmOpen(true);
-                                                    }}
-                                                >
-                                                    <Trash2 className="mt-0.5 h-4 w-4"/>
-                                                    <span>
-                                                        <span className="block text-sm font-semibold">{isZh ? "删除岗位" : "Delete Position"}</span>
-                                                        <span className="mt-0.5 block text-xs text-rose-500/80 dark:text-rose-300/80">{isZh ? "需要二次确认，候选人和日志保留" : "Requires confirmation; candidates and logs stay"}</span>
-                                                    </span>
-                                                </button>
+                                                {renderPositionActionMenuContent()}
                                             </PopoverContent>
                                         </Popover>
                                     </div>
@@ -10627,25 +10656,6 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                 placeholder={isZh ? "搜索岗位、部门、地点" : "Search positions, departments, locations"}
                                 inputClassName="h-9 rounded-xl border-slate-200/80 bg-white/80 text-sm shadow-none placeholder:text-slate-400 focus-visible:ring-2 dark:border-slate-800 dark:bg-slate-950/60 dark:placeholder:text-slate-500"
                             />
-                            <div className="filter-chips mt-3">
-                                <button
-                                    type="button"
-                                    className={cn("filter-chip", positionStatusFilter === "all" && "active")}
-                                    onClick={() => setPositionStatusFilter("all")}
-                                >
-                                    {isZh ? "全部" : "All"}
-                                </button>
-                                {Object.entries(positionStatusLabels).map(([value, label]) => (
-                                    <button
-                                        key={value}
-                                        type="button"
-                                        className={cn("filter-chip", positionStatusFilter === value && "active")}
-                                        onClick={() => setPositionStatusFilter(value)}
-                                    >
-                                        {label}
-                                    </button>
-                                ))}
-                            </div>
                         </div>
                     ) : null}
                     <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3 pt-1 [scrollbar-gutter:stable] [scrollbar-width:auto] [scrollbar-color:rgba(148,163,184,0.75)_transparent] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 dark:[scrollbar-color:rgba(71,85,105,0.9)_transparent] dark:[&::-webkit-scrollbar-thumb]:bg-slate-700">
@@ -10655,8 +10665,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                             ) : visiblePositions.length ? visiblePositions.map((position) => {
                                 const isSelected = selectedPositionId === position.id;
                                 return (
+                                    <div key={position.id} className="relative">
                                     <button
-                                        key={position.id}
                                         type="button"
                                         onClick={() => setSelectedPositionId(position.id)}
                                         className={cn(
@@ -10664,6 +10674,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                             isSelected
                                                 ? "border-slate-300 bg-slate-100/90 shadow-sm dark:border-slate-700 dark:bg-slate-900/90"
                                                 : "border-slate-200/70 bg-white/65 hover:border-slate-300 hover:bg-white/95 dark:border-slate-800 dark:bg-slate-950/45 dark:hover:border-slate-700 dark:hover:bg-slate-900/60",
+                                            isSelected && !positionListCollapsed && "pb-5 pr-8",
                                             positionListCollapsed && "flex items-center justify-center px-0 py-2.5 border-transparent bg-transparent hover:bg-slate-100/80 dark:hover:bg-slate-800/60",
                                             positionListCollapsed && isSelected && "border-transparent bg-slate-100 dark:bg-slate-900",
                                         )}
@@ -10688,25 +10699,24 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                             </Tooltip>
                                         ) : (
                                             <div className="min-w-0 space-y-2">
-                                                <p className="line-clamp-2 text-[17px] font-semibold leading-5 text-slate-900 dark:text-slate-100">{position.title}</p>
-                                                <div className="flex flex-wrap items-center gap-1.5 text-[14px] text-slate-500 dark:text-slate-400">
-                                                    {showOrganizationColumn ? (
-                                                        <Badge
-                                                            variant="outline"
-                                                            className="max-w-full rounded-full border-slate-200/80 bg-slate-50/80 px-2 py-0 text-[14px] font-medium text-slate-600 dark:border-slate-700 dark:bg-slate-900/70 dark:text-slate-300"
-                                                        >
-                                                            <span className="max-w-[160px] truncate">{getOrganizationLabel(position.org_code)}</span>
-                                                        </Badge>
-                                                    ) : null}
-                                                    <Badge className={cn("rounded-full border px-2 py-0 text-[14px]", statusBadgeClass("position", position.status))}>
+                                                <div className="flex min-w-0 items-start justify-between gap-2">
+                                                    <p className="line-clamp-2 min-w-0 text-[16px] font-semibold leading-5 tracking-[-0.01em] text-slate-950 dark:text-slate-50">{position.title}</p>
+                                                    <Badge className={cn("shrink-0 rounded-full border px-2 py-0 text-[12px] font-medium leading-5", statusBadgeClass("position", position.status))}>
                                                         {labelForPositionStatus(position.status)}
                                                     </Badge>
-                                                    <span className="rounded-full border border-transparent px-1.5 text-[15px] font-medium leading-5 text-slate-500 dark:text-slate-400">
+                                                </div>
+                                                <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[12px] leading-5 text-slate-500 dark:text-slate-400">
+                                                    {showOrganizationColumn ? (
+                                                        <span className="max-w-[180px] truncate rounded-md bg-slate-100/70 px-1.5 font-medium text-slate-600 dark:bg-slate-800/70 dark:text-slate-300">
+                                                            {getOrganizationLabel(position.org_code)}
+                                                        </span>
+                                                    ) : null}
+                                                    <span className="font-medium text-slate-500 dark:text-slate-400">
                                                         {isZh ? `候选人 ${position.candidate_count}` : `Candidates ${position.candidate_count}`}
                                                     </span>
                                                 </div>
                                                 <p
-                                                    className="truncate text-[15px] leading-5 text-slate-500 dark:text-slate-400"
+                                                    className="truncate text-[12px] leading-5 text-slate-400 dark:text-slate-500"
                                                     title={`${position.department || (isZh ? "未设置部门" : "No department")} · ${position.location || (isZh ? "未设置地点" : "No location")}`}
                                                 >
                                                     {position.department || (isZh ? "未设置部门" : "No department")} · {position.location || (isZh ? "未设置地点" : "No location")}
@@ -10714,6 +10724,48 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                             </div>
                                         )}
                                     </button>
+                                    {isSelected && !positionListCollapsed ? (
+                                        <Popover open={positionCardActionMenuOpen} onOpenChange={(open) => {
+                                            setPositionActionMenuOpen(false);
+                                            setPositionCardActionMenuOpen(open);
+                                        }}>
+                                            <Tooltip>
+                                                <TooltipTrigger asChild>
+                                                    <PopoverTrigger asChild>
+                                                        <button
+                                                            type="button"
+                                                            className={cn(
+                                                                "absolute bottom-2 right-2 z-10 flex h-6 w-6 items-center justify-center rounded-full border border-transparent bg-transparent text-slate-400/70 opacity-60 transition hover:border-slate-200/80 hover:bg-white/75 hover:text-slate-700 hover:opacity-100 dark:text-slate-500 dark:hover:border-slate-700 dark:hover:bg-slate-950/70 dark:hover:text-slate-200",
+                                                                positionCardActionMenuOpen && "border-slate-200/80 bg-white/80 text-slate-700 opacity-100 dark:border-slate-700 dark:bg-slate-950/80 dark:text-slate-200",
+                                                            )}
+                                                            aria-label={isZh ? "当前岗位操作" : "Current position actions"}
+                                                            onClick={(event) => {
+                                                                event.preventDefault();
+                                                                event.stopPropagation();
+                                                                setPositionActionMenuOpen(false);
+                                                                setPositionCardActionMenuOpen((current) => !current);
+                                                            }}
+                                                        >
+                                                            <Settings2 className="h-3.5 w-3.5"/>
+                                                        </button>
+                                                    </PopoverTrigger>
+                                                </TooltipTrigger>
+                                                <TooltipContent side="right">
+                                                    <p>{isZh ? "当前岗位操作" : "Current position actions"}</p>
+                                                </TooltipContent>
+                                            </Tooltip>
+                                            <PopoverContent
+                                                side="right"
+                                                align="end"
+                                                sideOffset={8}
+                                                collisionPadding={12}
+                                                className="w-72 rounded-2xl border-slate-200/80 bg-white/95 p-2 shadow-xl shadow-slate-900/10 backdrop-blur dark:border-slate-800 dark:bg-slate-950/95"
+                                            >
+                                                {renderPositionActionMenuContent()}
+                                            </PopoverContent>
+                                        </Popover>
+                                    ) : null}
+                                    </div>
                                 );
                             }) : (
                                 <EmptyState title={isZh ? "暂无岗位" : "No Positions Yet"} description={isZh ? "先新建一个岗位，再由 AI 生成 JD 并进入招聘流程。" : "Create a position first, then generate a JD and enter the recruiting workflow."}/>
