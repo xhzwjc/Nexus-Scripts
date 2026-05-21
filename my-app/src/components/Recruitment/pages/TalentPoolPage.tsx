@@ -42,13 +42,21 @@ function getTalentPoolLocale(language = getCurrentLanguage()) {
         uploadResume: isZh ? "上传简历" : "Upload Resume",
         refresh: isZh ? "刷新" : "Refresh",
         totalCandidates: isZh ? "总候选人" : "Total Candidates",
-        totalHint: isZh ? "待处理" : "Pending",
-        aiMatched: isZh ? "AI 已识别岗位" : "AI Matched",
-        aiMatchedHint: isZh ? "有推荐归岗方向" : "With recommendations",
-        unmatched: isZh ? "无法识别" : "Unmatched",
-        unmatchedHint: isZh ? "需手动处理" : "Manual action needed",
+        totalHint: isZh ? "当前人才库" : "Current talent pool",
+        matchingStat: isZh ? "识别中" : "Identifying",
+        matchingStatHint: isZh ? "AI处理中" : "AI in progress",
+        pendingAction: isZh ? "待处理" : "Action Needed",
+        pendingActionHint: isZh ? "未匹配+异常" : "No match + errors",
+        noSystemPosition: isZh ? "未匹配岗位" : "No Position Match",
+        noSystemPositionHint: isZh ? "需手动分配" : "Manual assignment",
+        identifyError: isZh ? "识别异常" : "AI Errors",
+        identifyErrorHint: isZh ? "可重新识别" : "Can re-identify",
         newThisWeek: isZh ? "本周新增" : "This Week",
         newThisWeekHint: isZh ? "最近 7 天" : "Last 7 days",
+        activeStatFilter: (label: string) => isZh ? `正在查看：${label}` : `Viewing: ${label}`,
+        clearStatFilter: isZh ? "再次点击指标可恢复全部" : "Click the metric again to show all",
+        statSelectHint: isZh ? "点击指标筛选列表，选中后再次点击恢复全部" : "Click a metric to filter; click it again to show all",
+        statFiltering: isZh ? "筛选中" : "Filtering",
         searchPlaceholder: isZh ? "搜索候选人姓名、技能…" : "Search candidates by name, skills...",
         allSources: isZh ? "全部来源" : "All Sources",
         allTags: isZh ? "全部标签" : "All Tags",
@@ -96,6 +104,8 @@ function getTalentPoolLocale(language = getCurrentLanguage()) {
         candidatesCount: (count: number) => isZh ? `${count} 人` : `${count}`,
         noCandidates: isZh ? "人才库暂无候选人" : "No candidates in talent pool",
         noCandidatesDesc: isZh ? '上传简历时选择「暂不选择岗位」或「AI智能匹配」，未匹配的候选人将出现在这里' : 'Candidates will appear here when uploaded with "No Position" or "AI Smart Match" mode',
+        noFilteredCandidates: isZh ? "当前指标下暂无候选人" : "No candidates for this metric",
+        noFilteredCandidatesDesc: isZh ? "再次点击上方指标可恢复全部人才库" : "Click the selected metric again to show all candidates",
         manualUpload: isZh ? "手动上传" : "Manual",
         bossZhipin: isZh ? "Boss直聘" : "Boss",
         liepin: isZh ? "猎聘" : "Liepin",
@@ -178,6 +188,43 @@ function sourceLabel(source: string | null | undefined, tr: ReturnType<typeof ge
     return map[source] || source;
 }
 
+type TalentPoolStatFilter = "all" | "matching" | "pending" | "no_match" | "ai_error" | "week_new";
+
+function isTalentPoolMatching(candidate: CandidateSummary) {
+    return String(candidate.status || "").trim().toLowerCase() === "matching";
+}
+
+function talentPoolReason(candidate: CandidateSummary) {
+    return String(candidate.talent_pool_reason || "").trim().toLowerCase();
+}
+
+function isNoSystemPositionCandidate(candidate: CandidateSummary) {
+    return talentPoolReason(candidate) === "unmatched_by_ai";
+}
+
+function isIdentifyErrorCandidate(candidate: CandidateSummary) {
+    return talentPoolReason(candidate) === "ai_error";
+}
+
+function isPendingActionCandidate(candidate: CandidateSummary) {
+    return isNoSystemPositionCandidate(candidate) || isIdentifyErrorCandidate(candidate);
+}
+
+function isRecentTalentPoolCandidate(candidate: CandidateSummary, cutoffMs: number) {
+    const createdAtMs = candidate.created_at ? Date.parse(candidate.created_at) : Number.NaN;
+    return Number.isFinite(createdAtMs) && createdAtMs >= cutoffMs;
+}
+
+function matchesTalentPoolStatFilter(candidate: CandidateSummary, filter: TalentPoolStatFilter, cutoffMs: number) {
+    if (filter === "all") return true;
+    if (filter === "matching") return isTalentPoolMatching(candidate);
+    if (filter === "pending") return isPendingActionCandidate(candidate);
+    if (filter === "no_match") return isNoSystemPositionCandidate(candidate);
+    if (filter === "ai_error") return isIdentifyErrorCandidate(candidate);
+    if (filter === "week_new") return isRecentTalentPoolCandidate(candidate, cutoffMs);
+    return true;
+}
+
 function groupCandidatesByAIMatch(candidates: CandidateSummary[]) {
     const matchingGroup: CandidateSummary[] = [];
     const pendingGroup: CandidateSummary[] = [];
@@ -238,7 +285,10 @@ export function TalentPoolPage({
     const [sourceFilter, setSourceFilter] = React.useState("all");
     const [tagFilter, setTagFilter] = React.useState("all");
     const [sortBy, setSortBy] = React.useState<"time" | "name" | "name_desc">("time");
+    const [activeStatFilter, setActiveStatFilter] = React.useState<TalentPoolStatFilter>("all");
+    const [statFilterPending, setStatFilterPending] = React.useState(false);
     const [selectedIds, setSelectedIds] = React.useState<Set<number>>(new Set());
+    const statFilterTimerRef = React.useRef<number | null>(null);
 
     /* ── 弹窗状态 ── */
     const [assignDialogOpen, setAssignDialogOpen] = React.useState(false);
@@ -259,16 +309,46 @@ export function TalentPoolPage({
     const [refreshing, setRefreshing] = React.useState(false);
 
     /* ── 统计 ── */
+    const recentCutoffMs = React.useMemo(() => Date.now() - 7 * 24 * 60 * 60 * 1000, [candidates]);
     const stats = React.useMemo(() => {
         const total = candidates.length;
-        const matching = candidates.filter(c => c.status === "matching").length;
-        const aiMatched = candidates.filter(c => c.status !== "matching" && c.ai_match_position_title).length;
-        const unmatched = total - aiMatched - matching;
-        const oneWeekAgo = new Date();
-        oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
-        const weekNew = candidates.filter(c => c.created_at && new Date(c.created_at) >= oneWeekAgo).length;
-        return { total, matching, aiMatched, unmatched, weekNew };
-    }, [candidates]);
+        const matching = candidates.filter(isTalentPoolMatching).length;
+        const noSystemPosition = candidates.filter(isNoSystemPositionCandidate).length;
+        const identifyError = candidates.filter(isIdentifyErrorCandidate).length;
+        const pendingAction = noSystemPosition + identifyError;
+        const weekNew = candidates.filter(c => isRecentTalentPoolCandidate(c, recentCutoffMs)).length;
+        return { total, matching, pendingAction, noSystemPosition, identifyError, weekNew };
+    }, [candidates, recentCutoffMs]);
+
+    const statCards = React.useMemo(() => ([
+        { filter: "all" as const, label: tr.totalCandidates, value: stats.total, hint: tr.totalHint, tone: "slate" as const },
+        { filter: "matching" as const, label: tr.matchingStat, value: stats.matching, hint: tr.matchingStatHint, tone: "sky" as const },
+        { filter: "pending" as const, label: tr.pendingAction, value: stats.pendingAction, hint: tr.pendingActionHint, tone: "amber" as const },
+        { filter: "no_match" as const, label: tr.noSystemPosition, value: stats.noSystemPosition, hint: tr.noSystemPositionHint, tone: "orange" as const },
+        { filter: "ai_error" as const, label: tr.identifyError, value: stats.identifyError, hint: tr.identifyErrorHint, tone: "rose" as const },
+        { filter: "week_new" as const, label: tr.newThisWeek, value: stats.weekNew, hint: tr.newThisWeekHint, tone: "emerald" as const },
+    ]), [stats.identifyError, stats.matching, stats.noSystemPosition, stats.pendingAction, stats.total, stats.weekNew, tr]);
+
+    const activeStatCard = React.useMemo(
+        () => statCards.find((card) => card.filter === activeStatFilter) || statCards[0],
+        [activeStatFilter, statCards],
+    );
+
+    const handleStatFilterClick = React.useCallback((filter: TalentPoolStatFilter) => {
+        const nextFilter = activeStatFilter === filter ? "all" : filter;
+        if (statFilterTimerRef.current) {
+            window.clearTimeout(statFilterTimerRef.current);
+        }
+        setStatFilterPending(true);
+        React.startTransition(() => {
+            setActiveStatFilter(nextFilter);
+            setSelectedIds(new Set());
+        });
+        statFilterTimerRef.current = window.setTimeout(() => {
+            setStatFilterPending(false);
+            statFilterTimerRef.current = null;
+        }, 180);
+    }, [activeStatFilter]);
 
     const availableTags = React.useMemo(() => {
         const tags = new Set<string>();
@@ -276,9 +356,15 @@ export function TalentPoolPage({
         return Array.from(tags).sort();
     }, [candidates]);
 
+    React.useEffect(() => () => {
+        if (statFilterTimerRef.current) {
+            window.clearTimeout(statFilterTimerRef.current);
+        }
+    }, []);
+
     /* ── 过滤 + 排序 ── */
     const filteredCandidates = React.useMemo(() => {
-        let result = [...candidates];
+        let result = candidates.filter((candidate) => matchesTalentPoolStatFilter(candidate, activeStatFilter, recentCutoffMs));
         if (searchQuery.trim()) {
             const q = searchQuery.toLowerCase();
             result = result.filter(c =>
@@ -299,7 +385,7 @@ export function TalentPoolPage({
         else if (sortBy === "name") result.sort((a, b) => a.name.localeCompare(b.name, "zh-CN"));
         else if (sortBy === "name_desc") result.sort((a, b) => b.name.localeCompare(a.name, "zh-CN"));
         return result;
-    }, [candidates, searchQuery, sourceFilter, tagFilter, sortBy]);
+    }, [activeStatFilter, candidates, recentCutoffMs, searchQuery, sourceFilter, tagFilter, sortBy]);
 
     const { pendingGroup, archivedGroup, matchingGroup } = React.useMemo(
         () => groupCandidatesByAIMatch(filteredCandidates),
@@ -496,11 +582,47 @@ export function TalentPoolPage({
                 </div>
 
                 {/* 统计卡片 */}
-                <div className="mb-6 grid grid-cols-4 gap-2.5">
-                    <StatCard label={tr.totalCandidates} value={stats.total} hint={tr.totalHint}/>
-                    <StatCard label={tr.aiMatched} value={stats.aiMatched} hint={tr.aiMatchedHint}/>
-                    <StatCard label={tr.unmatched} value={stats.unmatched} hint={tr.unmatchedHint}/>
-                    <StatCard label={tr.newThisWeek} value={stats.weekNew} hint={tr.newThisWeekHint}/>
+                <div className="mb-4 grid grid-cols-2 gap-2.5 md:grid-cols-3 2xl:grid-cols-6">
+                    {statCards.map((card) => (
+                        <StatCard
+                            key={card.filter}
+                            label={card.label}
+                            value={card.value}
+                            hint={card.hint}
+                            tone={card.tone}
+                            active={activeStatFilter === card.filter}
+                            loading={statFilterPending && activeStatFilter === card.filter}
+                            onClick={() => handleStatFilterClick(card.filter)}
+                        />
+                    ))}
+                </div>
+                {activeStatFilter !== "all" || statFilterPending ? (
+                    <div className="mb-4 flex min-h-7 flex-wrap items-center gap-2">
+                        {activeStatFilter !== "all" ? (
+                            <button
+                                type="button"
+                                onClick={() => handleStatFilterClick(activeStatFilter)}
+                                className="inline-flex items-center gap-2 rounded-full border border-sky-200 bg-white/80 px-3 py-1.5 text-sm text-sky-700 shadow-sm backdrop-blur-xl transition hover:border-sky-300 hover:bg-sky-50 dark:border-sky-800 dark:bg-slate-900/80 dark:text-sky-300 dark:hover:bg-sky-950/40"
+                                title={tr.clearStatFilter}
+                            >
+                                <span className="h-1.5 w-1.5 rounded-full bg-sky-500 shadow-[0_0_14px_rgba(14,165,233,0.85)]"/>
+                                {tr.activeStatFilter(activeStatCard.label)}
+                            </button>
+                        ) : null}
+                        {statFilterPending ? (
+                            <span className="inline-flex items-center gap-2 rounded-full bg-slate-100/80 px-3 py-1.5 text-sm text-slate-500 backdrop-blur-xl dark:bg-slate-800/70 dark:text-slate-300">
+                                <span className="relative flex h-3 w-3">
+                                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-sky-400 opacity-60"/>
+                                    <span className="relative inline-flex h-3 w-3 rounded-full bg-sky-500"/>
+                                </span>
+                                {tr.statFiltering}
+                            </span>
+                        ) : null}
+                    </div>
+                ) : null}
+
+                <div className="mb-5 text-sm text-slate-400 dark:text-slate-500">
+                    {tr.statSelectHint}
                 </div>
 
                 {/* 工具栏 */}
@@ -558,12 +680,16 @@ export function TalentPoolPage({
                     <div className="flex flex-1 items-center justify-center">
                         <div className="text-center">
                             <Users className="mx-auto h-12 w-12 text-slate-300 dark:text-slate-600"/>
-                            <h3 className="mt-2 text-base font-medium text-slate-900 dark:text-slate-100">{tr.noCandidates}</h3>
-                            <p className="mt-1 text-base text-slate-500 dark:text-slate-400">{tr.noCandidatesDesc}</p>
+                            <h3 className="mt-2 text-base font-medium text-slate-900 dark:text-slate-100">
+                                {activeStatFilter === "all" ? tr.noCandidates : tr.noFilteredCandidates}
+                            </h3>
+                            <p className="mt-1 text-base text-slate-500 dark:text-slate-400">
+                                {activeStatFilter === "all" ? tr.noCandidatesDesc : tr.noFilteredCandidatesDesc}
+                            </p>
                         </div>
                     </div>
                 ) : (
-                    <div className="flex-1 space-y-5">
+                    <div className={cn("flex-1 space-y-5 transition duration-200 ease-out", statFilterPending && "scale-[0.998] opacity-70")}>
                         {/* 匹配中 loading 组 */}
                         {matchingGroup.length > 0 && (
                             <div>
@@ -726,13 +852,62 @@ function DialogOverlay({children, onClose}: {children: React.ReactNode; onClose:
     );
 }
 
-function StatCard({label, value, hint}: {label: string; value: number; hint: string}) {
+function StatCard({
+    label,
+    value,
+    hint,
+    tone,
+    active,
+    loading,
+    onClick,
+}: {
+    label: string;
+    value: number;
+    hint: string;
+    tone: "slate" | "sky" | "amber" | "orange" | "rose" | "emerald";
+    active: boolean;
+    loading: boolean;
+    onClick: () => void;
+}) {
+    const toneClasses: Record<typeof tone, string> = {
+        slate: "from-slate-500/16 via-slate-100/80 to-white dark:from-slate-500/20 dark:via-slate-900/85 dark:to-slate-950",
+        sky: "from-sky-500/18 via-sky-50/90 to-white dark:from-sky-500/20 dark:via-slate-900/85 dark:to-slate-950",
+        amber: "from-amber-500/20 via-amber-50/90 to-white dark:from-amber-500/20 dark:via-slate-900/85 dark:to-slate-950",
+        orange: "from-orange-500/20 via-orange-50/90 to-white dark:from-orange-500/20 dark:via-slate-900/85 dark:to-slate-950",
+        rose: "from-rose-500/18 via-rose-50/90 to-white dark:from-rose-500/20 dark:via-slate-900/85 dark:to-slate-950",
+        emerald: "from-emerald-500/18 via-emerald-50/90 to-white dark:from-emerald-500/20 dark:via-slate-900/85 dark:to-slate-950",
+    };
     return (
-        <div className="rounded-lg bg-slate-50 px-4 py-3.5 dark:bg-slate-900">
-            <div className="text-sm text-slate-500 dark:text-slate-400">{label}</div>
-            <div className="mt-1.5 text-[26px] font-medium text-slate-900 dark:text-slate-100">{value}</div>
-            <div className="mt-0.5 text-[15px] text-slate-400 dark:text-slate-500">{hint}</div>
-        </div>
+        <button
+            type="button"
+            aria-pressed={active}
+            onClick={onClick}
+            className={cn(
+                "group relative overflow-hidden rounded-2xl border px-4 py-3.5 text-left backdrop-blur-2xl transition-all duration-300 ease-out active:scale-[0.985]",
+                "bg-gradient-to-br shadow-[0_14px_42px_-30px_rgba(15,23,42,0.55)] hover:-translate-y-0.5 hover:shadow-[0_20px_54px_-34px_rgba(15,23,42,0.7)]",
+                toneClasses[tone],
+                active
+                    ? "border-sky-300 ring-1 ring-sky-200/80 dark:border-sky-700 dark:ring-sky-800/70"
+                    : "border-white/70 dark:border-slate-800/80",
+            )}
+        >
+            <span className={cn(
+                "pointer-events-none absolute inset-x-4 top-2 h-px rounded-full bg-gradient-to-r from-transparent via-white/90 to-transparent transition-opacity",
+                active ? "opacity-100" : "opacity-50 group-hover:opacity-90",
+            )}/>
+            <span className={cn(
+                "pointer-events-none absolute -right-8 -top-10 h-24 w-24 rounded-full blur-2xl transition-opacity",
+                active ? "bg-sky-300/35 opacity-100 dark:bg-sky-500/20" : "bg-white/55 opacity-0 group-hover:opacity-80 dark:bg-white/10",
+            )}/>
+            {loading ? (
+                <span className="pointer-events-none absolute inset-x-0 bottom-0 h-0.5 overflow-hidden bg-slate-200/70 dark:bg-slate-700/70">
+                    <span className="block h-full w-1/2 animate-pulse rounded-full bg-sky-400 shadow-[0_0_18px_rgba(56,189,248,0.8)]"/>
+                </span>
+            ) : null}
+            <span className="relative block text-sm font-medium text-slate-500 dark:text-slate-400">{label}</span>
+            <span className="relative mt-1.5 block text-[26px] font-semibold leading-none tabular-nums text-slate-950 transition-transform duration-300 group-hover:translate-x-0.5 dark:text-slate-50">{value}</span>
+            <span className="relative mt-1.5 block text-[15px] text-slate-400 dark:text-slate-500">{hint}</span>
+        </button>
     );
 }
 

@@ -2022,6 +2022,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const [positionCandidateStatusFilter, setPositionCandidateStatusFilter] = useState<string>("__all__");
     const [positionCandidateDetailOpen, setPositionCandidateDetailOpen] = useState(false);
     const [talentPoolCandidateDetailOpen, setTalentPoolCandidateDetailOpen] = useState(false);
+    const [talentPoolDrawerContentReady, setTalentPoolDrawerContentReady] = useState(false);
 
     const [positionCandidatesData, setPositionCandidatesData] = useState<CandidateSummary[]>([]);
     const [positionCandidatesLoading, setPositionCandidatesLoading] = useState(false);
@@ -3095,6 +3096,9 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     }, [initialPage]);
 
     useEffect(() => {
+        if (activePage !== "candidates") {
+            return;
+        }
         setSelectedCandidateId((current) => {
             if (candidateMenuSelectionResetRef.current) {
                 candidateMenuSelectionResetRef.current = false;
@@ -3223,6 +3227,18 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     }, [activePage]);
 
     useEffect(() => {
+        if (!talentPoolCandidateDetailOpen || !selectedCandidateId) {
+            setTalentPoolDrawerContentReady(false);
+            return;
+        }
+        setTalentPoolDrawerContentReady(false);
+        const timer = window.setTimeout(() => {
+            setTalentPoolDrawerContentReady(true);
+        }, 220);
+        return () => window.clearTimeout(timer);
+    }, [selectedCandidateId, talentPoolCandidateDetailOpen]);
+
+    useEffect(() => {
         if (activePage !== "candidates") {
             return;
         }
@@ -3240,6 +3256,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             talentPoolCandidateDetailOpen
             && selectedCandidateId
             && !talentPoolCandidates.some((candidate) => candidate.id === selectedCandidateId)
+            && !allTalentPoolCandidatesRef.current.some((candidate) => candidate.id === selectedCandidateId)
         ) {
             setTalentPoolCandidateDetailOpen(false);
         }
@@ -3526,11 +3543,15 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             return;
         }
         // 仅在详情真正可见时加载，避免 workspace 首屏预拉详情
-        const shouldCheckDuplicates = checkedDuplicateCandidateIdRef.current !== selectedCandidateId;
-        if (shouldCheckDuplicates) {
+        const isTalentPoolDetail = talentPoolCandidateDetailOpen && activePage === "talent-pool";
+        const shouldCheckDuplicates = !isTalentPoolDetail && checkedDuplicateCandidateIdRef.current !== selectedCandidateId;
+        if (!isTalentPoolDetail && shouldCheckDuplicates) {
             checkedDuplicateCandidateIdRef.current = selectedCandidateId;
         }
-        void loadCandidateDetail(selectedCandidateId, { includeDuplicates: shouldCheckDuplicates });
+        void loadCandidateDetail(selectedCandidateId, {
+            includeDuplicates: shouldCheckDuplicates,
+            skipChatContextSave: isTalentPoolDetail,
+        });
     }, [activePage, positionCandidateDetailOpen, selectedCandidateId, talentPoolCandidateDetailOpen]);
 
     useEffect(() => {
@@ -4158,6 +4179,18 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             || talentPoolCandidateDetailOpen
         );
         if (selectedCandidateId && shouldLoadCandidateSideData) {
+            if (activePage === "talent-pool" && talentPoolCandidateDetailOpen) {
+                const deferredCandidateId = selectedCandidateId;
+                const timer = window.setTimeout(() => {
+                    if (selectedCandidateIdRef.current !== deferredCandidateId || !talentPoolCandidateDetailOpen) {
+                        return;
+                    }
+                    void loadInterviewSchedules(deferredCandidateId);
+                    void loadOffers(deferredCandidateId);
+                    void loadFollowUps(deferredCandidateId);
+                }, 260);
+                return () => window.clearTimeout(timer);
+            }
             void loadInterviewSchedules(selectedCandidateId);
             void loadOffers(selectedCandidateId);
             void loadFollowUps(selectedCandidateId);
@@ -6386,8 +6419,11 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     }, []);
 
     const handleTalentPoolCandidateSelect = useCallback((candidateId: number) => {
-        setSelectedCandidateId(candidateId);
+        setTalentPoolDrawerContentReady(false);
         setTalentPoolCandidateDetailOpen(true);
+        React.startTransition(() => {
+            setSelectedCandidateId(candidateId);
+        });
     }, []);
 
     const handleViewResume = useCallback(async (candidateId: number) => {
@@ -6418,6 +6454,53 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     }, []);
 
     function renderSharedCandidateDrawerContent(onClose: () => void) {
+        const isTalentPoolDetail = talentPoolCandidateDetailOpen;
+        if (isTalentPoolDetail && !talentPoolDrawerContentReady) {
+            const warmupCandidate = selectedCandidateId
+                ? allTalentPoolCandidates.find((candidate) => candidate.id === selectedCandidateId)
+                : null;
+            return (
+                <div className="flex h-full min-h-0 flex-col bg-gradient-to-b from-white via-slate-50/70 to-white dark:from-slate-950 dark:via-slate-900/70 dark:to-slate-950">
+                    <div className="flex items-center justify-between border-b border-white/70 bg-white/70 px-4 py-3.5 backdrop-blur-2xl dark:border-slate-800/70 dark:bg-slate-950/70">
+                        <div className="min-w-0 flex-1">
+                            <p className="truncate text-base font-semibold text-slate-900 dark:text-slate-100">
+                                {warmupCandidate?.name || (isZh ? "候选人详情" : "Candidate Details")}
+                            </p>
+                            <p className="mt-0.5 text-[15px] text-slate-500">
+                                {isZh ? "正在准备详情视图" : "Preparing detail view"}
+                            </p>
+                        </div>
+                        <button
+                            type="button"
+                            className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800"
+                            onClick={onClose}
+                        >
+                            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                        </button>
+                    </div>
+                    <div className="flex flex-1 items-center justify-center px-8">
+                        <div className="w-full max-w-sm rounded-[28px] border border-white/80 bg-white/75 p-5 shadow-[0_24px_80px_-48px_rgba(15,23,42,0.7)] backdrop-blur-2xl dark:border-slate-800/80 dark:bg-slate-900/75">
+                            <div className="mx-auto mb-5 flex h-12 w-12 items-center justify-center rounded-full bg-sky-100 text-sky-600 shadow-[0_0_42px_rgba(56,189,248,0.28)] dark:bg-sky-950/70 dark:text-sky-300">
+                                <span className="relative flex h-4 w-4">
+                                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-sky-400 opacity-50"/>
+                                    <span className="relative inline-flex h-4 w-4 rounded-full bg-sky-500"/>
+                                </span>
+                            </div>
+                            <div className="space-y-3">
+                                <div className="h-3.5 w-2/3 rounded-full bg-slate-200/90 dark:bg-slate-700/80"/>
+                                <div className="h-3.5 w-full rounded-full bg-slate-100 dark:bg-slate-800"/>
+                                <div className="h-3.5 w-5/6 rounded-full bg-slate-100 dark:bg-slate-800"/>
+                                <div className="mt-5 grid grid-cols-3 gap-2">
+                                    <div className="h-16 rounded-2xl bg-slate-100 dark:bg-slate-800"/>
+                                    <div className="h-16 rounded-2xl bg-slate-100 dark:bg-slate-800"/>
+                                    <div className="h-16 rounded-2xl bg-slate-100 dark:bg-slate-800"/>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
         if (
             candidateDetailLoading
             || (selectedCandidateId && candidateDetail?.candidate.id !== selectedCandidateId)
@@ -6436,7 +6519,6 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         const score = candidateDetail.score;
         const resumeFiles = candidateDetail.resume_files || [];
         const statusHistory = candidateDetail.status_history || [];
-        const isTalentPoolDetail = talentPoolCandidateDetailOpen;
         const candidateDisplayStatus = isTalentPoolDetail ? resolveTalentPoolDisplayStatus(c) : resolveCandidateDisplayStatus(c);
         const talentPoolSourceStageText = (() => {
             const reason = String(c.talent_pool_reason || "").trim().toLowerCase();
