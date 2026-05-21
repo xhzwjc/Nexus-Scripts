@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -9,6 +9,8 @@ import logging
 import asyncio
 import os
 import sys
+import time
+import uuid
 
 from . import config
 from .services.monitoring_service import check_and_alert
@@ -48,6 +50,77 @@ app = FastAPI(
     docs_url=None,
     redoc_url=None
 )
+
+
+def _request_timing_log_enabled() -> bool:
+    value = (os.getenv("REQUEST_TIMING_LOG_ENABLED") or "1").strip().lower()
+    return value not in {"0", "false", "no", "off"}
+
+
+def _request_timing_prefixes() -> tuple[str, ...]:
+    raw = os.getenv("REQUEST_TIMING_LOG_PREFIXES") or "/recruitment,/auth/session"
+    return tuple(prefix.strip().rstrip("/") for prefix in raw.split(",") if prefix.strip())
+
+
+def _should_log_request_timing(path: str) -> bool:
+    if not _request_timing_log_enabled():
+        return False
+    prefixes = _request_timing_prefixes()
+    return any(path == prefix or path.startswith(f"{prefix}/") for prefix in prefixes)
+
+
+def _request_query_keys(request: Request) -> list[str]:
+    return sorted(set(request.query_params.keys()))
+
+
+@app.middleware("http")
+async def request_timing_middleware(request: Request, call_next):
+    path = request.url.path
+    if not _should_log_request_timing(path):
+        return await call_next(request)
+
+    request_id = request.headers.get("x-request-id") or uuid.uuid4().hex[:12]
+    started_at = time.perf_counter()
+    client = request.client.host if request.client else "-"
+    query_keys = _request_query_keys(request)
+    status_code = 500
+    error_name = None
+
+    logger.info(
+        "[request-timing] start request_id=%s method=%s path=%s query_keys=%s client=%s pid=%s",
+        request_id,
+        request.method,
+        path,
+        query_keys,
+        client,
+        os.getpid(),
+    )
+
+    try:
+        response = await call_next(request)
+        status_code = response.status_code
+        return response
+    except Exception as exc:
+        error_name = type(exc).__name__
+        logger.exception(
+            "[request-timing] exception request_id=%s method=%s path=%s error=%s",
+            request_id,
+            request.method,
+            path,
+            error_name,
+        )
+        raise
+    finally:
+        duration_ms = int((time.perf_counter() - started_at) * 1000)
+        logger.info(
+            "[request-timing] finish request_id=%s method=%s path=%s status=%s duration_ms=%s error=%s",
+            request_id,
+            request.method,
+            path,
+            status_code,
+            duration_ms,
+            error_name,
+        )
 
 
 def _resume_recruitment_screening_queue() -> None:
