@@ -4,6 +4,7 @@ import React from "react";
 import {
     Briefcase,
     Building2,
+    Clock3,
     Check,
     Eye,
     GraduationCap,
@@ -30,6 +31,7 @@ import {Button} from "@/components/ui/button";
 import {Input} from "@/components/ui/input";
 import {
     isTalentPoolReidentifiable,
+    formatDateTime,
     resolveTalentPoolDisplayStatus,
     sanitizeCandidateFacingErrorText,
 } from "../utils";
@@ -51,8 +53,8 @@ function getTalentPoolLocale(language = getCurrentLanguage()) {
         noSystemPositionHint: isZh ? "需手动分配" : "Manual assignment",
         identifyError: isZh ? "识别异常" : "AI Errors",
         identifyErrorHint: isZh ? "可重新识别" : "Can re-identify",
-        newThisWeek: isZh ? "本周新增" : "This Week",
-        newThisWeekHint: isZh ? "最近 7 天" : "Last 7 days",
+        newThisWeek: isZh ? "本周入库" : "Added This Week",
+        newThisWeekHint: isZh ? "最近 7 天入库" : "Added in last 7 days",
         activeStatFilter: (label: string) => isZh ? `正在查看：${label}` : `Viewing: ${label}`,
         clearStatFilter: isZh ? "再次点击指标可恢复全部" : "Click the metric again to show all",
         statSelectHint: isZh ? "点击指标筛选列表，选中后再次点击恢复全部" : "Click a metric to filter; click it again to show all",
@@ -60,7 +62,7 @@ function getTalentPoolLocale(language = getCurrentLanguage()) {
         searchPlaceholder: isZh ? "搜索候选人姓名、技能…" : "Search candidates by name, skills...",
         allSources: isZh ? "全部来源" : "All Sources",
         allTags: isZh ? "全部标签" : "All Tags",
-        sortByTime: isZh ? "上传时间 ↓" : "Upload Time ↓",
+        sortByTime: isZh ? "入库时间 ↓" : "Talent Pool Time ↓",
         sortByName: isZh ? "姓名 A-Z" : "Name A-Z",
         sortByNameDesc: isZh ? "姓名 Z-A" : "Name Z-A",
         selectedCount: (n: number) => isZh ? `已选 ${n} 人` : `${n} selected`,
@@ -97,6 +99,8 @@ function getTalentPoolLocale(language = getCurrentLanguage()) {
             ? `由 ${by} 于 ${date} 归入，来自：${from}`
             : `Moved by ${by} on ${date}, from: ${from}`,
         sourceStage: isZh ? "来源阶段" : "Source Stage",
+        enteredAt: isZh ? "入库时间" : "Added",
+        uploadedAt: isZh ? "上传时间" : "Uploaded",
         sourceAiUnmatched: isZh ? "AI 未识别岗位" : "AI Unmatched",
         sourceAiError: isZh ? "AI 识别异常" : "AI Error",
         sourceScreeningArchived: isZh ? "初筛完成后入库" : "Archived After Screening",
@@ -210,9 +214,14 @@ function isPendingActionCandidate(candidate: CandidateSummary) {
     return isNoSystemPositionCandidate(candidate) || isIdentifyErrorCandidate(candidate);
 }
 
+function resolveTalentPoolEnteredAt(candidate: CandidateSummary) {
+    return candidate.talent_pool_moved_at || candidate.created_at || candidate.updated_at || null;
+}
+
 function isRecentTalentPoolCandidate(candidate: CandidateSummary, cutoffMs: number) {
-    const createdAtMs = candidate.created_at ? Date.parse(candidate.created_at) : Number.NaN;
-    return Number.isFinite(createdAtMs) && createdAtMs >= cutoffMs;
+    const enteredAt = resolveTalentPoolEnteredAt(candidate);
+    const enteredAtMs = enteredAt ? Date.parse(enteredAt) : Number.NaN;
+    return Number.isFinite(enteredAtMs) && enteredAtMs >= cutoffMs;
 }
 
 function matchesTalentPoolStatFilter(candidate: CandidateSummary, filter: TalentPoolStatFilter, cutoffMs: number) {
@@ -381,7 +390,9 @@ export function TalentPoolPage({
                 ? result.filter(c => !c.ai_match_position_title)
                 : result.filter(c => c.ai_match_position_title === tagFilter);
         }
-        if (sortBy === "time") result.sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
+        if (sortBy === "time") {
+            result.sort((a, b) => (resolveTalentPoolEnteredAt(b) || "").localeCompare(resolveTalentPoolEnteredAt(a) || ""));
+        }
         else if (sortBy === "name") result.sort((a, b) => a.name.localeCompare(b.name, "zh-CN"));
         else if (sortBy === "name_desc") result.sort((a, b) => b.name.localeCompare(a.name, "zh-CN"));
         return result;
@@ -937,6 +948,8 @@ function CandidateCard({
     const talentPoolDisplayStatus = resolveTalentPoolDisplayStatus(candidate);
     const screeningPositionTitle = candidate.screened_position_title || candidate.position_title;
     const aiRecommendedTitle = candidate.ai_match_position_title || null;
+    const enteredAt = resolveTalentPoolEnteredAt(candidate);
+    const enteredAtLabel = candidate.talent_pool_moved_at ? tr.enteredAt : tr.uploadedAt;
     const colorIdx = avatarColorIndex(candidate.name);
     const initial = avatarInitial(candidate.name);
     const sourceStageLabel = React.useMemo(() => {
@@ -973,7 +986,7 @@ function CandidateCard({
             }
             if (candidate.talent_pool_reason === "moved_by_hr") {
                 const sourceLabel = STATUS_LABEL_MAP[candidate.talent_pool_source_status || ""] || candidate.talent_pool_source_status || "";
-                const moveDate = candidate.talent_pool_moved_at ? new Date(candidate.talent_pool_moved_at).toLocaleDateString() : "";
+                const moveDate = candidate.talent_pool_moved_at ? formatDateTime(candidate.talent_pool_moved_at) : "";
                 return <div className="text-sm text-slate-400 dark:text-slate-500">{tr.movedByHRDesc(candidate.talent_pool_moved_by || "", moveDate, sourceLabel)}</div>;
             }
             // 旧数据（status=talent_pool 无 reason）
@@ -1020,6 +1033,11 @@ function CandidateCard({
                         <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[15px] font-medium text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">{tr.pendingIdentify}</span>
                     )}
                     <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[15px] text-slate-500 dark:bg-slate-800 dark:text-slate-400">{sourceLabel(candidate.source, tr)}</span>
+                    {!isMatching ? (
+                        <span className="inline-flex items-center rounded-full bg-indigo-50 px-2 py-0.5 text-[15px] font-medium text-indigo-600 dark:bg-indigo-950/40 dark:text-indigo-300">
+                            {`${tr.sourceStage}：${sourceStageLabel}`}
+                        </span>
+                    ) : null}
                 </div>
                 <div className="mb-2 flex flex-wrap items-center gap-3 text-sm text-slate-500 dark:text-slate-400">
                     {candidate.years_of_experience && <span className="inline-flex items-center gap-1"><Briefcase className="h-3 w-3"/>{candidate.years_of_experience}</span>}
@@ -1028,11 +1046,6 @@ function CandidateCard({
                     {candidate.phone && <span className="inline-flex items-center gap-1"><Phone className="h-3 w-3"/>{candidate.phone}</span>}
                 </div>
                 {getDescription()}
-                {!isMatching ? (
-                    <div className="mt-2 text-[15px] text-slate-500 dark:text-slate-400">
-                        {`${tr.sourceStage}：${sourceStageLabel}`}
-                    </div>
-                ) : null}
                 {isMatching ? (
                     <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2 text-sm text-slate-500 dark:border-slate-800 dark:bg-slate-900/30 dark:text-slate-400">
                         <div className="flex items-center gap-1.5">
@@ -1069,34 +1082,46 @@ function CandidateCard({
                     </div>
                 ) : null}
             </div>
-            <div className="flex flex-shrink-0 items-center gap-1.5">
-                {hasAIMatch && onConfirmMatch && (
-                    <Button size="sm" variant="outline" className="h-8 rounded-md border-sky-300 px-3 text-sm text-sky-700 hover:bg-sky-50 dark:border-sky-700 dark:text-sky-300 dark:hover:bg-sky-900/30" onClick={onConfirmMatch}>
-                        <Check className="mr-1 h-3 w-3"/>{tr.confirmMatch}
+            <div className="flex flex-shrink-0 self-stretch flex-col items-end justify-between gap-2">
+                <div className="flex flex-wrap items-center justify-end gap-1.5">
+                    {hasAIMatch && onConfirmMatch && (
+                        <Button size="sm" variant="outline" className="h-8 rounded-md border-sky-300 px-3 text-sm text-sky-700 hover:bg-sky-50 dark:border-sky-700 dark:text-sky-300 dark:hover:bg-sky-900/30" onClick={onConfirmMatch}>
+                            <Check className="mr-1 h-3 w-3"/>{tr.confirmMatch}
+                        </Button>
+                    )}
+                    {hasAIMatch && onChangePosition && (
+                        <Button size="sm" variant="outline" className="h-8 rounded-md px-3 text-sm" onClick={onChangePosition}>{tr.changePosition}</Button>
+                    )}
+                    {onReIdentify && !isMatching && (
+                        <Button size="sm" variant="outline" className="h-8 rounded-md px-3 text-sm" onClick={onReIdentify} disabled={reIdentifying}>
+                            {reIdentifying ? <Loader2 className="mr-1 h-3 w-3 animate-spin"/> : <RefreshCw className="mr-1 h-3 w-3"/>}
+                            {reIdentifying ? tr.reIdentifying : tr.reIdentify}
+                        </Button>
+                    )}
+                    {onManualAssign && (
+                        <Button size="sm" variant="outline" className="h-8 rounded-md border-sky-300 px-3 text-sm text-sky-700 hover:bg-sky-50 dark:border-sky-700 dark:text-sky-300 dark:hover:bg-sky-900/30" onClick={onManualAssign}>
+                            <Briefcase className="mr-1 h-3 w-3"/>{tr.manualAssign}
+                        </Button>
+                    )}
+                    {isMatching && onCancelMatch && (
+                        <Button size="sm" variant="outline" className="h-8 rounded-md border-rose-300 px-3 text-sm text-rose-600 hover:bg-rose-50 dark:border-rose-700 dark:text-rose-400 dark:hover:bg-rose-900/30" onClick={onCancelMatch}>
+                            <Square className="mr-1 h-3 w-3"/>{tr.stopMatch}
+                        </Button>
+                    )}
+                    <Button size="sm" variant="outline" className="h-8 rounded-md px-3 text-sm" onClick={onView}>
+                        <Eye className="mr-1 h-3 w-3"/>{tr.view}
                     </Button>
-                )}
-                {hasAIMatch && onChangePosition && (
-                    <Button size="sm" variant="outline" className="h-8 rounded-md px-3 text-sm" onClick={onChangePosition}>{tr.changePosition}</Button>
-                )}
-                {onReIdentify && !isMatching && (
-                    <Button size="sm" variant="outline" className="h-8 rounded-md px-3 text-sm" onClick={onReIdentify} disabled={reIdentifying}>
-                        {reIdentifying ? <Loader2 className="mr-1 h-3 w-3 animate-spin"/> : <RefreshCw className="mr-1 h-3 w-3"/>}
-                        {reIdentifying ? tr.reIdentifying : tr.reIdentify}
-                    </Button>
-                )}
-                {onManualAssign && (
-                    <Button size="sm" variant="outline" className="h-8 rounded-md border-sky-300 px-3 text-sm text-sky-700 hover:bg-sky-50 dark:border-sky-700 dark:text-sky-300 dark:hover:bg-sky-900/30" onClick={onManualAssign}>
-                        <Briefcase className="mr-1 h-3 w-3"/>{tr.manualAssign}
-                    </Button>
-                )}
-                {isMatching && onCancelMatch && (
-                    <Button size="sm" variant="outline" className="h-8 rounded-md border-rose-300 px-3 text-sm text-rose-600 hover:bg-rose-50 dark:border-rose-700 dark:text-rose-400 dark:hover:bg-rose-900/30" onClick={onCancelMatch}>
-                        <Square className="mr-1 h-3 w-3"/>{tr.stopMatch}
-                    </Button>
-                )}
-                <Button size="sm" variant="outline" className="h-8 rounded-md px-3 text-sm" onClick={onView}>
-                    <Eye className="mr-1 h-3 w-3"/>{tr.view}
-                </Button>
+                </div>
+                {enteredAt ? (
+                    <div
+                        className="inline-flex items-center gap-1 rounded-full bg-slate-50 px-2.5 py-1 text-xs text-slate-500 dark:bg-slate-800/70 dark:text-slate-400"
+                        title={`${enteredAtLabel} ${formatDateTime(enteredAt)}`}
+                    >
+                        <Clock3 className="h-3 w-3"/>
+                        <span>{enteredAtLabel}</span>
+                        <span className="font-medium tabular-nums text-slate-700 dark:text-slate-200">{formatDateTime(enteredAt)}</span>
+                    </div>
+                ) : null}
             </div>
         </div>
     );

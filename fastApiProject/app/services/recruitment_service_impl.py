@@ -12055,7 +12055,12 @@ class RecruitmentService:
             RecruitmentCandidate.status.in_(["matching", "unmatched", "talent_pool"])
         )
 
-        candidates = query.order_by(RecruitmentCandidate.created_at.desc()).all()
+        # 人才库列表以“进入人才库时间”为准；旧数据没有入库时间时回退到上传时间。
+        talent_pool_entered_at = func.coalesce(
+            RecruitmentCandidate.talent_pool_moved_at,
+            RecruitmentCandidate.created_at,
+        )
+        candidates = query.order_by(talent_pool_entered_at.desc(), RecruitmentCandidate.id.desc()).all()
         if not candidates:
             return []
 
