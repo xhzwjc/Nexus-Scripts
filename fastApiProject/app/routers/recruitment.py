@@ -554,12 +554,30 @@ async def get_pending_match_candidates(
 @recruitment_router.get("/candidates/talent-pool")
 async def get_talent_pool_candidates(
     org_code: Optional[str] = Query(None),
+    paginated: bool = Query(False),
+    limit: int = Query(25),
+    offset: int = Query(0),
+    stat_filter: Optional[str] = Query(None),
+    query: Optional[str] = Query(None),
+    source: Optional[str] = Query(None),
+    tag: Optional[str] = Query(None),
+    sort_by: Optional[str] = Query(None),
     _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-candidate-manage")),
     service: RecruitmentService = Depends(get_recruitment_service)
 ):
     """获取人才库候选人（无岗位或状态为talent_pool）"""
     try:
-        data = service.get_talent_pool_candidates(org_code)
+        data = service.get_talent_pool_candidates(
+            org_code,
+            paginated=paginated,
+            limit=limit,
+            offset=offset,
+            stat_filter=stat_filter,
+            query=query,
+            source=source,
+            tag=tag,
+            sort_by=sort_by,
+        )
         return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))

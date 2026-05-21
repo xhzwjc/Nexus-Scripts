@@ -12046,12 +12046,24 @@ class RecruitmentService:
         logger.info("[TALENT_POOL] Batch moved %d candidates to talent pool", len(candidates))
         return {"moved_count": len(candidates)}
 
-    def get_talent_pool_candidates(self, org_code: Optional[str] = None) -> List[Dict[str, Any]]:
+    def get_talent_pool_candidates(
+        self,
+        org_code: Optional[str] = None,
+        *,
+        paginated: bool = False,
+        limit: int = 0,
+        offset: int = 0,
+        stat_filter: Optional[str] = None,
+        query: Optional[str] = None,
+        source: Optional[str] = None,
+        tag: Optional[str] = None,
+        sort_by: Optional[str] = None,
+    ) -> Any:
         """获取人才库候选人（无岗位或状态为talent_pool）"""
         # 懒恢复：每次查询人才库时检查并恢复卡死的 matching 候选人
         self._recover_stuck_matching_candidates()
 
-        query = self._build_candidate_scoped_query(org_code).filter(
+        base_query = self._build_candidate_scoped_query(org_code).filter(
             RecruitmentCandidate.status.in_(["matching", "unmatched", "talent_pool"])
         )
 
@@ -12060,9 +12072,121 @@ class RecruitmentService:
             RecruitmentCandidate.talent_pool_moved_at,
             RecruitmentCandidate.created_at,
         )
-        candidates = query.order_by(talent_pool_entered_at.desc(), RecruitmentCandidate.id.desc()).all()
+
+        if not paginated:
+            candidates = base_query.order_by(talent_pool_entered_at.desc(), RecruitmentCandidate.id.desc()).all()
+            if not candidates:
+                return []
+
+            position_ids = {candidate.position_id for candidate in candidates if candidate.position_id}
+            position_map: Dict[int, RecruitmentPosition] = {}
+            if position_ids:
+                for position_row in self.db.query(RecruitmentPosition).filter(
+                    RecruitmentPosition.id.in_(position_ids),
+                    RecruitmentPosition.deleted.is_(False),
+                ).all():
+                    position_map[position_row.id] = position_row
+
+            ai_match_snapshot_map = self._build_candidate_ai_match_snapshot_map(candidates)
+            return [
+                self._serialize_talent_pool_item(
+                    candidate,
+                    _preloaded_position=position_map.get(candidate.position_id) if candidate.position_id else None,
+                    _preloaded_ai_match_snapshot=ai_match_snapshot_map.get(candidate.id),
+                )
+                for candidate in candidates
+            ]
+
+        def _count(builder) -> int:
+            try:
+                return int(builder.order_by(None).count())
+            except Exception:
+                return 0
+
+        now = datetime.now()
+        week_cutoff = now - timedelta(days=7)
+        aggregate_row = base_query.with_entities(
+            func.count(RecruitmentCandidate.id),
+            func.coalesce(func.sum(case((RecruitmentCandidate.status == "matching", 1), else_=0)), 0),
+            func.coalesce(func.sum(case((RecruitmentCandidate.talent_pool_reason == "unmatched_by_ai", 1), else_=0)), 0),
+            func.coalesce(func.sum(case((RecruitmentCandidate.talent_pool_reason == "ai_error", 1), else_=0)), 0),
+            func.coalesce(func.sum(case((talent_pool_entered_at >= week_cutoff, 1), else_=0)), 0),
+        ).order_by(None).one()
+        stats = {
+            "total": int(aggregate_row[0] or 0),
+            "matching": int(aggregate_row[1] or 0),
+            "no_system_position": int(aggregate_row[2] or 0),
+            "identify_error": int(aggregate_row[3] or 0),
+            "week_new": int(aggregate_row[4] or 0),
+        }
+        stats["pending_action"] = int(stats["no_system_position"]) + int(stats["identify_error"])
+
+        filtered_query = base_query
+        normalized_stat_filter = str(stat_filter or "all").strip().lower() or "all"
+        if normalized_stat_filter == "matching":
+            filtered_query = filtered_query.filter(RecruitmentCandidate.status == "matching")
+        elif normalized_stat_filter == "pending":
+            filtered_query = filtered_query.filter(RecruitmentCandidate.talent_pool_reason.in_(["unmatched_by_ai", "ai_error"]))
+        elif normalized_stat_filter == "no_match":
+            filtered_query = filtered_query.filter(RecruitmentCandidate.talent_pool_reason == "unmatched_by_ai")
+        elif normalized_stat_filter == "ai_error":
+            filtered_query = filtered_query.filter(RecruitmentCandidate.talent_pool_reason == "ai_error")
+        elif normalized_stat_filter == "week_new":
+            filtered_query = filtered_query.filter(talent_pool_entered_at >= week_cutoff)
+
+        keyword = str(query or "").strip()
+        if keyword:
+            like_value = f"%{keyword}%"
+            filtered_query = filtered_query.filter(or_(
+                RecruitmentCandidate.name.like(like_value),
+                RecruitmentCandidate.phone.like(like_value),
+                RecruitmentCandidate.email.like(like_value),
+                RecruitmentCandidate.current_company.like(like_value),
+                RecruitmentCandidate.ai_match_position_title.like(like_value),
+                RecruitmentCandidate.ai_potential_position.like(like_value),
+            ))
+
+        normalized_source = str(source or "").strip()
+        if normalized_source and normalized_source != "all":
+            filtered_query = filtered_query.filter(RecruitmentCandidate.source == normalized_source)
+
+        normalized_tag = str(tag or "").strip()
+        if normalized_tag and normalized_tag != "all":
+            if normalized_tag == "__none":
+                filtered_query = filtered_query.filter(or_(
+                    RecruitmentCandidate.ai_match_position_title.is_(None),
+                    RecruitmentCandidate.ai_match_position_title == "",
+                ))
+            else:
+                filtered_query = filtered_query.filter(RecruitmentCandidate.ai_match_position_title == normalized_tag)
+
+        total = _count(filtered_query)
+        normalized_sort_by = str(sort_by or "time").strip().lower()
+        if normalized_sort_by == "name":
+            filtered_query = filtered_query.order_by(RecruitmentCandidate.name.asc(), RecruitmentCandidate.id.desc())
+        elif normalized_sort_by == "name_desc":
+            filtered_query = filtered_query.order_by(RecruitmentCandidate.name.desc(), RecruitmentCandidate.id.desc())
+        else:
+            filtered_query = filtered_query.order_by(talent_pool_entered_at.desc(), RecruitmentCandidate.id.desc())
+
+        safe_limit = min(max(int(limit or 25), 1), 100)
+        safe_offset = max(int(offset or 0), 0)
+        candidates = filtered_query.limit(safe_limit).offset(safe_offset).all()
+
+        available_tags = [
+            str(row[0] or "").strip()
+            for row in base_query.with_entities(RecruitmentCandidate.ai_match_position_title)
+                .filter(RecruitmentCandidate.ai_match_position_title.isnot(None))
+                .filter(RecruitmentCandidate.ai_match_position_title != "")
+                .distinct()
+                .order_by(RecruitmentCandidate.ai_match_position_title.asc())
+                .limit(200)
+                .all()
+            if str(row[0] or "").strip()
+        ]
+
         if not candidates:
-            return []
+            return {"items": [], "total": total, "stats": stats, "available_tags": available_tags}
 
         position_ids = {candidate.position_id for candidate in candidates if candidate.position_id}
         position_map: Dict[int, RecruitmentPosition] = {}
@@ -12074,14 +12198,19 @@ class RecruitmentService:
                 position_map[position_row.id] = position_row
 
         ai_match_snapshot_map = self._build_candidate_ai_match_snapshot_map(candidates)
-        return [
-            self._serialize_talent_pool_item(
-                candidate,
-                _preloaded_position=position_map.get(candidate.position_id) if candidate.position_id else None,
-                _preloaded_ai_match_snapshot=ai_match_snapshot_map.get(candidate.id),
-            )
-            for candidate in candidates
-        ]
+        return {
+            "items": [
+                self._serialize_talent_pool_item(
+                    candidate,
+                    _preloaded_position=position_map.get(candidate.position_id) if candidate.position_id else None,
+                    _preloaded_ai_match_snapshot=ai_match_snapshot_map.get(candidate.id),
+                )
+                for candidate in candidates
+            ],
+            "total": total,
+            "stats": stats,
+            "available_tags": available_tags,
+        }
 
     def batch_assign_position_with_status(self, candidate_ids: List[int], position_id: Optional[int], actor_id: str, update_status: bool = True) -> Dict[str, Any]:
         """批量分配岗位并更新状态"""

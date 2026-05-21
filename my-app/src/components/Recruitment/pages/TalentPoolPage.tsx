@@ -59,6 +59,7 @@ function getTalentPoolLocale(language = getCurrentLanguage()) {
         clearStatFilter: isZh ? "再次点击指标可恢复全部" : "Click the metric again to show all",
         statSelectHint: isZh ? "点击指标筛选列表，选中后再次点击恢复全部" : "Click a metric to filter; click it again to show all",
         statFiltering: isZh ? "筛选中" : "Filtering",
+        updatingList: isZh ? "正在更新列表" : "Updating list",
         searchPlaceholder: isZh ? "搜索候选人姓名、技能…" : "Search candidates by name, skills...",
         allSources: isZh ? "全部来源" : "All Sources",
         allTags: isZh ? "全部标签" : "All Tags",
@@ -110,6 +111,11 @@ function getTalentPoolLocale(language = getCurrentLanguage()) {
         noCandidatesDesc: isZh ? '上传简历时选择「暂不选择岗位」或「AI智能匹配」，未匹配的候选人将出现在这里' : 'Candidates will appear here when uploaded with "No Position" or "AI Smart Match" mode',
         noFilteredCandidates: isZh ? "当前指标下暂无候选人" : "No candidates for this metric",
         noFilteredCandidatesDesc: isZh ? "再次点击上方指标可恢复全部人才库" : "Click the selected metric again to show all candidates",
+        currentView: isZh ? "当前工作列表" : "Current Worklist",
+        visibleResultCount: (shown: number, total: number) => isZh ? `已显示 ${shown} / ${total} 人` : `${shown} / ${total} shown`,
+        selectAllVisible: isZh ? "全选当前列表" : "Select visible",
+        loadMore: isZh ? "加载更多" : "Load more",
+        loadingMore: isZh ? "加载中…" : "Loading...",
         manualUpload: isZh ? "手动上传" : "Manual",
         bossZhipin: isZh ? "Boss直聘" : "Boss",
         liepin: isZh ? "猎聘" : "Liepin",
@@ -153,6 +159,12 @@ type TalentPoolPageProps = {
     onReIdentify?: (candidateId: number) => Promise<void>;
     onBatchReIdentify?: (candidateIds: number[]) => Promise<void>;
     onCancelMatch?: (candidateId: number) => Promise<void>;
+    total?: number;
+    stats?: TalentPoolStats | null;
+    availableTags?: string[];
+    onQueryChange?: (query: TalentPoolQuery) => void | Promise<void>;
+    onLoadMore?: () => void | Promise<void>;
+    loadingMore?: boolean;
     panelClass?: string;
 };
 
@@ -193,6 +205,22 @@ function sourceLabel(source: string | null | undefined, tr: ReturnType<typeof ge
 }
 
 type TalentPoolStatFilter = "all" | "matching" | "pending" | "no_match" | "ai_error" | "week_new";
+type TalentPoolStats = {
+    total: number;
+    matching: number;
+    pending_action: number;
+    no_system_position: number;
+    identify_error: number;
+    week_new: number;
+};
+type TalentPoolQuery = {
+    statFilter: TalentPoolStatFilter;
+    searchQuery: string;
+    sourceFilter: string;
+    tagFilter: string;
+    sortBy: "time" | "name" | "name_desc";
+    offset?: number;
+};
 
 function isTalentPoolMatching(candidate: CandidateSummary) {
     return String(candidate.status || "").trim().toLowerCase() === "matching";
@@ -234,23 +262,6 @@ function matchesTalentPoolStatFilter(candidate: CandidateSummary, filter: Talent
     return true;
 }
 
-function groupCandidatesByAIMatch(candidates: CandidateSummary[]) {
-    const matchingGroup: CandidateSummary[] = [];
-    const pendingGroup: CandidateSummary[] = [];
-    const archivedGroup: CandidateSummary[] = [];
-    for (const candidate of candidates) {
-        if (candidate.status === "matching") {
-            matchingGroup.push(candidate);
-        } else if (candidate.talent_pool_reason === "unmatched_by_ai" || candidate.talent_pool_reason === "ai_error") {
-            pendingGroup.push(candidate);
-        } else {
-            // auto_archived, moved_by_hr, 或无 reason 的旧数据（status=talent_pool）
-            archivedGroup.push(candidate);
-        }
-    }
-    return { pendingGroup, archivedGroup, matchingGroup };
-}
-
 const STATUS_LABEL_MAP: Record<string, string> = {
     pending_screening: "待初筛",
     screening_running: "初筛中",
@@ -284,6 +295,12 @@ export function TalentPoolPage({
     onReIdentify,
     onBatchReIdentify,
     onCancelMatch,
+    total,
+    stats: serverStats,
+    availableTags: serverAvailableTags,
+    onQueryChange,
+    onLoadMore,
+    loadingMore,
 }: TalentPoolPageProps) {
     const {language} = useI18n();
     const tr = React.useMemo(() => getTalentPoolLocale(language), [language]);
@@ -297,7 +314,11 @@ export function TalentPoolPage({
     const [activeStatFilter, setActiveStatFilter] = React.useState<TalentPoolStatFilter>("all");
     const [statFilterPending, setStatFilterPending] = React.useState(false);
     const [selectedIds, setSelectedIds] = React.useState<Set<number>>(new Set());
+    const [initialLoadComplete, setInitialLoadComplete] = React.useState(candidates.length > 0);
     const statFilterTimerRef = React.useRef<number | null>(null);
+    const queryChangeInitializedRef = React.useRef(false);
+    const onQueryChangeRef = React.useRef(onQueryChange);
+    const hasSeenInitialLoadingRef = React.useRef(false);
 
     /* ── 弹窗状态 ── */
     const [assignDialogOpen, setAssignDialogOpen] = React.useState(false);
@@ -319,24 +340,32 @@ export function TalentPoolPage({
 
     /* ── 统计 ── */
     const recentCutoffMs = React.useMemo(() => Date.now() - 7 * 24 * 60 * 60 * 1000, [candidates]);
-    const stats = React.useMemo(() => {
+    const localStats = React.useMemo(() => {
         const total = candidates.length;
         const matching = candidates.filter(isTalentPoolMatching).length;
         const noSystemPosition = candidates.filter(isNoSystemPositionCandidate).length;
         const identifyError = candidates.filter(isIdentifyErrorCandidate).length;
         const pendingAction = noSystemPosition + identifyError;
         const weekNew = candidates.filter(c => isRecentTalentPoolCandidate(c, recentCutoffMs)).length;
-        return { total, matching, pendingAction, noSystemPosition, identifyError, weekNew };
+        return {
+            total,
+            matching,
+            pending_action: pendingAction,
+            no_system_position: noSystemPosition,
+            identify_error: identifyError,
+            week_new: weekNew,
+        };
     }, [candidates, recentCutoffMs]);
+    const stats = serverStats || localStats;
 
     const statCards = React.useMemo(() => ([
         { filter: "all" as const, label: tr.totalCandidates, value: stats.total, hint: tr.totalHint, tone: "slate" as const },
         { filter: "matching" as const, label: tr.matchingStat, value: stats.matching, hint: tr.matchingStatHint, tone: "sky" as const },
-        { filter: "pending" as const, label: tr.pendingAction, value: stats.pendingAction, hint: tr.pendingActionHint, tone: "amber" as const },
-        { filter: "no_match" as const, label: tr.noSystemPosition, value: stats.noSystemPosition, hint: tr.noSystemPositionHint, tone: "orange" as const },
-        { filter: "ai_error" as const, label: tr.identifyError, value: stats.identifyError, hint: tr.identifyErrorHint, tone: "rose" as const },
-        { filter: "week_new" as const, label: tr.newThisWeek, value: stats.weekNew, hint: tr.newThisWeekHint, tone: "emerald" as const },
-    ]), [stats.identifyError, stats.matching, stats.noSystemPosition, stats.pendingAction, stats.total, stats.weekNew, tr]);
+        { filter: "pending" as const, label: tr.pendingAction, value: stats.pending_action, hint: tr.pendingActionHint, tone: "amber" as const },
+        { filter: "no_match" as const, label: tr.noSystemPosition, value: stats.no_system_position, hint: tr.noSystemPositionHint, tone: "orange" as const },
+        { filter: "ai_error" as const, label: tr.identifyError, value: stats.identify_error, hint: tr.identifyErrorHint, tone: "rose" as const },
+        { filter: "week_new" as const, label: tr.newThisWeek, value: stats.week_new, hint: tr.newThisWeekHint, tone: "emerald" as const },
+    ]), [stats.identify_error, stats.matching, stats.no_system_position, stats.pending_action, stats.total, stats.week_new, tr]);
 
     const activeStatCard = React.useMemo(
         () => statCards.find((card) => card.filter === activeStatFilter) || statCards[0],
@@ -360,16 +389,59 @@ export function TalentPoolPage({
     }, [activeStatFilter]);
 
     const availableTags = React.useMemo(() => {
+        if (serverAvailableTags?.length) {
+            return serverAvailableTags;
+        }
         const tags = new Set<string>();
         for (const c of candidates) if (c.ai_match_position_title) tags.add(c.ai_match_position_title);
         return Array.from(tags).sort();
-    }, [candidates]);
+    }, [candidates, serverAvailableTags]);
 
     React.useEffect(() => () => {
         if (statFilterTimerRef.current) {
             window.clearTimeout(statFilterTimerRef.current);
         }
     }, []);
+
+    React.useEffect(() => {
+        onQueryChangeRef.current = onQueryChange;
+    }, [onQueryChange]);
+
+    React.useEffect(() => {
+        if (candidates.length > 0 && !initialLoadComplete) {
+            setInitialLoadComplete(true);
+            return;
+        }
+        if (loading) {
+            hasSeenInitialLoadingRef.current = true;
+            return;
+        }
+        if (hasSeenInitialLoadingRef.current && !initialLoadComplete) {
+            setInitialLoadComplete(true);
+        }
+    }, [candidates.length, initialLoadComplete, loading]);
+
+    React.useEffect(() => {
+        const queryHandler = onQueryChangeRef.current;
+        if (!queryHandler) {
+            return undefined;
+        }
+        if (!queryChangeInitializedRef.current) {
+            queryChangeInitializedRef.current = true;
+            return undefined;
+        }
+        const timer = window.setTimeout(() => {
+            void queryHandler({
+                statFilter: activeStatFilter,
+                searchQuery,
+                sourceFilter,
+                tagFilter,
+                sortBy,
+                offset: 0,
+            });
+        }, searchQuery.trim() ? 220 : 0);
+        return () => window.clearTimeout(timer);
+    }, [activeStatFilter, searchQuery, sourceFilter, tagFilter, sortBy]);
 
     /* ── 过滤 + 排序 ── */
     const filteredCandidates = React.useMemo(() => {
@@ -398,10 +470,6 @@ export function TalentPoolPage({
         return result;
     }, [activeStatFilter, candidates, recentCutoffMs, searchQuery, sourceFilter, tagFilter, sortBy]);
 
-    const { pendingGroup, archivedGroup, matchingGroup } = React.useMemo(
-        () => groupCandidatesByAIMatch(filteredCandidates),
-        [filteredCandidates]
-    );
     const selectedReidentifiableCount = React.useMemo(() => (
         Array.from(selectedIds).filter((candidateId) => {
             const candidate = candidates.find((item) => item.id === candidateId);
@@ -545,7 +613,10 @@ export function TalentPoolPage({
         }
     }, [onDeleteCandidates, selectedIds]);
 
-    if (loading) {
+    const showInitialPageLoading = loading && candidates.length === 0 && !initialLoadComplete;
+    const showInlineUpdating = loading && !showInitialPageLoading;
+
+    if (showInitialPageLoading) {
         return (
             <div className="flex h-full items-center justify-center">
                 <Loader2 className="h-6 w-6 animate-spin text-slate-400"/>
@@ -687,114 +758,95 @@ export function TalentPoolPage({
                 )}
 
                 {/* 候选人列表 */}
+                {showInlineUpdating ? (
+                    <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-sky-100 bg-white/80 px-3 py-1.5 text-sm text-sky-600 shadow-sm backdrop-blur-xl dark:border-sky-900 dark:bg-slate-950/75 dark:text-sky-300">
+                        <span className="relative flex h-3 w-3">
+                            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-sky-400 opacity-60"/>
+                            <span className="relative inline-flex h-3 w-3 rounded-full bg-sky-500"/>
+                        </span>
+                        {tr.updatingList}
+                    </div>
+                ) : null}
                 {filteredCandidates.length === 0 ? (
                     <div className="flex flex-1 items-center justify-center">
-                        <div className="text-center">
-                            <Users className="mx-auto h-12 w-12 text-slate-300 dark:text-slate-600"/>
-                            <h3 className="mt-2 text-base font-medium text-slate-900 dark:text-slate-100">
-                                {activeStatFilter === "all" ? tr.noCandidates : tr.noFilteredCandidates}
-                            </h3>
-                            <p className="mt-1 text-base text-slate-500 dark:text-slate-400">
-                                {activeStatFilter === "all" ? tr.noCandidatesDesc : tr.noFilteredCandidatesDesc}
-                            </p>
-                        </div>
+                        {showInlineUpdating ? (
+                            <div className="flex flex-col items-center rounded-3xl border border-sky-100 bg-white/75 px-8 py-7 text-center shadow-[0_18px_48px_-34px_rgba(14,165,233,0.45)] backdrop-blur-2xl dark:border-sky-900 dark:bg-slate-950/70">
+                                <span className="relative flex h-8 w-8">
+                                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-sky-400 opacity-35"/>
+                                    <span className="relative inline-flex h-8 w-8 items-center justify-center rounded-full bg-sky-500 text-white shadow-[0_16px_36px_-20px_rgba(14,165,233,0.9)]">
+                                        <Loader2 className="h-4 w-4 animate-spin"/>
+                                    </span>
+                                </span>
+                                <span className="mt-3 text-base font-medium text-slate-700 dark:text-slate-200">{tr.updatingList}</span>
+                            </div>
+                        ) : (
+                            <div className="text-center">
+                                <Users className="mx-auto h-12 w-12 text-slate-300 dark:text-slate-600"/>
+                                <h3 className="mt-2 text-base font-medium text-slate-900 dark:text-slate-100">
+                                    {activeStatFilter === "all" ? tr.noCandidates : tr.noFilteredCandidates}
+                                </h3>
+                                <p className="mt-1 text-base text-slate-500 dark:text-slate-400">
+                                    {activeStatFilter === "all" ? tr.noCandidatesDesc : tr.noFilteredCandidatesDesc}
+                                </p>
+                            </div>
+                        )}
                     </div>
                 ) : (
-                    <div className={cn("flex-1 space-y-5 transition duration-200 ease-out", statFilterPending && "scale-[0.998] opacity-70")}>
-                        {/* 匹配中 loading 组 */}
-                        {matchingGroup.length > 0 && (
-                            <div>
-                                <div className="mb-2.5 flex items-center gap-2 text-[17px] font-medium text-slate-500 dark:text-slate-400">
-                                    <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400"/>
-                                    <span>{tr.aiMatchingGroup}</span>
-                                    <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[15px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">{tr.candidatesCount(matchingGroup.length)}</span>
-                                </div>
-                                <div className="flex flex-col gap-2">
-                                    {matchingGroup.map(candidate => (
-                                        <CandidateCard
-                                            key={candidate.id}
-                                            candidate={candidate}
-                                            selected={selectedIds.has(candidate.id)}
-                                            reIdentifying={false}
-                                            reIdentifyFailed={false}
-                                            onToggleSelect={() => toggleSelect(candidate.id)}
-                                            onCancelMatch={onCancelMatch ? () => onCancelMatch(candidate.id) : undefined}
-                                            onView={() => onViewCandidate(candidate.id)}
-                                            tr={tr}
-                                            language={language}
-                                            isMatching={true}
-                                        />
-                                    ))}
-                                </div>
+                    <div className={cn("flex-1 transition duration-200 ease-out", statFilterPending && "scale-[0.998] opacity-70")}>
+                        <div className="mb-2.5 flex items-center justify-between">
+                            <div className="flex items-center gap-2 text-[17px] font-medium text-slate-500 dark:text-slate-400">
+                                <span>{tr.currentView}</span>
+                                <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[15px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                                    {tr.visibleResultCount(filteredCandidates.length, total ?? filteredCandidates.length)}
+                                </span>
                             </div>
-                        )}
-
-                        {/* 待处理分组 */}
-                        {pendingGroup.length > 0 && (
-                            <div>
-                                <div className="mb-2.5 flex items-center justify-between">
-                                    <div className="flex items-center gap-2 text-[17px] font-medium text-slate-500 dark:text-slate-400">
-                                        <span>{tr.pendingGroup}</span>
-                                        <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[15px] font-medium text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">{tr.candidatesCount(pendingGroup.length)}</span>
-                                    </div>
-                                    <label className="flex cursor-pointer items-center gap-1.5 text-sm text-slate-500 dark:text-slate-400">
-                                        <input type="checkbox" className="h-3.5 w-3.5 accent-sky-600" checked={pendingGroup.every(c => selectedIds.has(c.id))} onChange={() => selectGroup(pendingGroup.map(c => c.id))}/>
-                                        {tr.selectAllGroup}
-                                    </label>
-                                </div>
-                                <div className="flex flex-col gap-2">
-                                    {pendingGroup.map(candidate => (
-                                        <CandidateCard
-                                            key={candidate.id}
-                                            candidate={candidate}
-                                            selected={selectedIds.has(candidate.id)}
-                                            reIdentifying={reIdentifyingIds.has(candidate.id)}
-                                            reIdentifyFailed={reIdentifyFailedIds.has(candidate.id)}
-                                            onToggleSelect={() => toggleSelect(candidate.id)}
-                                            onReIdentify={isTalentPoolReidentifiable(candidate) ? () => handleReIdentify(candidate.id) : undefined}
-                                            onManualAssign={() => openSingleAssign(candidate.id)}
-                                            onView={() => onViewCandidate(candidate.id)}
-                                            tr={tr}
-                                            language={language}
-                                        />
-                                    ))}
-                                </div>
+                            <label className="flex cursor-pointer items-center gap-1.5 text-sm text-slate-500 dark:text-slate-400">
+                                <input
+                                    type="checkbox"
+                                    className="h-3.5 w-3.5 accent-sky-600"
+                                    checked={filteredCandidates.length > 0 && filteredCandidates.every(c => selectedIds.has(c.id))}
+                                    onChange={() => selectGroup(filteredCandidates.map(c => c.id))}
+                                />
+                                {tr.selectAllVisible}
+                            </label>
+                        </div>
+                        <div className="flex flex-col gap-2">
+                            {filteredCandidates.map(candidate => {
+                                const matching = isTalentPoolMatching(candidate);
+                                const archived = !matching && !isPendingActionCandidate(candidate);
+                                return (
+                                    <CandidateCard
+                                        key={candidate.id}
+                                        candidate={candidate}
+                                        selected={selectedIds.has(candidate.id)}
+                                        reIdentifying={reIdentifyingIds.has(candidate.id)}
+                                        reIdentifyFailed={reIdentifyFailedIds.has(candidate.id)}
+                                        onToggleSelect={() => toggleSelect(candidate.id)}
+                                        onCancelMatch={matching && onCancelMatch ? () => onCancelMatch(candidate.id) : undefined}
+                                        onReIdentify={!matching && isTalentPoolReidentifiable(candidate) ? () => handleReIdentify(candidate.id) : undefined}
+                                        onManualAssign={!matching ? () => openSingleAssign(candidate.id) : undefined}
+                                        onView={() => onViewCandidate(candidate.id)}
+                                        tr={tr}
+                                        language={language}
+                                        isMatching={matching}
+                                        isArchived={archived}
+                                    />
+                                );
+                            })}
+                        </div>
+                        {onLoadMore && filteredCandidates.length < (total ?? filteredCandidates.length) ? (
+                            <div className="flex justify-center pt-5">
+                                <Button
+                                    variant="outline"
+                                    className="rounded-full px-5"
+                                    disabled={loadingMore}
+                                    onClick={() => void onLoadMore()}
+                                >
+                                    {loadingMore ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin"/> : null}
+                                    {loadingMore ? tr.loadingMore : tr.loadMore}
+                                </Button>
                             </div>
-                        )}
-
-                        {/* 归档分组 */}
-                        {archivedGroup.length > 0 && (
-                            <div>
-                                {pendingGroup.length > 0 && <div className="my-5 h-px bg-slate-200 dark:bg-slate-800"/>}
-                                <div className="mb-2.5 flex items-center justify-between">
-                                    <div className="flex items-center gap-2 text-[17px] font-medium text-slate-500 dark:text-slate-400">
-                                        <span>{tr.archivedGroup}</span>
-                                        <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[15px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">{tr.candidatesCount(archivedGroup.length)}</span>
-                                    </div>
-                                    <label className="flex cursor-pointer items-center gap-1.5 text-sm text-slate-500 dark:text-slate-400">
-                                        <input type="checkbox" className="h-3.5 w-3.5 accent-sky-600" checked={archivedGroup.every(c => selectedIds.has(c.id))} onChange={() => selectGroup(archivedGroup.map(c => c.id))}/>
-                                        {tr.selectAllGroup}
-                                    </label>
-                                </div>
-                                <div className="flex flex-col gap-2">
-                                    {archivedGroup.map(candidate => (
-                                        <CandidateCard
-                                            key={candidate.id}
-                                            candidate={candidate}
-                                            selected={selectedIds.has(candidate.id)}
-                                            reIdentifying={false}
-                                            reIdentifyFailed={false}
-                                            onToggleSelect={() => toggleSelect(candidate.id)}
-                                            onManualAssign={() => openSingleAssign(candidate.id)}
-                                            onView={() => onViewCandidate(candidate.id)}
-                                            tr={tr}
-                                            language={language}
-                                            isArchived={true}
-                                        />
-                                    ))}
-                                </div>
-                            </div>
-                        )}
+                        ) : null}
                     </div>
                 )}
             </div>
@@ -888,6 +940,30 @@ function StatCard({
         rose: "from-rose-500/18 via-rose-50/90 to-white dark:from-rose-500/20 dark:via-slate-900/85 dark:to-slate-950",
         emerald: "from-emerald-500/18 via-emerald-50/90 to-white dark:from-emerald-500/20 dark:via-slate-900/85 dark:to-slate-950",
     };
+    const activeToneClasses: Record<typeof tone, string> = {
+        slate: "border-slate-700/80 from-slate-700/24 via-slate-100 to-white ring-2 ring-slate-500/25 shadow-[0_22px_62px_-28px_rgba(15,23,42,0.86)] dark:border-slate-300/80 dark:from-slate-300/16 dark:ring-slate-300/20",
+        sky: "border-sky-500 from-sky-500/30 via-sky-100 to-white ring-2 ring-sky-300/60 shadow-[0_22px_62px_-26px_rgba(2,132,199,0.78)] dark:border-sky-400 dark:from-sky-400/18 dark:ring-sky-400/30",
+        amber: "border-amber-500 from-amber-500/34 via-amber-100 to-white ring-2 ring-amber-300/65 shadow-[0_22px_62px_-26px_rgba(217,119,6,0.76)] dark:border-amber-400 dark:from-amber-400/18 dark:ring-amber-400/30",
+        orange: "border-orange-500 from-orange-500/34 via-orange-100 to-white ring-2 ring-orange-300/65 shadow-[0_22px_62px_-26px_rgba(234,88,12,0.76)] dark:border-orange-400 dark:from-orange-400/18 dark:ring-orange-400/30",
+        rose: "border-rose-500 from-rose-500/30 via-rose-100 to-white ring-2 ring-rose-300/60 shadow-[0_22px_62px_-26px_rgba(225,29,72,0.74)] dark:border-rose-400 dark:from-rose-400/18 dark:ring-rose-400/30",
+        emerald: "border-emerald-500 from-emerald-500/30 via-emerald-100 to-white ring-2 ring-emerald-300/60 shadow-[0_22px_62px_-26px_rgba(5,150,105,0.74)] dark:border-emerald-400 dark:from-emerald-400/18 dark:ring-emerald-400/30",
+    };
+    const accentTextClasses: Record<typeof tone, string> = {
+        slate: "text-slate-800 dark:text-slate-100",
+        sky: "text-sky-700 dark:text-sky-200",
+        amber: "text-amber-800 dark:text-amber-200",
+        orange: "text-orange-800 dark:text-orange-200",
+        rose: "text-rose-700 dark:text-rose-200",
+        emerald: "text-emerald-700 dark:text-emerald-200",
+    };
+    const accentFillClasses: Record<typeof tone, string> = {
+        slate: "bg-slate-700 text-white dark:bg-slate-200 dark:text-slate-950",
+        sky: "bg-sky-500 text-white dark:bg-sky-400 dark:text-slate-950",
+        amber: "bg-amber-500 text-white dark:bg-amber-300 dark:text-amber-950",
+        orange: "bg-orange-500 text-white dark:bg-orange-300 dark:text-orange-950",
+        rose: "bg-rose-500 text-white dark:bg-rose-400 dark:text-rose-950",
+        emerald: "bg-emerald-500 text-white dark:bg-emerald-300 dark:text-emerald-950",
+    };
     return (
         <button
             type="button"
@@ -898,10 +974,14 @@ function StatCard({
                 "bg-gradient-to-br shadow-[0_14px_42px_-30px_rgba(15,23,42,0.55)] hover:-translate-y-0.5 hover:shadow-[0_20px_54px_-34px_rgba(15,23,42,0.7)]",
                 toneClasses[tone],
                 active
-                    ? "border-sky-300 ring-1 ring-sky-200/80 dark:border-sky-700 dark:ring-sky-800/70"
+                    ? cn("-translate-y-0.5", activeToneClasses[tone])
                     : "border-white/70 dark:border-slate-800/80",
             )}
         >
+            <span className={cn(
+                "pointer-events-none absolute inset-y-3 left-0 w-1 rounded-r-full transition-opacity",
+                active ? accentFillClasses[tone] : "bg-transparent opacity-0",
+            )}/>
             <span className={cn(
                 "pointer-events-none absolute inset-x-4 top-2 h-px rounded-full bg-gradient-to-r from-transparent via-white/90 to-transparent transition-opacity",
                 active ? "opacity-100" : "opacity-50 group-hover:opacity-90",
@@ -910,14 +990,31 @@ function StatCard({
                 "pointer-events-none absolute -right-8 -top-10 h-24 w-24 rounded-full blur-2xl transition-opacity",
                 active ? "bg-sky-300/35 opacity-100 dark:bg-sky-500/20" : "bg-white/55 opacity-0 group-hover:opacity-80 dark:bg-white/10",
             )}/>
+            {active ? (
+                <span className={cn(
+                    "pointer-events-none absolute right-3 top-3 inline-flex h-5 w-5 items-center justify-center rounded-full shadow-[0_8px_18px_-10px_rgba(15,23,42,0.9)]",
+                    accentFillClasses[tone],
+                )}>
+                    <Check className="h-3.5 w-3.5"/>
+                </span>
+            ) : null}
             {loading ? (
                 <span className="pointer-events-none absolute inset-x-0 bottom-0 h-0.5 overflow-hidden bg-slate-200/70 dark:bg-slate-700/70">
                     <span className="block h-full w-1/2 animate-pulse rounded-full bg-sky-400 shadow-[0_0_18px_rgba(56,189,248,0.8)]"/>
                 </span>
             ) : null}
-            <span className="relative block text-sm font-medium text-slate-500 dark:text-slate-400">{label}</span>
-            <span className="relative mt-1.5 block text-[26px] font-semibold leading-none tabular-nums text-slate-950 transition-transform duration-300 group-hover:translate-x-0.5 dark:text-slate-50">{value}</span>
-            <span className="relative mt-1.5 block text-[15px] text-slate-400 dark:text-slate-500">{hint}</span>
+            <span className={cn(
+                "relative block pr-7 text-sm font-medium transition-colors",
+                active ? accentTextClasses[tone] : "text-slate-500 dark:text-slate-400",
+            )}>{label}</span>
+            <span className={cn(
+                "relative mt-1.5 block text-[26px] font-semibold leading-none tabular-nums text-slate-950 transition-all duration-300 group-hover:translate-x-0.5 dark:text-slate-50",
+                active && cn("font-bold", accentTextClasses[tone]),
+            )}>{value}</span>
+            <span className={cn(
+                "relative mt-1.5 block text-[15px] transition-colors",
+                active ? "font-medium text-slate-600 dark:text-slate-300" : "text-slate-400 dark:text-slate-500",
+            )}>{hint}</span>
         </button>
     );
 }

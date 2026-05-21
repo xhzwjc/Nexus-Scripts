@@ -326,11 +326,43 @@ type PositionSkillBindingField = "jdSkillIds" | "screeningSkillIds" | "interview
 type PositionSkillSectionExpandedState = Record<PositionSkillBindingField, boolean>;
 type PositionAssessmentDraft = Record<PositionSkillBindingField, number[]>;
 type SkillAutoBindDestination = "positionForm" | "assessmentDraft";
+type TalentPoolStatFilter = "all" | "matching" | "pending" | "no_match" | "ai_error" | "week_new";
+type TalentPoolQueryState = {
+    statFilter: TalentPoolStatFilter;
+    searchQuery: string;
+    sourceFilter: string;
+    tagFilter: string;
+    sortBy: "time" | "name" | "name_desc";
+    offset: number;
+};
+type TalentPoolStats = {
+    total: number;
+    matching: number;
+    pending_action: number;
+    no_system_position: number;
+    identify_error: number;
+    week_new: number;
+};
+type TalentPoolListResponse = {
+    items: CandidateSummary[];
+    total: number;
+    stats: TalentPoolStats;
+    available_tags?: string[];
+};
 
 const DEFAULT_POSITION_SKILL_SECTION_EXPANDED_STATE: PositionSkillSectionExpandedState = {
     jdSkillIds: false,
     screeningSkillIds: false,
     interviewSkillIds: false,
+};
+const TALENT_POOL_PAGE_SIZE = 25;
+const DEFAULT_TALENT_POOL_QUERY: TalentPoolQueryState = {
+    statFilter: "all",
+    searchQuery: "",
+    sourceFilter: "all",
+    tagFilter: "all",
+    sortBy: "time",
+    offset: 0,
 };
 
 type OrganizationSelectOption = {
@@ -2060,6 +2092,10 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const [allTalentPoolCandidates, setAllTalentPoolCandidates] = useState<CandidateSummary[]>([]);
     const [talentPoolCandidates, setTalentPoolCandidates] = useState<CandidateSummary[]>([]);
     const [talentPoolLoading, setTalentPoolLoading] = useState(false);
+    const [talentPoolLoadingMore, setTalentPoolLoadingMore] = useState(false);
+    const [talentPoolTotal, setTalentPoolTotal] = useState(0);
+    const [talentPoolStats, setTalentPoolStats] = useState<TalentPoolStats | null>(null);
+    const [talentPoolAvailableTags, setTalentPoolAvailableTags] = useState<string[]>([]);
     const [allSkills, setAllSkills] = useState<RecruitmentSkill[]>([]);
     const [skills, setSkills] = useState<RecruitmentSkill[]>([]);
     const [allAiLogs, setAllAiLogs] = useState<AITaskLog[]>([]);
@@ -2071,6 +2107,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const [aiLogTotal, setAiLogTotal] = useState(0);
     const allCandidatesRef = useRef<CandidateSummary[]>(allCandidates);
     const allTalentPoolCandidatesRef = useRef<CandidateSummary[]>(allTalentPoolCandidates);
+    const talentPoolQueryRef = useRef<TalentPoolQueryState>({ ...DEFAULT_TALENT_POOL_QUERY });
     const candidateTotalRef = useRef(candidateTotal);
     const candidateListUsingVisibleFiltersRef = useRef(false);
     const candidateListContextKeyRef = useRef("");
@@ -3191,7 +3228,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     // 进入人才库页面时加载数据
     useEffect(() => {
         if (activePage === "talent-pool") {
-            loadTalentPoolCandidates();
+            talentPoolQueryRef.current = { ...DEFAULT_TALENT_POOL_QUERY };
+            loadTalentPoolCandidates({ query: DEFAULT_TALENT_POOL_QUERY });
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activePage]);
@@ -5150,20 +5188,50 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         }
     }
 
-    async function loadTalentPoolCandidates(options?: { departmentScope?: string; orgScope?: string; silent?: boolean }) {
-        if (!options?.silent) {
+    async function loadTalentPoolCandidates(options?: { departmentScope?: string; orgScope?: string; silent?: boolean; query?: Partial<TalentPoolQueryState>; append?: boolean }) {
+        if (options?.append) {
+            setTalentPoolLoadingMore(true);
+        } else if (!options?.silent) {
             setTalentPoolLoading(true);
         }
         try {
             const scopedOrgCode = resolveScopedOrgCode(options?.departmentScope ?? selectedDepartmentScope, options?.orgScope ?? selectedOrgScope);
-            const orgCodeParam = scopedOrgCode ? `?org_code=${encodeURIComponent(scopedOrgCode)}` : "";
-            const data = await recruitmentApi<CandidateSummary[]>(`/candidates/talent-pool${orgCodeParam}`, {
+            const resolvedQuery: TalentPoolQueryState = {
+                ...talentPoolQueryRef.current,
+                ...(options?.query || {}),
+            };
+            resolvedQuery.offset = Math.max(0, Number(resolvedQuery.offset || 0));
+            talentPoolQueryRef.current = resolvedQuery;
+            const params = new URLSearchParams();
+            if (scopedOrgCode) params.set("org_code", scopedOrgCode);
+            params.set("paginated", "true");
+            params.set("limit", String(TALENT_POOL_PAGE_SIZE));
+            params.set("offset", String(resolvedQuery.offset));
+            params.set("stat_filter", resolvedQuery.statFilter);
+            if (resolvedQuery.searchQuery.trim()) params.set("query", resolvedQuery.searchQuery.trim());
+            if (resolvedQuery.sourceFilter !== "all") params.set("source", resolvedQuery.sourceFilter);
+            if (resolvedQuery.tagFilter !== "all") params.set("tag", resolvedQuery.tagFilter);
+            params.set("sort_by", resolvedQuery.sortBy);
+            const data = await recruitmentApi<TalentPoolListResponse | CandidateSummary[]>(`/candidates/talent-pool?${params.toString()}`, {
                 timeoutMs: 45000,
             });
             if (mountedRef.current) {
-                setAllTalentPoolCandidates(data || []);
+                const response = Array.isArray(data)
+                    ? { items: data, total: data.length, stats: null, available_tags: [] }
+                    : data;
+                const nextItems = response?.items || [];
+                setAllTalentPoolCandidates((current) => (
+                    options?.append
+                        ? deduplicateCandidates([...current, ...nextItems])
+                        : nextItems
+                ));
+                setTalentPoolTotal(response?.total || nextItems.length);
+                if (response?.stats) {
+                    setTalentPoolStats(response.stats);
+                }
+                setTalentPoolAvailableTags(response?.available_tags || []);
             }
-            return data || [];
+            return Array.isArray(data) ? data : data?.items || [];
         } catch (error) {
             console.error("Failed to load talent pool candidates:", error);
             if (!options?.silent) {
@@ -5171,7 +5239,9 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             }
             return [];
         } finally {
-            if (!options?.silent && mountedRef.current) {
+            if (options?.append && mountedRef.current) {
+                setTalentPoolLoadingMore(false);
+            } else if (!options?.silent && mountedRef.current) {
                 setTalentPoolLoading(false);
             }
         }
@@ -12109,8 +12179,30 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                     onUploadResume={openResumeUploadDialog}
                     onDeleteCandidates={deleteTalentPoolCandidates}
                     onRefresh={async () => {
-                        await loadTalentPoolCandidates();
+                        await loadTalentPoolCandidates({ query: { ...talentPoolQueryRef.current, offset: 0 } });
                         toast.success(recruitmentToast.refreshed(recruitmentToastEntities.talentPool));
+                    }}
+                    total={talentPoolTotal}
+                    stats={talentPoolStats}
+                    availableTags={talentPoolAvailableTags}
+                    loadingMore={talentPoolLoadingMore}
+                    onQueryChange={async (query) => {
+                        const nextQuery = {
+                            ...talentPoolQueryRef.current,
+                            ...query,
+                            offset: 0,
+                        };
+                        await loadTalentPoolCandidates({ query: nextQuery });
+                    }}
+                    onLoadMore={async () => {
+                        await loadTalentPoolCandidates({
+                            query: {
+                                ...talentPoolQueryRef.current,
+                                offset: allTalentPoolCandidatesRef.current.length,
+                            },
+                            append: true,
+                            silent: true,
+                        });
                     }}
                     onReIdentify={async (candidateId) => {
                         const result = await triggerAIPositionMatch([candidateId]);
@@ -12118,6 +12210,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                             setAllTalentPoolCandidates(prev => prev.map(c =>
                                 c.id === candidateId ? { ...c, status: "matching" } : c
                             ));
+                            void loadTalentPoolCandidates({ silent: true, query: { ...talentPoolQueryRef.current, offset: 0 } });
                         }
                     }}
                     onBatchReIdentify={async (candidateIds) => {
@@ -12127,6 +12220,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                             setAllTalentPoolCandidates(prev => prev.map((candidate) => (
                                 idSet.has(candidate.id) ? { ...candidate, status: "matching" } : candidate
                             )));
+                            void loadTalentPoolCandidates({ silent: true, query: { ...talentPoolQueryRef.current, offset: 0 } });
                         }
                     }}
                     onCancelMatch={async (candidateId) => {
@@ -12144,6 +12238,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                             setAllTalentPoolCandidates(prev => prev.map(c =>
                                 c.id === candidateId ? { ...c, status: result?.status || "unmatched" } : c
                             ));
+                            void loadTalentPoolCandidates({ silent: true, query: { ...talentPoolQueryRef.current, offset: 0 } });
                         } catch (error) {
                             console.warn("Failed to cancel match, refreshing talent pool state:", error);
                             await loadTalentPoolCandidates({ silent: true });
