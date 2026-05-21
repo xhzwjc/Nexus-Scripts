@@ -77,6 +77,27 @@ def test_extract_text_from_pdf_uses_ocr_when_text_mapping_is_garbled():
     ocr_mock.assert_called_once_with(Path("/tmp/resume.pdf"))
 
 
+def test_extract_text_from_pdf_uses_ocr_when_text_layer_is_only_watermark_tokens():
+    page_one = Mock()
+    page_one.extract_text.return_value = "\n".join(["10c67bc3cc69b9191HB-3tS1EFRUy4u6Wf2YWOKgnPDVMxBr"] * 20)
+
+    with patch("app.services.recruitment_utils.PdfReader", return_value=SimpleNamespace(pages=[page_one])), patch(
+        "app.services.recruitment_utils.pdfium", None
+    ), patch(
+        "app.services.recruitment_utils.sys.platform", "darwin"
+    ), patch(
+        "app.services.recruitment_utils._extract_text_from_pdf_with_pdfkit",
+        return_value="\n".join(["10c67bc3cc69b9191HB-3tS1EFRUy4u6Wf2YWOKgnPDVMxBr"] * 20),
+    ), patch(
+        "app.services.recruitment_utils._extract_text_from_pdf_with_macos_vision_ocr",
+        return_value="杨帅 产品经理 工作经历",
+    ) as ocr_mock:
+        text = extract_text_from_pdf(Path("/tmp/resume.pdf"))
+
+    assert text == "杨帅 产品经理 工作经历"
+    ocr_mock.assert_called_once_with(Path("/tmp/resume.pdf"))
+
+
 def test_extract_text_from_pdf_uses_paddleocr_fallback_off_macos():
     page_one = Mock()
     page_one.extract_text.return_value = "\x00\x01\x02\x03" * 20 + "SQL 2024"

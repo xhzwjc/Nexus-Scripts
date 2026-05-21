@@ -1143,6 +1143,20 @@ def _score_pdf_text_quality(text: str) -> int:
     return cjk_chars * 4 + latin_words * 2 + digit_groups - control_chars * 3
 
 
+def _is_low_signal_pdf_text(text: str) -> bool:
+    value = str(text or "").strip()
+    if not value:
+        return True
+    if _is_truncated_image_text(value):
+        return True
+    cleaned = clean_resume_text(value)
+    if not cleaned:
+        return True
+    raw_meaningful_chars = len(re.findall(r"[A-Za-z0-9\u4e00-\u9fff]", value))
+    cleaned_meaningful_chars = len(re.findall(r"[A-Za-z0-9\u4e00-\u9fff]", cleaned))
+    return raw_meaningful_chars >= 120 and cleaned_meaningful_chars < 20
+
+
 def _should_try_pdf_ocr(best_text: str) -> bool:
     ocr_enabled = os.getenv(
         "RECRUITMENT_ENABLE_PDF_OCR",
@@ -1166,7 +1180,7 @@ def extract_text_from_pdf(file_path: Path) -> str:
         if not text:
             errors.append(f"{extractor_name}: empty text")
             return None
-        if _is_truncated_image_text(text):
+        if _is_low_signal_pdf_text(text):
             meaningful_chars = len(re.findall(r"[A-Za-z0-9\u4e00-\u9fff]", text))
             low_signal_texts.append((meaningful_chars, len(text), extractor_name, text))
             errors.append(f"{extractor_name}: low-signal text")
@@ -1386,10 +1400,10 @@ def _looks_like_resume_noise_line(text: str) -> bool:
         return False
     if RESUME_NOISE_LINE_PATTERN.match(normalized) and not re.search(r"[\u4e00-\u9fff]", normalized):
         return True
-    compact = normalized.replace(" ", "")
+    compact = re.sub(r"[\s/_\\.\-]+", "", normalized)
     if (
         len(compact) >= 18
-        and re.fullmatch(r"[A-Za-z0-9\-]+", compact)
+        and re.fullmatch(r"[A-Za-z0-9]+", compact)
         and re.search(r"[A-Za-z]", compact)
         and re.search(r"\d", compact)
         and not re.search(r"[\u4e00-\u9fff]", compact)
