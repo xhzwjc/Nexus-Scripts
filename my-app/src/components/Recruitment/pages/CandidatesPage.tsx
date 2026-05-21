@@ -1614,6 +1614,7 @@ type CandidatesPageProps = {
     openResumeMailDialog: (candidateIds?: number[]) => void;
     candidatesLoading: boolean;
     candidatesInitialLoaded: boolean;
+    candidateListTransitionLoading: boolean;
     isLoadingMoreCandidates: boolean;
     candidateMatchSortLoading: boolean;
     allCandidatesCount: number;
@@ -1721,6 +1722,7 @@ export function CandidatesPage({
     openResumeMailDialog,
     candidatesLoading,
     candidatesInitialLoaded,
+    candidateListTransitionLoading,
     isLoadingMoreCandidates,
     candidateMatchSortLoading,
     allCandidatesCount,
@@ -2262,6 +2264,7 @@ export function CandidatesPage({
         context: resolveCandidateFacingErrorContext(taskType, { autoRetry }),
         language,
     }), [language]);
+    const refreshLikeLoading = refreshing || candidateListTransitionLoading;
 
     return (
         <>
@@ -2364,7 +2367,7 @@ export function CandidatesPage({
                                         size="sm"
                                         variant="outline"
                                         className="h-7 rounded-md px-2 text-sm"
-                                        disabled={refreshing || candidatesLoading}
+                                        disabled={refreshLikeLoading || candidatesLoading}
                                         onClick={async () => {
                                             setRefreshing(true);
                                             try {
@@ -2374,7 +2377,7 @@ export function CandidatesPage({
                                             }
                                         }}
                                     >
-                                        <RotateCcw className={cn("h-3.5 w-3.5", refreshing && "animate-spin")}/>
+                                        <RotateCcw className={cn("h-3.5 w-3.5", refreshLikeLoading && "animate-spin")}/>
                                         {tr.refresh}
                                     </Button>
                                 ) : null}

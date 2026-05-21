@@ -1521,6 +1521,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const logsFiltersInitializedRef = useRef(false);
     const positionsLoadRequestIdRef = useRef(0);
     const candidatesLoadRequestIdRef = useRef(0);
+    const candidateListTransitionTokenRef = useRef(0);
     const positionDetailLoadRequestIdRef = useRef(0);
     const candidatePageTargetCandidateIdRef = useRef<number | null>(null);
     const defaultTabSetForPositionRef = useRef<number | null>(null);
@@ -2135,6 +2136,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const [positionDetailLoading, setPositionDetailLoading] = useState(false);
     const [candidatesLoading, setCandidatesLoading] = useState(false);
     const [candidatesInitialLoaded, setCandidatesInitialLoaded] = useState(false);
+    const [candidateListTransitionLoading, setCandidateListTransitionLoading] = useState(false);
     const [isLoadingMoreCandidates, setIsLoadingMoreCandidates] = useState(false);
     const [candidateDetailLoading, setCandidateDetailLoading] = useState(false);
     const [previewPdfUrl, setPreviewPdfUrl] = useState<string | null>(null);
@@ -3255,6 +3257,13 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     }, [activePage]);
 
     useEffect(() => {
+        if (activePage !== "candidates") {
+            setCandidateListTransitionLoading(false);
+            setCandidatesLoading(false);
+        }
+    }, [activePage]);
+
+    useEffect(() => {
         if (!talentPoolCandidateDetailOpen || !selectedCandidateId) {
             setTalentPoolDrawerContentReady(false);
             return;
@@ -3641,18 +3650,55 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         candidateMatchSortOrderRef.current = candidateMatchSortOrder;
     }, [candidateMatchSortOrder]);
 
+    const beginCandidateListTransition = useCallback(() => {
+        if (activePageRef.current === "candidates" && candidatesInitialLoaded) {
+            setCandidateListTransitionLoading(true);
+            setCandidatesLoading(true);
+        }
+    }, [candidatesInitialLoaded]);
+
+    const setCandidateQueryWithTransition = useCallback((value: string) => {
+        beginCandidateListTransition();
+        setCandidateQuery(value);
+    }, [beginCandidateListTransition]);
+
+    const setCandidatePositionFilterWithTransition = useCallback<React.Dispatch<React.SetStateAction<string[]>>>((value) => {
+        beginCandidateListTransition();
+        setCandidatePositionFilter(value);
+    }, [beginCandidateListTransition]);
+
+    const setCandidateStatusFilterWithTransition = useCallback<React.Dispatch<React.SetStateAction<string[]>>>((value) => {
+        beginCandidateListTransition();
+        setCandidateStatusFilter(value);
+    }, [beginCandidateListTransition]);
+
     useEffect(() => {
         if (bootstrapping || activePage !== "candidates") {
             return;
         }
+        const transitionToken = candidateListTransitionTokenRef.current + 1;
+        candidateListTransitionTokenRef.current = transitionToken;
+        if (candidatesInitialLoaded) {
+            setCandidateListTransitionLoading(true);
+            setCandidatesLoading(true);
+        }
         const timer = window.setTimeout(() => {
             scrollCandidateListToTop();
             void loadCandidates({
-                silent: true,
+                silent: false,
                 force: true,
                 useVisibleFilters: true,
                 query: deferredCandidateQuery,
                 matchSortOrder: candidateMatchSortOrderRef.current,
+            }).catch((error) => {
+                if (!isRecruitmentRequestAborted(error)) {
+                    console.error("Failed to apply candidate filters:", error);
+                }
+            }).finally(() => {
+                if (mountedRef.current && candidateListTransitionTokenRef.current === transitionToken) {
+                    setCandidateListTransitionLoading(false);
+                    setCandidatesLoading(false);
+                }
             });
         }, 150);
         return () => window.clearTimeout(timer);
@@ -11798,11 +11844,11 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 candidateViewMode={candidateViewMode}
                 setCandidateViewMode={setCandidateViewMode}
                 candidateQuery={candidateQuery}
-                setCandidateQuery={setCandidateQuery}
+                setCandidateQuery={setCandidateQueryWithTransition}
                 candidatePositionFilter={candidatePositionFilter}
-                setCandidatePositionFilter={setCandidatePositionFilter}
+                setCandidatePositionFilter={setCandidatePositionFilterWithTransition}
                 candidateStatusFilter={candidateStatusFilter}
-                setCandidateStatusFilter={setCandidateStatusFilter}
+                setCandidateStatusFilter={setCandidateStatusFilterWithTransition}
                 candidateMatchFilter={candidateMatchFilter}
                 setCandidateMatchFilter={setCandidateMatchFilter}
                 candidateSourceFilter={candidateSourceFilter}
@@ -11822,6 +11868,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 openResumeMailDialog={openResumeMailDialog}
                 candidatesLoading={candidatesLoading}
                 candidatesInitialLoaded={candidatesInitialLoaded}
+                candidateListTransitionLoading={candidateListTransitionLoading}
                 isLoadingMoreCandidates={isLoadingMoreCandidates}
                 candidateMatchSortLoading={candidateMatchSortLoading}
                 allCandidatesCount={allCandidates.length}
