@@ -126,6 +126,7 @@ async function proxyRecruitmentRequest(
 
   const isSafeToRetry = ["GET", "HEAD"].includes(request.method);
   const maxRetries = isSafeToRetry ? 3 : 0;
+  const startedAt = Date.now();
   let lastError: unknown = null;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -134,6 +135,18 @@ async function proxyRecruitmentRequest(
     }
     try {
       const response = await fetch(targetUrl, init);
+      const elapsedMs = Date.now() - startedAt;
+      if (attempt > 0 || elapsedMs >= 1000) {
+        console.info("[recruitment-proxy] upstream response", {
+          method: request.method,
+          path,
+          search: requestUrl.search,
+          status: response.status,
+          attempt: attempt + 1,
+          maxAttempts: maxRetries + 1,
+          elapsedMs,
+        });
+      }
       const isSSE = (response.headers.get("content-type") || "").includes("text/event-stream");
       const responseHeaders = new Headers();
       for (const headerName of [
@@ -170,6 +183,23 @@ async function proxyRecruitmentRequest(
       });
     } catch (error) {
       lastError = error;
+      const shouldRetry = isSafeToRetry && attempt < maxRetries;
+      const errorInfo = {
+        method: request.method,
+        path,
+        search: requestUrl.search,
+        attempt: attempt + 1,
+        maxAttempts: maxRetries + 1,
+        elapsedMs: Date.now() - startedAt,
+        errorName: error instanceof Error ? error.name : typeof error,
+        errorMessage: error instanceof Error ? error.message : String(error),
+        ...(shouldRetry ? {retryDelayMs: 500 * Math.pow(2, attempt)} : {}),
+      };
+      if (shouldRetry) {
+        console.warn("[recruitment-proxy] upstream fetch failed; retrying", errorInfo);
+      } else {
+        console.warn("[recruitment-proxy] upstream fetch failed; no retry", errorInfo);
+      }
       // Only retry on network-level failures (connection refused, etc.)
       // Do NOT retry if we got an HTTP response with error status
       if (!isSafeToRetry) break;
