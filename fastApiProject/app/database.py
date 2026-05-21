@@ -22,8 +22,9 @@ engine = create_engine(
     pool_size=20,          # 4 workers × 8 screening threads = 32 并发，pool 需覆盖
     max_overflow=20,       # 总上限 40，留余量给 API 请求
     pool_timeout=10,       # 快速失败，不长时间等待连接
-    pool_recycle=1800,     # 容器环境下更积极回收，避免被网络设备断开
+    pool_recycle=600,      # 测试/容器环境常有短连接回收，主动换连接避免 MySQL gone away
     pool_pre_ping=True,
+    pool_use_lifo=True,    # 配合 pre_ping，优先复用热连接，闲置连接被服务端断开时自动重连
     connect_args={"init_command": "SET SESSION innodb_lock_wait_timeout=5"},
 )
 

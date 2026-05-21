@@ -30,8 +30,9 @@ class PaymentStatsService:
         return sqlalchemy.create_engine(
             db_uri,
             pool_size=5,
-            pool_recycle=3600,
-            pool_pre_ping=True
+            pool_recycle=600,
+            pool_pre_ping=True,
+            pool_use_lifo=True,
         )
 
     def get_normal_enterprises(self) -> List[Dict[str, Any]]:

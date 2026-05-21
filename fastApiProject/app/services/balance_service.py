@@ -30,8 +30,9 @@ class AccountBalanceService:
             pool_size=5,
             max_overflow=10,
             pool_timeout=30,
-            pool_recycle=3600,
+            pool_recycle=600,
             pool_pre_ping=True,
+            pool_use_lifo=True,
             connect_args={"connect_timeout": 10, "read_timeout": 600}
         )
         # 测试连接
