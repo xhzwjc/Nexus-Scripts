@@ -119,15 +119,20 @@ const CANDIDATE_LIST_OVERSCAN = 6;
 const CANDIDATE_BOARD_ESTIMATED_CARD_HEIGHT = 150;
 const CANDIDATE_BOARD_OVERSCAN = 5;
 const SCORE_SUGGESTED_STATUS_VALUES = new Set(["screening_passed", "talent_pool", "screening_rejected"]);
+const SMOOTH_VERTICAL_SCROLLBAR_CLASS = "[scrollbar-gutter:stable] [scrollbar-width:thin] [scrollbar-color:rgba(148,163,184,0.82)_transparent] [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 dark:[scrollbar-color:rgba(71,85,105,0.9)_transparent] dark:[&::-webkit-scrollbar-thumb]:bg-slate-700";
+const SMOOTH_HORIZONTAL_SCROLLBAR_CLASS = "[scrollbar-width:thin] [scrollbar-color:rgba(148,163,184,0.86)_transparent] [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 dark:[scrollbar-color:rgba(71,85,105,0.92)_transparent] dark:[&::-webkit-scrollbar-thumb]:bg-slate-700";
 
 type CandidateRowProps = {
     candidate: CandidateSummary;
     isSelected: boolean;
-    selectedCandidateIdSet: ReadonlySet<number>;
+    isChecked: boolean;
     columns: CandidateListColumnKey[];
     columnWidths: CandidateListDisplayColumnWidths;
-    onSelect: () => void;
-    onToggleCheck: (checked: boolean) => void;
+    gridTemplateColumns: string;
+    rowStart: number;
+    rowHeight: number;
+    setSelectedCandidateId: React.Dispatch<React.SetStateAction<number | null>>;
+    toggleCandidateSelection: (candidateId: number, nextChecked?: boolean) => void;
     getResumeMailSummary: (candidateId: number) => string | null;
     getOrganizationLabel: (orgCode: string | null | undefined) => string;
     tr: ReturnType<typeof getCandidatesLocale>;
@@ -137,53 +142,73 @@ type CandidateRowProps = {
 const CandidateRow = React.memo(function CandidateRow({
     candidate,
     isSelected,
-    selectedCandidateIdSet,
+    isChecked,
     columns,
     columnWidths,
-    onSelect,
-    onToggleCheck,
+    gridTemplateColumns,
+    rowStart,
+    rowHeight,
+    setSelectedCandidateId,
+    toggleCandidateSelection,
     getResumeMailSummary,
     getOrganizationLabel,
     tr,
     language,
 }: CandidateRowProps) {
-    const isChecked = selectedCandidateIdSet.has(candidate.id);
     const resumeMailSummary = getResumeMailSummary(candidate.id);
     const displayStatus = resolveCandidateDisplayStatus(candidate);
     const isZh = language !== "en-US";
+    const onSelect = React.useCallback(() => setSelectedCandidateId(candidate.id), [candidate.id, setSelectedCandidateId]);
+    const onToggleCheck = React.useCallback((checked: boolean) => {
+        toggleCandidateSelection(candidate.id, checked);
+    }, [candidate.id, toggleCandidateSelection]);
 
     return (
-        <tr
+        <div
+            role="row"
             data-candidate-id={candidate.id}
-            style={{height: CANDIDATE_LIST_ESTIMATED_ROW_HEIGHT}}
-            className={cn("cursor-pointer", isSelected && "bg-slate-100 dark:bg-slate-900")}
+            style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                width: "100%",
+                height: rowHeight,
+                transform: `translateY(${rowStart}px)`,
+                gridTemplateColumns,
+            }}
+            className={cn(
+                "grid cursor-pointer overflow-hidden border-b border-slate-200/80 bg-white text-base transition-colors dark:border-slate-800 dark:bg-slate-950",
+                "hover:bg-slate-50 dark:hover:bg-slate-900/70",
+                isSelected && "bg-slate-100 dark:bg-slate-900",
+            )}
             onClick={onSelect}
         >
-            <td className="p-2 align-middle whitespace-nowrap" onClick={(event) => event.stopPropagation()}>
+            <div role="cell" className="flex items-center p-2 whitespace-nowrap" onClick={(event) => event.stopPropagation()}>
                 <input
                     type="checkbox"
                     checked={isChecked}
                     onChange={(event) => onToggleCheck(event.target.checked)}
                     aria-label={tr.selectCandidate(candidate.name)}
                 />
-            </td>
+            </div>
             {columns.map((columnKey) => {
                 if (columnKey === "candidate") {
                     return (
-                        <td
+                        <div
+                            role="cell"
                             key={columnKey}
                             style={{
                                 width: columnWidths.candidate,
                                 minWidth: columnWidths.candidate,
                                 maxWidth: columnWidths.candidate,
                             }}
-                            className="p-2 align-middle"
+                            className="flex min-w-0 items-center overflow-hidden p-2"
                         >
-                            <div className="min-w-0">
-                                <div className="flex flex-wrap items-center gap-2">
+                            <div className="min-w-0 overflow-hidden">
+                                <div className="flex min-w-0 items-center gap-2 overflow-hidden">
                                     <HoverRevealText text={candidate.name + (candidate.age ? ` (${candidate.age}${tr.ageSuffix})` : "")} className="font-medium text-slate-900 dark:text-slate-100"/>
                                     {resumeMailSummary ? (
-                                        <Badge className="rounded-full border border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
+                                        <Badge className="shrink-0 rounded-full border border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
                                             {tr.resumeSent}
                                         </Badge>
                                     ) : null}
@@ -207,52 +232,55 @@ const CandidateRow = React.memo(function CandidateRow({
                                     />
                                 ) : null}
                             </div>
-                        </td>
+                        </div>
                     );
                 }
                 if (columnKey === "organization") {
                     return (
-                        <td
+                        <div
+                            role="cell"
                             key={columnKey}
                             style={{
                                 width: columnWidths.organization,
                                 minWidth: columnWidths.organization,
                                 maxWidth: columnWidths.organization,
                             }}
-                            className="p-2 align-middle"
+                            className="flex min-w-0 items-center p-2"
                         >
                             <HoverRevealText
                                 text={getOrganizationLabel(candidate.org_code)}
                                 className="text-sm text-slate-600 dark:text-slate-300"
                             />
-                        </td>
+                        </div>
                     );
                 }
                 if (columnKey === "position") {
                     return (
-                        <td
+                        <div
+                            role="cell"
                             key={columnKey}
                             style={{
                                 width: columnWidths.position,
                                 minWidth: columnWidths.position,
                                 maxWidth: columnWidths.position,
                             }}
-                            className="p-2 align-middle"
+                            className="flex min-w-0 items-center p-2"
                         >
                             <HoverRevealText text={candidate.position_title || tr.unassignedPosition}/>
-                        </td>
+                        </div>
                     );
                 }
                 if (columnKey === "status") {
                     return (
-                        <td
+                        <div
+                            role="cell"
                             key={columnKey}
                             style={{
                                 width: columnWidths.status,
                                 minWidth: columnWidths.status,
                                 maxWidth: columnWidths.status,
                             }}
-                            className="p-2 align-middle whitespace-nowrap"
+                            className="flex min-w-0 flex-col justify-center p-2 whitespace-nowrap"
                         >
                             <Badge className={cn("rounded-full border max-w-full", statusBadgeClass("candidate", displayStatus))}>
                                 <span className="truncate">{labelForCandidateStatus(displayStatus)}</span>
@@ -270,93 +298,101 @@ const CandidateRow = React.memo(function CandidateRow({
                                     tooltipClassName="max-w-sm"
                                 />
                             ) : null}
-                        </td>
+                        </div>
                     );
                 }
                 if (columnKey === "match") {
                     return (
-                        <td
+                        <div
+                            role="cell"
                             key={columnKey}
                             style={{
                                 width: columnWidths.match,
                                 minWidth: columnWidths.match,
                                 maxWidth: columnWidths.match,
                             }}
-                            className="p-2 align-middle whitespace-nowrap"
+                            className="flex items-center p-2 whitespace-nowrap"
                         >
                             {formatPercent(resolveCandidateSummaryMatchPercent(candidate))}
-                        </td>
+                        </div>
                     );
                 }
                 if (columnKey === "city") {
                     return (
-                        <td
+                        <div
+                            role="cell"
                             key={columnKey}
                             style={{
                                 width: columnWidths.city,
                                 minWidth: columnWidths.city,
                                 maxWidth: columnWidths.city,
                             }}
-                            className="p-2 align-middle"
+                            className="flex min-w-0 items-center p-2"
                         >
                             <HoverRevealText text={candidate.city || "-"} className="text-sm text-slate-600 dark:text-slate-300"/>
-                        </td>
+                        </div>
                     );
                 }
                 if (columnKey === "expected_city") {
                     return (
-                        <td
+                        <div
+                            role="cell"
                             key={columnKey}
                             style={{
                                 width: columnWidths.expected_city,
                                 minWidth: columnWidths.expected_city,
                                 maxWidth: columnWidths.expected_city,
                             }}
-                            className="p-2 align-middle"
+                            className="flex min-w-0 items-center p-2"
                         >
                             <HoverRevealText text={candidate.expected_city || "-"} className="text-sm text-slate-600 dark:text-slate-300"/>
-                        </td>
+                        </div>
                     );
                 }
                 if (columnKey === "source") {
                     return (
-                        <td
+                        <div
+                            role="cell"
                             key={columnKey}
                             style={{
                                 width: columnWidths.source,
                                 minWidth: columnWidths.source,
                                 maxWidth: columnWidths.source,
                             }}
-                            className="p-2 align-middle"
+                            className="flex min-w-0 items-center p-2"
                         >
                             <HoverRevealText text={candidate.source || "-"} className="text-sm text-slate-600 dark:text-slate-300"/>
-                        </td>
+                        </div>
                     );
                 }
                 if (columnKey === "updated") {
                     return (
-                        <td
+                        <div
+                            role="cell"
                             key={columnKey}
                             style={{
                                 width: columnWidths.updated,
                                 minWidth: columnWidths.updated,
                                 maxWidth: columnWidths.updated,
                             }}
-                            className="p-2 align-middle"
+                            className="flex min-w-0 items-center p-2"
                         >
                             <HoverRevealText text={formatDateTime(candidate.updated_at)}/>
-                        </td>
+                        </div>
                     );
                 }
                 return null;
             })}
-        </tr>
+        </div>
     );
 }, (prev, next) => {
     return prev.isSelected === next.isSelected
-        && prev.selectedCandidateIdSet === next.selectedCandidateIdSet
+        && prev.isChecked === next.isChecked
         && prev.columns === next.columns
         && prev.columnWidths === next.columnWidths
+        && prev.gridTemplateColumns === next.gridTemplateColumns
+        && prev.rowStart === next.rowStart
+        && prev.rowHeight === next.rowHeight
         && prev.candidate.status === next.candidate.status
         && prev.candidate.active_screening_task_status === next.candidate.active_screening_task_status
         && prev.candidate.display_status_reason === next.candidate.display_status_reason
@@ -2005,21 +2041,17 @@ export function CandidatesPage({
             0,
         );
     }, [candidateListEffectiveColumnWidths, candidateListVisibleColumns]);
+    const candidateListGridTemplateColumns = React.useMemo(() => {
+        return `56px ${candidateListVisibleColumns.map((key) => `${candidateListEffectiveColumnWidths[key]}px`).join(" ")}`;
+    }, [candidateListEffectiveColumnWidths, candidateListVisibleColumns]);
 
     const selectedCandidateIdSet = React.useMemo(() => new Set(selectedCandidateIds), [selectedCandidateIds]);
-
-    const stableCallbacks = React.useMemo(() => {
-        const selectMap = new Map<number, () => void>();
-        const toggleMap = new Map<number, (checked: boolean) => void>();
-        visibleCandidates.forEach((c) => {
-            selectMap.set(c.id, () => setSelectedCandidateId(c.id));
-            toggleMap.set(c.id, (checked: boolean) => toggleCandidateSelection(c.id, checked));
-        });
-        return {selectMap, toggleMap};
-    }, [visibleCandidates, setSelectedCandidateId, toggleCandidateSelection]);
+    const visibleCandidateIds = React.useMemo(() => visibleCandidates.map((candidate) => candidate.id), [visibleCandidates]);
+    const allVisibleCandidatesSelected = React.useMemo(() => (
+        visibleCandidateIds.length > 0 && visibleCandidateIds.every((candidateId) => selectedCandidateIdSet.has(candidateId))
+    ), [selectedCandidateIdSet, visibleCandidateIds]);
 
     const virtualItems = rowVirtualizer.getVirtualItems();
-    const topSpacerHeight = virtualItems.length > 0 ? virtualItems[0].start : 0;
 
     const getColumnHeaderLabel = React.useCallback((columnKey: string) => {
         switch (columnKey) {
@@ -2034,9 +2066,6 @@ export function CandidatesPage({
             default: return tr.timeLabel;
         }
     }, [tr]);
-    const bottomSpacerHeight = virtualItems.length > 0
-        ? rowVirtualizer.getTotalSize() - (virtualItems[virtualItems.length - 1].start + virtualItems[virtualItems.length - 1].size)
-        : 0;
 
     const [candidateDetailPanel, setCandidateDetailPanel] = React.useState<"profile" | "ai" | "interview">("profile");
     const [detailExpanded, setDetailExpanded] = React.useState(false);
@@ -2497,85 +2526,79 @@ export function CandidatesPage({
                                 <div className="min-h-0 flex flex-1 flex-col overflow-hidden">
                                     <div
                                         ref={mergedCandidateListScrollRef}
-                                        className="relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto [scrollbar-gutter:stable] [scrollbar-width:auto] [scrollbar-color:rgba(148,163,184,0.9)_transparent] [&::-webkit-scrollbar]:h-3 [&::-webkit-scrollbar]:w-3 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:border-2 [&::-webkit-scrollbar-thumb]:border-transparent [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-thumb]:bg-clip-content hover:[&::-webkit-scrollbar-thumb]:bg-slate-400 dark:[scrollbar-color:rgba(71,85,105,0.95)_transparent] dark:[&::-webkit-scrollbar-thumb]:bg-slate-700 dark:hover:[&::-webkit-scrollbar-thumb]:bg-slate-600"
+                                        className={cn("relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto", SMOOTH_VERTICAL_SCROLLBAR_CLASS)}
                                     >
-                                        <table style={{width: candidateListEffectiveTableWidth, minWidth: candidateListEffectiveTableWidth}} className="caption-bottom table-fixed text-base">
-                                            <thead className="[&_tr]:border-b">
-                                                <tr className="border-b bg-white/95 transition-colors dark:bg-slate-950/95">
-                                                    <th className="text-foreground sticky top-0 z-10 h-10 w-14 bg-inherit px-2 text-left align-middle font-medium whitespace-nowrap">
-                                                        <input
-                                                            type="checkbox"
-                                                            checked={visibleCandidates.length > 0 && visibleCandidates.every((candidate) => selectedCandidateIdSet.has(candidate.id))}
-                                                            onChange={(event) => setSelectedCandidateIds(event.target.checked ? visibleCandidates.map((candidate) => candidate.id) : [])}
-                                                            aria-label={tr.selectAllCandidates}
+                                        <div
+                                            role="table"
+                                            aria-rowcount={visibleCandidates.length}
+                                            style={{width: candidateListEffectiveTableWidth, minWidth: candidateListEffectiveTableWidth}}
+                                            className="relative text-base"
+                                        >
+                                            <div
+                                                role="row"
+                                                style={{gridTemplateColumns: candidateListGridTemplateColumns}}
+                                                className="sticky top-0 z-10 grid h-10 border-b border-slate-200 bg-white/95 text-foreground transition-colors dark:border-slate-800 dark:bg-slate-950/95"
+                                            >
+                                                <div role="columnheader" className="flex items-center px-2 text-left align-middle font-medium whitespace-nowrap">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={allVisibleCandidatesSelected}
+                                                        onChange={(event) => setSelectedCandidateIds(event.target.checked ? visibleCandidateIds : [])}
+                                                        aria-label={tr.selectAllCandidates}
+                                                    />
+                                                </div>
+                                                {candidateListVisibleColumns.map((columnKey) => {
+                                                    const label = getColumnHeaderLabel(columnKey);
+
+                                                    if (!candidateListCompactMode) {
+                                                        return renderCandidateListHeaderCell(columnKey, label);
+                                                    }
+
+                                                    return (
+                                                        <div
+                                                            role="columnheader"
+                                                            key={columnKey}
+                                                            style={{
+                                                                width: candidateListEffectiveColumnWidths[columnKey],
+                                                                minWidth: candidateListEffectiveColumnWidths[columnKey],
+                                                                maxWidth: candidateListEffectiveColumnWidths[columnKey],
+                                                            }}
+                                                            className="flex h-10 items-center px-2 text-left text-sm font-medium whitespace-nowrap"
+                                                        >
+                                                            {label}
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                            <div
+                                                role="rowgroup"
+                                                className="relative"
+                                                style={{height: rowVirtualizer.getTotalSize()}}
+                                            >
+                                                {virtualItems.map((virtualRow) => {
+                                                    const candidate = visibleCandidates[virtualRow.index];
+                                                    return (
+                                                        <CandidateRow
+                                                            key={candidate.id}
+                                                            candidate={candidate}
+                                                            isSelected={selectedCandidateId === candidate.id}
+                                                            isChecked={selectedCandidateIdSet.has(candidate.id)}
+                                                            columns={candidateListVisibleColumns}
+                                                            columnWidths={candidateListEffectiveColumnWidths}
+                                                            gridTemplateColumns={candidateListGridTemplateColumns}
+                                                            rowStart={virtualRow.start}
+                                                            rowHeight={virtualRow.size}
+                                                            setSelectedCandidateId={setSelectedCandidateId}
+                                                            toggleCandidateSelection={toggleCandidateSelection}
+                                                            getResumeMailSummary={getCandidateResumeMailSummary}
+                                                            getOrganizationLabel={getOrganizationLabel}
+                                                            tr={tr}
+                                                            language={language}
                                                         />
-                                                    </th>
-                                                    {candidateListVisibleColumns.map((columnKey) => {
-                                                        const label = getColumnHeaderLabel(columnKey);
-
-                                                        if (!candidateListCompactMode) {
-                                                            return renderCandidateListHeaderCell(columnKey, label);
-                                                        }
-
-                                                        return (
-                                                            <th
-                                                                key={columnKey}
-                                                                style={{
-                                                                    width: candidateListEffectiveColumnWidths[columnKey],
-                                                                    minWidth: candidateListEffectiveColumnWidths[columnKey],
-                                                                    maxWidth: candidateListEffectiveColumnWidths[columnKey],
-                                                                }}
-                                                                className="text-foreground sticky top-0 z-10 h-10 bg-inherit px-2 text-left align-middle text-sm font-medium whitespace-nowrap"
-                                                            >
-                                                                {label}
-                                                            </th>
-                                                        );
-                                                    })}
-                                                </tr>
-                                            </thead>
-                                            <tbody className="[&_tr:last-child]:border-0">
-                                                {visibleCandidates.length ? (
-                                                    <>
-                                                        {topSpacerHeight > 0 ? (
-                                                            <tr aria-hidden="true" className="border-0">
-                                                                <td
-                                                                    colSpan={candidateListVisibleColumns.length + 1}
-                                                                    className="h-0 p-0"
-                                                                    style={{height: topSpacerHeight, border: 0}}
-                                                                />
-                                                            </tr>
-                                                        ) : null}
-                                                        {virtualItems.map((virtualRow) => {
-                                                            const candidate = visibleCandidates[virtualRow.index];
-                                                            return (
-                                                                <CandidateRow
-                                                                    key={candidate.id}
-                                                                    candidate={candidate}
-                                                                    isSelected={selectedCandidateId === candidate.id}
-                                                                    selectedCandidateIdSet={selectedCandidateIdSet}
-                                                                    columns={candidateListVisibleColumns}
-                                                                    columnWidths={candidateListEffectiveColumnWidths}
-                                                                    onSelect={stableCallbacks.selectMap.get(candidate.id)!}
-                                                                    onToggleCheck={stableCallbacks.toggleMap.get(candidate.id)!}
-                                                                    getResumeMailSummary={getCandidateResumeMailSummary}
-                                                                    getOrganizationLabel={getOrganizationLabel}
-                                                                    tr={tr}
-                                                                    language={language}
-                                                                />
-                                                            )})}
-                                                        {bottomSpacerHeight > 0 ? (
-                                                            <tr aria-hidden="true" className="border-0">
-                                                                <td
-                                                                    colSpan={candidateListVisibleColumns.length + 1}
-                                                                    className="h-0 p-0"
-                                                                    style={{height: bottomSpacerHeight, border: 0}}
-                                                                />
-                                                            </tr>
-                                                        ) : null}
-                                                    </>
-                                                ) : null}
-                                            </tbody>
-                                        </table>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
                                         {isLoadingMoreCandidates ? (
                                             <div className="flex items-center justify-center gap-2 py-3 text-base text-muted-foreground">
                                                 <Loader2 className="h-4 w-4 animate-spin"/>
@@ -2590,7 +2613,7 @@ export function CandidatesPage({
                                     <div className="shrink-0 border-t border-slate-200/80 pt-2 dark:border-slate-800">
                                         <div
                                             ref={candidateListHorizontalRailRef}
-                                            className="overflow-x-auto overflow-y-hidden [scrollbar-width:auto] [scrollbar-color:rgba(148,163,184,0.95)_transparent] [&::-webkit-scrollbar]:h-3 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-track]:bg-slate-100/80 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:border [&::-webkit-scrollbar-thumb]:border-slate-100 [&::-webkit-scrollbar-thumb]:bg-slate-300 dark:[scrollbar-color:rgba(71,85,105,0.98)_transparent] dark:[&::-webkit-scrollbar-track]:bg-slate-900/80 dark:[&::-webkit-scrollbar-thumb]:border-slate-900 dark:[&::-webkit-scrollbar-thumb]:bg-slate-700"
+                                            className={cn("overflow-x-auto overflow-y-hidden", SMOOTH_HORIZONTAL_SCROLLBAR_CLASS)}
                                         >
                                             <div style={{width: candidateListEffectiveTableWidth, height: 1}}/>
                                         </div>
@@ -2895,7 +2918,7 @@ export function CandidatesPage({
                                             <div
                                                 ref={candidateDetailToolbarRailRef}
                                                 onScroll={handleCandidateDetailToolbarRailScroll}
-                                                className="overflow-x-auto overflow-y-hidden [scrollbar-width:auto] [scrollbar-color:rgba(148,163,184,0.95)_transparent] [&::-webkit-scrollbar]:h-2.5 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-track]:bg-slate-100/80 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:border [&::-webkit-scrollbar-thumb]:border-slate-100 [&::-webkit-scrollbar-thumb]:bg-slate-300 dark:[scrollbar-color:rgba(71,85,105,0.98)_transparent] dark:[&::-webkit-scrollbar-track]:bg-slate-900/80 dark:[&::-webkit-scrollbar-thumb]:border-slate-900 dark:[&::-webkit-scrollbar-thumb]:bg-slate-700"
+                                                className={cn("overflow-x-auto overflow-y-hidden", SMOOTH_HORIZONTAL_SCROLLBAR_CLASS)}
                                             >
                                                 <div style={{width: candidateDetailToolbarRailWidth, height: 1}}/>
                                             </div>
@@ -2906,7 +2929,7 @@ export function CandidatesPage({
 
                             <div className="min-h-0 flex-1 p-4">
                                 <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-[26px] border border-slate-200/80 bg-slate-50/70 dark:border-slate-800 dark:bg-slate-900/50">
-                                    <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable] [scrollbar-width:auto] [scrollbar-color:rgba(148,163,184,0.9)_transparent] [&::-webkit-scrollbar]:h-3 [&::-webkit-scrollbar]:w-3 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:border-2 [&::-webkit-scrollbar-thumb]:border-transparent [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-thumb]:bg-clip-content hover:[&::-webkit-scrollbar-thumb]:bg-slate-400 dark:[scrollbar-color:rgba(71,85,105,0.95)_transparent] dark:[&::-webkit-scrollbar-thumb]:bg-slate-700 dark:hover:[&::-webkit-scrollbar-thumb]:bg-slate-600">
+                                    <div className={cn("min-h-0 flex-1 overflow-y-auto", SMOOTH_VERTICAL_SCROLLBAR_CLASS)}>
                                         <div className="min-w-0 space-y-4 px-4 py-4">
                                     {candidateDetailPanel === "profile" ? (
                                         <>

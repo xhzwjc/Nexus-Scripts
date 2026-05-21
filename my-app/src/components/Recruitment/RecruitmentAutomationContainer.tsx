@@ -4359,15 +4359,15 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             return;
         }
 
-        let syncFrame: number | null = null;
-
         const releaseLock = (owner: "table" | "rail") => {
-            if (candidateListScrollSyncLockRef.current === owner) {
-                candidateListScrollSyncLockRef.current = null;
-            }
+            requestAnimationFrame(() => {
+                if (candidateListScrollSyncLockRef.current === owner) {
+                    candidateListScrollSyncLockRef.current = null;
+                }
+            });
         };
 
-        const scheduleSync = (
+        const syncScrollLeft = (
             owner: "table" | "rail",
             source: HTMLDivElement,
             target: HTMLDivElement,
@@ -4375,28 +4375,21 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             if (candidateListScrollSyncLockRef.current && candidateListScrollSyncLockRef.current !== owner) {
                 return;
             }
-            if (source.scrollLeft === target.scrollLeft) {
+            const nextScrollLeft = source.scrollLeft;
+            if (Math.abs(target.scrollLeft - nextScrollLeft) < 1) {
                 return;
             }
             candidateListScrollSyncLockRef.current = owner;
-            if (syncFrame !== null) {
-                cancelAnimationFrame(syncFrame);
-            }
-            syncFrame = requestAnimationFrame(() => {
-                syncFrame = null;
-                if (target.scrollLeft !== source.scrollLeft) {
-                    target.scrollLeft = source.scrollLeft;
-                }
-                releaseLock(owner);
-            });
+            target.scrollLeft = nextScrollLeft;
+            releaseLock(owner);
         };
 
         const syncFromTable = () => {
-            scheduleSync("table", tableScroller, horizontalRail);
+            syncScrollLeft("table", tableScroller, horizontalRail);
         };
 
         const syncFromRail = () => {
-            scheduleSync("rail", horizontalRail, tableScroller);
+            syncScrollLeft("rail", horizontalRail, tableScroller);
         };
 
         tableScroller.addEventListener("scroll", syncFromTable, {passive: true});
@@ -4404,9 +4397,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         horizontalRail.scrollLeft = tableScroller.scrollLeft;
 
         return () => {
-            if (syncFrame !== null) {
-                cancelAnimationFrame(syncFrame);
-            }
+            candidateListScrollSyncLockRef.current = null;
             tableScroller.removeEventListener("scroll", syncFromTable);
             horizontalRail.removeEventListener("scroll", syncFromRail);
         };
@@ -4641,10 +4632,11 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                     : ""
         ) as "" | "asc" | "desc";
         return (
-            <th
+            <div
+                role="columnheader"
                 key={key}
                 style={{width, minWidth: width, maxWidth: width}}
-                className="text-foreground sticky top-0 z-10 bg-inherit px-2 text-left align-middle font-medium whitespace-nowrap"
+                className="flex h-10 items-center px-2 text-left font-medium whitespace-nowrap"
             >
                 <div className="group relative flex items-center gap-2 pr-3">
                     {isMatchColumn ? (
@@ -4690,7 +4682,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                         title={isZh ? `拖拽调整${label}列宽，双击恢复默认` : `Drag to resize the ${label} column and double-click to reset`}
                     />
                 </div>
-            </th>
+            </div>
         );
     }
 
