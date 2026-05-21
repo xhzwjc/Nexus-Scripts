@@ -429,6 +429,17 @@ function deduplicateCandidates(candidates: CandidateSummary[]): CandidateSummary
 }
 
 const CANDIDATE_LIST_EXCLUDED_STATUSES = new Set(["matching", "unmatched", "talent_pool"]);
+const POSITION_CANDIDATE_STATUS_OPTIONS = [
+    "screening_failed",
+    "screening_passed",
+    "screening_rejected",
+    "pending_interview",
+    "interview_passed",
+    "interview_rejected",
+    "pending_offer",
+    "offer_sent",
+    "hired",
+];
 let sharedRecruitmentMetadataCache: RecruitmentMetadata | null = null;
 let sharedRecruitmentMetadataPromise: Promise<RecruitmentMetadata> | null = null;
 let sharedOrganizationScopePromise: { cacheKey: string; promise: Promise<RecruitmentOrganizationScope> } | null = null;
@@ -1172,8 +1183,11 @@ const PositionCandidatesView = React.memo(function PositionCandidatesView(props:
     } = props;
 
     const statusOptions = [
-        { value: "__all__", label: isZh ? "全部" : "All" },
-        ...Object.entries(candidateStatusLabels).map(([k, v]) => ({ value: k, label: v })),
+        {value: "__all__", label: isZh ? "全部" : "All"},
+        ...POSITION_CANDIDATE_STATUS_OPTIONS.map((value) => ({
+            value,
+            label: candidateStatusLabels[value] || value,
+        })),
     ];
 
     return (
@@ -3167,15 +3181,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             return;
         }
         candidateMenuSelectionResetRef.current = true;
-        candidateMenuSuppressStaleDetailRef.current = true;
-        setSelectedCandidateId(null);
-        selectedCandidateIdRef.current = null;
-        checkedDuplicateCandidateIdRef.current = null;
-        setCandidateDetail(null);
-        setDuplicateCandidates([]);
-        setInterviewSchedules([]);
-        setOffers([]);
-        setFollowUps([]);
+        candidateMenuSuppressStaleDetailRef.current = false;
     }, [initialPage]);
 
     useEffect(() => {
@@ -3183,17 +3189,15 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             return;
         }
         setSelectedCandidateId((current) => {
+            const shouldResetSelection = candidateMenuSelectionResetRef.current;
             if (candidateMenuSelectionResetRef.current) {
                 candidateMenuSelectionResetRef.current = false;
-                if (current) {
-                    return null;
-                }
             }
             const targetCandidateId = candidatePageTargetCandidateIdRef.current;
             if (targetCandidateId) {
                 return current === targetCandidateId ? current : targetCandidateId;
             }
-            if (current && visibleCandidateIdSet.has(current)) {
+            if (!shouldResetSelection && current && visibleCandidateIdSet.has(current)) {
                 return current;
             }
             return visibleCandidates[0]?.id || null;
@@ -3408,9 +3412,25 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     }, [activePage]);
 
     const handleCandidatePageSelect = useCallback<React.Dispatch<React.SetStateAction<number | null>>>((value) => {
+        const currentCandidateId = selectedCandidateIdRef.current;
+        const nextCandidateId = typeof value === "function" ? value(currentCandidateId) : value;
         candidatePageTargetCandidateIdRef.current = null;
-        setSelectedCandidateId(value);
-    }, []);
+        if (
+            nextCandidateId
+            && currentCandidateId === nextCandidateId
+            && candidateDetail?.candidate.id !== nextCandidateId
+        ) {
+            const shouldCheckDuplicates = checkedDuplicateCandidateIdRef.current !== nextCandidateId;
+            if (shouldCheckDuplicates) {
+                checkedDuplicateCandidateIdRef.current = nextCandidateId;
+            }
+            void loadCandidateDetail(nextCandidateId, {
+                force: true,
+                includeDuplicates: shouldCheckDuplicates,
+            });
+        }
+        setSelectedCandidateId(nextCandidateId);
+    }, [candidateDetail?.candidate.id]);
 
     useEffect(() => {
         auditLogRequestKeyRef.current = auditLogRequestKey;
@@ -3641,6 +3661,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         setJdGenerationError("");
     }, [selectedPositionId, activePage]);
 
+    const selectedCandidateDetailId = candidateDetail?.candidate.id ?? null;
+
     useEffect(() => {
         if (activePage === "candidates" && candidateMenuSuppressStaleDetailRef.current) {
             candidateMenuSuppressStaleDetailRef.current = false;
@@ -3661,6 +3683,13 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         // 仅在详情真正可见时加载，避免 workspace 首屏预拉详情
         const isTalentPoolDetail = talentPoolCandidateDetailOpen && activePage === "talent-pool";
         const shouldCheckDuplicates = !isTalentPoolDetail && checkedDuplicateCandidateIdRef.current !== selectedCandidateId;
+        if (selectedCandidateDetailId === selectedCandidateId) {
+            if (shouldCheckDuplicates && candidateDetail) {
+                checkedDuplicateCandidateIdRef.current = selectedCandidateId;
+                void checkDuplicatesForCandidate(candidateDetail);
+            }
+            return;
+        }
         if (!isTalentPoolDetail && shouldCheckDuplicates) {
             checkedDuplicateCandidateIdRef.current = selectedCandidateId;
         }
@@ -3668,7 +3697,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             includeDuplicates: shouldCheckDuplicates,
             skipChatContextSave: isTalentPoolDetail,
         });
-    }, [activePage, positionCandidateDetailOpen, selectedCandidateId, talentPoolCandidateDetailOpen]);
+    }, [activePage, candidateDetail, positionCandidateDetailOpen, selectedCandidateDetailId, selectedCandidateId, talentPoolCandidateDetailOpen]);
 
     useEffect(() => {
         if (!selectedLogId) {
@@ -12012,6 +12041,14 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     }
 
     function renderCandidatesPage() {
+        const candidatePageDetailMatchesSelection = Boolean(
+            selectedCandidateId
+            && candidateDetail?.candidate.id === selectedCandidateId
+        );
+        const candidatePageDetailLoading = candidateDetailLoading || Boolean(
+            selectedCandidateId
+            && !candidatePageDetailMatchesSelection
+        );
         return (
             <CandidatesPage
                 panelClass={panelClass}
@@ -12059,8 +12096,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 getOrganizationLabel={getOrganizationLabel}
                 getCandidateResumeMailSummary={getCandidateResumeMailSummary}
                 groupedCandidates={groupedCandidates}
-                candidateDetailLoading={candidateDetailLoading}
-                candidateDetail={candidateDetail}
+                candidateDetailLoading={candidatePageDetailLoading}
+                candidateDetail={candidatePageDetailMatchesSelection ? candidateDetail : null}
                 isSelectedCandidateScreeningCancelling={isSelectedCandidateScreeningCancelling}
                 selectedCandidateScreeningTaskId={selectedCandidateScreeningTaskId}
                 openResumeFile={openResumeFile}
