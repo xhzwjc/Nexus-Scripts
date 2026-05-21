@@ -87,6 +87,7 @@ import {cn} from "@/lib/utils";
 import {Badge} from "@/components/ui/badge";
 import {Tooltip, TooltipContent, TooltipTrigger} from "@/components/ui/tooltip";
 import {Button} from "@/components/ui/button";
+import {VersionUpdateModal} from "@/components/VersionUpdateModal";
 import {
     Card,
     CardContent,
@@ -2026,6 +2027,18 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const activePageRef = useRef<RecruitmentPage>(initialPage || "workspace");
     const recruitmentPageHistoryRef = useRef<RecruitmentPage[]>([initialPage || "workspace"]);
     const lastInitialPageRef = useRef<RecruitmentPage | null>(null);
+    const taskSSEPageActive = (
+        activePage === "workspace"
+        || activePage === "candidates"
+        || activePage === "positions"
+        || activePage === "audit"
+        || activePage === "talent-pool"
+        || activePage === "assistant"
+        || activePage === "settings-skills"
+        || activePage === "settings-models"
+        || activePage === "settings-mail"
+    );
+    const taskSSEEnabled = taskSSEPageActive && (canExecuteProcess || canViewLog);
 
     const applyRecruitmentPageChange = useCallback((
         page: RecruitmentPage,
@@ -2109,10 +2122,12 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const positionCandidatesLoadRequestIdRef = useRef(0);
     const [auditFiltersCollapsed, setAuditFiltersCollapsed] = useState(true);
     const [bootstrapping, setBootstrapping] = useState(true);
+    const [versionOutdated, setVersionOutdated] = useState(false);
     const [pageVisible, setPageVisible] = useState(() => (
         typeof document === "undefined" ? true : document.visibilityState === "visible"
     ));
     const pageVisibleRef = useRef(pageVisible);
+    const versionMismatchShownRef = useRef(false);
 
     const [metadata, setMetadata] = useState<RecruitmentMetadata | null>(null);
     const [organizationCatalog, setOrganizationCatalog] = useState<ScriptHubOrganizationDefinition[]>([]);
@@ -4272,7 +4287,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     }, [flushPendingCandidateUpdatedEvents]);
 
     useTaskSSE(
-        activePage === "candidates" || activePage === "audit" || activePage === "workspace" || activePage === "talent-pool",
+        taskSSEEnabled,
         {
             onTaskCompleted: (event) => {
                 const isRootScreeningTask = event.task_type === "screening_flow";
@@ -4365,6 +4380,13 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 if (activePage === "workspace") {
                     void refreshCandidateStats();
                 }
+            },
+            onVersionMismatch: () => {
+                if (versionMismatchShownRef.current) {
+                    return;
+                }
+                versionMismatchShownRef.current = true;
+                setVersionOutdated(true);
             },
             // onTaskProgress 移除：审计日志不在初筛过程中实时更新
         },
@@ -14261,6 +14283,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 />,
                 document.body
             )}
+            <VersionUpdateModal visible={versionOutdated} />
         </div>
     );
 }

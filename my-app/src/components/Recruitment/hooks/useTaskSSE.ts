@@ -19,6 +19,29 @@ type SharedSSEConnection = {
 
 const sharedSSEConnections = new Map<string, SharedSSEConnection>();
 const SSE_CLOSE_GRACE_MS = 250;
+let clientBuildVersionPromise: Promise<string | null> | null = null;
+
+function readBuildVersion(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+  const version = (payload as Record<string, unknown>).version;
+  return typeof version === "string" && version.trim() ? version.trim() : null;
+}
+
+function getClientBuildVersion(): Promise<string | null> {
+  if (!clientBuildVersionPromise) {
+    clientBuildVersionPromise = fetch("/build-info.json", { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) {
+          return null;
+        }
+        return readBuildVersion(await response.json());
+      })
+      .catch(() => null);
+  }
+  return clientBuildVersionPromise;
+}
 
 function getSharedConnection(baseUrl: string): SharedSSEConnection {
   let connection = sharedSSEConnections.get(baseUrl);
@@ -55,6 +78,7 @@ async function ensureSharedConnection(baseUrl: string, connection: SharedSSEConn
   const abortController = new AbortController();
   connection.abortController = abortController;
   const wasReconnected = connection.hasConnectedOnce;
+  const clientVersionPromise = getClientBuildVersion();
 
   try {
     const response = await authenticatedFetch(`${baseUrl}/task-events`, {
@@ -91,6 +115,17 @@ async function ensureSharedConnection(baseUrl: string, connection: SharedSSEConn
         }
         try {
           const data: TaskSSEEvent = JSON.parse(dataLine.slice(6));
+          if (data.type === "hello") {
+            const serverVersion = typeof data.version === "string" ? data.version.trim() : "";
+            if (serverVersion) {
+              void clientVersionPromise.then((clientVersion) => {
+                if (clientVersion && clientVersion !== serverVersion) {
+                  dispatchSharedEvent(connection, (handlers) => handlers.onVersionMismatch?.());
+                }
+              });
+            }
+            continue;
+          }
           dispatchSharedEvent(connection, (handlers) => {
             if (data.type === "task_progress") handlers.onTaskProgress?.(data);
             else if (data.type === "task_completed") handlers.onTaskCompleted?.(data);
@@ -123,7 +158,8 @@ async function ensureSharedConnection(baseUrl: string, connection: SharedSSEConn
 }
 
 export type TaskSSEEvent = {
-  type: "task_progress" | "task_completed" | "candidate_updated" | "batch_summary" | "reconnect";
+  type: "hello" | "task_progress" | "task_completed" | "candidate_updated" | "batch_summary" | "reconnect";
+  version?: string;
   task_id?: number;
   status?: string;
   related_candidate_id?: number;
@@ -148,6 +184,7 @@ export type TaskSSEHandlers = {
   onCandidateUpdated?: (event: TaskSSEEvent) => void;
   onBatchSummary?: (event: TaskSSEEvent) => void;
   onReconnect?: () => void;
+  onVersionMismatch?: () => void;
 };
 
 export function useTaskSSE(

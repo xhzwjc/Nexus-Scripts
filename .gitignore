@@ -34,6 +34,7 @@ fastApiProject/data/recruitment_uploads/resumes/
 
 # 本地 bootstrap 生成的 access key 文件（含明文密钥，不提交）
 fastApiProject/data/bootstrap_users.local.json
+my-app/public/build-info.json
 
 .claude/settings.local.json
 .claude/launch.json

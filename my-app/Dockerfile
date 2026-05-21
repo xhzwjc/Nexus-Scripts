@@ -4,23 +4,27 @@ FROM docker.1panel.live/library/node:18-alpine AS base
 # 依赖安装阶段
 FROM base AS deps
 RUN apk add --no-cache libc6-compat
-WORKDIR /app
+WORKDIR /app/my-app
 
 # 复制依赖文件
-COPY package.json package-lock.json* ./
+COPY my-app/package.json my-app/package-lock.json* ./
 # 安装依赖
 RUN npm ci
 
 # 构建阶段
 FROM base AS builder
 WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
-COPY . .
+COPY --from=deps /app/my-app/node_modules ./my-app/node_modules
+COPY scripts ./scripts
+COPY my-app ./my-app
 
 # 禁用 Next.js 遥测
 ENV NEXT_TELEMETRY_DISABLED 1
+ARG BUILD_VERSION=dev
+ENV BUILD_VERSION=${BUILD_VERSION}
 
 # 执行构建
+WORKDIR /app/my-app
 RUN npm run build
 
 # 运行阶段
@@ -34,18 +38,18 @@ RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 
 # 关键：复制 public 目录 (包含 logo)
-COPY --from=builder --chown=nextjs:nodejs /app/public ./public
+COPY --from=builder --chown=nextjs:nodejs /app/my-app/public ./public
 
 # 关键：复制 data 目录 (包含 json 数据文件)
-COPY --from=builder --chown=nextjs:nodejs /app/data ./data
+COPY --from=builder --chown=nextjs:nodejs /app/my-app/data ./data
 
 # 设置 .next 目录权限
 RUN mkdir .next
 RUN chown nextjs:nodejs .next
 
 # 复制 Next.js 构建产物 (Standalone 模式)
-COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
-COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+COPY --from=builder --chown=nextjs:nodejs /app/my-app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/my-app/.next/static ./.next/static
 
 USER nextjs
 

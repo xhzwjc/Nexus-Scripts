@@ -19,6 +19,7 @@
 
 # production
 /build
+/public/build-info.json
 
 # misc
 .DS_Store

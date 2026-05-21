@@ -185,3 +185,28 @@ export function requireScriptHubPermission(request: Request, permission?: string
 
     return { session };
 }
+
+export function requireScriptHubAnyPermission(request: Request, permissions: string[]) {
+    const token = getSessionTokenFromRequest(request);
+    if (!token) {
+        return {
+            response: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }),
+        };
+    }
+
+    const session = verifyScriptHubSession(token);
+    if (!session) {
+        return {
+            response: NextResponse.json({ error: 'Invalid or expired session' }, { status: 401 }),
+        };
+    }
+
+    const expandedPermissions = expandPermissionAliases(session.permissions);
+    if (!permissions.some((permission) => expandedPermissions[permission])) {
+        return {
+            response: NextResponse.json({ error: 'Forbidden' }, { status: 403 }),
+        };
+    }
+
+    return { session };
+}

@@ -18,7 +18,10 @@ services:
   # 前端React服务
   frontend:
     build:
-      context: ./my-app
+      context: .
+      dockerfile: ./my-app/Dockerfile
+      args:
+        BUILD_VERSION: ${BUILD_VERSION:-dev}
     image: project-root-frontend:v1.0.0
     restart: always
     extra_hosts:
@@ -36,6 +39,7 @@ services:
       - GEMINI_API_BASE=${GEMINI_API_BASE}
       - GEMINI_TIMEOUT_MS=${GEMINI_TIMEOUT_MS}
       - GEMINI_PROXY_URL=${GEMINI_PROXY_URL}
+      - BUILD_VERSION=${BUILD_VERSION:-dev}
     networks:
       - app-network
 
@@ -44,6 +48,8 @@ services:
     container_name: fastapi
     build:
       context: ./fastApiProject
+      args:
+        BUILD_VERSION: ${BUILD_VERSION:-dev}
     image: project-root-fastapi:v1.0.0
     restart: always
     extra_hosts:
@@ -106,6 +112,7 @@ services:
       - TEAM_RESOURCES_PASSWORD_ENCRYPTION_KEY=${TEAM_RESOURCES_PASSWORD_ENCRYPTION_KEY}
       - TEAM_RESOURCES_EXPORT_ENCRYPTION_KEY=${TEAM_RESOURCES_EXPORT_ENCRYPTION_KEY}
       - CORS_ORIGINS=http://localhost,http://127.0.0.1,http://192.168.1.0/24,http://192.168.20.0/24,http://mac-mini.tail150593.ts.net
+      - BUILD_VERSION=${BUILD_VERSION:-dev}
       - TZ=Asia/Shanghai
     networks:
       - app-network
