@@ -8,6 +8,7 @@ from fastapi.openapi.docs import get_swagger_ui_html, get_redoc_html
 import logging
 import asyncio
 import os
+import sys
 
 from . import config
 from .services.monitoring_service import check_and_alert
@@ -93,6 +94,9 @@ async def _init_match_scheduler() -> None:
 
 
 def _warmup_recruitment_pdf_ocr() -> None:
+    if sys.platform == "darwin":
+        logger.info("Recruitment PDF OCR warmup skipped on macOS; Vision OCR is used on demand")
+        return
     try:
         from .ocr_service import get_ocr_engine
 

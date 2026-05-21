@@ -6711,19 +6711,8 @@ class RecruitmentService:
             return False
         if parse_row.resume_file_id != candidate.latest_resume_file_id:
             return False
-        if not getattr(parse_row, "raw_text", None) or not candidate.latest_resume_file_id:
-            return True
-        try:
-            resume_file = self._get_resume_file(candidate.latest_resume_file_id)
-            current_raw_text = self._extract_resume_file_raw_text(resume_file)
-        except Exception:
-            logger.warning(
-                "Failed to compare latest resume text for parse reuse candidate_id=%s parse_result_id=%s; fallback to resume_file_id match",
-                candidate.id,
-                parse_row.id,
-            )
-            return True
-        return _build_resume_content_hash(current_raw_text) == _build_resume_content_hash(parse_row.raw_text)
+        # 上传新简历会产生新的 resume_file_id；ID 已匹配时不要再从 PDF 原文件 OCR 一遍做哈希比对。
+        return True
 
     def _find_live_screening_task(
         self,
