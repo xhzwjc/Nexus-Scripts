@@ -5621,7 +5621,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         invalidateLogsCache('logs:all');
 
         const deptScope = options?.departmentScope ?? selectedDepartmentScope;
-        const companyScope = (options as any)?.orgScope ?? selectedOrgScope;
+        const companyScope = options?.orgScope ?? selectedOrgScope;
 
         // 直接调用 API，避免闭包中 selectedDepartmentScope 还是旧值的问题
         const candidatesPromise = loadCandidates({
