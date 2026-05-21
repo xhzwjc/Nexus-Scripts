@@ -11175,17 +11175,35 @@ class RecruitmentService:
         candidates = [c for c in candidates if c.status in ("matching", "unmatched", "talent_pool")]
         logger.info("[AI_MATCH] After filtering: %d candidates eligible (from %d requested)", len(candidates), len(candidate_ids))
 
+        if not candidates:
+            logger.warning("[AI_MATCH] No eligible candidates found, returning early")
+            return {"batch_id": batch_id, "matched_count": 0, "total_candidates": 0, "message": "No candidates found"}
+
+        live_candidate_ids = {c.id for c in candidates if scheduler.is_candidate_live(c.id)}
+        candidates_to_enqueue = [c for c in candidates if c.id not in live_candidate_ids]
+
         # 将候选人状态设为 matching（持久化到数据库，刷新页面后仍保持）
         # 清除之前的取消标记，允许重新识别
         for c in candidates:
             if c.status != "matching":
                 c.status = "matching"
-            scheduler.clear_cancelled(c.id)
+            if c.id not in live_candidate_ids:
+                scheduler.clear_cancelled(c.id)
         self.db.commit()
 
-        if not candidates:
-            logger.warning("[AI_MATCH] No eligible candidates found, returning early")
-            return {"batch_id": batch_id, "matched_count": 0, "total_candidates": 0, "message": "No candidates found"}
+        if live_candidate_ids:
+            logger.info(
+                "[AI_MATCH] Skipping duplicate enqueue for live candidates: ids=%s batch_id=%s",
+                sorted(live_candidate_ids),
+                batch_id,
+            )
+        if not candidates_to_enqueue:
+            return {
+                "batch_id": batch_id,
+                "matched_count": 0,
+                "total_candidates": len(candidates),
+                "message": "AI匹配已在进行中，请等待结果",
+            }
 
         # 获取当前组织的活跃岗位（只构建一次，所有候选人复用）
         # 从候选人中提取 org_code，确保只匹配本组织岗位
@@ -11218,7 +11236,7 @@ class RecruitmentService:
             message = "No auto-screen-ready positions available for this organization" if require_auto_screen_ready else "No active positions available for this organization"
             localized_reason = "当前组织暂无可自动初筛岗位，AI 智能匹配未启动" if require_auto_screen_ready else "当前组织暂无可用岗位，AI 智能匹配未启动"
             now = datetime.now()
-            for candidate in candidates:
+            for candidate in candidates_to_enqueue:
                 candidate.ai_match_position_id = None
                 candidate.ai_match_position_title = None
                 candidate.ai_match_confidence = None
@@ -11234,7 +11252,7 @@ class RecruitmentService:
                 candidate.updated_by = actor_id
                 self.db.add(candidate)
             self.db.flush()
-            for candidate in candidates:
+            for candidate in candidates_to_enqueue:
                 self.db.add(
                     RecruitmentAITaskLog(
                         task_type=task_type,
@@ -11254,7 +11272,7 @@ class RecruitmentService:
             self.db.commit()
             if session_token:
                 from .task_event_bus import TaskEventBus
-                for candidate in candidates:
+                for candidate in candidates_to_enqueue:
                     candidate_snapshot = self._serialize_realtime_candidate_item(candidate)
                     TaskEventBus.emit(
                         session_token,
@@ -11302,24 +11320,24 @@ class RecruitmentService:
             task_started_callback=self._create_match_started_callback(actor_id),
         )
 
-        logger.info("[AI_MATCH] Enqueuing %d candidates to scheduler, positions=%d", len(candidates), len(position_summaries))
+        logger.info("[AI_MATCH] Enqueuing %d candidates to scheduler, positions=%d", len(candidates_to_enqueue), len(position_summaries))
 
         # 入队到调度器
         await scheduler.enqueue_batch(
             user_id=actor_id,
             batch_id=batch_id,
-            candidates=candidates,
+            candidates=candidates_to_enqueue,
             position_summaries=position_summaries,
         )
 
         logger.info("[AI_MATCH] Enqueue complete: batch_id=%s, %d candidates queued, scheduler running=%s",
-                    batch_id, len(candidates), scheduler.running)
+                    batch_id, len(candidates_to_enqueue), scheduler.running)
 
         return {
             "batch_id": batch_id,
             "matched_count": 0,
             "total_candidates": len(candidates),
-            "message": f"AI匹配已启动，{len(candidates)}份简历排队处理中",
+            "message": f"AI匹配已启动，{len(candidates_to_enqueue)}份简历排队处理中",
         }
 
     def _create_match_callback(self, session_token: str, task_type: str, actor_id: str, position_summaries: List[Dict]):

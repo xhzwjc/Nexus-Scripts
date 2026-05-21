@@ -9,12 +9,8 @@ import re
 import json
 import logging
 import traceback
+import threading
 from typing import Iterator, Any
-
-import cv2
-import numpy as np
-import pandas as pd
-from paddleocr import PaddleOCR
 
 # ===================== 环境变量：强制 CPU + MKLDNN =====================
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
@@ -30,8 +26,13 @@ os.environ["PADDLEX_DEVICE"] = "cpu"
 # 开启 MKLDNN（oneDNN）加速
 os.environ["FLAGS_use_mkldnn"] = "1"
 os.environ["FLAGS_enable_mkldnn"] = "1"
-# 线程数：设为物理核心数的 80% 左右效果最佳
-os.environ.setdefault("OMP_NUM_THREADS", "10")
+# Paddle/OpenBLAS 在部分 Linux 镜像中不支持多线程并行，默认保守设为 1；需要时可由部署环境显式覆盖。
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+
+import cv2
+import numpy as np
+import pandas as pd
+from paddleocr import PaddleOCR
 
 # 关闭 PaddleOCR 自己的日志
 logging.getLogger("ppocr").setLevel(logging.ERROR)
@@ -394,6 +395,7 @@ def find_matching_row_index(df, ocr_name, ocr_id, id_col, matched_indices):
 
 # ===================== 全局 OCR 单例 =====================
 _GLOBAL_OCR: PaddleOCR | None = None
+_GLOBAL_OCR_LOCK = threading.Lock()
 
 
 def get_ocr_engine() -> PaddleOCR:
@@ -403,13 +405,14 @@ def get_ocr_engine() -> PaddleOCR:
     """
     global _GLOBAL_OCR
     if _GLOBAL_OCR is None:
-        # 和你本地脚本完全一致的初始化参数
-        _GLOBAL_OCR = PaddleOCR(
-            lang="ch",
-            use_doc_orientation_classify=False,
-            use_doc_unwarping=False,
-            use_textline_orientation=False,
-        )
+        with _GLOBAL_OCR_LOCK:
+            if _GLOBAL_OCR is None:
+                _GLOBAL_OCR = PaddleOCR(
+                    lang="ch",
+                    use_doc_orientation_classify=False,
+                    use_doc_unwarping=False,
+                    use_textline_orientation=False,
+                )
     return _GLOBAL_OCR
 
 

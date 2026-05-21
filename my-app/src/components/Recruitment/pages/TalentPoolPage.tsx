@@ -1078,7 +1078,7 @@ function CandidateCard({
                 {hasAIMatch && onChangePosition && (
                     <Button size="sm" variant="outline" className="h-8 rounded-md px-3 text-sm" onClick={onChangePosition}>{tr.changePosition}</Button>
                 )}
-                {onReIdentify && (
+                {onReIdentify && !isMatching && (
                     <Button size="sm" variant="outline" className="h-8 rounded-md px-3 text-sm" onClick={onReIdentify} disabled={reIdentifying}>
                         {reIdentifying ? <Loader2 className="mr-1 h-3 w-3 animate-spin"/> : <RefreshCw className="mr-1 h-3 w-3"/>}
                         {reIdentifying ? tr.reIdentifying : tr.reIdentify}

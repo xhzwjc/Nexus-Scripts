@@ -7,6 +7,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.openapi.docs import get_swagger_ui_html, get_redoc_html
 import logging
 import asyncio
+import os
 
 from . import config
 from .services.monitoring_service import check_and_alert
@@ -90,6 +91,18 @@ async def _init_match_scheduler() -> None:
     finally:
         db.close()
 
+
+def _warmup_recruitment_pdf_ocr() -> None:
+    try:
+        from .ocr_service import get_ocr_engine
+
+        logger.info("Recruitment PDF OCR warmup started")
+        get_ocr_engine()
+        logger.info("Recruitment PDF OCR warmup finished")
+    except Exception as exc:
+        logger.warning("Recruitment PDF OCR warmup skipped or failed: %s", exc, exc_info=True)
+
+
 @app.on_event("startup")
 async def startup_event():
     """启动时初始化"""
@@ -102,6 +115,8 @@ async def startup_event():
         logger.error("Failed to initialize schemas or recruitment queue on startup: %s", exc, exc_info=True)
     logger.info("Starting background tasks...")
     asyncio.create_task(background_monitoring_loop())
+    if os.getenv("RECRUITMENT_PRELOAD_PDF_OCR", "1").strip() != "0":
+        asyncio.create_task(asyncio.to_thread(_warmup_recruitment_pdf_ocr))
 
 async def background_monitoring_loop():
     """后台监控循环"""
