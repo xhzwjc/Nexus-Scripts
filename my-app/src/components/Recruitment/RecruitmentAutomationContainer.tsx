@@ -1522,6 +1522,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const positionsLoadRequestIdRef = useRef(0);
     const candidatesLoadRequestIdRef = useRef(0);
     const positionDetailLoadRequestIdRef = useRef(0);
+    const candidatePageTargetCandidateIdRef = useRef<number | null>(null);
     const defaultTabSetForPositionRef = useRef<number | null>(null);
     const mountedRef = useRef(true);
     const candidateListScrollElRef = useRef<HTMLDivElement | null>(null);
@@ -3083,6 +3084,11 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         if (targetPage !== "candidates" || previousPage === targetPage) {
             return;
         }
+        if (candidatePageTargetCandidateIdRef.current) {
+            candidateMenuSelectionResetRef.current = false;
+            candidateMenuSuppressStaleDetailRef.current = false;
+            return;
+        }
         candidateMenuSelectionResetRef.current = true;
         candidateMenuSuppressStaleDetailRef.current = true;
         setSelectedCandidateId(null);
@@ -3103,6 +3109,10 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             if (candidateMenuSelectionResetRef.current) {
                 candidateMenuSelectionResetRef.current = false;
                 return null;
+            }
+            const targetCandidateId = candidatePageTargetCandidateIdRef.current;
+            if (targetCandidateId) {
+                return current === targetCandidateId ? current : targetCandidateId;
             }
             if (current && visibleCandidateIdSet.has(current)) {
                 return current;
@@ -3297,6 +3307,17 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     useEffect(() => {
         selectedCandidateIdRef.current = selectedCandidateId;
     }, [selectedCandidateId]);
+
+    useEffect(() => {
+        if (activePage !== "candidates") {
+            candidatePageTargetCandidateIdRef.current = null;
+        }
+    }, [activePage]);
+
+    const handleCandidatePageSelect = useCallback<React.Dispatch<React.SetStateAction<number | null>>>((value) => {
+        candidatePageTargetCandidateIdRef.current = null;
+        setSelectedCandidateId(value);
+    }, []);
 
     useEffect(() => {
         auditLogRequestKeyRef.current = auditLogRequestKey;
@@ -6420,10 +6441,9 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
 
     const handleTalentPoolCandidateSelect = useCallback((candidateId: number) => {
         setTalentPoolDrawerContentReady(false);
+        setSelectedCandidateId(candidateId);
+        selectedCandidateIdRef.current = candidateId;
         setTalentPoolCandidateDetailOpen(true);
-        React.startTransition(() => {
-            setSelectedCandidateId(candidateId);
-        });
     }, []);
 
     const handleViewResume = useCallback(async (candidateId: number) => {
@@ -6754,6 +6774,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                             const candidateId = selectedCandidateId;
                             onClose();
                             if (candidateId) {
+                                candidatePageTargetCandidateIdRef.current = candidateId;
                                 setSelectedCandidateId(candidateId);
                             }
                             navigateToRecruitmentPage("candidates");
@@ -11573,7 +11594,12 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                                 onSearchChange={handlePositionCandidateSearchChange}
                                                 onStatusFilterChange={(v) => setPositionCandidateStatusFilter(v)}
                                                 onCloseDetail={() => setPositionCandidateDetailOpen(false)}
-                                                onViewInCandidatePage={(id) => { setPositionCandidateDetailOpen(false); setSelectedCandidateId(id); navigateToRecruitmentPage("candidates"); }}
+                                                onViewInCandidatePage={(id) => {
+                                                    candidatePageTargetCandidateIdRef.current = id;
+                                                    setPositionCandidateDetailOpen(false);
+                                                    setSelectedCandidateId(id);
+                                                    navigateToRecruitmentPage("candidates");
+                                                }}
                                                 onViewAllCandidates={() => {
                                                     setCandidatePositionFilter([String(positionDetail.position.id)]);
                                                     navigateToRecruitmentPage("candidates");
@@ -11681,6 +11707,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                                             type="button"
                                                             className="flex w-full items-start justify-between rounded-2xl border border-slate-200/80 px-4 py-4 text-left transition hover:border-slate-400 dark:border-slate-800"
                                                             onClick={() => {
+                                                                candidatePageTargetCandidateIdRef.current = candidate.id;
                                                                 setSelectedCandidateId(candidate.id);
                                                                 navigateToRecruitmentPage("candidates");
                                                             }}
@@ -11785,7 +11812,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 candidateListHorizontalRailRef={candidateListHorizontalRailRef}
                 renderCandidateListHeaderCell={renderCandidateListHeaderCell}
                 selectedCandidateId={selectedCandidateId}
-                setSelectedCandidateId={setSelectedCandidateId}
+                setSelectedCandidateId={handleCandidatePageSelect}
                 toggleCandidateSelection={toggleCandidateSelection}
                 candidateListDisplayColumnWidths={candidateListDisplayColumnWidths}
                 showOrganizationColumn={showOrganizationColumn}
