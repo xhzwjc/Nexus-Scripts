@@ -49,6 +49,7 @@ import {
     type RecruitmentAssistantStreamEventType,
     type RecruitmentAssistantToolResultPayload,
 } from "@/lib/recruitment-assistant-protocol";
+import type {ScriptHubSession} from "@/lib/auth";
 import {
     isRecruitmentRequestAborted,
     joinTags,
@@ -381,6 +382,25 @@ function normalizeRecruitmentOrgCode(value?: string | null) {
     return text || "group";
 }
 
+function buildOrganizationScopeRequestKey(session: ScriptHubSession | null) {
+    const user = session?.user;
+    const roles = [...(user?.roles || [])].sort().join(",");
+    const customOrgCodes = [...(user?.customOrgCodes || [])]
+        .map(normalizeRecruitmentOrgCode)
+        .sort()
+        .join(",");
+    return [
+        session?.token || "",
+        user?.id || "",
+        user?.permissionVersion || "",
+        user?.primaryOrgCode || "",
+        user?.dataScope || "",
+        user?.isSuperAdmin ? "super" : "normal",
+        roles,
+        customOrgCodes,
+    ].join("|");
+}
+
 function getFallbackOrganizationLabel(orgCode?: string | null) {
     const code = normalizeRecruitmentOrgCode(orgCode);
     const knownLabels: Record<string, string> = {
@@ -411,8 +431,7 @@ function deduplicateCandidates(candidates: CandidateSummary[]): CandidateSummary
 const CANDIDATE_LIST_EXCLUDED_STATUSES = new Set(["matching", "unmatched", "talent_pool"]);
 let sharedRecruitmentMetadataCache: RecruitmentMetadata | null = null;
 let sharedRecruitmentMetadataPromise: Promise<RecruitmentMetadata> | null = null;
-let sharedOrganizationScopeCache: RecruitmentOrganizationScope | null = null;
-let sharedOrganizationScopePromise: Promise<RecruitmentOrganizationScope> | null = null;
+let sharedOrganizationScopePromise: { cacheKey: string; promise: Promise<RecruitmentOrganizationScope> } | null = null;
 
 function resolveScrollAreaViewport(node: HTMLDivElement | null): HTMLDivElement | null {
     if (!node) {
@@ -4848,22 +4867,19 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     async function loadOrganizationCatalog() {
         setOrganizationCatalogLoading(true);
         try {
+            const currentSession = getStoredScriptHubSession();
+            const cacheKey = buildOrganizationScopeRequestKey(currentSession);
             const data = await (async () => {
-                if (sharedOrganizationScopeCache) {
-                    return sharedOrganizationScopeCache;
-                }
-                if (sharedOrganizationScopePromise) {
-                    return sharedOrganizationScopePromise;
+                if (sharedOrganizationScopePromise?.cacheKey === cacheKey) {
+                    return sharedOrganizationScopePromise.promise;
                 }
                 const pending = recruitmentApi<RecruitmentOrganizationScope>("/organization-scope")
-                    .then((result) => {
-                        sharedOrganizationScopeCache = result;
-                        return result;
-                    })
                     .finally(() => {
-                        sharedOrganizationScopePromise = null;
+                        if (sharedOrganizationScopePromise?.cacheKey === cacheKey) {
+                            sharedOrganizationScopePromise = null;
+                        }
                     });
-                sharedOrganizationScopePromise = pending;
+                sharedOrganizationScopePromise = { cacheKey, promise: pending };
                 return pending;
             })();
             if (mountedRef.current) {
