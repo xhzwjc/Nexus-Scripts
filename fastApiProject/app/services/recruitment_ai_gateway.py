@@ -1407,7 +1407,10 @@ def _parse_strict_json_response(
             pass  # fall through to full repair pipeline
 
     # --- FULL PIPELINE: extract candidates, repair, and select ---
-    candidate_texts = _extract_top_level_json_candidates(raw_text, limit=6)
+    # One-pass responses are large and can break inside parsed_resume arrays while
+    # still containing valid score/position_match objects later in the text.
+    candidate_scan_limit = 16 if task_type == "resume_screening_one_pass" else 6
+    candidate_texts = _extract_top_level_json_candidates(raw_text, limit=candidate_scan_limit)
     stripped_raw_text = str(raw_text or "").strip()
     if not candidate_texts and stripped_raw_text:
         candidate_texts = [stripped_raw_text]

@@ -13486,6 +13486,9 @@ class RecruitmentService:
             screening_run_id=screening_run_id,
             parent_task_id=parent_task_id,
             root_task_id=root_task_id or parent_task_id,
+            raw_response_text=task.get("raw_response_text"),
+            parsed_response_json=authoritative_payload if isinstance(authoritative_payload, dict) else None,
+            sanitized_response_json=sanitized_payload,
             validation_meta={
                 "validation_warnings": validation_warnings,
                 "invalid_result_reasons": invalid_result_reasons,
