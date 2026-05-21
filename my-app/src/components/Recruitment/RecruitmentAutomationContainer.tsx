@@ -3129,7 +3129,9 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         setSelectedCandidateId((current) => {
             if (candidateMenuSelectionResetRef.current) {
                 candidateMenuSelectionResetRef.current = false;
-                return null;
+                if (current) {
+                    return null;
+                }
             }
             const targetCandidateId = candidatePageTargetCandidateIdRef.current;
             if (targetCandidateId) {
