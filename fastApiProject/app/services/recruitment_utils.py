@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import html
 import json
+import logging
 import os
 import re
 import shutil
 import subprocess
 import sys
+import time
 import xml.etree.ElementTree as ET
 import zipfile
 from datetime import datetime
@@ -26,6 +28,7 @@ except Exception:  # pragma: no cover - optional dependency fallback
 FASTAPI_ROOT = Path(__file__).resolve().parents[2]
 RECRUITMENT_UPLOAD_ROOT = FASTAPI_ROOT / "data" / "recruitment_uploads" / "resumes"
 CHAT_CONTEXT_STORE: Dict[str, Dict[str, Any]] = {}
+logger = logging.getLogger(__name__)
 
 CANDIDATE_STATUS_OPTIONS = [
     {"value": "new_imported", "label": "新导入"},
@@ -1100,16 +1103,18 @@ def _extract_text_from_pdf_with_paddleocr(file_path: Path) -> str:
     except Exception as exc:
         raise RuntimeError(f"PaddleOCR dependencies unavailable: {exc}") from exc
 
-    max_pages = int(os.getenv("RECRUITMENT_PDF_OCR_MAX_PAGES", "3").strip() or "3")
+    max_pages = int(os.getenv("RECRUITMENT_PDF_OCR_MAX_PAGES", "1").strip() or "1")
+    render_scale = float(os.getenv("RECRUITMENT_PDF_OCR_RENDER_SCALE", "2").strip() or "2")
     document = pdfium.PdfDocument(str(file_path))
     fragments: List[str] = []
     try:
         page_count = min(len(document), max(1, max_pages))
         ocr = get_ocr_engine()
         for index in range(page_count):
+            page_started_at = time.monotonic()
             page = document[index]
             try:
-                bitmap = page.render(scale=3)
+                bitmap = page.render(scale=render_scale)
                 image = np.array(bitmap.to_pil())
                 try:
                     result = ocr.predict(image)
@@ -1118,6 +1123,14 @@ def _extract_text_from_pdf_with_paddleocr(file_path: Path) -> str:
                 full_text, _ = parse_ocr_result(result)
                 if full_text.strip():
                     fragments.append(full_text.strip())
+                logger.info(
+                    "PaddleOCR PDF page extracted file=%s page=%d/%d chars=%d elapsed_ms=%d",
+                    file_path.name,
+                    index + 1,
+                    page_count,
+                    len(full_text or ""),
+                    int((time.monotonic() - page_started_at) * 1000),
+                )
             finally:
                 try:
                     page.close()

@@ -11333,6 +11333,21 @@ class RecruitmentService:
         """创建匹配完成回调（供调度器 worker 调用）"""
         ai_gateway = self.ai_gateway
 
+        def _build_ai_match_resume_text_in_thread(candidate_id: int) -> str:
+            from ..database import SessionLocal
+
+            thread_db = SessionLocal()
+            try:
+                thread_candidate = thread_db.query(RecruitmentCandidate).filter(
+                    RecruitmentCandidate.id == candidate_id,
+                    RecruitmentCandidate.deleted.is_(False),
+                ).first()
+                if not thread_candidate:
+                    raise ValueError("Candidate not found")
+                return RecruitmentService(thread_db)._build_ai_match_resume_text(thread_candidate)
+            finally:
+                thread_db.close()
+
         async def _on_match_done(task, slot):
             import asyncio
             import time as _time
@@ -11369,7 +11384,10 @@ class RecruitmentService:
 
                 if not task.resume_content:
                     try:
-                        task.resume_content = callback_service._build_ai_match_resume_text(candidate)
+                        task.resume_content = await asyncio.to_thread(
+                            _build_ai_match_resume_text_in_thread,
+                            task.candidate_id,
+                        )
                     except Exception as exc:
                         resume_text_failure_message = str(exc or "").strip() or "简历未提取到可识别文本，AI 智能匹配未启动"
                         logger.warning("[AI_MATCH] Candidate %d skipped because resume text is unavailable: %s", task.candidate_id, resume_text_failure_message)

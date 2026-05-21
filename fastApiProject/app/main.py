@@ -100,7 +100,11 @@ def _warmup_recruitment_pdf_ocr() -> None:
     try:
         from .ocr_service import get_ocr_engine
 
-        logger.info("Recruitment PDF OCR warmup started")
+        logger.info(
+            "Recruitment PDF OCR warmup started max_pages=%s render_scale=%s",
+            os.getenv("RECRUITMENT_PDF_OCR_MAX_PAGES", "1"),
+            os.getenv("RECRUITMENT_PDF_OCR_RENDER_SCALE", "2"),
+        )
         get_ocr_engine()
         logger.info("Recruitment PDF OCR warmup finished")
     except Exception as exc:

@@ -243,6 +243,32 @@ def _with_session_token(request: Request, session: Optional[Dict[str, Any]]) -> 
     return enriched
 
 
+async def _dispatch_ai_position_match_background(
+    candidate_ids: List[int],
+    actor_id: str,
+    governance_session: Optional[Dict[str, Any]],
+    session_token: Optional[str],
+) -> None:
+    db = SessionLocal()
+    try:
+        service = RecruitmentService(db).set_permission_context(governance_session)
+        service._session_token = session_token
+        result = await service.trigger_ai_position_match(
+            candidate_ids,
+            actor_id,
+            require_auto_screen_ready=True,
+        )
+        logger.info("AI position match background dispatched: %s", result)
+    except Exception:
+        logger.error(
+            "AI position match background dispatch failed: candidate_ids=%s",
+            candidate_ids,
+            exc_info=True,
+        )
+    finally:
+        db.close()
+
+
 def _encode_sse_event(event: str, payload: Dict[str, Any]) -> str:
     return f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
@@ -743,21 +769,28 @@ async def upload_resumes(
             source=source, duplicate_strategy=duplicate_strategy
         )
 
-        # 如果是AI智能匹配模式，异步提交匹配任务（立即返回，匹配在后台执行）
+        # 如果是AI智能匹配模式，只提交后台任务，不在上传接口里等待 OCR/识别链路。
         ai_match_result = None
         if match_mode == "smart" and rows:
             candidate_ids = [row["id"] for row in rows]
             actor_id = _session.get("id") or "unknown"
-            try:
-                ai_match_result = await service.trigger_ai_position_match(
+            session_token = get_script_hub_token_from_request(request)
+            governance_session = _with_session_token(request, _session)
+            asyncio.create_task(
+                _dispatch_ai_position_match_background(
                     candidate_ids,
                     actor_id,
-                    require_auto_screen_ready=True,
+                    governance_session,
+                    session_token,
                 )
-                logger.info(f"AI position match dispatched: {ai_match_result}")
-            except Exception as exc:
-                logger.error(f"AI position match dispatch failed: {exc}")
-                ai_match_result = {"matched_count": 0, "error": str(exc)}
+            )
+            ai_match_result = {
+                "matched_count": 0,
+                "total_candidates": len(candidate_ids),
+                "background": True,
+                "message": "AI岗位匹配已提交后台处理，结果将实时更新",
+            }
+            logger.info("AI position match scheduled in background: candidate_ids=%s", candidate_ids)
 
         auto_screen_queued_count = 0
         auto_screen_skipped_existing_live_task_count = 0
