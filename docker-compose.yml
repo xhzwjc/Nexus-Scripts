@@ -21,7 +21,7 @@ services:
       context: .
       dockerfile: ./my-app/Dockerfile
       args:
-        BUILD_VERSION: ${BUILD_VERSION:-dev}
+        BUILD_VERSION: ${BUILD_VERSION:-}
     image: project-root-frontend:v1.0.0
     restart: always
     extra_hosts:
@@ -49,7 +49,7 @@ services:
     build:
       context: ./fastApiProject
       args:
-        BUILD_VERSION: ${BUILD_VERSION:-dev}
+        BUILD_VERSION: ${BUILD_VERSION:-}
     image: project-root-fastapi:v1.0.0
     restart: always
     extra_hosts:
