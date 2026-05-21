@@ -38,7 +38,7 @@ export function VersionUpdateModal({ visible }: VersionUpdateModalProps) {
               </div>
             </div>
             <div id="version-update-description" className="space-y-3 text-base leading-7 text-slate-600 dark:text-slate-300">
-              <p>检测到新版本已发布，为避免页面异常，请刷新后继续使用。</p>
+              <p>检测到新版本已发布啦，为避免页面异常，请刷新后继续使用。</p>
               <p className="rounded-2xl border border-slate-200/80 bg-slate-50/90 px-4 py-3 text-sm text-slate-500 dark:border-slate-800 dark:bg-slate-900/80 dark:text-slate-400">
                 当前进行中的后台任务不会中断，结果仍会保存。
               </p>
