@@ -7879,7 +7879,7 @@ class RecruitmentService:
         *,
         actor_id: str,
     ) -> None:
-        if candidate.status not in {"pending_screening", "screening_failed", "new_imported"}:
+        if candidate.status not in {"pending_screening", "screening_failed", "new_imported", "screening_passed", "screening_rejected"}:
             return
         suggested_status = _normalize_suggested_status(candidate.ai_recommended_status)
         if not suggested_status or suggested_status == candidate.status:
