@@ -262,13 +262,9 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
                                         ) : (
                                             <div className="space-y-1">
                                                 <div
-                                                    className={navItemClass(inRecruitmentView || Boolean(activeRecruitmentPage))}
+                                                    className={navItemClass(inRecruitmentView || Boolean(activeRecruitmentPage) || aiRecruitmentExpanded)}
                                                     onClick={() => {
-                                                        setRecruitmentInitialPage?.('workspace');
-                                                        setCurrentView('ai-recruitment');
-                                                        setActiveRecruitmentPage('workspace');
-                                                        setAiRecruitmentExpanded(true);
-                                                        navigateToRecruitmentPage('workspace');
+                                                        setAiRecruitmentExpanded((expanded) => !expanded);
                                                     }}
                                                 >
                                                     <BriefcaseBusiness className="h-[18px] w-[18px]" />
