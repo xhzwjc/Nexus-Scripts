@@ -928,8 +928,8 @@ async def cancel_match(
 ):
     """取消正在匹配的候选人"""
     try:
-        service.cancel_match_for_candidate(candidate_id, _session.get("id") or "unknown")
-        return {"success": True, "request_id": str(uuid.uuid4())}
+        data = service.cancel_match_for_candidate(candidate_id, _session.get("id") or "unknown")
+        return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     except Exception as exc:

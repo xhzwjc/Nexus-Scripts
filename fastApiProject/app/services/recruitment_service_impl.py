@@ -190,7 +190,7 @@ SCREENING_PROVIDER_MAX_CONCURRENCY = max(1, int(os.getenv("SCREENING_PROVIDER_MA
 SCREENING_DISPATCH_SCAN_LIMIT = max(120, int(os.getenv("SCREENING_DISPATCH_SCAN_LIMIT", "240")))
 
 # 匹配超时/重试常量
-MATCH_TIMEOUT_SECONDS = 180  # 3 分钟超时（从 worker 开始执行算起）
+MATCH_TIMEOUT_SECONDS = 600  # 冷启动 OCR/模型加载可能较慢，避免误判仍在执行的匹配任务
 MATCH_MAX_RETRIES = 2  # 最多重试 2 次
 MATCH_RETRY_DELAYS = [10, 30]  # 重试间隔（秒）
 
@@ -11352,6 +11352,7 @@ class RecruitmentService:
             import asyncio
             import time as _time
             from ..database import SessionLocal
+            from .match_scheduler import scheduler
             from .task_event_bus import TaskEventBus
 
             # 创建独立的 DB session（请求结束后 self.db 已关闭）
@@ -11382,6 +11383,11 @@ class RecruitmentService:
                 callback_service = RecruitmentService(db)
                 callback_service._session_token = callback_service._normalize_task_session_token(session_token)
 
+                if scheduler.is_cancelled(task.candidate_id):
+                    scheduler.clear_cancelled(task.candidate_id)
+                    logger.info("[AI_MATCH] Candidate %d was cancelled before model call, skipping result persistence", task.candidate_id)
+                    return
+
                 if not task.resume_content:
                     try:
                         task.resume_content = await asyncio.to_thread(
@@ -11394,6 +11400,11 @@ class RecruitmentService:
                     except Exception:
                         db.rollback()
                         raise
+
+                if scheduler.is_cancelled(task.candidate_id):
+                    scheduler.clear_cancelled(task.candidate_id)
+                    logger.info("[AI_MATCH] Candidate %d was cancelled during resume extraction, discarding match result", task.candidate_id)
+                    return
 
                 if resume_text_failure_message:
                     match_result = {
@@ -11422,6 +11433,10 @@ class RecruitmentService:
                         position_summaries,
                         runtime_config=runtime_config,
                     )
+                if scheduler.is_cancelled(task.candidate_id):
+                    scheduler.clear_cancelled(task.candidate_id)
+                    logger.info("[AI_MATCH] Candidate %d was cancelled during model call, discarding match result", task.candidate_id)
+                    return
                 duration_ms = int((_time.time() - start_time) * 1000)
                 if match_result and match_result.get("position_id"):
                     position = db.query(RecruitmentPosition).filter(
@@ -11875,6 +11890,7 @@ class RecruitmentService:
             stuck_query = stuck_query.filter(RecruitmentCandidate.id.notin_(live_matching_ids))
         stuck = stuck_query.all()
         if stuck:
+            recovered_ids = [c.id for c in stuck]
             for c in stuck:
                 c.status = "unmatched"
                 c.ai_match_reason = "匹配超时，已自动重置"
@@ -11882,43 +11898,102 @@ class RecruitmentService:
                 c.talent_pool_moved_at = datetime.now()
             self.db.commit()
             logger.warning("[AI_MATCH] Recovered %d stuck matching candidates (timeout > %ds)", len(stuck), MATCH_TIMEOUT_SECONDS)
+            session_token = self._normalize_task_session_token(self._session_token)
+            if session_token:
+                try:
+                    from .task_event_bus import TaskEventBus
 
-    def cancel_match_for_candidate(self, candidate_id: int, actor_id: str):
+                    recovered_rows = self.db.query(RecruitmentCandidate).filter(
+                        RecruitmentCandidate.id.in_(recovered_ids),
+                        RecruitmentCandidate.deleted.is_(False),
+                    ).all()
+                    for row in recovered_rows:
+                        TaskEventBus.emit(
+                            session_token,
+                            "candidate_updated",
+                            {
+                                "candidate_id": row.id,
+                                "task_type": "ai_position_match",
+                                "status": row.status,
+                                "ai_match_reason": row.ai_match_reason,
+                                "candidate_snapshot": self._serialize_realtime_candidate_item(row),
+                            },
+                        )
+                except Exception:
+                    logger.warning("[AI_MATCH] Failed to emit recovered matching candidate updates", exc_info=True)
+
+    def cancel_match_for_candidate(self, candidate_id: int, actor_id: str) -> Dict[str, Any]:
         """取消正在匹配的候选人（用户手动停止）"""
         from .match_scheduler import scheduler
+        from .task_event_bus import TaskEventBus
 
         candidate = self.db.query(RecruitmentCandidate).filter(
             RecruitmentCandidate.id == candidate_id,
-            RecruitmentCandidate.status == "matching",
             RecruitmentCandidate.deleted.is_(False),
         ).first()
         if not candidate:
-            raise ValueError("Candidate not found or not in matching status")
+            raise ValueError("Candidate not found")
+
+        if candidate.status != "matching":
+            candidate_snapshot = self._serialize_realtime_candidate_item(candidate)
+            logger.info(
+                "[AI_MATCH] Cancel match no-op for candidate=%d because status already changed to %s",
+                candidate_id,
+                candidate.status,
+            )
+            return {
+                "cancelled": False,
+                "status": candidate.status,
+                "message": "匹配状态已更新",
+                "candidate_snapshot": candidate_snapshot,
+            }
 
         # 标记到 scheduler 的 cancelled 集合，worker 执行前会检查并跳过
         scheduler.cancel_match(candidate_id)
 
+        now = datetime.now()
+        session_token = self._normalize_task_session_token(self._session_token)
         candidate.status = "unmatched"
         candidate.ai_match_reason = "用户手动停止匹配"
         candidate.talent_pool_reason = "ai_error"
-        candidate.talent_pool_moved_at = datetime.now()
+        candidate.talent_pool_moved_at = now
         candidate.updated_by = actor_id
-        self.db.commit()
 
         # 审计日志
-        now = datetime.now()
         log_row = RecruitmentAITaskLog(
             task_type="ai_position_match",
+            org_code=normalize_org_code(getattr(candidate, "org_code", None)),
             status="cancelled",
             related_candidate_id=candidate_id,
             output_summary="用户手动停止匹配",
+            session_token=session_token,
             created_by=actor_id,
             created_at=now,
             updated_at=now,
         )
         self.db.add(log_row)
         self.db.commit()
+        self.db.refresh(candidate)
+        candidate_snapshot = self._serialize_realtime_candidate_item(candidate)
         logger.info("[AI_MATCH] User cancelled match for candidate=%d", candidate_id)
+        if session_token:
+            TaskEventBus.emit(
+                session_token,
+                "candidate_updated",
+                {
+                    "candidate_id": candidate_id,
+                    "task_type": "ai_position_match",
+                    "status": "unmatched",
+                    "ai_match_reason": "用户手动停止匹配",
+                    "candidate_snapshot": candidate_snapshot,
+                },
+            )
+        return {
+            "cancelled": True,
+            "status": "unmatched",
+            "message": "已停止匹配",
+            "candidate_snapshot": candidate_snapshot,
+        }
 
     def move_to_talent_pool(self, candidate_id: int, actor_id: str):
         """将候选人移入人才库（人工操作）"""

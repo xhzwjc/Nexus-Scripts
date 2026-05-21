@@ -3173,6 +3173,24 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activePage]);
 
+    useEffect(() => {
+        if (activePage !== "talent-pool") {
+            return;
+        }
+        const hasMatchingCandidate = allTalentPoolCandidates.some((candidate) => (
+            String(candidate.status || "").trim().toLowerCase() === "matching"
+        ));
+        if (!hasMatchingCandidate) {
+            return;
+        }
+        const timer = window.setInterval(() => {
+            void loadTalentPoolCandidates({ silent: true });
+        }, 6000);
+        return () => window.clearInterval(timer);
+        // SSE 仍是主通道；这里仅在有识别中候选人时兜底跨进程/断线漏推送。
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activePage, allTalentPoolCandidates]);
+
     // 监听顶栏侧边栏的导航事件
     useEffect(() => {
         const handler = (e: Event) => {
@@ -11976,10 +11994,25 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                         }
                     }}
                     onCancelMatch={async (candidateId) => {
-                        await recruitmentApi(`/candidates/${candidateId}/cancel-match`, { method: "POST" });
-                        setAllTalentPoolCandidates(prev => prev.map(c =>
-                            c.id === candidateId ? { ...c, status: "unmatched" } : c
-                        ));
+                        try {
+                            const result = await recruitmentApi<{
+                                cancelled?: boolean;
+                                status?: string;
+                                message?: string;
+                                candidate_snapshot?: Partial<CandidateSummary> | null;
+                            }>(`/candidates/${candidateId}/cancel-match`, { method: "POST" });
+                            if (result?.candidate_snapshot) {
+                                syncRealtimeCandidateLists(result.candidate_snapshot);
+                                return;
+                            }
+                            setAllTalentPoolCandidates(prev => prev.map(c =>
+                                c.id === candidateId ? { ...c, status: result?.status || "unmatched" } : c
+                            ));
+                        } catch (error) {
+                            console.warn("Failed to cancel match, refreshing talent pool state:", error);
+                            await loadTalentPoolCandidates({ silent: true });
+                            toast.info(isZh ? "匹配状态已更新" : "Match status updated");
+                        }
                     }}
                     panelClass={panelClass}
                 />
