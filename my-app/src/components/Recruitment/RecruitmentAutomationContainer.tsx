@@ -217,6 +217,8 @@ const TASK_MONITOR_HIDDEN_INTERVAL_MS = 60_000;
 const TASK_MONITOR_MAX_INTERVAL_MS = 30_000;
 const TASK_MONITOR_BATCH_SCALE_THRESHOLD = 8;
 const CANDIDATE_SSE_BATCH_WINDOW_MS = 100;
+const CANDIDATE_LIST_PAGE_SIZE = 10;
+const CANDIDATE_LIST_CACHE_STALE_MS = 120_000;
 const ALL_COMPANY_DEPARTMENTS_VALUE = "__all_company_departments__";
 const TERMINAL_SCREENING_TASK_STATUSES = new Set([
     "success",
@@ -237,6 +239,13 @@ const TERMINAL_SCREENING_TASK_STATUSES = new Set([
 type CandidateSnapshotBatchUpdate = {
     snapshot: Partial<CandidateSummary>;
     insertIntoCandidateList?: boolean;
+};
+
+type CandidateListPageCache = {
+    contextKey: string;
+    items: CandidateSummary[];
+    total: number;
+    loadedAt: number;
 };
 
 function mergeCandidatePatch<T extends Partial<CandidateSummary>>(current: T, patch: Partial<CandidateSummary>): T {
@@ -2065,6 +2074,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const candidateTotalRef = useRef(candidateTotal);
     const candidateListUsingVisibleFiltersRef = useRef(false);
     const candidateListContextKeyRef = useRef("");
+    const candidateListPageCacheRef = useRef<CandidateListPageCache | null>(null);
+    const candidateListPreloadLoadedAtRef = useRef(0);
     const candidateListLoadAbortControllerRef = useRef<AbortController | null>(null);
     const candidateListLoadMoreAbortControllerRef = useRef<AbortController | null>(null);
     const skillsLoadedOnceRef = useRef(false);
@@ -3070,6 +3081,14 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         organizationMap,
     ]);
 
+    const applyCandidateListSnapshot = useCallback((items: CandidateSummary[], total: number) => {
+        allCandidatesRef.current = items;
+        candidateTotalRef.current = total;
+        setAllCandidates(items);
+        setCandidates(filterBusinessRowsByOrgCodes(items, activeBusinessOrgCodes));
+        setCandidateTotal(total);
+    }, [activeBusinessOrgCodes]);
+
     useEffect(() => {
         setSelectedPositionId((current) => {
             if (current && visiblePositions.some((position) => position.id === current)) {
@@ -3320,18 +3339,6 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     }, [positionCandidateSearch, positionCandidateStatusFilter, positionWorkspaceView, selectedPositionId, activePage]);
 
     useEffect(() => {
-        if (bootstrapping || activePage === "candidates" || !candidateListUsingVisibleFiltersRef.current) {
-            return;
-        }
-        void loadCandidates({
-            silent: true,
-            force: true,
-            useVisibleFilters: false,
-        });
-    }, [activePage, bootstrapping]);
-
-
-    useEffect(() => {
         selectedCandidateIdRef.current = selectedCandidateId;
     }, [selectedCandidateId]);
 
@@ -3520,9 +3527,11 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                     timeoutMs: 45000,
                 });
                 if (!cancelled) {
+                    const nextItems = deduplicateCandidates(data?.items || []);
+                    const nextTotal = data?.total || 0;
                     candidateListUsingVisibleFiltersRef.current = false;
-                    setAllCandidates(deduplicateCandidates(data?.items || []));
-                    setCandidateTotal(data?.total || 0);
+                    candidateListPreloadLoadedAtRef.current = Date.now();
+                    applyCandidateListSnapshot(nextItems, nextTotal);
                     setCandidatesInitialLoaded(true);
                     setCandidatesLoading(false);
                 }
@@ -3676,6 +3685,62 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         if (bootstrapping || activePage !== "candidates") {
             return;
         }
+        if (!candidatesInitialLoaded && candidatesLoading) {
+            return;
+        }
+        const contextKey = buildCandidateListContextKey({
+            useVisibleFilters: true,
+            query: deferredCandidateQuery,
+            matchSortOrder: candidateMatchSortOrderRef.current,
+        });
+        const hasServerDrivenCandidateFilters = Boolean(
+            deferredCandidateQuery.trim()
+            || candidatePositionFilter.length
+            || candidateStatusFilter.length
+            || candidateMatchSortOrderRef.current
+        );
+        const cachedPage = candidateListPageCacheRef.current;
+        const cachedPageFreshForContext = Boolean(
+            cachedPage
+            && cachedPage.contextKey === contextKey
+            && Date.now() - cachedPage.loadedAt < CANDIDATE_LIST_CACHE_STALE_MS
+        );
+        if (cachedPageFreshForContext && cachedPage) {
+            const currentItemsStillMatchContext = (
+                candidateListUsingVisibleFiltersRef.current
+                && candidateListContextKeyRef.current === contextKey
+                && allCandidatesRef.current.length > 0
+            );
+            candidateListUsingVisibleFiltersRef.current = true;
+            candidateListContextKeyRef.current = contextKey;
+            applyCandidateListSnapshot(
+                currentItemsStillMatchContext ? allCandidatesRef.current : cachedPage.items,
+                currentItemsStillMatchContext ? candidateTotalRef.current : cachedPage.total,
+            );
+            setCandidatesInitialLoaded(true);
+            setCandidatesLoading(false);
+            setCandidateListTransitionLoading(false);
+            return;
+        }
+        if (
+            !hasServerDrivenCandidateFilters
+            && candidatesInitialLoaded
+            && allCandidatesRef.current.length > 0
+            && !candidateListUsingVisibleFiltersRef.current
+            && Date.now() - candidateListPreloadLoadedAtRef.current < CANDIDATE_LIST_CACHE_STALE_MS
+        ) {
+            candidateListUsingVisibleFiltersRef.current = true;
+            candidateListContextKeyRef.current = contextKey;
+            candidateListPageCacheRef.current = {
+                contextKey,
+                items: allCandidatesRef.current,
+                total: candidateTotalRef.current,
+                loadedAt: candidateListPreloadLoadedAtRef.current,
+            };
+            setCandidateListTransitionLoading(false);
+            setCandidatesLoading(false);
+            return;
+        }
         const transitionToken = candidateListTransitionTokenRef.current + 1;
         candidateListTransitionTokenRef.current = transitionToken;
         if (candidatesInitialLoaded) {
@@ -3702,7 +3767,17 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             });
         }, 150);
         return () => window.clearTimeout(timer);
-    }, [activePage, bootstrapping, candidatePositionFilter, candidateStatusFilter, deferredCandidateQuery, scrollCandidateListToTop]);
+    }, [
+        activePage,
+        applyCandidateListSnapshot,
+        bootstrapping,
+        candidatePositionFilter,
+        candidateStatusFilter,
+        candidatesInitialLoaded,
+        candidatesLoading,
+        deferredCandidateQuery,
+        scrollCandidateListToTop,
+    ]);
 
     const matchesActiveCandidateListFilters = useCallback((candidate: CandidateSummary) => {
         if (!candidateListUsingVisibleFiltersRef.current || activePageRef.current !== "candidates") {
@@ -4892,7 +4967,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         offset?: number;
     }) {
         const params = new URLSearchParams();
-        params.set("limit", String(options?.limit ?? 25));
+        params.set("limit", String(options?.limit ?? CANDIDATE_LIST_PAGE_SIZE));
         params.set("offset", String(options?.offset ?? 0));
         const scopedOrgCode = resolveScopedOrgCode(options?.departmentScope ?? selectedDepartmentScope, options?.orgScope ?? selectedOrgScope);
         if (scopedOrgCode) {
@@ -4980,8 +5055,19 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 return result?.items || [];
             }
             candidateListUsingVisibleFiltersRef.current = useVisibleFilters;
-            setAllCandidates(deduplicateCandidates(result?.items || []));
-            setCandidateTotal(result?.total || 0);
+            const nextItems = deduplicateCandidates(result?.items || []);
+            const nextTotal = result?.total || 0;
+            applyCandidateListSnapshot(nextItems, nextTotal);
+            if (useVisibleFilters) {
+                candidateListPageCacheRef.current = {
+                    contextKey,
+                    items: nextItems,
+                    total: nextTotal,
+                    loadedAt: Date.now(),
+                };
+            } else {
+                candidateListPreloadLoadedAtRef.current = Date.now();
+            }
             setCandidatesInitialLoaded(true);
             return result?.items || [];
         } catch (error) {
@@ -5012,8 +5098,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         scrollCandidateListToTop();
         toast.success(
             isZh
-                ? "已刷新，显示当前筛选结果的最新前 25 条"
-                : "Refreshed. Showing the latest 25 rows for the current filters.",
+                ? `已刷新，显示当前筛选结果的最新前 ${CANDIDATE_LIST_PAGE_SIZE} 条`
+                : `Refreshed. Showing the latest ${CANDIDATE_LIST_PAGE_SIZE} rows for the current filters.`,
         );
     }
 
@@ -5038,8 +5124,17 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 timeoutMs: 45000,
             });
             if (mountedRef.current && candidateListContextKeyRef.current === contextKey) {
-                setAllCandidates(prev => deduplicateCandidates([...prev, ...(data?.items || [])]));
-                setCandidateTotal(data?.total || 0);
+                const nextItems = deduplicateCandidates([...allCandidatesRef.current, ...(data?.items || [])]);
+                const nextTotal = data?.total || 0;
+                applyCandidateListSnapshot(nextItems, nextTotal);
+                if (candidateListUsingVisibleFiltersRef.current) {
+                    candidateListPageCacheRef.current = {
+                        contextKey,
+                        items: nextItems,
+                        total: nextTotal,
+                        loadedAt: Date.now(),
+                    };
+                }
             }
         } catch (error) {
             if (isRecruitmentRequestAborted(error)) {
