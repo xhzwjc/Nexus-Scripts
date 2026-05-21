@@ -1099,9 +1099,18 @@ def _extract_text_from_pdf_with_paddleocr(file_path: Path) -> str:
         raise RuntimeError("pypdfium2 is unavailable for PaddleOCR PDF rendering.")
     try:
         import numpy as np
-        from ..ocr_service import get_ocr_engine, parse_ocr_result
+        from ..ocr_service import parse_ocr_result, run_with_ocr_engine
     except Exception as exc:
         raise RuntimeError(f"PaddleOCR dependencies unavailable: {exc}") from exc
+
+    def _predict_with_paddleocr(image: Any) -> Any:
+        def _run(ocr: Any) -> Any:
+            try:
+                return ocr.predict(image)
+            except Exception:
+                return ocr.ocr(image)
+
+        return run_with_ocr_engine(_run)
 
     max_pages = int(os.getenv("RECRUITMENT_PDF_OCR_MAX_PAGES", "1").strip() or "1")
     render_scale = float(os.getenv("RECRUITMENT_PDF_OCR_RENDER_SCALE", "2").strip() or "2")
@@ -1109,17 +1118,13 @@ def _extract_text_from_pdf_with_paddleocr(file_path: Path) -> str:
     fragments: List[str] = []
     try:
         page_count = min(len(document), max(1, max_pages))
-        ocr = get_ocr_engine()
         for index in range(page_count):
             page_started_at = time.monotonic()
             page = document[index]
             try:
                 bitmap = page.render(scale=render_scale)
                 image = np.array(bitmap.to_pil())
-                try:
-                    result = ocr.predict(image)
-                except Exception:
-                    result = ocr.ocr(image)
+                result = _predict_with_paddleocr(image)
                 full_text, _ = parse_ocr_result(result)
                 if full_text.strip():
                     fragments.append(full_text.strip())

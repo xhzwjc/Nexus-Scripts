@@ -10,7 +10,8 @@ import json
 import logging
 import traceback
 import threading
-from typing import Iterator, Any
+from concurrent.futures import ThreadPoolExecutor
+from typing import Any, Callable, Iterator
 
 # ===================== 环境变量：强制 CPU + MKLDNN =====================
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
@@ -396,6 +397,7 @@ def find_matching_row_index(df, ocr_name, ocr_id, id_col, matched_indices):
 # ===================== 全局 OCR 单例 =====================
 _GLOBAL_OCR: PaddleOCR | None = None
 _GLOBAL_OCR_LOCK = threading.Lock()
+_PADDLE_OCR_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="paddleocr")
 
 
 def get_ocr_engine() -> PaddleOCR:
@@ -414,6 +416,19 @@ def get_ocr_engine() -> PaddleOCR:
                     use_textline_orientation=False,
                 )
     return _GLOBAL_OCR
+
+
+def run_with_ocr_engine(callback: Callable[[PaddleOCR], Any]) -> Any:
+    """在专用单线程里执行 PaddleOCR 调用，避免 predictor 跨线程/并发导致底层崩溃。"""
+
+    def _invoke() -> Any:
+        return callback(get_ocr_engine())
+
+    return _PADDLE_OCR_EXECUTOR.submit(_invoke).result()
+
+
+def warmup_ocr_engine() -> None:
+    run_with_ocr_engine(lambda _ocr: None)
 
 
 # ===================== 模式1：Excel → 附件 =====================

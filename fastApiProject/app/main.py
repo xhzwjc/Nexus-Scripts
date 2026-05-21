@@ -98,14 +98,14 @@ def _warmup_recruitment_pdf_ocr() -> None:
         logger.info("Recruitment PDF OCR warmup skipped on macOS; Vision OCR is used on demand")
         return
     try:
-        from .ocr_service import get_ocr_engine
+        from .ocr_service import warmup_ocr_engine
 
         logger.info(
             "Recruitment PDF OCR warmup started max_pages=%s render_scale=%s",
             os.getenv("RECRUITMENT_PDF_OCR_MAX_PAGES", "1"),
             os.getenv("RECRUITMENT_PDF_OCR_RENDER_SCALE", "2"),
         )
-        get_ocr_engine()
+        warmup_ocr_engine()
         logger.info("Recruitment PDF OCR warmup finished")
     except Exception as exc:
         logger.warning("Recruitment PDF OCR warmup skipped or failed: %s", exc, exc_info=True)
