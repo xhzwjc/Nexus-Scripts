@@ -6324,6 +6324,53 @@ class RecruitmentService:
             self._record_screening_provider_result(failure_code=failure_code)
             raise
 
+    def _sync_screening_root_runtime_for_dispatch(
+        self,
+        *,
+        root_task_id: Optional[int],
+        request_context: Dict[str, Any],
+    ) -> None:
+        """Write the actual runtime source to the root task before the model call.
+
+        The queue dispatcher only looks at root screening_flow rows when deciding
+        available model slots. If a running root keeps model_source empty until
+        finalization, all running tasks are counted as "default" and are capped
+        by SCREENING_PROVIDER_MAX_CONCURRENCY.
+        """
+        if not root_task_id or not isinstance(request_context, dict):
+            return
+        runtime_config = request_context.get("runtime_config")
+        provider = str(request_context.get("provider") or getattr(runtime_config, "provider", "") or "").strip() or None
+        model_name = str(request_context.get("model_name") or getattr(runtime_config, "model_name", "") or "").strip() or None
+        model_source = str(getattr(runtime_config, "source", "") or "").strip() or None
+        if not (provider or model_name or model_source):
+            return
+        try:
+            root_log = self.db.query(RecruitmentAITaskLog).filter(
+                RecruitmentAITaskLog.id == root_task_id,
+                self._screening_root_task_filter(),
+            ).first()
+            if not root_log or root_log.status not in SCREENING_LIVE_TASK_STATUSES:
+                return
+            self._update_ai_task_log(
+                root_log,
+                provider=provider,
+                model_name=model_name,
+                model_source=model_source,
+                prompt_snapshot=str(request_context.get("prompt_snapshot") or "") or None,
+                full_request_snapshot=request_context.get("full_request_snapshot"),
+                input_summary=str(request_context.get("input_summary") or "") or None,
+                emit_sse=False,
+            )
+        except Exception:
+            self.db.rollback()
+            logger.debug("Failed to sync screening root runtime root_task_id=%s", root_task_id, exc_info=True)
+            return
+        try:
+            self._dispatch_screening_queue()
+        except Exception:
+            logger.debug("Failed to continue screening dispatch after runtime sync root_task_id=%s", root_task_id, exc_info=True)
+
     def _mark_ai_task_cancelled(self, task_id: int, *, actor_id: Optional[str] = None, reason: Optional[str] = None) -> None:
         row = self._get_ai_task_log_row(task_id)
         row.status = "cancelled"
@@ -13428,6 +13475,10 @@ class RecruitmentService:
                     },
                 ),
             )
+            self._sync_screening_root_runtime_for_dispatch(
+                root_task_id=root_task_id or parent_task_id,
+                request_context=request_context,
+            )
             score_started_at = time.perf_counter()
             task = self._run_screening_provider_json_request(
                 task_type=task_type,
@@ -13877,6 +13928,10 @@ class RecruitmentService:
                         "is_stream_mode": request_context.get("is_stream_mode"),
                     },
                 ),
+            )
+            self._sync_screening_root_runtime_for_dispatch(
+                root_task_id=root_task_id or parent_task_id,
+                request_context=request_context,
             )
             with self._screening_stage_heartbeat(
                 root_task_id=root_task_id,
@@ -14433,6 +14488,10 @@ class RecruitmentService:
                         "is_stream_mode": request_context.get("is_stream_mode"),
                     },
                 ),
+            )
+            self._sync_screening_root_runtime_for_dispatch(
+                root_task_id=root_task_id or parent_task_id,
+                request_context=request_context,
             )
             score_started_at = time.perf_counter()
             authoritative_payload: Dict[str, Any] = {}
