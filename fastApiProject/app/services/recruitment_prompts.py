@@ -192,7 +192,14 @@ SCORE_ONLY_OUTPUT_SCHEMA = """{
       "reason": "",
       "evidence": ""
     }
-  ]
+  ],
+  "position_match": {
+    "recommended_position": "",
+    "confidence": 0,
+    "reason": "",
+    "potential_position": "",
+    "potential_reason": ""
+  }
 }"""
 
 # ---------------------------------------------------------------------------
@@ -228,7 +235,8 @@ SCORE_ONLY_OUTPUT_SCHEMA_V3 = """{
   "recommendation": "string",
   "suggested_status": "screening_passed | talent_pool | screening_rejected",
   "dimensions": [{"label":"string","score":0.0,"max_score":0.0,"reason":"string","evidence":"string","is_inferred":false,"radar_category":"专业能力|学习潜力|工作经验|综合素质|岗位匹配度"}],
-  "radar_scores": [{"category":"专业能力|学习潜力|工作经验|综合素质|岗位匹配度","score":0.0,"max_score":2.0,"reason":"string","evidence":"string"}]
+  "radar_scores": [{"category":"专业能力|学习潜力|工作经验|综合素质|岗位匹配度","score":0.0,"max_score":2.0,"reason":"string","evidence":"string"}],
+  "position_match": {"recommended_position":"","confidence":0,"reason":"","potential_position":"","potential_reason":""}
 }"""
 
 RESUME_SCREENING_SYSTEM_PROMPT_V3 = """你是 ATS 初筛引擎。读取简历原文，一次性输出 parsed_resume + score 的 JSON。
@@ -253,7 +261,7 @@ RESUME_SCREENING_SYSTEM_PROMPT_V3 = """你是 ATS 初筛引擎。读取简历原
 输出 schema：
 """ + SCREENING_OUTPUT_SCHEMA_V3
 
-RESUME_SCORE_SYSTEM_PROMPT_V3 = """你是 ATS 评分引擎。基于已有 parsed_resume + 简历原文，输出 score-only JSON。
+RESUME_SCORE_SYSTEM_PROMPT_V3 = """你是 ATS 评分引擎。基于已有 parsed_resume + 简历原文，输出评分 + 岗位建议 JSON。
 
 规则：
 1. 所有文本字段用简体中文（英文专有名词除外）。
@@ -263,20 +271,21 @@ RESUME_SCORE_SYSTEM_PROMPT_V3 = """你是 ATS 评分引擎。基于已有 parsed
 5. suggested_status 必须是 screening_passed / talent_pool / screening_rejected，由维度分数推导。
 6. advantages 汇总正分维度；concerns 汇总零分/缺失维度。两者都不得全空。
 7. recommendation 用一句话给 HR 结论。
-8. 顶层只返回 score 字段（total_score, match_percent, advantages, concerns, recommendation, suggested_status, dimensions, radar_scores）。
+8. 顶层只返回评分字段（total_score, match_percent, advantages, concerns, recommendation, suggested_status, dimensions, radar_scores）和 position_match。不要返回 parsed_resume。
 9. 每个维度的 reason 必须具体说明：满分情况解释为什么满分，扣分情况逐项说明扣了多少、为什么扣。不要笼统概括。
 10. 每个维度必须包含 radar_category 字段，值为以下之一："专业能力"、"学习潜力"、"工作经验"、"综合素质"、"岗位匹配度"。分类规则：专业能力=技术/专业技能/工具框架/测试能力/协议知识；学习潜力=教育背景/成长轨迹/学习能力/项目复杂度；工作经验=年限/行业匹配/岗位相关性/职业发展；综合素质=沟通/团队/稳定性/领导力/软技能/文化适配；岗位匹配度=JD整体契合/领域知识/生态熟悉度/需求覆盖。
 11. 必须输出 radar_scores，包含恰好 5 个类别（专业能力、学习潜力、工作经验、综合素质、岗位匹配度），每项 max_score=2.0，总分 10.0。这是基于整体简历和各维度评分的综合评估，不是简单平均 — 要结合简历全局信息给出判断。reason 一句话说明核心依据，evidence 引用简历关键片段。与各维度评分不得出现严重矛盾。
-12. 禁止输出 JSON 以外的内容。
+12. position_match 必须基于完整简历推荐最合适岗位；可参考 AVAILABLE_POSITIONS，但不限于列表。potential_position 必须不同于当前初筛岗位和 recommended_position。
+13. 禁止输出 JSON 以外的内容。
 
 输出 schema：
 """ + SCORE_ONLY_OUTPUT_SCHEMA_V3
 
 RESUME_SCREENING_PROMPT_VERSION = "resume_screening_one_pass_v5"
-RESUME_SCORE_PROMPT_VERSION = "resume_score_only_v5"
+RESUME_SCORE_PROMPT_VERSION = "resume_score_with_position_match_v6"
 # V3 versions — activate by changing the above two lines
 RESUME_SCREENING_PROMPT_VERSION_V3 = "resume_screening_one_pass_v3"
-RESUME_SCORE_PROMPT_VERSION_V3 = "resume_score_only_v3"
+RESUME_SCORE_PROMPT_VERSION_V3 = "resume_score_with_position_match_v3"
 
 _COMMON_EVIDENCE_RULES = """- The only valid evidence source is the raw resume text in the user prompt.
 - Evidence must quote or excerpt the raw resume text directly. Never use JD text, screening skills, rule notes, system text, helper fields, or your own paraphrases as evidence.
@@ -361,9 +370,17 @@ Output Rules:
 - advantages and concerns must be natural HR-facing summaries extracted from dimension outcomes, not placeholders, field dumps, copied rule text, or generic praise. advantages summarizes matched strengths; concerns summarizes zero-score, low-score, hard-constraint-missing, or core-evidence-missing dimensions.
 - advantages must not be empty if any dimension score is greater than 0; concerns must not be empty if any dimension score is 0, any core dimension lacks evidence, or the candidate is not clearly strong.
 - recommendation must be a short HR-facing decision phrase, ideally within 30 Chinese characters or 80 English characters, and it must not be empty, punctuation-only, or a placeholder.
-- Do not wrap the result under parsed_resume, score, or any extra top-level field. Do not return parsed_resume in resume_score tasks.
-- The top-level object must contain only total_score, match_percent, advantages, concerns, recommendation, suggested_status, and dimensions.
-- Final self-check: score fields complete, score math correct, status consistent, and output is one valid JSON object."""
+- Do not wrap the scoring fields under parsed_resume or score. Do not return parsed_resume in resume_score tasks.
+- The top-level object must contain only total_score, match_percent, advantages, concerns, recommendation, suggested_status, dimensions, radar_scores, and position_match.
+Position Match Rules:
+- You are also a senior recruitment manager. After scoring, recommend the most suitable position for this candidate based on the full resume (not limited to the provided position list).
+- If a position from AVAILABLE_POSITIONS matches well, use its title; otherwise recommend a position name based on your judgment.
+- confidence: 0-100, your certainty level about the recommendation.
+- reason: within 50 characters, core basis for the recommendation.
+- potential_position: recommend 1 transfer/career-growth direction that is DIFFERENT from the current screening position and the recommended position.
+- potential_reason: within 50 characters, why the candidate has this transfer potential.
+- Only set potential_position and potential_reason to empty strings when the resume is severely lacking.
+- Final self-check: score fields complete, score math correct, status consistent, position_match filled, and output is one valid JSON object."""
 
 INTERVIEW_QUESTION_SYSTEM_PROMPT = """You are an interview question generation engine for recruitment.
 Use the provided candidate, position/JD, raw resume text, parsed resume, screening result, workflow memory, active skills, round name, and custom requirements.

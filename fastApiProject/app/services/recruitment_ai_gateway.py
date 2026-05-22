@@ -1933,6 +1933,18 @@ class RecruitmentAIGateway:
             RecruitmentAIGateway._round_robin_counters[counter_key] = counter + 1
         return selected
 
+    def peek_config(self, task_type: str) -> RecruitmentLLMRuntimeConfig:
+        configs = self.db.query(RecruitmentLLMConfig).filter(RecruitmentLLMConfig.is_active.is_(True), RecruitmentLLMConfig.task_type == task_type).order_by(RecruitmentLLMConfig.priority.asc(), RecruitmentLLMConfig.id.asc()).all()
+        visible_configs = [row for row in configs if self._config_visible(row)]
+        config = visible_configs[0] if visible_configs else None
+        if not config:
+            default_configs = self.db.query(RecruitmentLLMConfig).filter(RecruitmentLLMConfig.is_active.is_(True), RecruitmentLLMConfig.task_type == "default").order_by(RecruitmentLLMConfig.priority.asc(), RecruitmentLLMConfig.id.asc()).all()
+            visible_default_configs = [row for row in default_configs if self._config_visible(row)]
+            config = visible_default_configs[0] if visible_default_configs else None
+        if config:
+            return self.resolve_runtime_config_for_row(config)
+        return self.resolve_config(task_type)
+
     def set_permission_context(self, context: Optional[PermissionContext]) -> "RecruitmentAIGateway":
         self.permission_context = context
         return self
@@ -2603,6 +2615,7 @@ class RecruitmentAIGateway:
         user_prompt: str,
         on_delta: Callable[[str], None],
         cancel_control: Optional[RecruitmentTaskControl] = None,
+        runtime_config: Optional[RecruitmentLLMRuntimeConfig] = None,
     ) -> Dict[str, Any]:
         # Stateful filter to strip <think>...</think> reasoning blocks from streaming deltas,
         # since they may span multiple chunks.
@@ -2641,7 +2654,11 @@ class RecruitmentAIGateway:
                 return
             on_delta(delta)
 
-        config = self.resolve_config(task_type)
+        config = _clone_runtime_config_with_task_overrides(
+            runtime_config or self.resolve_config(task_type),
+            task_type=task_type,
+            response_mode="text",
+        )
         prompt_snapshot = f"SYSTEM:\n{system_prompt}\n\nUSER:\n{user_prompt}"
         full_request_snapshot = _build_request_snapshot(config, response_mode="text", system_prompt=system_prompt, user_prompt=user_prompt)
         max_retries = max(0, int(config.extra_config.get("max_retries") or 1))
@@ -3375,6 +3392,9 @@ class RecruitmentAIGateway:
                 try:
                     setattr(exc, "prompt_snapshot", prompt_snapshot)
                     setattr(exc, "full_request_snapshot", full_request_snapshot)
+                    setattr(exc, "model_provider", effective_request_config.provider)
+                    setattr(exc, "model_name", effective_request_config.model_name)
+                    setattr(exc, "model_source", effective_request_config.source)
                 except Exception:
                     pass
                 logger.exception(
@@ -3415,6 +3435,9 @@ class RecruitmentAIGateway:
             try:
                 setattr(exc, "prompt_snapshot", prompt_snapshot)
                 setattr(exc, "full_request_snapshot", full_request_snapshot)
+                setattr(exc, "model_provider", effective_request_config.provider)
+                setattr(exc, "model_name", effective_request_config.model_name)
+                setattr(exc, "model_source", effective_request_config.source)
             except Exception:
                 pass
             logger.exception(

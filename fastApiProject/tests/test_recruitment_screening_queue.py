@@ -150,6 +150,7 @@ def _build_ai_task_log_row(**overrides) -> SimpleNamespace:
         "request_hash": "hash-1",
         "model_provider": "openai-compatible",
         "model_name": "minimax",
+        "model_source": "db:minimax",
         "prompt_snapshot": "P" * 40000,
         "input_summary": "input " * 2000,
         "output_summary": "output " * 2000,
@@ -170,6 +171,103 @@ def _build_ai_task_log_row(**overrides) -> SimpleNamespace:
     }
     payload.update(overrides)
     return SimpleNamespace(**payload)
+
+
+def test_stream_text_uses_provided_runtime_config_without_resolving_again():
+    gateway = RecruitmentAIGateway(Mock())
+    gateway.resolve_config = Mock(side_effect=AssertionError("should not resolve again"))
+    gateway._stream_openai_compatible_completion = Mock(
+        return_value={
+            "content": {"markdown": "ok", "html": "ok"},
+            "token_usage": {"total_tokens": 12},
+        }
+    )
+    runtime_config = RecruitmentLLMRuntimeConfig(
+        provider="openai-compatible",
+        runtime_provider="openai-compatible",
+        model_name="MiniMax-M2.7-highspeed",
+        base_url="https://example.test/v1",
+        api_key="secret",
+        source="db:MINIMAX",
+        api_key_masked="***",
+        extra_config={},
+    )
+
+    result = gateway.stream_text(
+        task_type="jd_generation",
+        system_prompt="system",
+        user_prompt="user",
+        on_delta=lambda chunk: None,
+        runtime_config=runtime_config,
+    )
+
+    assert result["provider"] == "openai-compatible"
+    assert result["model_name"] == "MiniMax-M2.7-highspeed"
+    assert result["source"] == "db:MINIMAX"
+    gateway.resolve_config.assert_not_called()
+    assert gateway._stream_openai_compatible_completion.call_args.args[0].source == "db:MINIMAX"
+
+
+def test_ai_task_log_display_prefers_full_request_snapshot_runtime():
+    service = RecruitmentService(Mock())
+    row = _build_ai_task_log_row(
+        task_type="ai_position_rematch",
+        related_candidate_id=1770,
+        model_provider="Claude",
+        model_name="qwen3.7-max",
+        model_source="db:千问04",
+        full_request_snapshot=json.dumps(
+            {
+                "provider": "openai-compatible",
+                "runtime_provider": "openai-compatible",
+                "model_name": "MiniMax-M2.7-highspeed",
+                "source": "db:MINIMAX",
+                "request_body": {"model": "MiniMax-M2.7-highspeed"},
+            },
+            ensure_ascii=False,
+        ),
+    )
+
+    payload = service._serialize_ai_task_log(row)
+
+    assert payload["model_provider"] == "openai-compatible"
+    assert payload["model_name"] == "MiniMax-M2.7-highspeed"
+    assert payload["model_source"] == "db:MINIMAX"
+
+
+def test_finish_ai_task_log_persists_full_request_snapshot_runtime():
+    service = RecruitmentService(Mock())
+    row = _build_ai_task_log_row(
+        status="running",
+        stage="scoring",
+        model_provider="Claude",
+        model_name="qwen3.7-max",
+        model_source="db:千问04",
+    )
+    full_request_snapshot = json.dumps(
+        {
+            "provider": "openai-compatible",
+            "runtime_provider": "openai-compatible",
+            "model_name": "MiniMax-M2.7-highspeed",
+            "source": "db:MINIMAX",
+            "request_body": {"model": "MiniMax-M2.7-highspeed"},
+        },
+        ensure_ascii=False,
+    )
+
+    service._finish_ai_task_log(
+        row,
+        status="success",
+        provider="Claude",
+        model_name="qwen3.7-max",
+        model_source="db:千问04",
+        full_request_snapshot=full_request_snapshot,
+        emit_sse=False,
+    )
+
+    assert row.model_provider == "openai-compatible"
+    assert row.model_name == "MiniMax-M2.7-highspeed"
+    assert row.model_source == "db:MINIMAX"
 
 
 def test_sanitize_dimensions_preserves_evidence_list():
@@ -1692,7 +1790,7 @@ def test_screen_candidate_reranks_from_existing_parse_when_mode_explicit():
     service._get_candidate = Mock(return_value=candidate)
     service._can_reuse_existing_parse_result = Mock(return_value=True)
     service._resolve_screening_skills = Mock(return_value=([], "position", "position_binding", {}))
-    service._prepare_screening_task_context = Mock(return_value=([], [], ""))
+    service._prepare_screening_task_context = Mock(return_value=([{"id": 1, "name": "初筛规则", "content": "规则"}], [1], ""))
     service._build_screening_request_meta = Mock(return_value={"request_hash": "hash"})
     service._load_reusable_screening_result = Mock(return_value=None)
     service._ensure_screening_root_task = Mock(return_value=root_log)
@@ -1752,7 +1850,7 @@ def test_screen_candidate_uses_one_pass_as_default_path_when_parse_missing():
     service._get_resume_file = Mock(return_value=SimpleNamespace(id=12))
     service._extract_resume_file_raw_text = Mock(return_value="候选人简历")
     service._resolve_screening_skills = Mock(return_value=([], "position", "position_binding", {}))
-    service._prepare_screening_task_context = Mock(return_value=([], [], ""))
+    service._prepare_screening_task_context = Mock(return_value=([{"id": 1, "name": "初筛规则", "content": "规则"}], [1], ""))
     service._build_screening_request_meta = Mock(return_value={"request_hash": "hash"})
     service._load_reusable_screening_result = Mock(return_value=None)
     service._get_latest_valid_screening_result_for_candidate = Mock(return_value=None)
@@ -2413,8 +2511,9 @@ def test_root_failure_inherits_parse_child_request_context():
         status="json_parse_failed",
         model_provider="GLM",
         model_name="glm-5",
+        model_source="db:GLM",
         prompt_snapshot="SYSTEM:\nparse",
-        full_request_snapshot='{"model":"glm-5"}',
+        full_request_snapshot='{"model":"glm-5","source":"db:GLM"}',
         input_summary="李四 BLE 测试",
         raw_response_text="",
         parsed_response_json=None,
@@ -2426,7 +2525,7 @@ def test_root_failure_inherits_parse_child_request_context():
     service._get_resume_file = Mock(return_value=SimpleNamespace(id=12))
     service._extract_resume_file_raw_text = Mock(return_value="候选人简历")
     service._resolve_screening_skills = Mock(return_value=([], "position", "position_binding", {}))
-    service._prepare_screening_task_context = Mock(return_value=([], [], ""))
+    service._prepare_screening_task_context = Mock(return_value=([{"id": 1, "name": "初筛规则", "content": "规则"}], [1], ""))
     service._build_screening_request_meta = Mock(return_value={"request_hash": "hash"})
     service._load_reusable_screening_result = Mock(return_value=None)
     service._get_latest_valid_screening_result_for_candidate = Mock(return_value=None)
@@ -2456,7 +2555,8 @@ def test_root_failure_inherits_parse_child_request_context():
     assert kwargs["status"] == "json_parse_failed"
     assert kwargs["provider"] == "GLM"
     assert kwargs["model_name"] == "glm-5"
-    assert kwargs["full_request_snapshot"] == '{"model":"glm-5"}'
+    assert kwargs["model_source"] == "db:GLM"
+    assert kwargs["full_request_snapshot"] == '{"model":"glm-5","source":"db:GLM"}'
     assert kwargs["input_summary"] == "李四 BLE 测试"
     assert kwargs["raw_response_text"] == ""
     assert kwargs["validation_meta"]["failure_code"] == "empty_response"
@@ -3003,6 +3103,13 @@ def test_score_candidate_uses_gateway_strict_json_recovery_result_without_second
                             "is_inferred": False,
                         }
                     ],
+                    "position_match": {
+                        "recommended_position": "测试工程师",
+                        "confidence": 86,
+                        "reason": "测试经验匹配",
+                        "potential_position": "测试开发工程师",
+                        "potential_reason": "有自动化基础",
+                    },
                 },
                 ensure_ascii=False,
             ),
@@ -3023,6 +3130,13 @@ def test_score_candidate_uses_gateway_strict_json_recovery_result_without_second
                         "is_inferred": False,
                     }
                 ],
+                "position_match": {
+                    "recommended_position": "测试工程师",
+                    "confidence": 86,
+                    "reason": "测试经验匹配",
+                    "potential_position": "测试开发工程师",
+                    "potential_reason": "有自动化基础",
+                },
             },
             "token_usage": None,
             "response_debug": {"is_stream_mode": False, "strict_json_recovery_retry_count": 1},
@@ -3050,6 +3164,12 @@ def test_score_candidate_uses_gateway_strict_json_recovery_result_without_second
     assert "strict JSON 首次解析失败，已自动进行一次同 prompt 恢复重试" in final_validation_meta["validation_warnings"]
     assert final_validation_meta["score_model_retry_count"] == 1
     assert final_validation_meta["screening_result_valid"] is True
+    assert final_validation_meta["position_match_returned"] is True
+    assert candidate.ai_match_position_title == "测试工程师"
+    assert candidate.ai_match_confidence == 86.0
+    assert candidate.ai_potential_position == "测试开发工程师"
+    saved_payload = service._save_score_result.call_args.args[3]
+    assert saved_payload["score"]["position_match"]["recommended_position"] == "测试工程师"
 
 
 def test_trigger_latest_parse_propagates_cancel_control():
@@ -3093,10 +3213,66 @@ def test_resume_score_prompt_uses_score_only_schema():
     assert _COMMON_EVIDENCE_RULES in RESUME_SCORE_SYSTEM_PROMPT
     assert "Do not return parsed_resume in resume_score tasks." in RESUME_SCORE_SYSTEM_PROMPT
     assert "match_percent must equal round(total_score / MAX_POSSIBLE_SCORE * 100)." in RESUME_SCORE_SYSTEM_PROMPT
-    assert "The top-level object must contain only total_score, match_percent, advantages, concerns, recommendation, suggested_status, and dimensions." in RESUME_SCORE_SYSTEM_PROMPT
-    assert "Output exactly one final JSON object" in RESUME_SCORE_SYSTEM_PROMPT
+    assert "position_match" in SCORE_ONLY_OUTPUT_SCHEMA
+    assert "The top-level object must contain only total_score, match_percent, advantages, concerns, recommendation, suggested_status, dimensions, radar_scores, and position_match." in RESUME_SCORE_SYSTEM_PROMPT
+    assert "Return exactly one final JSON object" in RESUME_SCORE_SYSTEM_PROMPT
     assert "OTA压测" not in RESUME_SCORE_SYSTEM_PROMPT
     assert "智能家居生态" not in RESUME_SCORE_SYSTEM_PROMPT
+
+
+def test_resume_score_prompt_requests_position_match_once():
+    service = RecruitmentService(Mock())
+    service._get_position_screening_payload = Mock(return_value={"title": "测试工程师"})
+    service._build_available_positions_text = Mock(return_value="1. 测试工程师：负责测试")
+    candidate = SimpleNamespace(name="候选人A", position_title="测试工程师")
+
+    prompt = service._build_resume_score_prompt(
+        candidate=candidate,
+        parsed_resume_helper_payload={"basic_info": {"name": "候选人A"}},
+        raw_resume_text="简历原文",
+        skill_snapshots=_build_variable_max_score_skill_snapshots(),
+        custom_requirements="",
+        status_rules={},
+    )
+
+    assert "岗位推荐和转岗建议" in prompt
+    assert "CURRENT_SCREENING_POSITION: 测试工程师" in prompt
+    assert "AVAILABLE_POSITIONS（供 position_match 参考，不限于此列表）:" in prompt
+    assert "1. 测试工程师：负责测试" in prompt
+
+
+def test_resume_score_sanitizer_preserves_position_match():
+    schema_config = _build_screening_schema_config(_build_variable_max_score_skill_snapshots())
+    payload = {
+        "total_score": 8.0,
+        "match_percent": 67,
+        "advantages": ["核心经验匹配"],
+        "concerns": ["需核实稳定性"],
+        "recommendation": "建议继续评估",
+        "suggested_status": "talent_pool",
+        "dimensions": [
+            {"label": "核心经验", "score": 6.0, "max_score": 8.0, "reason": "命中", "evidence": ["核心项目经验"], "is_inferred": False},
+            {"label": "加分项", "score": 2.0, "max_score": 4.0, "reason": "部分命中", "evidence": ["自动化"], "is_inferred": False},
+        ],
+        "position_match": {
+            "recommended_position": "测试工程师",
+            "confidence": "88",
+            "reason": "测试经验匹配",
+            "potential_position": "测试开发工程师",
+            "potential_reason": "有自动化基础",
+        },
+    }
+
+    score_payload, meta = sanitize_screening_score_payload(payload, schema_config)
+
+    assert meta["model_schema_violation"] is False
+    assert score_payload["position_match"] == {
+        "recommended_position": "测试工程师",
+        "confidence": 88.0,
+        "reason": "测试经验匹配",
+        "potential_position": "测试开发工程师",
+        "potential_reason": "有自动化基础",
+    }
 
 
 def test_resume_screening_prompt_reuses_common_evidence_rules():

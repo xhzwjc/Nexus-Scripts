@@ -340,6 +340,27 @@ def _snapshot_text(value: Any) -> str:
     return json_dumps_safe(value)
 
 
+def _infer_model_runtime_from_snapshot(value: Any) -> Dict[str, Optional[str]]:
+    if value is None:
+        return {}
+    payload = json_loads_safe(value, None) if isinstance(value, str) else value
+    if not isinstance(payload, dict):
+        return {}
+    request_body = payload.get("request_body") if isinstance(payload.get("request_body"), dict) else {}
+    provider = str(payload.get("provider") or "").strip() or None
+    model_name = str(payload.get("model_name") or request_body.get("model") or "").strip() or None
+    source = str(payload.get("source") or "").strip() or None
+    return {
+        "provider": provider,
+        "model_name": model_name,
+        "source": source,
+    }
+
+
+def _infer_model_source_from_snapshot(value: Any) -> Optional[str]:
+    return _infer_model_runtime_from_snapshot(value).get("source")
+
+
 def _normalize_ai_gateway_warning_text(value: Any) -> str:
     text = str(value or "").strip()
     if text == "stream empty, recovered by non-stream retry":
@@ -1035,6 +1056,25 @@ def sanitize_number(value: Any, default: float = 0.0) -> float:
     return float(numeric) if numeric is not None else float(default)
 
 
+def _sanitize_position_match_payload(value: Any) -> Dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    confidence = _parse_score_number(value.get("confidence"))
+    normalized = {
+        "recommended_position": sanitize_string(value.get("recommended_position")),
+        "confidence": max(0.0, min(100.0, float(confidence))) if confidence is not None else 0,
+        "reason": sanitize_string(value.get("reason")),
+        "potential_position": sanitize_string(value.get("potential_position")),
+        "potential_reason": sanitize_string(value.get("potential_reason")),
+    }
+    if any(
+        str(normalized.get(field) or "").strip()
+        for field in ("recommended_position", "reason", "potential_position", "potential_reason")
+    ):
+        return normalized
+    return {}
+
+
 def sanitize_enum(value: Any, allowed_values: Sequence[str] | set[str]) -> str:
     normalized = sanitize_string(value)
     return normalized if normalized in set(allowed_values) else ""
@@ -1212,10 +1252,10 @@ def _sanitize_screening_payload_structure(
             "structure_warnings": structure_warnings,
         },
     }
-    # 透传 position_match 字段（一体化初筛 AI 返回的推荐岗位和转岗建议）
-    position_match_raw = source_payload.get("position_match")
-    if isinstance(position_match_raw, dict):
-        result["position_match"] = position_match_raw
+    # 透传 position_match 字段（一体化初筛/评分 AI 返回的推荐岗位和转岗建议）
+    position_match_payload = _sanitize_position_match_payload(source_payload.get("position_match"))
+    if position_match_payload:
+        result["position_match"] = position_match_payload
     return result
 
 
@@ -1360,12 +1400,26 @@ def sanitize_screening_payload_fast(
 
 def sanitize_screening_score_payload(payload: Any, schema_config: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     score_payload, extraction_meta = _extract_model_score_payload_with_meta(payload)
-    sanitized_wrapper, meta = sanitize_screening_payload({"parsed_resume": {}, "score": score_payload}, schema_config)
+    sanitized_wrapper, meta = sanitize_screening_payload(
+        {
+            "parsed_resume": {},
+            "score": score_payload,
+            "position_match": score_payload.get("position_match") if isinstance(score_payload, dict) else None,
+        },
+        schema_config,
+    )
+    sanitized_score = sanitized_wrapper.get("score") or {}
+    position_match_payload = sanitized_wrapper.get("position_match")
+    if isinstance(position_match_payload, dict) and position_match_payload:
+        sanitized_score = {
+            **sanitized_score,
+            "position_match": position_match_payload,
+        }
     warnings = _normalize_score_warning_items(
         [*(extraction_meta.get("warnings") or []), *(meta.get("warnings") or [])],
         limit=12,
     )
-    return sanitized_wrapper.get("score") or {}, {
+    return sanitized_score, {
         **meta,
         "warnings": warnings,
         "model_schema_violation": bool(extraction_meta.get("model_schema_violation")),
@@ -1647,10 +1701,14 @@ def _extract_model_score_payload_with_meta(content: Any) -> Tuple[Dict[str, Any]
     payload = content if isinstance(content, dict) else {}
     schema_violation_reason = None
     warnings: List[str] = []
+    top_level_position_match = payload.get("position_match") if isinstance(payload.get("position_match"), dict) else None
     if isinstance(payload.get("score"), dict):
         schema_violation_reason = "resume_score task returned nested parsed_resume+score payload; expected score-only schema"
         warnings.append("模型未遵循 resume_score score-only schema，已降级提取 score 字段。")
-        payload = payload.get("score") or {}
+        extracted_payload = dict(payload.get("score") or {})
+        if top_level_position_match and not isinstance(extracted_payload.get("position_match"), dict):
+            extracted_payload["position_match"] = top_level_position_match
+        payload = extracted_payload
     return (
         payload if isinstance(payload, dict) else {},
         {
@@ -5876,7 +5934,7 @@ class RecruitmentService:
             cancel_control.raise_if_cancelled()
 
     def _get_screening_runtime_signature(self, *, task_type: str = "resume_score") -> Dict[str, Any]:
-        runtime = self.ai_gateway.resolve_config(task_type)
+        runtime = self.ai_gateway.peek_config(task_type)
         return {
             "provider": str(getattr(runtime, "provider", "") or "").strip() or None,
             "model_name": str(getattr(runtime, "model_name", "") or "").strip() or None,
@@ -7958,6 +8016,7 @@ class RecruitmentService:
         timing_breakdown: Optional[Dict[str, Any]] = None,
         provider: Optional[str] = None,
         model_name: Optional[str] = None,
+        model_source: Optional[str] = None,
         session_token: Optional[str] = None,
         emit_sse: bool = True,
     ) -> RecruitmentAITaskLog:
@@ -7996,6 +8055,7 @@ class RecruitmentService:
             session_token=self._normalize_task_session_token(session_token or self._session_token),
             model_provider=provider if provider is not None else None,
             model_name=model_name if model_name is not None else None,
+            model_source=model_source if model_source is not None else None,
             status=status,
             created_by=created_by,
         )
@@ -8097,11 +8157,22 @@ class RecruitmentService:
         if row.status == "cancelled" and status not in {None, "cancelled"}:
             return row
         now = datetime.now()
-        if provider is not None:
+        inferred_runtime = (
+            _infer_model_runtime_from_snapshot(full_request_snapshot)
+            if full_request_snapshot is not None
+            else {}
+        )
+        if inferred_runtime.get("provider"):
+            row.model_provider = inferred_runtime.get("provider")
+        elif provider is not None:
             row.model_provider = provider
-        if model_name is not None:
+        if inferred_runtime.get("model_name"):
+            row.model_name = inferred_runtime.get("model_name")
+        elif model_name is not None:
             row.model_name = model_name
-        if model_source is not None:
+        if inferred_runtime.get("source"):
+            row.model_source = inferred_runtime.get("source")
+        elif model_source is not None:
             row.model_source = model_source
         if status is not None:
             row.status = status
@@ -8219,10 +8290,15 @@ class RecruitmentService:
         row.stage_started_at = row.stage_started_at or row.created_at or now
         row.stage_completed_at = now
         row.duration_ms = max(0, int((row.stage_completed_at - row.stage_started_at).total_seconds() * 1000))
-        row.model_provider = provider
-        row.model_name = model_name
-        if model_source is not None:
-            row.model_source = model_source
+        inferred_runtime = _infer_model_runtime_from_snapshot(full_request_snapshot)
+        row.model_provider = inferred_runtime.get("provider") or provider
+        row.model_name = inferred_runtime.get("model_name") or model_name
+        resolved_model_source = (
+            inferred_runtime.get("source")
+            or model_source
+        )
+        if resolved_model_source is not None:
+            row.model_source = resolved_model_source
         row.prompt_snapshot = _truncate_utf8_text(prompt_snapshot, AI_TASK_LOG_PROMPT_LIMIT)
         row.full_request_snapshot = _truncate_utf8_text(_snapshot_text(full_request_snapshot), AI_TASK_LOG_REQUEST_LIMIT)
         row.input_summary = _truncate_utf8_text(input_summary, AI_TASK_LOG_SUMMARY_LIMIT)
@@ -8669,6 +8745,22 @@ class RecruitmentService:
         include_full_request_snapshot: bool = False,
         compact: bool = False,
     ) -> Dict[str, Any]:
+        inferred_runtime = _infer_model_runtime_from_snapshot(row.full_request_snapshot)
+        resolved_model_provider = (
+            inferred_runtime.get("provider")
+            or str(row.model_provider or "").strip()
+            or None
+        )
+        resolved_model_name = (
+            inferred_runtime.get("model_name")
+            or str(row.model_name or "").strip()
+            or None
+        )
+        resolved_model_source = (
+            inferred_runtime.get("source")
+            or str(row.model_source or "").strip()
+            or None
+        )
         payload = {
             "id": row.id,
             "org_code": normalize_org_code(getattr(row, "org_code", None)),
@@ -8693,9 +8785,9 @@ class RecruitmentService:
             "score_rule_snapshot": _decode_ai_task_json_text(row.score_rule_snapshot_json, []),
             "timing_breakdown": _decode_ai_task_json_text(row.timing_breakdown_json, None),
             "request_hash": row.request_hash,
-            "model_provider": row.model_provider,
-            "model_name": row.model_name,
-            "model_source": row.model_source,
+            "model_provider": resolved_model_provider,
+            "model_name": resolved_model_name,
+            "model_source": resolved_model_source,
             "prompt_snapshot": row.prompt_snapshot,
             "input_summary": row.input_summary,
             "output_summary": row.output_summary,
@@ -9227,13 +9319,14 @@ class RecruitmentService:
             resolved_runtime = self.ai_gateway.resolve_config("skill_content_generation")
             if not resolved_runtime.api_key:
                 raise ValueError("未配置 AI 模型，请先在「模型配置」中添加可用的 LLM 配置。")
-            self._update_ai_task_log(log_row, status="running", provider=resolved_runtime.provider, model_name=resolved_runtime.model_name, prompt_snapshot=f"SYSTEM:\n{SKILL_GENERATION_SYSTEM_PROMPT}\n\nUSER:\n{user_prompt}", input_summary=truncate_text(user_prompt, 600), output_summary="正在生成 Skill 内容")
+            self._update_ai_task_log(log_row, status="running", provider=resolved_runtime.provider, model_name=resolved_runtime.model_name, model_source=resolved_runtime.source, prompt_snapshot=f"SYSTEM:\n{SKILL_GENERATION_SYSTEM_PROMPT}\n\nUSER:\n{user_prompt}", input_summary=truncate_text(user_prompt, 600), output_summary="正在生成 Skill 内容")
             result = self.ai_gateway.stream_text(
                 task_type="skill_content_generation",
                 system_prompt=SKILL_GENERATION_SYSTEM_PROMPT,
                 user_prompt=user_prompt,
                 on_delta=on_delta,
                 cancel_control=control,
+                runtime_config=resolved_runtime,
             )
             self._finish_ai_task_log(log_row, status="success", provider=result.get("provider"), model_name=result.get("model_name"), model_source=result.get("source"), prompt_snapshot=result.get("prompt_snapshot"), full_request_snapshot=result.get("full_request_snapshot"), input_summary=result.get("input_summary"), output_summary=truncate_text(result.get("content", ""), 600), output_snapshot={"content": result.get("content")}, token_usage=result.get("token_usage"))
             return result
@@ -11542,6 +11635,11 @@ class RecruitmentService:
                         related_position_id=match_result.get("position_id") if match_result else None,
                         model_provider=match_result.get("provider") if match_result else None,
                         model_name=match_result.get("model_name") if match_result else None,
+                        model_source=(
+                            match_result.get("source")
+                            if match_result and (match_result.get("provider") or match_result.get("model_name"))
+                            else None
+                        ),
                         duration_ms=duration_ms,
                         input_summary=f"candidate={task.candidate_id}, positions={len(position_summaries)}",
                         output_summary=match_result.get("reason", "") if match_result else "",
@@ -11762,6 +11860,9 @@ class RecruitmentService:
                         batch_id=task.batch_id,
                         status="retrying",
                         related_candidate_id=task.candidate_id,
+                        model_provider=getattr(error, "model_provider", None),
+                        model_name=getattr(error, "model_name", None),
+                        model_source=getattr(error, "model_source", None),
                         input_summary=f"candidate={task.candidate_id}",
                         output_summary=f"第{task.retry_count}次重试，等待{delay}s：{failure_message}",
                         error_message=failure_message,
@@ -11811,6 +11912,9 @@ class RecruitmentService:
                     batch_id=task.batch_id,
                     status="failed",
                     related_candidate_id=task.candidate_id,
+                    model_provider=getattr(error, "model_provider", None),
+                    model_name=getattr(error, "model_name", None),
+                    model_source=getattr(error, "model_source", None),
                     input_summary=f"candidate={task.candidate_id}",
                     output_summary=failure_message,
                     error_message=failure_message,
@@ -12502,6 +12606,25 @@ class RecruitmentService:
             "active_jd_snapshot": self._serialize_active_jd_snapshot(position),
         }
 
+    def _build_available_positions_text(self, candidate: RecruitmentCandidate) -> str:
+        org_code = getattr(candidate, "org_code", None) or self._current_org_code()
+        positions = self.db.query(RecruitmentPosition).filter(
+            RecruitmentPosition.status.in_(["recruiting", "draft"]),
+            RecruitmentPosition.deleted.is_(False),
+            RecruitmentPosition.org_code == org_code,
+        ).all()
+        if not isinstance(positions, (list, tuple)):
+            positions = []
+        position_list_lines = []
+        for pos in positions:
+            line = f"{pos.id}. {pos.title}"
+            if pos.department:
+                line += f"（{pos.department}）"
+            if pos.key_requirements:
+                line += f"：{pos.key_requirements[:100]}"
+            position_list_lines.append(line)
+        return "\n".join(position_list_lines) if position_list_lines else "暂无系统岗位"
+
     def _save_score_result(self, candidate: RecruitmentCandidate, parse_row: RecruitmentResumeParseResult, actor_id: str, content: Dict[str, Any], *, allow_status_advance: bool = True) -> RecruitmentCandidateScore:
         if isinstance(content, dict) and content.get("_storage_format") == RAW_SCREENING_SCORE_STORAGE_FORMAT:
             raw_score = content.get("score") if isinstance(content.get("score"), dict) else {}
@@ -12810,22 +12933,7 @@ class RecruitmentService:
         dimension_rules = _distill_dimension_rules(skill_snapshots, limit=12)
         position_payload = self._get_position_screening_payload(candidate)
         dimension_labels = [d["label"] for d in dimension_rules if d.get("label")]
-        # 构建系统岗位列表（供 position_match 推荐参考）
-        org_code = candidate.org_code or self._current_org_code()
-        positions = self.db.query(RecruitmentPosition).filter(
-            RecruitmentPosition.status.in_(["recruiting", "draft"]),
-            RecruitmentPosition.deleted.is_(False),
-            RecruitmentPosition.org_code == org_code,
-        ).all()
-        position_list_lines = []
-        for pos in positions:
-            line = f"{pos.id}. {pos.title}"
-            if pos.department:
-                line += f"（{pos.department}）"
-            if pos.key_requirements:
-                line += f"：{pos.key_requirements[:100]}"
-            position_list_lines.append(line)
-        position_list_text = "\n".join(position_list_lines) if position_list_lines else "暂无系统岗位"
+        position_list_text = self._build_available_positions_text(candidate)
         current_position_title = str((position_payload or {}).get("title") or candidate.position_title or "").strip()
         return "\n\n".join([
             "TASK: 请先解析简历，再基于岗位要求和评分维度完成初筛评分，最后推荐最合适的岗位和转岗建议。",
@@ -12849,8 +12957,12 @@ class RecruitmentService:
         max_possible_score = _resolve_dimension_max_possible_score(dimension_rules) or 0.0
         position_payload = self._get_position_screening_payload(candidate)
         dimension_labels = [d["label"] for d in dimension_rules if d.get("label")]
+        position_list_text = self._build_available_positions_text(candidate)
+        current_position_title = str((position_payload or {}).get("title") or getattr(candidate, "position_title", "") or "").strip()
         return "\n\n".join([
-            "TASK: 请基于岗位要求和评分维度，对候选人进行简历评分。",
+            "TASK: 请基于岗位要求和评分维度，对候选人进行简历评分，并在同一次 JSON 里返回岗位推荐和转岗建议。",
+            f"CANDIDATE_NAME: {candidate.name or '未提供'}",
+            f"CURRENT_SCREENING_POSITION: {current_position_title or '未指定'}",
             "POSITION_SUMMARY:",
             json_dumps_safe(position_payload or {}),
             f"CUSTOM_REQUIREMENTS: {custom_requirements or '无'}",
@@ -12860,6 +12972,8 @@ class RecruitmentService:
             f"MAX_POSSIBLE_SCORE: {max_possible_score:.1f}",
             "PARSED_RESUME_HELPER:",
             json_dumps_safe(parsed_resume_helper_payload),
+            "AVAILABLE_POSITIONS（供 position_match 参考，不限于此列表）:",
+            position_list_text,
             "RAW_RESUME_TEXT:",
             raw_resume_text[:30000],
             "只返回 strict JSON，不要 markdown，不要解释。",
@@ -12872,6 +12986,32 @@ class RecruitmentService:
         expected_city_value = _sanitize_expected_city_value(basic_info.get("expected_city"))
         if expected_city_value:
             candidate.expected_city = expected_city_value
+
+    def _apply_screening_position_match_payload(
+        self,
+        candidate: RecruitmentCandidate,
+        position_match_payload: Dict[str, Any],
+        *,
+        source: str,
+    ) -> bool:
+        sanitized_payload = _sanitize_position_match_payload(position_match_payload)
+        if not sanitized_payload:
+            return False
+        candidate.ai_match_position_id = None
+        candidate.ai_match_position_title = str(sanitized_payload.get("recommended_position") or "").strip() or None
+        candidate.ai_match_confidence = _parse_score_number(sanitized_payload.get("confidence"))
+        candidate.ai_match_reason = str(sanitized_payload.get("reason") or "").strip() or None
+        candidate.ai_match_at = datetime.now()
+        candidate.ai_potential_position = str(sanitized_payload.get("potential_position") or "").strip() or None
+        candidate.ai_potential_reason = str(sanitized_payload.get("potential_reason") or "").strip() or None
+        logger.info(
+            "[SCREENING_POSITION_MATCH] candidate_id=%s source=%s recommended=%s potential=%s",
+            candidate.id,
+            source,
+            candidate.ai_match_position_title,
+            candidate.ai_potential_position,
+        )
+        return True
 
     def _get_current_parse_result(self, candidate: RecruitmentCandidate) -> Optional[RecruitmentResumeParseResult]:
         if not candidate.latest_parse_result_id or not candidate.latest_resume_file_id:
@@ -13021,9 +13161,6 @@ class RecruitmentService:
             screening_run_id=screening_run_id,
             batch_id=batch_id,
             root_task_id=row.id,
-            provider=request_meta_payload.get("provider"),
-            model_name=request_meta_payload.get("model_name"),
-            model_source=request_meta_payload.get("source"),
             input_summary=_truncate_utf8_text(f"{candidate.name} · {candidate.position_id or '-'}", AI_TASK_LOG_SUMMARY_LIMIT),
             output_summary="任务已入队，等待执行",
             output_snapshot=_build_screening_task_progress_snapshot(
@@ -13512,17 +13649,7 @@ class RecruitmentService:
         self._apply_candidate_parsed_location_fields(candidate, basic_info)
         candidate.latest_parse_result_id = parse_row.id
         candidate.updated_by = actor_id
-        # 保存 AI 推荐岗位和转岗建议（从一体化初筛响应中提取）
-        if position_match_payload:
-            candidate.ai_match_position_id = None  # 一体化模式不匹配系统岗位ID
-            candidate.ai_match_position_title = str(position_match_payload.get("recommended_position") or "").strip() or None
-            candidate.ai_match_confidence = _parse_score_number(position_match_payload.get("confidence"))
-            candidate.ai_match_reason = str(position_match_payload.get("reason") or "").strip() or None
-            candidate.ai_match_at = datetime.now()
-            candidate.ai_potential_position = str(position_match_payload.get("potential_position") or "").strip() or None
-            candidate.ai_potential_reason = str(position_match_payload.get("potential_reason") or "").strip() or None
-            logger.info("[SCREENING_POSITION_MATCH] candidate_id=%s recommended=%s potential=%s",
-                        candidate.id, candidate.ai_match_position_title, candidate.ai_potential_position)
+        self._apply_screening_position_match_payload(candidate, position_match_payload, source="one_pass_screening")
         resume_file.parse_status = "success"
         resume_file.parse_error = None
         self.db.add(candidate)
@@ -14352,6 +14479,11 @@ class RecruitmentService:
                 authoritative_payload,
                 screening_schema_config,
             )
+            position_match_payload = (
+                raw_score_payload.get("position_match")
+                if isinstance(raw_score_payload.get("position_match"), dict)
+                else {}
+            )
             validation_warnings = _normalize_score_warning_items(
                 [*score_helper_warnings, *score_retry_warnings, *(validation_meta.get("warnings") or [])],
                 limit=12,
@@ -14401,6 +14533,7 @@ class RecruitmentService:
                 ),
             )
             prev_ai_recommended_status = candidate.ai_recommended_status
+            self._apply_screening_position_match_payload(candidate, position_match_payload, source="resume_score")
             score_row = self._save_score_result(
                 candidate,
                 parse_row,
@@ -14458,6 +14591,7 @@ class RecruitmentService:
                 "normalized_final_suggested_status": validation_meta.get("normalized_final_suggested_status")
                 or raw_score_payload.get("suggested_status"),
                 "score_model_retry_count": score_model_retry_count,
+                "position_match_returned": bool(position_match_payload),
                 "response_debug": score_response_debug,
             }
             current_timing = _decode_ai_task_json_text(log_row.timing_breakdown_json, {}) if shared_flow_log else {}
@@ -14498,6 +14632,7 @@ class RecruitmentService:
                         "screening_result_valid": screening_result_valid,
                         "screening_result_state": screening_result_state,
                         "final_response_source": final_response_source,
+                        "position_match": position_match_payload or None,
                         "response_debug": score_response_debug,
                     },
                     error_message=final_error_message,
@@ -14537,6 +14672,7 @@ class RecruitmentService:
                     "screening_result_valid": screening_result_valid,
                     "screening_result_state": screening_result_state,
                     "score": raw_score_payload,
+                    "position_match": position_match_payload or None,
                     "response_debug": score_response_debug,
                 },
                 error_message=final_error_message,
@@ -15227,6 +15363,11 @@ class RecruitmentService:
             resolved_model_name = str(getattr(source_log, "model_name", None) or "").strip() or None
             resolved_prompt_snapshot = getattr(source_log, "prompt_snapshot", None) if source_log else None
             resolved_full_request_snapshot = getattr(source_log, "full_request_snapshot", None) if source_log else None
+            resolved_model_source = (
+                str(getattr(source_log, "model_source", None) or "").strip()
+                or _infer_model_source_from_snapshot(resolved_full_request_snapshot)
+                or None
+            )
             resolved_input_summary = getattr(source_log, "input_summary", None) if source_log else None
             resolved_raw_response_text = getattr(source_log, "raw_response_text", None) if source_log else None
             resolved_parsed_response_json = _decode_ai_task_json_text(getattr(source_log, "parsed_response_json", None), None) if source_log else None
@@ -15252,7 +15393,7 @@ class RecruitmentService:
                 stage=stage,
                 provider=resolved_provider,
                 model_name=resolved_model_name,
-                model_source=request_meta.get("source"),
+                model_source=resolved_model_source,
                 prompt_snapshot=resolved_prompt_snapshot,
                 full_request_snapshot=resolved_full_request_snapshot,
                 input_summary=resolved_input_summary,
@@ -15764,8 +15905,6 @@ class RecruitmentService:
                 deadline_at=screening_deadline_at,
                 batch_id=batch_id,
             )
-            # fallback 路径：单独调用 AI 推荐岗位和转岗建议
-            self._run_position_match_for_screened_candidate(candidate, parse_row, actor_id)
             flow_state["score_result_id"] = score_row.id
             score_log_for_root = self._get_latest_screening_run_task(
                 screening_run_id,
@@ -16628,6 +16767,7 @@ class RecruitmentService:
                 log_row,
                 provider=resolved_runtime.provider,
                 model_name=resolved_runtime.model_name,
+                model_source=resolved_runtime.source,
                 status="running",
                 prompt_snapshot=prompt,
                 input_summary=truncate_text(prompt, 600),
@@ -16638,6 +16778,7 @@ class RecruitmentService:
                 system_prompt=INTERVIEW_QUESTION_SYSTEM_PROMPT,
                 user_prompt=prompt,
                 cancel_control=cancel_control,
+                runtime_config=resolved_runtime,
             )
             self._raise_if_cancelled(cancel_control)
             content = task.get("content") or {}
@@ -16831,6 +16972,7 @@ class RecruitmentService:
                 log_row,
                 provider=resolved_runtime.provider,
                 model_name=resolved_runtime.model_name,
+                model_source=resolved_runtime.source,
                 status="running",
                 prompt_snapshot=prompt,
                 input_summary=truncate_text(prompt, 600),
@@ -16842,6 +16984,7 @@ class RecruitmentService:
                 user_prompt=prompt,
                 fallback_builder=lambda: build_jd_structured_fallback(position),
                 cancel_control=cancel_control,
+                runtime_config=resolved_runtime,
             )
             self._raise_if_cancelled(cancel_control)
             content = task.get("content") or {}
@@ -16932,14 +17075,21 @@ class RecruitmentService:
             resolved_runtime = self.ai_gateway.resolve_config("jd_generation")
             if not resolved_runtime.api_key:
                 raise ValueError("未配置 AI 模型，请先在「模型配置」中添加可用的 LLM 配置。")
-            self._update_ai_task_log(log_row, status="running", provider=resolved_runtime.provider, model_name=resolved_runtime.model_name, prompt_snapshot=prompt, input_summary=truncate_text(prompt, 600), output_summary="正在生成 JD 草稿")
+            self._update_ai_task_log(log_row, status="running", provider=resolved_runtime.provider, model_name=resolved_runtime.model_name, model_source=resolved_runtime.source, prompt_snapshot=prompt, input_summary=truncate_text(prompt, 600), output_summary="正在生成 JD 草稿")
             prefix = (
                 f"已定位当前岗位：{position.title}\n正在生成 JD 草稿，请稍候...\n\n"
                 if getattr(position, "id", None)
                 else f"正在为\u201C{position.title}\u201D起草岗位 JD，请稍候...\n\n"
             )
             on_delta(prefix)
-            self.ai_gateway.stream_text(task_type="jd_generation", system_prompt=JD_GENERATION_STREAM_PREVIEW_SYSTEM_PROMPT, user_prompt=prompt, on_delta=_handle_delta, cancel_control=control)
+            stream_task = self.ai_gateway.stream_text(
+                task_type="jd_generation",
+                system_prompt=JD_GENERATION_STREAM_PREVIEW_SYSTEM_PROMPT,
+                user_prompt=prompt,
+                on_delta=_handle_delta,
+                cancel_control=control,
+                runtime_config=resolved_runtime,
+            )
             markdown = "".join(preview_chunks).strip()
             used_fallback = False
             if not markdown:
@@ -16951,13 +17101,15 @@ class RecruitmentService:
             finished_log = self._finish_ai_task_log(
                 log_row,
                 status="fallback" if used_fallback else "success",
-                provider=resolved_runtime.provider,
-                model_name=resolved_runtime.model_name,
-                model_source=resolved_runtime.source,
-                prompt_snapshot=f"SYSTEM:\n{JD_GENERATION_STREAM_PREVIEW_SYSTEM_PROMPT}\n\nUSER:\n{prompt}",
-                input_summary=truncate_text(prompt, 600),
-                output_summary=truncate_text(reply, 600),
+                provider=stream_task.get("provider") or resolved_runtime.provider,
+                model_name=stream_task.get("model_name") or resolved_runtime.model_name,
+                model_source=stream_task.get("source") or resolved_runtime.source,
+                prompt_snapshot=stream_task.get("prompt_snapshot") or f"SYSTEM:\n{JD_GENERATION_STREAM_PREVIEW_SYSTEM_PROMPT}\n\nUSER:\n{prompt}",
+                full_request_snapshot=stream_task.get("full_request_snapshot"),
+                input_summary=stream_task.get("input_summary") or truncate_text(prompt, 600),
+                output_summary=stream_task.get("output_summary") or truncate_text(reply, 600),
                 output_snapshot={"preview_markdown": markdown, "reply": reply, "html": html, "publish_text": publish_text, "draft_saved": False},
+                token_usage=stream_task.get("token_usage"),
                 memory_source=memory_source,
                 related_skill_ids=related_skill_ids,
                 related_skill_snapshots=skill_snapshots,
@@ -17089,19 +17241,10 @@ class RecruitmentService:
     def _reload_match_scheduler_keys(self) -> None:
         """key 配置变更后热重载调度器，无需重启服务"""
         try:
-            from .match_scheduler import key_rotator
-            configs = self.db.query(RecruitmentLLMConfig).filter(
-                RecruitmentLLMConfig.is_active == True
-            ).all()
-            key_rotator.reload([
-                {
-                    "key_id": f"config_{cfg.id}",
-                    "config_id": cfg.id,
-                    "max_concurrent": cfg.max_concurrent or 4,
-                    "max_qps": cfg.max_qps or 10,
-                }
-                for cfg in configs
-            ])
+            from .match_scheduler import key_rotator, load_match_key_configs, scheduler
+
+            key_rotator.reload(load_match_key_configs(self.db))
+            scheduler.request_worker_reconcile()
         except Exception as exc:
             logger.warning("Failed to reload match scheduler keys: %s", exc)
 
@@ -18598,16 +18741,18 @@ class RecruitmentService:
                 preview_chunks.append(chunk)
                 on_delta(chunk)
 
+            jd_runtime = None
             try:
+                jd_runtime = self.ai_gateway.resolve_config("jd_generation")
                 prefix = (
                     f"已定位当前岗位：{position.title}\n正在生成 JD 草稿，请稍候...\n\n"
                     if getattr(position, "id", None)
                     else f"正在为“{position.title}”起草岗位 JD，请稍候...\n\n"
                 )
                 self._stream_plain_text(prefix, on_delta, cancel_control=cancel_control)
-                self._update_ai_task_log(log_row, status="running", prompt_snapshot=prompt, input_summary=truncate_text(prompt, 600), output_summary="正在生成 JD 草稿")
-                self.ai_gateway.stream_text(task_type="jd_generation", system_prompt=JD_GENERATION_STREAM_PREVIEW_SYSTEM_PROMPT, user_prompt=prompt, on_delta=_handle_jd_delta, cancel_control=cancel_control)
-                task = self.ai_gateway.generate_json(task_type="jd_generation", system_prompt=JD_GENERATION_SYSTEM_PROMPT, user_prompt=prompt, fallback_builder=lambda: build_jd_structured_fallback(position), cancel_control=cancel_control)
+                self._update_ai_task_log(log_row, status="running", provider=jd_runtime.provider, model_name=jd_runtime.model_name, model_source=jd_runtime.source, prompt_snapshot=prompt, input_summary=truncate_text(prompt, 600), output_summary="正在生成 JD 草稿")
+                self.ai_gateway.stream_text(task_type="jd_generation", system_prompt=JD_GENERATION_STREAM_PREVIEW_SYSTEM_PROMPT, user_prompt=prompt, on_delta=_handle_jd_delta, cancel_control=cancel_control, runtime_config=jd_runtime)
+                task = self.ai_gateway.generate_json(task_type="jd_generation", system_prompt=JD_GENERATION_SYSTEM_PROMPT, user_prompt=prompt, fallback_builder=lambda: build_jd_structured_fallback(position), cancel_control=cancel_control, runtime_config=jd_runtime)
                 content = task.get("content") or {}
                 structured = normalize_structured_jd(content if isinstance(content, dict) else {}, position)
                 markdown = render_jd_markdown_source(structured)
@@ -18628,12 +18773,15 @@ class RecruitmentService:
                 raise
             except Exception as exc:
                 self.db.rollback()
+                fallback_provider = getattr(jd_runtime, "provider", None)
+                fallback_model = getattr(jd_runtime, "model_name", None)
+                fallback_source = getattr(jd_runtime, "source", None)
                 fallback_structured = build_jd_structured_fallback(position)
                 fallback_markdown = render_jd_markdown_source(fallback_structured)
                 reply = f"已为“{position.title}”生成岗位 JD 草稿。\n\n{fallback_markdown}".strip()
                 self._stream_plain_text(reply, on_delta, cancel_control=cancel_control)
-                finished_log = self._finish_ai_task_log(log_row, status="fallback", provider=resolved.provider, model_name=resolved.model_name, model_source=resolved.source, prompt_snapshot=f"SYSTEM:\n{JD_GENERATION_SYSTEM_PROMPT}\n\nUSER:\n{prompt}", full_request_snapshot=None, input_summary=truncate_text(prompt, 600), output_summary=truncate_text(reply, 600), output_snapshot={"normalized": fallback_structured, "reply": reply, "preview_markdown": "".join(preview_chunks).strip()}, error_message=str(exc), memory_source=memory_source, related_skill_ids=related_skill_ids, related_skill_snapshots=skill_snapshots)
-                return {"reply": reply, "context": current_context, "actions": ["已生成 JD 草稿（未保存）"], "log_id": finished_log.id, "memory_source": memory_source, "model_provider": resolved.provider, "model_name": resolved.model_name, "used_skill_ids": related_skill_ids, "used_skills": skill_snapshots, "used_fallback": True, "fallback_error": str(exc), "timing": {"service_started_at_ms": int(started_at * 1000), "completed_at_ms": int(time.perf_counter() * 1000)}}
+                finished_log = self._finish_ai_task_log(log_row, status="fallback", provider=fallback_provider, model_name=fallback_model, model_source=fallback_source, prompt_snapshot=f"SYSTEM:\n{JD_GENERATION_SYSTEM_PROMPT}\n\nUSER:\n{prompt}", full_request_snapshot=None, input_summary=truncate_text(prompt, 600), output_summary=truncate_text(reply, 600), output_snapshot={"normalized": fallback_structured, "reply": reply, "preview_markdown": "".join(preview_chunks).strip()}, error_message=str(exc), memory_source=memory_source, related_skill_ids=related_skill_ids, related_skill_snapshots=skill_snapshots)
+                return {"reply": reply, "context": current_context, "actions": ["已生成 JD 草稿（未保存）"], "log_id": finished_log.id, "memory_source": memory_source, "model_provider": fallback_provider, "model_name": fallback_model, "used_skill_ids": related_skill_ids, "used_skills": skill_snapshots, "used_fallback": True, "fallback_error": str(exc), "timing": {"service_started_at_ms": int(started_at * 1000), "completed_at_ms": int(time.perf_counter() * 1000)}}
 
         screening_request = self._extract_chat_screening_request(message)
         if screening_request:

@@ -19,6 +19,35 @@ from typing import Any, Callable, Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 
+def load_match_key_configs(db: Any) -> List[Dict[str, Any]]:
+    """Load the runtime configs that are valid for AI position matching."""
+    from ..recruitment_models import RecruitmentLLMConfig
+
+    base_query = db.query(RecruitmentLLMConfig).filter(
+        RecruitmentLLMConfig.is_active == True,
+    )
+    configs = (
+        base_query.filter(RecruitmentLLMConfig.task_type == "ai_position_match")
+        .order_by(RecruitmentLLMConfig.priority.asc(), RecruitmentLLMConfig.id.asc())
+        .all()
+    )
+    if not configs:
+        configs = (
+            base_query.filter(RecruitmentLLMConfig.task_type == "default")
+            .order_by(RecruitmentLLMConfig.priority.asc(), RecruitmentLLMConfig.id.asc())
+            .all()
+        )
+    return [
+        {
+            "key_id": f"config_{cfg.id}",
+            "config_id": cfg.id,
+            "max_concurrent": cfg.max_concurrent or 4,
+            "max_qps": cfg.max_qps or 10,
+        }
+        for cfg in configs
+    ]
+
+
 # ─────────────────────────────────────────
 # Key 槽：管理单个 key 的并发和 QPS
 # ─────────────────────────────────────────
@@ -193,6 +222,7 @@ class FairMatchScheduler:
         self._state_lock = threading.Lock()
         self._has_tasks = asyncio.Event()
         self._workers: List[asyncio.Task] = []
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
         self.running = False
         self._cancelled_ids: set = set()
 
@@ -242,12 +272,50 @@ class FairMatchScheduler:
     async def start(self):
         """启动调度器，worker 数量跟随 key 总并发数"""
         self.running = True
+        self._loop = asyncio.get_running_loop()
         worker_count = max(self.key_rotator.total_concurrent, 1)
         self._workers = [
             asyncio.create_task(self._worker(i))
             for i in range(worker_count)
         ]
         logger.info("FairMatchScheduler started with %d workers", worker_count)
+
+    async def ensure_worker_count(self):
+        """Resize workers after key concurrency changes."""
+        if not self.running:
+            return
+        target_count = max(self.key_rotator.total_concurrent, 1)
+        current_count = len([worker for worker in self._workers if not worker.done()])
+        if current_count == target_count:
+            return
+        self._workers = [worker for worker in self._workers if not worker.done()]
+        if current_count < target_count:
+            start_index = len(self._workers)
+            for offset in range(target_count - current_count):
+                self._workers.append(asyncio.create_task(self._worker(start_index + offset)))
+            logger.info("FairMatchScheduler scaled up workers: %d -> %d", current_count, target_count)
+            return
+        extra_count = current_count - target_count
+        extra_workers = self._workers[-extra_count:]
+        self._workers = self._workers[:-extra_count]
+        for worker in extra_workers:
+            worker.cancel()
+        await asyncio.gather(*extra_workers, return_exceptions=True)
+        logger.info("FairMatchScheduler scaled down workers: %d -> %d", current_count, target_count)
+
+    def request_worker_reconcile(self):
+        """Schedule worker resize from sync service code."""
+        loop = self._loop
+        if not self.running or not loop or loop.is_closed():
+            return
+        try:
+            running_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            running_loop = None
+        if running_loop is loop:
+            loop.create_task(self.ensure_worker_count())
+        else:
+            asyncio.run_coroutine_threadsafe(self.ensure_worker_count(), loop)
 
     async def stop(self):
         self.running = False

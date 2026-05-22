@@ -141,21 +141,10 @@ def _resume_recruitment_screening_queue() -> None:
 
 async def _init_match_scheduler() -> None:
     """从DB加载LLM key配置，初始化匹配调度器并启动worker"""
-    from .recruitment_models import RecruitmentLLMConfig
+    from .services.match_scheduler import load_match_key_configs
     db = SessionLocal()
     try:
-        configs = db.query(RecruitmentLLMConfig).filter(
-            RecruitmentLLMConfig.is_active == True
-        ).all()
-        key_configs = [
-            {
-                "key_id": f"config_{cfg.id}",
-                "config_id": cfg.id,
-                "max_concurrent": cfg.max_concurrent or 4,
-                "max_qps": cfg.max_qps or 10,
-            }
-            for cfg in configs
-        ]
+        key_configs = load_match_key_configs(db)
         key_rotator.reload(key_configs)
         await scheduler.start()
         logger.info("Match scheduler initialized: %d keys, %d workers",
