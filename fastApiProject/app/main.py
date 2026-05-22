@@ -35,8 +35,28 @@ from .routers.recruitment import recover_orphaned_tasks_on_startup
 from .services.recruitment_service import RecruitmentService
 from .services.match_scheduler import key_rotator, scheduler
 
-# 配置日志
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+# 配置日志。Gunicorn/Uvicorn 可能已提前安装 handler，basicConfig 会直接跳过；
+# 这里显式同步 root/handler 级别，保证容器里也能看到应用 INFO 日志。
+LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
+
+
+def _configure_app_logging() -> None:
+    raw_level = (os.getenv("APP_LOG_LEVEL") or "INFO").strip().upper()
+    level = getattr(logging, raw_level, logging.INFO)
+    root_logger = logging.getLogger()
+    if not root_logger.handlers:
+        logging.basicConfig(level=level, format=LOG_FORMAT)
+    else:
+        root_logger.setLevel(level)
+        formatter = logging.Formatter(LOG_FORMAT)
+        for handler in root_logger.handlers:
+            handler.setLevel(level)
+            if handler.formatter is None:
+                handler.setFormatter(formatter)
+    logging.getLogger("httpx").setLevel(level)
+
+
+_configure_app_logging()
 logger = logging.getLogger(__name__)
 APP_ROOT = Path(__file__).resolve().parent.parent
 STATIC_DIR = APP_ROOT / "static"
