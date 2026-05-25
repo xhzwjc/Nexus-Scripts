@@ -104,7 +104,7 @@ export const allScripts: Record<string, SystemConfig> = {
 };
 
 // ============== 天气缓存配置 ==============
-export const WEATHER_CACHE_KEY = 'heweather_bj_cache';
+export const WEATHER_CACHE_KEY = 'heweather_location_cache_v2';
 export const WEATHER_TTL = 5 * 60 * 60 * 1000; // 5 小时
 
 // ============== 工具函数 ==============

@@ -54,10 +54,28 @@
     -webkit-backdrop-filter: blur(20px);
     border-right: 1px solid var(--glass-border);
     box-shadow: 4px 0 32px var(--glass-shadow);
+    transition:
+        width 260ms cubic-bezier(0.22, 1, 0.36, 1),
+        padding 260ms cubic-bezier(0.22, 1, 0.36, 1),
+        box-shadow 220ms ease,
+        border-radius 220ms ease;
     /* 核心优化：将模糊效果隔离在独立层，避免滚动时重新计算 */
     contain: paint;
     transform: translateZ(0);
     isolation: isolate;
+}
+
+.dashboard-sidebar-shell {
+    transition: width 260ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.dashboard-sidebar.preview-expanded {
+    border-bottom-right-radius: 14px;
+    box-shadow: 18px 0 42px rgba(15, 23, 42, 0.14), 4px 0 18px var(--glass-shadow);
+}
+
+.dark .dashboard-sidebar.preview-expanded {
+    box-shadow: 18px 0 42px rgba(0, 0, 0, 0.38), 4px 0 18px var(--glass-shadow);
 }
 
 /* 针对滚动视口的极致优化 */
@@ -76,6 +94,12 @@
     font-weight: 500;
     color: var(--text-secondary);
     cursor: pointer;
+    white-space: nowrap;
+    transition:
+        background-color 160ms ease,
+        color 160ms ease,
+        box-shadow 180ms ease,
+        transform 180ms ease;
 }
 
 .sidebar-nav-item:hover {
@@ -558,10 +582,6 @@ body.app-locked [data-radix-popper-content-wrapper] {
    响应式适配 - 1366x768 笔记本
    ============================================ */
 @media (max-width: 1400px) {
-    .dashboard-sidebar {
-        width: 240px;
-    }
-
     .system-card {
         padding: 20px;
     }

@@ -295,7 +295,7 @@ export function VirtualTable<T>({
             onScroll={handleScroll}
         >
             <table 
-                className={cn("w-full table-fixed text-base", className)}
+                className={cn("w-full table-fixed text-sm", className)}
                 style={{ width: Math.max(totalTableWidth, containerWidth) }}
             >
                 <thead className="sticky top-0 z-10">
@@ -303,7 +303,7 @@ export function VirtualTable<T>({
                         {columns.map(col => (
                             <th
                                 key={col.key}
-                                className="bg-white/95 dark:bg-slate-950/95 border-b px-2 text-left text-sm font-medium whitespace-nowrap"
+                                className="bg-white/95 dark:bg-slate-950/95 border-b px-2 text-left text-xs font-medium whitespace-nowrap"
                                 style={{
                                     width: col.width,
                                     minWidth: col.minWidth,

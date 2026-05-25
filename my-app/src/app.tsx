@@ -285,6 +285,7 @@ function AppContent() {
         now,
         weather,
         weatherRefreshing,
+        weatherLocationLabel,
         refreshWeather,
     } = useDashboardWeather(language, isLocked);
 
@@ -529,6 +530,7 @@ function AppContent() {
                     now={now}
                     weather={weather}
                     weatherRefreshing={weatherRefreshing}
+                    weatherLocationLabel={weatherLocationLabel}
                     onRefreshWeather={() => refreshWeather()}
                     hasHealthPermission={!!currentUser?.permissions['cert-health']}
                     userKey={userKey}
@@ -536,7 +538,7 @@ function AppContent() {
                     onHealthChange={setHealthCheckState}
                 />
 
-                <main className={`flex-1 overflow-y-auto overflow-x-hidden relative scrollbar-hide ${currentView === 'help' ? 'p-0' : 'px-2 py-6'}`}>
+                <main className={`flex-1 overflow-y-auto overflow-x-hidden relative scrollbar-hide ${currentView === 'help' || currentView === 'ai-recruitment' ? 'p-0' : 'px-2 py-6'}`}>
                         {currentView === 'home' && renderHomeContent()}
                         {currentView === 'welcome' && renderWelcomeContent()}
                         {currentView === 'system' && renderSystemContent()}

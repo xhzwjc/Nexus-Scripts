@@ -2,14 +2,12 @@ import React from 'react';
 import {
     Bot,
     BriefcaseBusiness,
-    CheckCircle,
     ChevronDown,
-    ChevronLeft,
-    ChevronRight,
     CircleHelp,
     FolderKanban,
     History,
     LogOut,
+    PanelLeft,
     ScanLine,
     ScrollText,
     Server,
@@ -19,9 +17,8 @@ import {
     Wrench,
 } from 'lucide-react';
 
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Separator } from '@/components/ui/separator';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n';
 import {
@@ -41,6 +38,10 @@ interface SidebarProps {
     currentUser: User | null;
 }
 
+const SIDEBAR_PINNED_STORAGE_KEY = 'scripts.dashboard.sidebarPinned';
+const SIDEBAR_COMPACT_WIDTH = 72;
+const SIDEBAR_EXPANDED_WIDTH = 210;
+
 export const DashboardSidebar: React.FC<SidebarProps> = ({
     currentView,
     setCurrentView,
@@ -51,15 +52,24 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
     currentUser,
 }) => {
     const { t, language } = useI18n();
-    const [collapsed, setCollapsed] = React.useState(false);
+    const [sidebarPinned, setSidebarPinned] = React.useState<boolean>(() => {
+        if (typeof window === 'undefined') return false;
+        return window.localStorage.getItem(SIDEBAR_PINNED_STORAGE_KEY) === 'true';
+    });
+    const [hoverExpanded, setHoverExpanded] = React.useState(false);
     const [aiRecruitmentExpanded, setAiRecruitmentExpanded] = React.useState(false);
     const [activeRecruitmentPage, setActiveRecruitmentPage] = React.useState<string | null>(null);
-    const [recruitmentPopoverOpen, setRecruitmentPopoverOpen] = React.useState(false);
     const userLandingPage = currentUser?.landingPage || 'home';
     const homeNavView: ViewType = userLandingPage === 'welcome' ? 'welcome' : 'home';
     const homeNavLabel = userLandingPage === 'welcome'
         ? (language === 'en-US' ? 'Welcome' : '欢迎')
         : t.nav.home;
+    const sidebarExpanded = sidebarPinned || hoverExpanded;
+    const collapsed = !sidebarExpanded;
+    const sidebarShellWidth = sidebarPinned ? SIDEBAR_EXPANDED_WIDTH : SIDEBAR_COMPACT_WIDTH;
+    const sidebarPanelWidth = sidebarExpanded ? SIDEBAR_EXPANDED_WIDTH : SIDEBAR_COMPACT_WIDTH;
+    const sidebarPreviewExpanded = !sidebarPinned && hoverExpanded;
+    const pinButtonLabel = sidebarPinned ? '取消固定导航' : '固定导航';
 
     // AI 招聘模块权限
     const canAccessRecruitment = Boolean(currentUser?.permissions?.['ai-recruitment']);
@@ -67,6 +77,11 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
     const canManageCandidate = Boolean(currentUser?.permissions?.['recruitment-candidate-manage']);
     const canViewLog = Boolean(currentUser?.permissions?.['recruitment-log-view']);
     const inRecruitmentView = currentView === 'ai-recruitment';
+
+    React.useEffect(() => {
+        if (typeof window === 'undefined') return;
+        window.localStorage.setItem(SIDEBAR_PINNED_STORAGE_KEY, sidebarPinned ? 'true' : 'false');
+    }, [sidebarPinned]);
 
     // 监听来自 RecruitmentAutomationContainer 的页面切换事件
     React.useEffect(() => {
@@ -132,14 +147,35 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
         </div>
     );
 
+    const toggleSidebarPinned = () => {
+        setSidebarPinned((current) => {
+            const next = !current;
+            if (next) {
+                setHoverExpanded(false);
+            }
+            return next;
+        });
+    };
+
     return (
-        <div className={cn('relative h-screen shrink-0', collapsed ? 'w-[76px]' : 'w-[210px]')}>
+        <div
+            className="dashboard-sidebar-shell relative h-screen shrink-0"
+            style={{ width: sidebarShellWidth }}
+            onMouseEnter={() => {
+                if (!sidebarPinned) setHoverExpanded(true);
+            }}
+            onMouseLeave={() => {
+                if (!sidebarPinned) setHoverExpanded(false);
+            }}
+        >
             <aside
                 className={cn(
-                    'dashboard-sidebar h-screen flex flex-col overflow-hidden border-r border-[var(--sidebar-border)] py-6 shadow-sm',
+                    'dashboard-sidebar absolute left-0 top-0 z-30 h-screen flex flex-col overflow-hidden border-r border-[var(--sidebar-border)] py-6 shadow-sm',
                     collapsed ? 'px-3' : 'px-4',
                     collapsed && 'collapsed',
+                    sidebarPreviewExpanded && 'preview-expanded',
                 )}
+                style={{ width: sidebarPanelWidth }}
             >
                 <div className={cn('mb-6 flex shrink-0 items-center', collapsed ? 'justify-center px-0' : 'gap-2.5 px-3')}>
                     <img src="/logo.png" alt="Logo" className="h-10 w-auto object-contain" />
@@ -149,11 +185,6 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
                     <ScrollArea className={cn('min-h-0 flex-1', collapsed ? 'pr-0' : 'pr-1')}>
                         <div className="space-y-6 pb-4">
                             <div>
-                                {!collapsed ? (
-                                    <p className="mb-3 px-3 text-[11px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
-                                        {t.nav.workspace}
-                                    </p>
-                                ) : null}
                                 <nav className="space-y-1">
                                     {renderNavItem({
                                         active: currentView === 'home' || currentView === 'welcome',
@@ -224,79 +255,47 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
                                         })
                                         : null}
                                     {canAccessRecruitment ? (
-                                        collapsed ? (
-                                            <Popover open={recruitmentPopoverOpen} onOpenChange={setRecruitmentPopoverOpen}>
-                                                <PopoverTrigger asChild>
-                                                    <div
-                                                        className={navItemClass(inRecruitmentView)}
-                                                    >
-                                                        <BriefcaseBusiness className="h-[18px] w-[18px]" />
-                                                    </div>
-                                                </PopoverTrigger>
-                                                <PopoverContent side="right" align="start" sideOffset={8} className="w-40 p-1">
+                                        <div className="space-y-1">
+                                            <div
+                                                className={navItemClass(inRecruitmentView || Boolean(activeRecruitmentPage) || aiRecruitmentExpanded)}
+                                                onClick={() => {
+                                                    if (collapsed) {
+                                                        setHoverExpanded(true);
+                                                        return;
+                                                    }
+                                                    setAiRecruitmentExpanded((expanded) => !expanded);
+                                                }}
+                                                title={t.nav.aiRecruitment}
+                                            >
+                                                <BriefcaseBusiness className="h-[18px] w-[18px]" />
+                                                {!collapsed ? <span>{t.nav.aiRecruitment}</span> : null}
+                                                {!collapsed ? <ChevronDown className={cn('ml-auto h-3.5 w-3.5 transition-transform', aiRecruitmentExpanded && 'rotate-180')} /> : null}
+                                            </div>
+                                            {!collapsed && aiRecruitmentExpanded && (
+                                                <div className="ml-3 space-y-0.5 border-l border-slate-200 pl-3 dark:border-slate-700">
                                                     {recruitmentSubItems.map((item) => (
-                                                        <button
+                                                        <div
                                                             key={item.key}
-                                                            type="button"
+                                                            className={cn(
+                                                                'flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors',
+                                                                activeRecruitmentPage === item.key
+                                                                    ? 'bg-slate-100 font-medium text-slate-900 dark:bg-slate-800 dark:text-slate-100'
+                                                                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200',
+                                                            )}
                                                             onClick={() => {
-                                                                setRecruitmentPopoverOpen(false);
                                                                 setRecruitmentInitialPage?.(item.key);
                                                                 setCurrentView('ai-recruitment');
                                                                 setActiveRecruitmentPage(item.key);
-                                                                setAiRecruitmentExpanded(true);
                                                                 navigateToRecruitmentPage(item.key);
                                                             }}
-                                                            className={cn(
-                                                                'flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm transition-colors',
-                                                                activeRecruitmentPage === item.key
-                                                                    ? 'bg-slate-100 font-medium text-slate-900 dark:bg-slate-800 dark:text-slate-100'
-                                                                    : 'hover:bg-accent',
-                                                            )}
                                                         >
-                                                            {item.icon}
+                                                            <span className="h-[18px] w-[18px]">{item.icon}</span>
                                                             <span>{item.label}</span>
-                                                        </button>
+                                                        </div>
                                                     ))}
-                                                </PopoverContent>
-                                            </Popover>
-                                        ) : (
-                                            <div className="space-y-1">
-                                                <div
-                                                    className={navItemClass(inRecruitmentView || Boolean(activeRecruitmentPage) || aiRecruitmentExpanded)}
-                                                    onClick={() => {
-                                                        setAiRecruitmentExpanded((expanded) => !expanded);
-                                                    }}
-                                                >
-                                                    <BriefcaseBusiness className="h-[18px] w-[18px]" />
-                                                    <span>{t.nav.aiRecruitment}</span>
-                                                    <ChevronDown className={cn('ml-auto h-3.5 w-3.5 transition-transform', aiRecruitmentExpanded && 'rotate-180')} />
                                                 </div>
-                                                {aiRecruitmentExpanded && (
-                                                    <div className="ml-3 space-y-0.5 border-l border-slate-200 pl-3 dark:border-slate-700">
-                                                        {recruitmentSubItems.map((item) => (
-                                                            <div
-                                                                key={item.key}
-                                                                className={cn(
-                                                                    'flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors',
-                                                                    activeRecruitmentPage === item.key
-                                                                        ? 'bg-slate-100 font-medium text-slate-900 dark:bg-slate-800 dark:text-slate-100'
-                                                                        : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200',
-                                                                )}
-                                                                onClick={() => {
-                                                                    setRecruitmentInitialPage?.(item.key);
-                                                                    setCurrentView('ai-recruitment');
-                                                                    setActiveRecruitmentPage(item.key);
-                                                                    navigateToRecruitmentPage(item.key);
-                                                                }}
-                                                            >
-                                                                <span className="h-[18px] w-[18px]">{item.icon}</span>
-                                                                <span>{item.label}</span>
-                                                            </div>
-                                                        ))}
-                                                    </div>
-                                                )}
-                                            </div>
-                                        )
+                                            )}
+                                        </div>
                                     ) : null}
                                     {currentUser?.permissions['rbac-manage']
                                         ? renderNavItem({
@@ -349,49 +348,34 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
                         </div>
                     </ScrollArea>
 
-                    <Separator className="my-4 shrink-0 bg-[var(--border-subtle)]" />
-
-                    <div className={cn('shrink-0 rounded-2xl border border-[var(--border-subtle)] bg-[var(--glass-bg-solid)] shadow-sm', collapsed ? 'px-2 py-3' : 'px-4 py-4')}>
-                        <div className={cn('flex items-center gap-3', collapsed ? 'justify-center' : 'justify-between')}>
-                            <div className="flex items-center gap-3">
-                                <div className="h-2.5 w-2.5 animate-pulse rounded-full bg-teal-500" />
-                                {!collapsed ? (
-                                    <div>
-                                        <p className="text-[13px] font-medium text-[var(--text-primary)]">{t.nav.systemRunning}</p>
-                                        <p className="text-[12px] text-[var(--text-secondary)]">ScriptHub v2.0-stable</p>
-                                    </div>
-                                ) : null}
-                            </div>
-                            {!collapsed ? <ChevronRight className="h-4 w-4 text-[var(--text-tertiary)]" /> : null}
-                        </div>
-                        {!collapsed ? (
-                            <div className="mt-4 grid gap-2 text-[12px] text-[var(--text-secondary)]">
-                                <div className="flex items-center gap-2">
-                                    <CheckCircle className="h-4 w-4 text-green-500" />
-                                    <span>{t.nav.allNodesOnline}</span>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <Server className="h-4 w-4 text-[var(--text-tertiary)]" />
-                                    <span>{t.nav.serviceNormal}</span>
-                                </div>
-                            </div>
-                        ) : (
-                            <div className="mt-3 flex justify-center">
-                                <CheckCircle className="h-4 w-4 text-green-500" />
-                            </div>
-                        )}
+                    <div className={cn('mt-3 flex shrink-0', collapsed ? 'justify-end pb-6 pr-1' : 'justify-end pb-2')}>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <button
+                                    type="button"
+                                    onClick={toggleSidebarPinned}
+                                    className={cn(
+                                        'dashboard-sidebar-pin-button inline-flex h-8 w-8 items-center justify-center rounded-md border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50',
+                                        sidebarPinned
+                                            ? 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:border-blue-900/60 dark:bg-blue-950/40 dark:text-blue-200'
+                                            : 'border-transparent bg-transparent text-[var(--text-secondary)] hover:border-[var(--sidebar-border)] hover:bg-[var(--sidebar-accent)] hover:text-[var(--text-primary)]',
+                                    )}
+                                    aria-label={pinButtonLabel}
+                                >
+                                    <PanelLeft className="h-4 w-4" />
+                                </button>
+                            </TooltipTrigger>
+                            <TooltipContent
+                                side={collapsed ? 'right' : 'top'}
+                                sideOffset={8}
+                                className="rounded-md border border-slate-200 bg-slate-950 px-2.5 py-1.5 text-xs text-white shadow-lg dark:border-slate-700"
+                            >
+                                {pinButtonLabel}
+                            </TooltipContent>
+                        </Tooltip>
                     </div>
                 </div>
             </aside>
-
-            <button
-                type="button"
-                onClick={() => setCollapsed((current) => !current)}
-                className="absolute right-0 top-1/2 z-30 h-10 w-5 -translate-y-1/2 translate-x-1/2 rounded-full border border-[var(--sidebar-border)] bg-[var(--glass-bg-solid)] text-[var(--text-secondary)] shadow-sm backdrop-blur-xl transition-colors hover:bg-[var(--sidebar-accent)]"
-                title={collapsed ? '展开系统菜单' : '收起系统菜单'}
-            >
-                {collapsed ? <ChevronRight className="mx-auto h-3.5 w-3.5" /> : <ChevronLeft className="mx-auto h-3.5 w-3.5" />}
-            </button>
         </div>
     );
 };

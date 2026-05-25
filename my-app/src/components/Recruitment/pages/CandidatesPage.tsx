@@ -6,6 +6,7 @@ import ReactMarkdown from "react-markdown";
 import {useVirtualizer} from "@tanstack/react-virtual";
 import {
     ArrowRightLeft,
+    AtSign,
     Bot,
     Briefcase,
     Calendar,
@@ -16,21 +17,29 @@ import {
     Download,
     ExternalLink,
     Eye,
+    FileText,
+    GraduationCap,
     LayoutGrid,
     List,
     Loader2,
     Mail,
+    MapPin,
+    MoreHorizontal,
     NotebookText,
+    Phone,
     Plus,
+    Printer,
     RotateCcw,
     Save,
     SlidersHorizontal,
     Sparkles,
     Square,
+    Star,
+    Tag,
     Trash2,
     UserCheck,
+    UserPlus,
     Users,
-    ZoomIn,
 } from "lucide-react";
 
 import {
@@ -43,6 +52,7 @@ import {
     type RecruitmentSkill,
     type ResumeFile,
 } from "@/lib/recruitment-api";
+import {authenticatedFetch} from "@/lib/auth";
 import {getCurrentLanguage, useI18n} from "@/lib/i18n";
 import {cn} from "@/lib/utils";
 import {Badge} from "@/components/ui/badge";
@@ -72,6 +82,10 @@ import {
     type CandidateViewMode,
     panelClass as defaultPanelClass,
 } from "../types";
+import {
+    CANDIDATE_PIPELINE_STAGES,
+    type CandidatePipelineStageConfig,
+} from "../workflowStages";
 import {
     EmptyState,
     Field,
@@ -113,8 +127,253 @@ type CandidateBoardGroup = {
 type CandidateListDisplayColumnWidths = Record<CandidateListColumnKey, number>;
 
 type CandidateInterviewQuestion = CandidateDetail["interview_questions"][number];
+type CandidateQuickDispositionAction = "pass" | "talent_pool" | "reject";
+type CandidateDetailPanelKey = "resume" | "assessment" | "screening" | "exam" | "interview" | "offer" | "background";
+type CandidateResumeViewKey = "original" | "standard" | "history";
+type DetailIcon = React.ComponentType<{className?: string}>;
+type PdfJsModule = typeof import("pdfjs-dist");
+type PdfLoadingTask = ReturnType<PdfJsModule["getDocument"]>;
 
-const CANDIDATE_LIST_ESTIMATED_ROW_HEIGHT = 96;
+function readStructuredText(source: unknown, keys: string[]): string | null {
+    if (!source || typeof source !== "object" || Array.isArray(source)) {
+        return null;
+    }
+    const record = source as Record<string, unknown>;
+    for (const key of keys) {
+        const value = record[key];
+        if (typeof value === "string" || typeof value === "number") {
+            const text = String(value).trim();
+            if (text) return text;
+        }
+    }
+    return null;
+}
+
+function firstStructuredRecord(value: unknown): Record<string, unknown> | null {
+    if (!Array.isArray(value)) {
+        return null;
+    }
+    const item = value.find((entry) => entry && typeof entry === "object" && !Array.isArray(entry));
+    return item ? item as Record<string, unknown> : null;
+}
+
+function CandidateDetailAvatar({name}: {name: string}) {
+    const initial = (name || "?").trim().charAt(0) || "?";
+    return (
+        <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-sky-100 to-blue-200 text-2xl font-semibold text-blue-700 ring-4 ring-white">
+            {initial}
+        </div>
+    );
+}
+
+function CandidateMetaItem({
+                               icon: Icon,
+                               children,
+                           }: {
+    icon: DetailIcon;
+    children: React.ReactNode;
+}) {
+    return (
+        <span className="inline-flex min-w-0 items-center gap-1.5 text-[13px] text-slate-500">
+            <Icon className="h-3.5 w-3.5 shrink-0 text-slate-400"/>
+            <span className="truncate">{children}</span>
+        </span>
+    );
+}
+
+function InlineResumePdfPreview({
+                                    blob,
+                                    fileName,
+                                    isZh,
+                                    onReady,
+                                    onError,
+                                }: {
+    blob: Blob;
+    fileName: string;
+    isZh: boolean;
+    onReady: () => void;
+    onError: (message: string) => void;
+}) {
+    const hostRef = React.useRef<HTMLDivElement | null>(null);
+    const [hostWidth, setHostWidth] = React.useState(0);
+
+    React.useEffect(() => {
+        const node = hostRef.current;
+        if (!node) return;
+
+        const updateWidth = () => {
+            const nextWidth = Math.floor(node.clientWidth);
+            setHostWidth((current) => Math.abs(current - nextWidth) > 2 ? nextWidth : current);
+        };
+        updateWidth();
+
+        if (typeof ResizeObserver === "undefined") {
+            window.addEventListener("resize", updateWidth);
+            return () => window.removeEventListener("resize", updateWidth);
+        }
+
+        const observer = new ResizeObserver(updateWidth);
+        observer.observe(node);
+        return () => observer.disconnect();
+    }, []);
+
+    React.useEffect(() => {
+        const host = hostRef.current;
+        if (!host || !blob || hostWidth <= 0) return;
+
+        let cancelled = false;
+        let loadingTask: PdfLoadingTask | null = null;
+        let signaledReady = false;
+        const clearHost = () => {
+            while (host.firstChild) {
+                host.removeChild(host.firstChild);
+            }
+        };
+        const signalReady = () => {
+            if (!signaledReady && !cancelled) {
+                signaledReady = true;
+                onReady();
+            }
+        };
+
+        clearHost();
+
+        const renderPdf = async () => {
+            const pdfjsLib = await import("pdfjs-dist/build/pdf.mjs") as PdfJsModule;
+            pdfjsLib.GlobalWorkerOptions.workerSrc = "/vendor/pdfjs/pdf.worker.min.mjs";
+            const arrayBuffer = await blob.arrayBuffer();
+            if (cancelled) return;
+
+            loadingTask = pdfjsLib.getDocument({
+                data: new Uint8Array(arrayBuffer),
+                verbosity: 0,
+            });
+            const pdf = await loadingTask.promise;
+            const pageHostWidth = Math.max(320, Math.min(hostWidth - 8, 760));
+            const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+
+            for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+                if (cancelled) break;
+
+                const page = await pdf.getPage(pageNumber);
+                const baseViewport = page.getViewport({scale: 1});
+                const viewport = page.getViewport({scale: pageHostWidth / baseViewport.width});
+                const canvas = document.createElement("canvas");
+                const pageShell = document.createElement("div");
+                const canvasContext = canvas.getContext("2d", {alpha: false});
+                if (!canvasContext) {
+                    throw new Error(isZh ? "浏览器不支持简历预览渲染" : "Canvas rendering is not supported");
+                }
+
+                canvas.width = Math.ceil(viewport.width * pixelRatio);
+                canvas.height = Math.ceil(viewport.height * pixelRatio);
+                canvas.style.width = `${Math.ceil(viewport.width)}px`;
+                canvas.style.height = `${Math.ceil(viewport.height)}px`;
+                canvas.className = "block bg-white";
+
+                pageShell.className = cn(
+                    "flex justify-center bg-white py-6",
+                    pageNumber === 1 && "pt-0",
+                    pageNumber === pdf.numPages && "pb-0",
+                );
+                pageShell.appendChild(canvas);
+                host.appendChild(pageShell);
+
+                await page.render({
+                    canvas,
+                    canvasContext,
+                    viewport,
+                    transform: pixelRatio !== 1 ? [pixelRatio, 0, 0, pixelRatio, 0, 0] : undefined,
+                    background: "#fff",
+                }).promise;
+                page.cleanup();
+
+                if (pageNumber === 1) {
+                    signalReady();
+                }
+            }
+
+            await pdf.cleanup();
+            await pdf.destroy();
+            signalReady();
+        };
+
+        void renderPdf().catch((error) => {
+            if (cancelled) return;
+            const message = error instanceof Error && error.message
+                ? error.message
+                : (isZh ? "原始简历加载失败" : "Failed to load original resume");
+            onError(message);
+        });
+
+        return () => {
+            cancelled = true;
+            clearHost();
+            if (loadingTask) {
+                void loadingTask.destroy().catch(() => undefined);
+            }
+        };
+    }, [blob, hostWidth, isZh, onError, onReady]);
+
+    return (
+        <div className="h-full overflow-auto bg-white">
+            <div
+                ref={hostRef}
+                aria-label={fileName}
+                className="mx-auto min-h-full w-full bg-white px-4 py-6"
+            />
+        </div>
+    );
+}
+
+function ResumeSection({
+                           title,
+                           children,
+                       }: {
+    title: React.ReactNode;
+    children: React.ReactNode;
+}) {
+    return (
+        <section className="border-t border-dashed border-slate-200 pt-5 first:border-t-0 first:pt-0">
+            <div className="mb-4 flex items-center gap-2">
+                <span className="h-4 w-1 rounded-full bg-[#1677ff]"/>
+                <h4 className="text-[15px] font-semibold text-slate-800">{title}</h4>
+            </div>
+            {children}
+        </section>
+    );
+}
+
+function RailActionButton({
+                              children,
+                              onClick,
+                              disabled,
+                              tone = "default",
+                          }: {
+    children: React.ReactNode;
+    onClick?: () => void;
+    disabled?: boolean;
+    tone?: "primary" | "default" | "danger";
+}) {
+    return (
+        <Button
+            type="button"
+            size="sm"
+            variant={tone === "primary" ? "default" : "outline"}
+            disabled={disabled}
+            onClick={onClick}
+            className={cn(
+                "h-9 rounded-[4px] px-3 text-[14px] font-medium",
+                tone === "primary" && "border-[#243cff] bg-[#243cff] text-white hover:bg-[#1730e8]",
+                tone === "danger" && "border-[#243cff] bg-white text-[#243cff] hover:border-rose-400 hover:bg-rose-50 hover:text-rose-600",
+            )}
+        >
+            {children}
+        </Button>
+    );
+}
+
+const CANDIDATE_LIST_ESTIMATED_ROW_HEIGHT = 178;
 const CANDIDATE_LIST_OVERSCAN = 6;
 const CANDIDATE_BOARD_ESTIMATED_CARD_HEIGHT = 150;
 const CANDIDATE_BOARD_OVERSCAN = 5;
@@ -158,6 +417,19 @@ const CandidateRow = React.memo(function CandidateRow({
     const resumeMailSummary = getResumeMailSummary(candidate.id);
     const displayStatus = resolveCandidateDisplayStatus(candidate);
     const isZh = language !== "en-US";
+    const candidateProfileSummary = [
+        candidate.current_company,
+        candidate.years_of_experience,
+        candidate.education,
+    ].map((value) => String(value || "").trim()).filter(Boolean).join(" · ");
+    const positionLabel = candidate.position_title || candidate.screened_position_title || tr.unassignedPosition;
+    const aiPositionLabel = (
+        candidate.ai_match_position_title
+        && candidate.ai_match_position_title !== candidate.position_title
+        && candidate.ai_match_position_title !== candidate.screened_position_title
+    )
+        ? candidate.ai_match_position_title
+        : "";
     const onSelect = React.useCallback(() => setSelectedCandidateId(candidate.id), [candidate.id, setSelectedCandidateId]);
     const onToggleCheck = React.useCallback((checked: boolean) => {
         toggleCandidateSelection(candidate.id, checked);
@@ -215,19 +487,26 @@ const CandidateRow = React.memo(function CandidateRow({
                                 </div>
                                 <HoverRevealText
                                     text={candidate.phone || candidate.email || tr.noContact}
-                                    className="text-sm text-slate-500 dark:text-slate-400"
+                                    className="text-xs text-slate-500 dark:text-slate-400"
                                 />
+                                {candidateProfileSummary ? (
+                                    <HoverRevealText
+                                        text={candidateProfileSummary}
+                                        className="mt-0.5 text-sm text-slate-500 dark:text-slate-400"
+                                        tooltipClassName="max-w-sm"
+                                    />
+                                ) : null}
                                 {candidate.ai_potential_position ? (
                                     <HoverRevealText
                                         text={`${isZh ? "转岗潜力" : "Potential Transition"}: ${candidate.ai_potential_position}${candidate.ai_potential_reason ? ` · ${candidate.ai_potential_reason}` : ""}`}
-                                        className="mt-1 text-sm text-sky-600 dark:text-sky-300"
+                                        className="mt-1 text-xs text-sky-600 dark:text-sky-300"
                                         tooltipClassName="max-w-md"
                                     />
                                 ) : null}
                                 {resumeMailSummary ? (
                                     <HoverRevealText
                                         text={resumeMailSummary}
-                                        className="mt-1 text-sm text-sky-600 dark:text-slate-300"
+                                        className="mt-1 text-xs text-sky-600 dark:text-slate-300"
                                         tooltipClassName="max-w-sm"
                                     />
                                 ) : null}
@@ -249,7 +528,7 @@ const CandidateRow = React.memo(function CandidateRow({
                         >
                             <HoverRevealText
                                 text={getOrganizationLabel(candidate.org_code)}
-                                className="text-sm text-slate-600 dark:text-slate-300"
+                                className="text-xs text-slate-600 dark:text-slate-300"
                             />
                         </div>
                     );
@@ -266,7 +545,16 @@ const CandidateRow = React.memo(function CandidateRow({
                             }}
                             className="flex min-w-0 items-center p-2"
                         >
-                            <HoverRevealText text={candidate.position_title || tr.unassignedPosition}/>
+                            <div className="min-w-0">
+                                <HoverRevealText text={positionLabel}/>
+                                {aiPositionLabel ? (
+                                    <HoverRevealText
+                                        text={`${isZh ? "AI 建议" : "AI Suggestion"}: ${aiPositionLabel}`}
+                                        className="mt-1 text-xs text-sky-600 dark:text-sky-300"
+                                        tooltipClassName="max-w-sm"
+                                    />
+                                ) : null}
+                            </div>
                         </div>
                     );
                 }
@@ -294,7 +582,7 @@ const CandidateRow = React.memo(function CandidateRow({
                                         ),
                                         language,
                                     })}
-                                    className="mt-1 text-[15px] leading-4 text-slate-500 dark:text-slate-400"
+                                    className="mt-1 text-[11px] leading-4 text-slate-500 dark:text-slate-400"
                                     tooltipClassName="max-w-sm"
                                 />
                             ) : null}
@@ -329,7 +617,7 @@ const CandidateRow = React.memo(function CandidateRow({
                             }}
                             className="flex min-w-0 items-center p-2"
                         >
-                            <HoverRevealText text={candidate.city || "-"} className="text-sm text-slate-600 dark:text-slate-300"/>
+                            <HoverRevealText text={candidate.city || "-"} className="text-xs text-slate-600 dark:text-slate-300"/>
                         </div>
                     );
                 }
@@ -345,7 +633,7 @@ const CandidateRow = React.memo(function CandidateRow({
                             }}
                             className="flex min-w-0 items-center p-2"
                         >
-                            <HoverRevealText text={candidate.expected_city || "-"} className="text-sm text-slate-600 dark:text-slate-300"/>
+                            <HoverRevealText text={candidate.expected_city || "-"} className="text-xs text-slate-600 dark:text-slate-300"/>
                         </div>
                     );
                 }
@@ -361,7 +649,7 @@ const CandidateRow = React.memo(function CandidateRow({
                             }}
                             className="flex min-w-0 items-center p-2"
                         >
-                            <HoverRevealText text={candidate.source || "-"} className="text-sm text-slate-600 dark:text-slate-300"/>
+                            <HoverRevealText text={candidate.source || "-"} className="text-xs text-slate-600 dark:text-slate-300"/>
                         </div>
                     );
                 }
@@ -403,13 +691,267 @@ const CandidateRow = React.memo(function CandidateRow({
         && prev.candidate.email === next.candidate.email
         && prev.candidate.org_code === next.candidate.org_code
         && prev.candidate.position_title === next.candidate.position_title
+        && prev.candidate.screened_position_title === next.candidate.screened_position_title
+        && prev.candidate.ai_match_position_title === next.candidate.ai_match_position_title
+        && prev.candidate.ai_potential_position === next.candidate.ai_potential_position
+        && prev.candidate.ai_potential_reason === next.candidate.ai_potential_reason
         && prev.candidate.source === next.candidate.source
         && prev.candidate.age === next.candidate.age
+        && prev.candidate.current_company === next.candidate.current_company
+        && prev.candidate.years_of_experience === next.candidate.years_of_experience
+        && prev.candidate.education === next.candidate.education
         && prev.candidate.city === next.candidate.city
         && prev.candidate.expected_city === next.candidate.expected_city
         && prev.language === next.language
         && prev.getResumeMailSummary(prev.candidate.id) === next.getResumeMailSummary(next.candidate.id);
 });
+
+type CandidateApplicantCardProps = {
+    candidate: CandidateSummary;
+    isSelected: boolean;
+    isChecked: boolean;
+    rowStart: number;
+    rowHeight: number;
+    setSelectedCandidateId: React.Dispatch<React.SetStateAction<number | null>>;
+    toggleCandidateSelection: (candidateId: number, nextChecked?: boolean) => void;
+    getResumeMailSummary: (candidateId: number) => string | null;
+    onDisposition: (candidateId: number, action: CandidateQuickDispositionAction) => void;
+    tr: ReturnType<typeof getCandidatesLocale>;
+    language: string;
+};
+
+const CandidateApplicantCard = React.memo(function CandidateApplicantCard({
+    candidate,
+    isSelected,
+    isChecked,
+    rowStart,
+    rowHeight,
+    setSelectedCandidateId,
+    toggleCandidateSelection,
+    getResumeMailSummary,
+    onDisposition,
+    tr,
+    language,
+}: CandidateApplicantCardProps) {
+    const isZh = language !== "en-US";
+    const displayStatus = resolveCandidateDisplayStatus(candidate);
+    const matchPercent = resolveCandidateSummaryMatchPercent(candidate);
+    const resumeMailSummary = getResumeMailSummary(candidate.id);
+    const contactText = candidate.phone || candidate.email || tr.noContact;
+    const profileText = [
+        candidate.age ? `${candidate.age}${tr.ageSuffix}` : "",
+        candidate.education,
+        candidate.city,
+        candidate.expected_city ? `${isZh ? "期望" : "Expect"} ${candidate.expected_city}` : "",
+    ].filter(Boolean).join(" · ");
+    const experienceLines = [
+        candidate.education ? `${isZh ? "学历" : "Education"}：${candidate.education}` : "",
+        candidate.current_company ? `${isZh ? "最近公司" : "Recent Company"}：${candidate.current_company}${candidate.years_of_experience ? ` · ${candidate.years_of_experience}` : ""}` : "",
+    ].filter(Boolean);
+    const positionLabel = candidate.position_title || candidate.screened_position_title || tr.unassignedPosition;
+    const aiPositionLabel = candidate.ai_match_position_title || candidate.ai_potential_position || "";
+    const fitLabel = (() => {
+        if (displayStatus === "screening_running") {
+            return isZh ? "初筛中" : "Screening";
+        }
+        if (displayStatus === "pending_screening") {
+            return isZh ? "待初筛" : "To Screen";
+        }
+        if (displayStatus === "screening_rejected" || displayStatus === "interview_rejected") {
+            return isZh ? "不符合" : "Rejected";
+        }
+        if (matchPercent != null && matchPercent >= 80) {
+            return isZh ? "非常符合" : "Strong Fit";
+        }
+        if (matchPercent != null && matchPercent >= 60) {
+            return isZh ? "较符合" : "Good Fit";
+        }
+        if (matchPercent != null && matchPercent > 0) {
+            return isZh ? "待确认" : "Review";
+        }
+        return isZh ? "未评估" : "Not Scored";
+    })();
+    const fitClassName = cn(
+        "rounded px-2 py-0.5 text-xs font-medium",
+        displayStatus === "screening_running"
+            ? "bg-blue-50 text-blue-700 dark:bg-blue-950/30 dark:text-blue-200"
+            : displayStatus === "pending_screening"
+                ? "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                : displayStatus === "screening_rejected" || displayStatus === "interview_rejected"
+                    ? "bg-rose-50 text-rose-700 dark:bg-rose-950/30 dark:text-rose-200"
+                    : matchPercent != null && matchPercent >= 60
+                        ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-200"
+                        : "bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-200",
+    );
+    const topTags = (candidate.tags || []).slice(0, 5);
+
+    const openDetail = React.useCallback(() => {
+        setSelectedCandidateId(candidate.id);
+    }, [candidate.id, setSelectedCandidateId]);
+    const onToggleCheck = React.useCallback((checked: boolean) => {
+        toggleCandidateSelection(candidate.id, checked);
+    }, [candidate.id, toggleCandidateSelection]);
+
+    return (
+        <div
+            role="listitem"
+            data-candidate-id={candidate.id}
+            style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                width: "100%",
+                height: rowHeight,
+                transform: `translateY(${rowStart}px)`,
+            }}
+            className="px-0 pb-3"
+        >
+            <div
+                role="button"
+                tabIndex={0}
+                onClick={openDetail}
+                onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        openDetail();
+                    }
+                }}
+                className={cn(
+                    "flex h-full w-full min-w-0 flex-col rounded-md border bg-white px-3.5 pb-3.5 pt-2.5 text-left shadow-none transition dark:bg-slate-950",
+                    "border-[#dfe6f2] hover:border-[#b8c7ff] hover:bg-[#f7f9ff] dark:border-slate-800 dark:hover:border-slate-600 dark:hover:bg-slate-900/70",
+                    isSelected && "border-[#8ea7ff] bg-[#f0f4ff] dark:border-slate-500 dark:bg-slate-900",
+                )}
+            >
+                <div className="flex min-w-0 items-start gap-3">
+                    <div className="pt-1" onClick={(event) => event.stopPropagation()}>
+                        <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={(event) => onToggleCheck(event.target.checked)}
+                            aria-label={tr.selectCandidate(candidate.name)}
+                        />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                            <span className="h-1.5 w-1.5 rounded-full bg-lime-500"/>
+                            <span className="truncate text-base font-semibold text-slate-950 dark:text-slate-50">{candidate.name}</span>
+                            {profileText ? <span className="truncate text-sm text-slate-500 dark:text-slate-400">{profileText}</span> : null}
+                            {resumeMailSummary ? (
+                                <Badge className="rounded border border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
+                                    {tr.resumeSent}
+                                </Badge>
+                            ) : null}
+                        </div>
+                        <div className="mt-1.5 space-y-1 text-xs leading-5 text-slate-600 dark:text-slate-300">
+                            {experienceLines.length ? experienceLines.map((line) => (
+                                <p key={line} className="line-clamp-1">
+                                    <span className="mr-1 text-slate-400">◆</span>{line}
+                                </p>
+                            )) : (
+                                <p className="text-slate-400 dark:text-slate-500">{contactText}</p>
+                            )}
+                        </div>
+                        <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-1.5">
+                            {topTags.map((tag) => (
+                                <span key={tag} className="rounded border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200">
+                                    {tag}
+                                </span>
+                            ))}
+                            {aiPositionLabel ? (
+                                <span className="max-w-[280px] truncate rounded border border-sky-200 bg-sky-50 px-2 py-0.5 text-xs text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
+                                    AI：{aiPositionLabel}
+                                </span>
+                            ) : null}
+                            {candidate.ai_potential_position ? (
+                                <span className="rounded border border-sky-200 bg-sky-50 px-2 py-0.5 text-xs text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
+                                    {isZh ? "转岗" : "Potential"}：{candidate.ai_potential_position}
+                                </span>
+                            ) : null}
+                        </div>
+                        <div className="mt-1.5 flex min-w-0 items-center gap-2">
+                            <span className={fitClassName}>{fitLabel}</span>
+                            <p className="line-clamp-1 text-sm text-slate-600 dark:text-slate-300">
+                                {candidate.display_status_reason
+                                    ? sanitizeCandidateFacingErrorText(candidate.display_status_reason, {
+                                        context: resolveCandidateFacingErrorContext(candidate.active_screening_task_type, {
+                                            autoRetry: candidate.active_screening_auto_retry_scheduled,
+                                        }),
+                                        language,
+                                    })
+                                    : (isZh ? "该应聘者信息已进入当前筛选流程，可继续处理。" : "Candidate is ready for the current hiring flow.")}
+                            </p>
+                        </div>
+                    </div>
+                    <div className="hidden w-[250px] shrink-0 flex-col items-end gap-1 text-right md:flex">
+                        <div className="min-w-0 space-y-0.5 text-xs text-slate-600 dark:text-slate-300">
+                            <p className="truncate font-medium text-blue-700 dark:text-blue-300">{positionLabel}</p>
+                            <p className="truncate">{candidate.source || "-"} · {formatDateTime(candidate.updated_at)}</p>
+                            <p className="truncate">{isZh ? "业务筛选" : "Business Screening"}：{labelForCandidateStatus(displayStatus)}</p>
+                        </div>
+                    </div>
+                </div>
+                <div className="mt-auto flex min-w-0 flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-2.5 dark:border-slate-800">
+                    <div className="flex min-w-0 flex-wrap items-center gap-1.5 text-xs text-slate-500">
+                        <Badge variant="outline" className="h-6 rounded px-2">
+                            {tr.matchBadge} {formatPercent(matchPercent)}
+                        </Badge>
+                        <Badge className={cn("h-6 rounded border px-2", statusBadgeClass("candidate", displayStatus))}>
+                            {labelForCandidateStatus(displayStatus)}
+                        </Badge>
+                        <span className="hidden max-w-[320px] truncate md:inline">
+                            {positionLabel} · {candidate.source || "-"} · {formatDateTime(candidate.updated_at)}
+                        </span>
+                    </div>
+                    <div className="flex shrink-0 flex-wrap justify-end gap-1.5" onClick={(event) => event.stopPropagation()}>
+                        <Button size="sm" variant="outline" className="h-7 rounded px-2 text-xs" onClick={openDetail}>
+                            <Eye className="h-3.5 w-3.5"/>
+                            {isZh ? "详情" : "Details"}
+                        </Button>
+                        <Button size="sm" variant="outline" className="h-7 rounded px-2 text-xs text-emerald-700 hover:bg-emerald-50 dark:text-emerald-300" onClick={() => onDisposition(candidate.id, "pass")}>
+                            <Check className="h-3.5 w-3.5"/>
+                            {tr.quickDispositionPass}
+                        </Button>
+                        <Button size="sm" variant="outline" className="h-7 rounded px-2 text-xs" onClick={() => onDisposition(candidate.id, "talent_pool")}>
+                            <Users className="h-3.5 w-3.5"/>
+                            {tr.quickDispositionTalentPool}
+                        </Button>
+                        <Button size="sm" variant="outline" className="h-7 rounded px-2 text-xs text-rose-600 hover:bg-rose-50 dark:text-rose-300" onClick={() => onDisposition(candidate.id, "reject")}>
+                            <Trash2 className="h-3.5 w-3.5"/>
+                            {tr.quickDispositionReject}
+                        </Button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}, (prev, next) => (
+    prev.isSelected === next.isSelected
+    && prev.isChecked === next.isChecked
+    && prev.rowStart === next.rowStart
+    && prev.rowHeight === next.rowHeight
+    && prev.candidate.status === next.candidate.status
+    && prev.candidate.display_status === next.candidate.display_status
+    && prev.candidate.display_status_reason === next.candidate.display_status_reason
+    && prev.candidate.match_percent === next.candidate.match_percent
+    && prev.candidate.updated_at === next.candidate.updated_at
+    && prev.candidate.name === next.candidate.name
+    && prev.candidate.phone === next.candidate.phone
+    && prev.candidate.email === next.candidate.email
+    && prev.candidate.position_title === next.candidate.position_title
+    && prev.candidate.screened_position_title === next.candidate.screened_position_title
+    && prev.candidate.ai_match_position_title === next.candidate.ai_match_position_title
+    && prev.candidate.ai_potential_position === next.candidate.ai_potential_position
+    && prev.candidate.source === next.candidate.source
+    && prev.candidate.age === next.candidate.age
+    && prev.candidate.education === next.candidate.education
+    && prev.candidate.current_company === next.candidate.current_company
+    && prev.candidate.years_of_experience === next.candidate.years_of_experience
+    && prev.candidate.city === next.candidate.city
+    && prev.candidate.expected_city === next.candidate.expected_city
+    && prev.candidate.tags === next.candidate.tags
+    && prev.language === next.language
+    && prev.getResumeMailSummary(prev.candidate.id) === next.getResumeMailSummary(next.candidate.id)
+));
 
 type CandidateBoardColumnProps = {
     group: CandidateBoardGroup;
@@ -442,7 +984,7 @@ const CandidateBoardColumn = React.memo(function CandidateBoardColumn({
     return (
         <div className="rounded-2xl border border-slate-200/80 bg-slate-50/60 p-4 dark:border-slate-800 dark:bg-slate-900/60">
             <div className="mb-4 flex items-center justify-between gap-2">
-                <p className="text-base font-semibold text-slate-900 dark:text-slate-100">{group.label}</p>
+                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{group.label}</p>
                 <Badge variant="outline" className="rounded-full">{group.items.length}</Badge>
             </div>
             {group.items.length ? (
@@ -473,7 +1015,7 @@ const CandidateBoardColumn = React.memo(function CandidateBoardColumn({
                                             className="min-w-0 flex-1 text-left"
                                         >
                                             <div className="flex flex-wrap items-center gap-2">
-                                                <p className="line-clamp-2 break-words text-base font-medium leading-6">
+                                                <p className="line-clamp-2 break-words text-sm font-medium leading-6">
                                                     {candidate.name}
                                                 </p>
                                                 {mailSummary ? (
@@ -482,13 +1024,13 @@ const CandidateBoardColumn = React.memo(function CandidateBoardColumn({
                                                     </Badge>
                                                 ) : null}
                                             </div>
-                                            <p className="mt-1 line-clamp-2 break-words text-sm leading-5 opacity-80">
+                                            <p className="mt-1 line-clamp-2 break-words text-xs leading-5 opacity-80">
                                                 {candidate.position_title || tr.unassignedPosition}
                                             </p>
                                             {mailSummary ? (
-                                                <p className="mt-2 text-[15px] opacity-80">{mailSummary}</p>
+                                                <p className="mt-2 text-[11px] opacity-80">{mailSummary}</p>
                                             ) : null}
-                                            <div className="mt-3 flex items-center justify-between text-sm opacity-80">
+                                            <div className="mt-3 flex items-center justify-between text-xs opacity-80">
                                                 <span>{tr.matchBadge} {formatPercent(resolveCandidateSummaryMatchPercent(candidate))}</span>
                                                 <span>{formatDateTime(candidate.updated_at)}</span>
                                             </div>
@@ -506,13 +1048,164 @@ const CandidateBoardColumn = React.memo(function CandidateBoardColumn({
                     })}
                 </div>
             ) : (
-                <p className="rounded-2xl border border-dashed border-slate-200 px-4 py-6 text-center text-base text-slate-500 dark:border-slate-800 dark:text-slate-400">
+                <p className="rounded-2xl border border-dashed border-slate-200 px-4 py-6 text-center text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
                     {tr.noCandidatesInStatus}
                 </p>
             )}
         </div>
     );
 });
+
+type CandidatePipelineStageSummary = CandidatePipelineStageConfig & {
+    label: string;
+    hint: string;
+    count: number;
+    active: boolean;
+};
+
+function CandidatePipelineBar({
+    stages,
+    onSelect,
+}: {
+    stages: CandidatePipelineStageSummary[];
+    onSelect: (stage: CandidatePipelineStageSummary) => void;
+}) {
+    return (
+        <div className="mt-3 grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(118px,1fr))]">
+            {stages.map((stage) => (
+                <button
+                    key={stage.key}
+                    type="button"
+                    aria-pressed={stage.active}
+                    onClick={() => onSelect(stage)}
+                    className={cn(
+                        "min-w-0 rounded-lg border px-3 py-2 text-left transition",
+                        stage.active
+                            ? "border-slate-900 bg-slate-900 text-white shadow-sm dark:border-slate-100 dark:bg-slate-100 dark:text-slate-950"
+                            : "border-slate-200 bg-slate-50/70 text-slate-700 hover:border-slate-400 hover:bg-white dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-200 dark:hover:border-slate-600",
+                    )}
+                >
+                    <div className="flex items-center justify-between gap-2">
+                        <span className="truncate text-sm font-medium">{stage.label}</span>
+                        <span className="shrink-0 text-base font-semibold tabular-nums">{stage.count.toLocaleString()}</span>
+                    </div>
+                    <p
+                        className={cn(
+                            "mt-1 truncate text-xs",
+                            stage.active ? "text-white/70 dark:text-slate-700" : "text-slate-500 dark:text-slate-400",
+                        )}
+                    >
+                        {stage.hint}
+                    </p>
+                </button>
+            ))}
+        </div>
+    );
+}
+
+function CandidatePositionScopeSidebar({
+    positions,
+    activePositionId,
+    allPositionCandidateCount,
+    onSelectPosition,
+    tr,
+    isZh,
+}: {
+    positions: PositionSummary[];
+    activePositionId: string;
+    allPositionCandidateCount: number;
+    onSelectPosition: (positionId: string) => void;
+    tr: ReturnType<typeof getCandidatesLocale>;
+    isZh: boolean;
+}) {
+    const [query, setQuery] = React.useState("");
+    const normalizedQuery = query.trim().toLowerCase();
+    const filteredPositions = React.useMemo(() => (
+        positions.filter((position) => {
+            if (!normalizedQuery) {
+                return true;
+            }
+            return [
+                position.title,
+                position.department,
+                position.location,
+                position.position_code,
+            ].some((value) => String(value || "").toLowerCase().includes(normalizedQuery));
+        }).slice(0, 80)
+    ), [normalizedQuery, positions]);
+    const recruitingCount = React.useMemo(() => (
+        positions.filter((position) => position.status === "recruiting").length
+    ), [positions]);
+
+    return (
+        <aside className="hidden min-h-0 xl:block">
+            <div className="flex h-full min-h-0 flex-col rounded-md border border-[#e5eaf3] bg-white shadow-none dark:border-slate-800 dark:bg-slate-950">
+                <div className="border-b border-[#e5eaf3] px-4 py-3 dark:border-slate-800">
+                    <p className="text-sm font-semibold text-slate-950 dark:text-slate-50">
+                        {isZh ? "招聘中职位" : "Open Positions"}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                        {isZh ? `共 ${recruitingCount || positions.length} 个职位` : `${recruitingCount || positions.length} positions`}
+                    </p>
+                    <SearchField
+                        value={query}
+                        onChange={setQuery}
+                        placeholder={isZh ? "搜索职位" : "Search positions"}
+                        inputClassName="mt-3 h-8 text-sm"
+                    />
+                </div>
+                <div className="border-b border-[#e5eaf3] p-2 dark:border-slate-800">
+                    <button
+                        type="button"
+                        onClick={() => onSelectPosition("")}
+                        className={cn(
+                            "flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-sm transition",
+                            !activePositionId
+                                ? "bg-[#2454ff] text-white"
+                                : "text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-900",
+                        )}
+                    >
+                        <span>{isZh ? "全部职位" : "All Positions"}</span>
+                        <span className={cn("text-xs", !activePositionId ? "text-white/80" : "text-slate-400")}>
+                            {allPositionCandidateCount}
+                        </span>
+                    </button>
+                </div>
+                <div className={cn("min-h-0 flex-1 overflow-y-auto p-2", SMOOTH_VERTICAL_SCROLLBAR_CLASS)}>
+                    {filteredPositions.length ? filteredPositions.map((position) => {
+                        const positionId = String(position.id);
+                        const active = activePositionId === positionId;
+                        return (
+                            <button
+                                key={position.id}
+                                type="button"
+                                onClick={() => onSelectPosition(positionId)}
+                                className={cn(
+                                    "mb-1 flex w-full min-w-0 items-start justify-between gap-3 rounded-md px-3 py-2 text-left text-sm transition",
+                                    active
+                                        ? "bg-[#eef3ff] text-[#1d4ed8] dark:bg-slate-900 dark:text-blue-300"
+                                        : "text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-900",
+                                )}
+                            >
+                                <span className="min-w-0">
+                                    <span className="block truncate font-medium">{position.title}</span>
+                                    <span className="mt-0.5 block truncate text-xs text-slate-400">
+                                        {[position.department, position.location].filter(Boolean).join(" · ") || tr.unassignedPosition}
+                                    </span>
+                                </span>
+                                <span className="shrink-0 text-xs text-slate-400">{position.candidate_count || 0}</span>
+                            </button>
+                        );
+                    }) : (
+                        <div className="px-3 py-8 text-center text-sm text-slate-400">
+                            {isZh ? "没有匹配的职位" : "No matching positions"}
+                        </div>
+                    )}
+                </div>
+            </div>
+        </aside>
+    );
+}
 
 function getCandidatesLocale(language = getCurrentLanguage()) {
     const isZh = language !== "en-US";
@@ -588,6 +1281,12 @@ function getCandidatesLocale(language = getCurrentLanguage()) {
         sentCountLabel: (count: string) => (isZh ? `${count} 次` : `${count} sent`),
         sentLabel: isZh ? "已发送" : "Sent",
         candidateList: isZh ? "候选人列表" : "Candidate List",
+        candidatePageRange: (start: number, end: number, total: number) => (
+            isZh ? `${start}-${end} / 共 ${total} 条` : `${start}-${end} of ${total}`
+        ),
+        rowsPerPage: isZh ? "条/页" : "Rows/Page",
+        previousPage: isZh ? "上一页" : "Previous",
+        nextPage: isZh ? "下一页" : "Next",
         loadingCandidateList: isZh ? "正在加载候选人列表" : "Loading candidate list",
         loadingCandidateDetail: isZh ? "正在加载候选人详情" : "Loading candidate details",
         splitResizeHint: isZh ? "✨ 列表宽度可自由拖拽调整，找到你最舒适的视图。" : "✨ Drag to resize the list width and find your perfect view.",
@@ -598,6 +1297,12 @@ function getCandidatesLocale(language = getCurrentLanguage()) {
         requeueFreshScreening: isZh ? "批量重新初筛" : "Fresh Screen Batch",
         advancedActions: isZh ? "高级操作" : "Advanced Actions",
         advancedActionsHint: isZh ? "归入人才库、导出、发送简历、设置岗位、变更状态和删除已收起，展开后使用。" : "Move to talent pool, export, send resumes, set position, change status, and delete are collapsed here.",
+        quickDispositionPass: isZh ? "通过" : "Pass",
+        quickDispositionTalentPool: isZh ? "入人才库" : "Talent Pool",
+        quickDispositionReject: isZh ? "淘汰" : "Reject",
+        quickDispositionReasonPass: isZh ? "批量操作：初筛通过" : "Batch action: screening passed",
+        quickDispositionReasonTalentPool: isZh ? "批量操作：归入人才库" : "Batch action: moved to talent pool",
+        quickDispositionReasonReject: isZh ? "批量操作：初筛淘汰" : "Batch action: screening rejected",
         sendResumesBatch: isZh ? "发送简历" : "Send Resumes",
         exportCandidates: isZh ? "导出" : "Export",
         exporting: isZh ? "导出中..." : "Exporting...",
@@ -810,13 +1515,13 @@ function OutputSnippet({content}: { content: string }) {
 
     return (
         <div className="mt-3 min-w-0 overflow-hidden rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/60">
-            <pre className="min-w-0 whitespace-pre-wrap break-all text-sm leading-6 text-slate-600 dark:text-slate-300">
+            <pre className="min-w-0 whitespace-pre-wrap break-all text-xs leading-6 text-slate-600 dark:text-slate-300">
                 {expanded ? content : preview}
             </pre>
             {hasMore ? (
                 <button
                     type="button"
-                    className="mt-2 text-sm text-slate-400 transition hover:text-slate-600 dark:hover:text-slate-300"
+                    className="mt-2 text-xs text-slate-400 transition hover:text-slate-600 dark:hover:text-slate-300"
                     onClick={() => setExpanded((current) => !current)}
                 >
                     {expanded ? tr.collapse : tr.expandAll(lines.length)}
@@ -873,7 +1578,7 @@ function InterviewQuestionCard({
                 <div className="min-w-0">
                     <p className="font-medium text-slate-900 dark:text-slate-100">{question.round_name}</p>
                     {question.created_at ? (
-                        <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
+                        <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
                             {tr.generatedAt(question.created_at)}
                         </p>
                     ) : null}
@@ -885,14 +1590,14 @@ function InterviewQuestionCard({
 
             <div className="grid grid-cols-2 gap-px border-b border-slate-200/80 bg-slate-200/80 dark:border-slate-800 dark:bg-slate-800">
                 <div className="bg-white px-4 py-2.5 dark:bg-slate-950">
-                    <p className="text-sm text-slate-500 dark:text-slate-400">{tr.moduleCount}</p>
-                    <p className="mt-0.5 text-base font-medium text-slate-900 dark:text-slate-100">
+                    <p className="text-xs text-slate-500 dark:text-slate-400">{tr.moduleCount}</p>
+                    <p className="mt-0.5 text-sm font-medium text-slate-900 dark:text-slate-100">
                         {modules.length > 0 ? `${modules.length}${tr.modulesSuffix}` : tr.parsing}
                     </p>
                 </div>
                 <div className="bg-white px-4 py-2.5 dark:bg-slate-950">
-                    <p className="text-sm text-slate-500 dark:text-slate-400">{tr.estimatedQuestions}</p>
-                    <p className="mt-0.5 text-base font-medium text-slate-900 dark:text-slate-100">
+                    <p className="text-xs text-slate-500 dark:text-slate-400">{tr.estimatedQuestions}</p>
+                    <p className="mt-0.5 text-sm font-medium text-slate-900 dark:text-slate-100">
                         {questionCount != null ? `${questionCount}${tr.questionSuffix}` : "-"}
                     </p>
                 </div>
@@ -900,17 +1605,17 @@ function InterviewQuestionCard({
 
             {modules.length > 0 ? (
                 <div className="space-y-1.5 border-b border-slate-200/80 px-4 py-3 dark:border-slate-800">
-                    <p className="text-sm font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">{tr.moduleOutline}</p>
+                    <p className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">{tr.moduleOutline}</p>
                     {modules.slice(0, 5).map((moduleName, index) => (
-                        <div key={`${moduleName}-${index}`} className="flex items-center gap-2 text-base text-slate-700 dark:text-slate-300">
-                            <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[14px] text-slate-500 dark:bg-slate-800">
+                        <div key={`${moduleName}-${index}`} className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+                            <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[10px] text-slate-500 dark:bg-slate-800">
                                 {index + 1}
                             </span>
                             <span className="truncate">{moduleName}</span>
                         </div>
                     ))}
                     {modules.length > 5 ? (
-                        <p className="text-sm text-slate-400 dark:text-slate-500">{tr.extraModules(modules.length - 5)}</p>
+                        <p className="text-xs text-slate-400 dark:text-slate-500">{tr.extraModules(modules.length - 5)}</p>
                     ) : null}
                 </div>
             ) : null}
@@ -1255,7 +1960,7 @@ function CandidateAiOutputDialog({
                     <div className="flex flex-wrap items-start justify-between gap-3">
                         <div className="min-w-0">
                             <DialogTitle>{tr.fullAiOutput}</DialogTitle>
-                            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-slate-500 dark:text-slate-400">
+                            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
                                 {modelLabel ? <span>{tr.modelLabel}: {modelLabel}</span> : null}
                                 {generatedAt ? <span>{tr.timeLabel}: {formatLongDateTime(generatedAt)}</span> : null}
                             </div>
@@ -1269,16 +1974,16 @@ function CandidateAiOutputDialog({
                 <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
                     <div className="space-y-4 px-1 pb-2">
                         <div className="rounded-[22px] border border-slate-200/80 bg-white/90 px-5 py-5 dark:border-slate-800 dark:bg-slate-950/70">
-                            <div className="prose prose-slate max-w-none text-base leading-7 dark:prose-invert prose-headings:mb-3 prose-headings:mt-5 prose-headings:font-semibold prose-p:my-3 prose-ul:my-3 prose-ol:my-3 prose-li:my-1 prose-pre:rounded-2xl prose-pre:border prose-pre:border-slate-200/80 prose-pre:bg-slate-950 prose-pre:p-4 dark:prose-pre:border-slate-800">
+                            <div className="prose prose-slate max-w-none text-sm leading-7 dark:prose-invert prose-headings:mb-3 prose-headings:mt-5 prose-headings:font-semibold prose-p:my-3 prose-ul:my-3 prose-ol:my-3 prose-li:my-1 prose-pre:rounded-2xl prose-pre:border prose-pre:border-slate-200/80 prose-pre:bg-slate-950 prose-pre:p-4 dark:prose-pre:border-slate-800">
                                 <ReactMarkdown>{markdown}</ReactMarkdown>
                             </div>
                         </div>
                         {raw && raw.trim() && raw.trim() !== markdown.trim() ? (
                             <details className="rounded-[22px] border border-slate-200/80 bg-slate-50/80 px-5 py-4 dark:border-slate-800 dark:bg-slate-900/60">
-                                <summary className="cursor-pointer text-base font-medium text-slate-900 dark:text-slate-100">
+                                <summary className="cursor-pointer text-sm font-medium text-slate-900 dark:text-slate-100">
                                     {tr.viewStructuredRaw}
                                 </summary>
-                                <pre className="mt-4 whitespace-pre-wrap break-all rounded-2xl border border-slate-200/80 bg-white/90 px-4 py-4 text-sm leading-6 text-slate-700 dark:border-slate-800 dark:bg-slate-950/70 dark:text-slate-300">
+                                <pre className="mt-4 whitespace-pre-wrap break-all rounded-2xl border border-slate-200/80 bg-white/90 px-4 py-4 text-xs leading-6 text-slate-700 dark:border-slate-800 dark:bg-slate-950/70 dark:text-slate-300">
                                     {raw}
                                 </pre>
                             </details>
@@ -1373,7 +2078,7 @@ function MultiSelect({ options, selected, onChange, placeholder, selectedLabel }
                             </svg>
                         )}
                     </div>
-                    <span className="truncate block min-w-0 flex-1 text-base text-slate-700 dark:text-slate-300" title={option.label}>
+                    <span className="truncate block min-w-0 flex-1 text-sm text-slate-700 dark:text-slate-300" title={option.label}>
                         {option.label}
                     </span>
                 </div>
@@ -1388,7 +2093,7 @@ function MultiSelect({ options, selected, onChange, placeholder, selectedLabel }
                 type="button"
                 onClick={handleOpen}
                 title={displayText}
-                className="flex h-9 w-full items-center justify-between rounded-md border border-slate-200 bg-white px-3 py-2 text-base dark:border-slate-800 dark:bg-slate-950"
+                className="flex h-9 w-full items-center justify-between rounded-md border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-950"
             >
                 <span className={cn(
                     "block w-full truncate",
@@ -1491,7 +2196,7 @@ function CandidateFilterBar({
         || (!chip.startsWith(tr.allPrefix) && chip !== tr.noKeyword)
     ), [tr]);
 
-    const fieldLabelClassName = "mb-1 block text-[14px] font-medium tracking-wide text-slate-500 dark:text-slate-400";
+    const fieldLabelClassName = "mb-1 block text-[10px] font-medium tracking-wide text-slate-500 dark:text-slate-400";
 
     return (
         <Card className={cn(defaultPanelClass, "gap-0 py-0")}>
@@ -1501,13 +2206,13 @@ function CandidateFilterBar({
                         <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-slate-200/80 bg-slate-50 text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
                             <SlidersHorizontal className="h-3.5 w-3.5"/>
                         </div>
-                        <span className="shrink-0 text-base font-medium text-slate-900 dark:text-slate-100">{tr.filters}</span>
+                        <span className="shrink-0 text-sm font-medium text-slate-900 dark:text-slate-100">{tr.filters}</span>
                         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
                             {summaryChips.map((chip) => (
                                 <span
                                     key={chip}
                                     className={cn(
-                                        "inline-flex max-w-full items-center rounded-full border px-2 py-0.5 text-[15px] transition",
+                                        "inline-flex max-w-full items-center rounded-full border px-2 py-0.5 text-[11px] transition",
                                         isChipActive(chip)
                                             ? "border-slate-400 bg-slate-100/95 text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
                                             : "border-slate-200/80 bg-white/80 text-slate-500 dark:border-slate-800 dark:bg-slate-950/80 dark:text-slate-400",
@@ -1525,7 +2230,7 @@ function CandidateFilterBar({
                             <Button
                                 size="sm"
                                 variant={candidateStatusFilter.includes("talent_pool") ? "default" : "outline"}
-                                className="rounded-full text-sm"
+                                className="rounded-full text-xs"
                                 onClick={() => {
                                     if (candidateStatusFilter.includes("talent_pool")) {
                                         setCandidateStatusFilter(candidateStatusFilter.filter(s => s !== "talent_pool"));
@@ -1563,10 +2268,30 @@ function CandidateFilterBar({
                 </div>
 
                 <div className="mt-2 border-t border-slate-200/80 pt-2 dark:border-slate-800">
-                    <div className="grid gap-2.5 xl:grid-cols-[minmax(0,1.45fr)_repeat(3,minmax(0,0.9fr))]">
+                    <div className="grid gap-2.5 md:grid-cols-2 xl:grid-cols-[minmax(0,1.35fr)_repeat(5,minmax(0,0.85fr))]">
                         <div className="space-y-1">
                             <label className={fieldLabelClassName}>{tr.search}</label>
                             <SearchField value={candidateQuery} onChange={setCandidateQuery} placeholder={tr.searchPlaceholder}/>
+                        </div>
+                        <div className="space-y-1">
+                            <label className={fieldLabelClassName}>{isZh ? "应聘职位" : "Applied Position"}</label>
+                            <MultiSelect
+                                options={positions.map((position) => ({value: String(position.id), label: position.title}))}
+                                selected={candidatePositionFilter}
+                                onChange={setCandidatePositionFilter}
+                                placeholder={tr.allPositions}
+                                selectedLabel={tr.selectedLabel}
+                            />
+                        </div>
+                        <div className="space-y-1">
+                            <label className={fieldLabelClassName}>{isZh ? "流程状态" : "Pipeline Status"}</label>
+                            <MultiSelect
+                                options={Object.entries(candidateStatusLabels).map(([value, label]) => ({value, label}))}
+                                selected={candidateStatusFilter}
+                                onChange={setCandidateStatusFilter}
+                                placeholder={isZh ? "全部状态" : "All Statuses"}
+                                selectedLabel={tr.selectedLabel}
+                            />
                         </div>
                         <div className="space-y-1">
                             <label className={fieldLabelClassName}>{tr.matchPercent}</label>
@@ -1599,13 +2324,13 @@ function CandidateFilterBar({
                     </div>
 
                     <div className="mt-2 flex flex-wrap items-center justify-between gap-3 border-t border-slate-200/80 pt-2 dark:border-slate-800">
-                        <div className="flex items-center gap-2.5 text-sm text-slate-500 dark:text-slate-400">
+                        <div className="flex items-center gap-2.5 text-xs text-slate-500 dark:text-slate-400">
                             <span>{tr.matchedCandidates(visibleCandidateCount)}</span>
                             <Button
                                 type="button"
                                 variant="ghost"
                                 size="sm"
-                                className="h-auto px-0 py-0 text-sm text-slate-500 hover:bg-transparent hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+                                className="h-auto px-0 py-0 text-xs text-slate-500 hover:bg-transparent hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
                                 onClick={resetFilters}
                                 disabled={!hasActiveFilters}
                             >
@@ -1651,10 +2376,17 @@ type CandidatesPageProps = {
     candidatesLoading: boolean;
     candidatesInitialLoaded: boolean;
     candidateListTransitionLoading: boolean;
-    isLoadingMoreCandidates: boolean;
     candidateMatchSortLoading: boolean;
     allCandidatesCount: number;
+    allPositionCandidateCount: number;
     candidateTotal: number;
+    candidatePageIndex: number;
+    candidatePageSize: number;
+    candidatePageSizeOptions: number[];
+    candidatePipelineStatusCounts?: Record<string, number>;
+    candidatePipelineTotal?: number;
+    setCandidatePageIndex: (pageIndex: number) => void;
+    setCandidatePageSize: (pageSize: number) => void;
     candidateListScrollRef: (node: HTMLDivElement | null) => void;
     candidateListHorizontalRailRef: (node: HTMLDivElement | null) => void;
     renderCandidateListHeaderCell: (key: CandidateListColumnKey, label: string) => React.ReactNode;
@@ -1671,7 +2403,6 @@ type CandidatesPageProps = {
     isSelectedCandidateScreeningCancelling: boolean;
     selectedCandidateScreeningTaskId: number | null;
     openResumeFile: (file: ResumeFile, download?: boolean) => Promise<void>;
-    previewResumeFile: (file: { id: number; original_name?: string }, candidateName?: string) => void;
     requestDeleteResumeFile: (file: ResumeFile) => void;
     requestDeleteCandidate: (candidate: CandidateSummary) => void;
     generateInterviewQuestions: () => Promise<void>;
@@ -1714,6 +2445,7 @@ type CandidatesPageProps = {
     batchBindPosition: (candidateIds: number[], positionId: number | null) => Promise<void>;
     onMoveToTalentPool?: (candidateIds: number[]) => Promise<void>;
     onRefresh?: () => Promise<void>;
+    onRefreshCandidateDetail?: (candidateId: number) => Promise<void>;
     batchUpdateStatus: (candidateIds: number[], status: string, reason: string) => Promise<void>;
     duplicateCandidates: Array<{id: number; candidate_code: string; name: string; phone: string | null; email: string | null; status: string}>;
     interviewSchedules: Array<{id: number; candidate_id: number; round_name: string; interviewer_name?: string | null; scheduled_at?: string | null; duration_minutes?: number | null; location?: string | null; meeting_link?: string | null; notes?: string | null; status: string; created_at?: string | null}>;
@@ -1759,10 +2491,17 @@ export function CandidatesPage({
     candidatesLoading,
     candidatesInitialLoaded,
     candidateListTransitionLoading,
-    isLoadingMoreCandidates,
     candidateMatchSortLoading,
     allCandidatesCount,
+    allPositionCandidateCount,
     candidateTotal,
+    candidatePageIndex,
+    candidatePageSize,
+    candidatePageSizeOptions,
+    candidatePipelineStatusCounts,
+    candidatePipelineTotal,
+    setCandidatePageIndex,
+    setCandidatePageSize,
     candidateListScrollRef,
     candidateListHorizontalRailRef,
     renderCandidateListHeaderCell,
@@ -1779,7 +2518,6 @@ export function CandidatesPage({
     isSelectedCandidateScreeningCancelling,
     selectedCandidateScreeningTaskId,
     openResumeFile,
-    previewResumeFile,
     requestDeleteResumeFile,
     requestDeleteCandidate,
     generateInterviewQuestions,
@@ -1822,6 +2560,7 @@ export function CandidatesPage({
     batchBindPosition,
     onMoveToTalentPool,
     onRefresh,
+    onRefreshCandidateDetail,
     batchUpdateStatus,
     duplicateCandidates,
     interviewSchedules,
@@ -1897,6 +2636,39 @@ export function CandidatesPage({
     const [batchStatusValue, setBatchStatusValue] = React.useState<string>("");
     const [batchStatusReason, setBatchStatusReason] = React.useState<string>("");
     const [batchStatusSubmitting, setBatchStatusSubmitting] = React.useState(false);
+    const batchStatusSubmittingRef = React.useRef(false);
+    const updateBatchStatusSubmitting = React.useCallback((nextValue: boolean) => {
+        batchStatusSubmittingRef.current = nextValue;
+        setBatchStatusSubmitting(nextValue);
+    }, []);
+    const runCandidateDisposition = React.useCallback(async (candidateIds: number[], action: CandidateQuickDispositionAction) => {
+        if (!candidateIds.length || batchStatusSubmittingRef.current) {
+            return;
+        }
+        const nextConfig = {
+            pass: {
+                status: "screening_passed",
+                reason: tr.quickDispositionReasonPass,
+            },
+            talent_pool: {
+                status: "talent_pool",
+                reason: tr.quickDispositionReasonTalentPool,
+            },
+            reject: {
+                status: "screening_rejected",
+                reason: tr.quickDispositionReasonReject,
+            },
+        }[action];
+        updateBatchStatusSubmitting(true);
+        try {
+            await batchUpdateStatus(candidateIds, nextConfig.status, nextConfig.reason);
+        } finally {
+            updateBatchStatusSubmitting(false);
+        }
+    }, [batchUpdateStatus, tr, updateBatchStatusSubmitting]);
+    const runQuickDisposition = React.useCallback(async (action: CandidateQuickDispositionAction) => {
+        await runCandidateDisposition(selectedCandidateIds, action);
+    }, [runCandidateDisposition, selectedCandidateIds]);
     const [scheduleFormOpen, setScheduleFormOpen] = React.useState(false);
     const defaultRoundName = tr.roundNameDefault;
     const [scheduleForm, setScheduleForm] = React.useState({round_name: defaultRoundName, interviewer_name: "", scheduled_at: "", duration_minutes: "60", location: "", meeting_link: "", notes: ""});
@@ -2050,8 +2822,58 @@ export function CandidatesPage({
     const allVisibleCandidatesSelected = React.useMemo(() => (
         visibleCandidateIds.length > 0 && visibleCandidateIds.every((candidateId) => selectedCandidateIdSet.has(candidateId))
     ), [selectedCandidateIdSet, visibleCandidateIds]);
+    const visibleCandidateResumeMailSummaryMap = React.useMemo(() => {
+        const nextMap = new Map<number, string | null>();
+        visibleCandidates.forEach((candidate) => {
+            nextMap.set(candidate.id, getCandidateResumeMailSummary(candidate.id));
+        });
+        return nextMap;
+    }, [getCandidateResumeMailSummary, visibleCandidates]);
+    const getVisibleCandidateResumeMailSummary = React.useCallback(
+        (candidateId: number) => visibleCandidateResumeMailSummaryMap.get(candidateId) ?? null,
+        [visibleCandidateResumeMailSummaryMap],
+    );
+    const candidatePipelineStages = React.useMemo<CandidatePipelineStageSummary[]>(() => {
+        const statusCounts = new Map<string, number>();
+        visibleCandidates.forEach((candidate) => {
+            const status = resolveCandidateDisplayStatus(candidate);
+            statusCounts.set(status, (statusCounts.get(status) || 0) + 1);
+        });
+        const scopedStatusCounts = candidatePipelineStatusCounts || null;
+        const scopedTotal = typeof candidatePipelineTotal === "number" ? candidatePipelineTotal : null;
+        return CANDIDATE_PIPELINE_STAGES.map((stage) => ({
+            ...stage,
+            label: isZh ? stage.labelZh : stage.labelEn,
+            hint: isZh ? stage.hintZh : stage.hintEn,
+            count: stage.statusValue
+                ? (scopedStatusCounts ? Number(scopedStatusCounts[stage.statusValue] || 0) : (statusCounts.get(stage.statusValue) || 0))
+                : (scopedTotal ?? visibleCandidates.length),
+            active: stage.statusValue ? activeQuickStatus === stage.statusValue : !activeQuickStatus,
+        }));
+    }, [activeQuickStatus, candidatePipelineStatusCounts, candidatePipelineTotal, isZh, visibleCandidates]);
+    const selectCandidatePipelineStage = React.useCallback((stage: CandidatePipelineStageSummary) => {
+        setCandidateStatusFilter(stage.statusValue ? [stage.statusValue] : []);
+    }, [setCandidateStatusFilter]);
 
     const virtualItems = rowVirtualizer.getVirtualItems();
+    const candidateTotalPages = React.useMemo(() => (
+        Math.max(1, Math.ceil(Math.max(0, candidateTotal) / Math.max(1, candidatePageSize)))
+    ), [candidatePageSize, candidateTotal]);
+    const candidatePaginationPages = React.useMemo(() => {
+        const totalPages = candidateTotalPages;
+        const currentPage = Math.min(Math.max(0, candidatePageIndex), totalPages - 1);
+        const first = Math.max(0, Math.min(currentPage - 2, totalPages - 5));
+        const last = Math.min(totalPages - 1, first + 4);
+        return Array.from({ length: last - first + 1 }, (_, index) => first + index);
+    }, [candidatePageIndex, candidateTotalPages]);
+    const candidatePageStart = candidateTotal > 0 ? candidatePageIndex * candidatePageSize + 1 : 0;
+    const candidatePageEnd = candidateTotal > 0 ? Math.min(candidateTotal, candidatePageIndex * candidatePageSize + allCandidatesCount) : 0;
+
+    React.useEffect(() => {
+        if (candidateTotal > 0 && candidatePageIndex >= candidateTotalPages) {
+            setCandidatePageIndex(candidateTotalPages - 1);
+        }
+    }, [candidatePageIndex, candidateTotal, candidateTotalPages, setCandidatePageIndex]);
 
     const getColumnHeaderLabel = React.useCallback((columnKey: string) => {
         switch (columnKey) {
@@ -2067,31 +2889,45 @@ export function CandidatesPage({
         }
     }, [tr]);
 
-    const [candidateDetailPanel, setCandidateDetailPanel] = React.useState<"profile" | "ai" | "interview">("profile");
-    const [detailExpanded, setDetailExpanded] = React.useState(false);
+    const [candidateDetailPanel, setCandidateDetailPanel] = React.useState<CandidateDetailPanelKey>("resume");
+    const [candidateResumeView, setCandidateResumeView] = React.useState<CandidateResumeViewKey>("original");
+    const [selectedResumeFileId, setSelectedResumeFileId] = React.useState<number | null>(null);
+    const [candidateResumeMoreOpen, setCandidateResumeMoreOpen] = React.useState(false);
+    const [candidateDetailRefreshing, setCandidateDetailRefreshing] = React.useState(false);
+    const [candidateResumePreviewRefreshKey, setCandidateResumePreviewRefreshKey] = React.useState(0);
+    const [candidateDetailMainScrolled, setCandidateDetailMainScrolled] = React.useState(false);
     const [potentialReasonExpanded, setPotentialReasonExpanded] = React.useState(false);
-    const zoomHintRef = React.useRef<HTMLDivElement>(null);
+    const candidateDetailMainScrollRef = React.useRef<HTMLElement | null>(null);
 
-    // ---- 分栏拖拽调整 (Split Pane Resize) ----
-    // 默认保留详情区的最小可见宽度，让用户一进来就知道右侧是详情区。
-    const splitRatioRef = React.useRef<number>(60);
-    const splitContainerRef = React.useRef<HTMLDivElement>(null);
-    const leftPanelRef = React.useRef<HTMLDivElement>(null);
-    const rightPanelRef = React.useRef<HTMLDivElement>(null);
-    const resizeHandleRef = React.useRef<HTMLDivElement>(null);
-    const isResizingRef = React.useRef(false);
+    const switchCandidateResumeView = React.useCallback((view: CandidateResumeViewKey) => {
+        setCandidateDetailPanel("resume");
+        setCandidateResumeView(view);
+        setCandidateResumeMoreOpen(false);
+        window.requestAnimationFrame(() => {
+            candidateDetailMainScrollRef.current?.scrollTo({
+                top: 0,
+                behavior: "auto",
+            });
+        });
+    }, []);
 
-    // 首次使用提示
-    const [showWidthHint, setShowWidthHint] = React.useState(() =>
-        !localStorage.getItem('has-seen-width-hint')
-    );
-    const widthHintRef = React.useRef<HTMLDivElement>(null);
+    const handleCandidateDetailMainScroll = React.useCallback((event: React.UIEvent<HTMLElement>) => {
+        const nextScrolled = event.currentTarget.scrollTop > 132;
+        setCandidateDetailMainScrolled((current) => current === nextScrolled ? current : nextScrolled);
+    }, []);
 
     React.useEffect(() => {
-        setCandidateDetailPanel("profile");
+        setCandidateDetailPanel("resume");
+        setCandidateResumeView("original");
+        setSelectedResumeFileId(null);
+        setCandidateResumeMoreOpen(false);
         setCandidateAiOutputDialogOpen(false);
-        setDetailExpanded(false);
+        setCandidateDetailMainScrolled(false);
         setPotentialReasonExpanded(false);
+        const frameId = window.requestAnimationFrame(() => {
+            candidateDetailMainScrollRef.current?.scrollTo({top: 0, behavior: "auto"});
+        });
+        return () => window.cancelAnimationFrame(frameId);
     }, [selectedCandidateId]);
 
     React.useEffect(() => {
@@ -2121,85 +2957,16 @@ export function CandidatesPage({
         };
     }, [candidateDetail, candidateDetailPanel, updateCandidateDetailToolbarMetrics]);
 
-    // detailExpanded 恢复时，重新应用存储的分栏宽度
-    React.useEffect(() => {
-        if (!detailExpanded && leftPanelRef.current) {
-            leftPanelRef.current.style.width = `${splitRatioRef.current}%`;
-        }
-        if (!detailExpanded && rightPanelRef.current) {
-            rightPanelRef.current.style.width = `${100 - splitRatioRef.current}%`;
-        }
-    }, [detailExpanded]);
-
-    // 拖拽分割条：Ref-based，完全绕过 React 渲染
-    const handleResizeMouseDown = React.useCallback((e: React.MouseEvent) => {
-        e.preventDefault();
-        isResizingRef.current = true;
-        const container = splitContainerRef.current;
-        if (!container) return;
-
-        // 移除容器 transition，避免拖拽时动画延迟
-        container.style.transition = 'none';
-
-        // 全局遮罩：捕获鼠标事件，防止 iframe / pointer-events 干扰
-        const overlay = document.createElement('div');
-        overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;cursor:col-resize;';
-        document.body.appendChild(overlay);
-        document.body.style.cursor = 'col-resize';
-
-        // will-change 优化
-        if (leftPanelRef.current) leftPanelRef.current.style.willChange = 'width';
-        if (rightPanelRef.current) rightPanelRef.current.style.willChange = 'width';
-
-        // 关闭首次提示
-        if (showWidthHint) {
-            setShowWidthHint(false);
-            localStorage.setItem('has-seen-width-hint', '1');
-        }
-
-        const containerRect = container.getBoundingClientRect();
-        const MIN_RATIO = 20;
-        const MAX_RATIO = 60;
-
-        const onMove = (ev: MouseEvent) => {
-            const ratio = ((ev.clientX - containerRect.left) / containerRect.width) * 100;
-            const clamped = Math.min(MAX_RATIO, Math.max(MIN_RATIO, ratio));
-            splitRatioRef.current = clamped;
-            // 直接操作 DOM，跳过 React 渲染
-            if (leftPanelRef.current) leftPanelRef.current.style.width = `${clamped}%`;
-            if (rightPanelRef.current) rightPanelRef.current.style.width = `${100 - clamped}%`;
-        };
-
-        const onUp = () => {
-            isResizingRef.current = false;
-            // 恢复 transition
-            container.style.transition = '';
-            // 清除 will-change
-            if (leftPanelRef.current) leftPanelRef.current.style.willChange = '';
-            if (rightPanelRef.current) rightPanelRef.current.style.willChange = '';
-            // 移除遮罩
-            document.body.removeChild(overlay);
-            document.body.style.cursor = '';
-            // 持久化
-            localStorage.setItem('candidates-split-width', String(splitRatioRef.current));
-            window.removeEventListener('mousemove', onMove);
-            window.removeEventListener('mouseup', onUp);
-        };
-
-        window.addEventListener('mousemove', onMove);
-        window.addEventListener('mouseup', onUp);
-    }, [showWidthHint]);
-
     const candidateOverviewCounts = React.useMemo(() => {
         return visibleCandidates.reduce((acc, candidate) => {
             const status = resolveCandidateDisplayStatus(candidate);
             if (status === "pending_screening") acc.pendingScreening++;
             if (status === "pending_interview") acc.pendingInterview++;
             if (status === "talent_pool") acc.talentPool++;
-            if (getCandidateResumeMailSummary(candidate.id)) acc.sent++;
+            if (visibleCandidateResumeMailSummaryMap.get(candidate.id)) acc.sent++;
             return acc;
         }, {pendingScreening: 0, pendingInterview: 0, talentPool: 0, sent: 0});
-    }, [getCandidateResumeMailSummary, visibleCandidates]);
+    }, [visibleCandidateResumeMailSummaryMap, visibleCandidates]);
 
     const candidateOverviewStats = React.useMemo(() => {
         return [
@@ -2228,7 +2995,23 @@ export function CandidatesPage({
         return match ? tr.sentCountLabel(match[1]) : tr.sentLabel;
     }, [selectedCandidateResumeMailSummary, tr]);
     const candidateDetailIdentityMeta = candidateDetail?.candidate.current_company || "";
-    const primaryResumeFile = candidateDetail?.resume_files[0] ?? null;
+    const resumeFiles = candidateDetail?.resume_files ?? [];
+    const primaryResumeFile = React.useMemo(() => {
+        if (!resumeFiles.length) {
+            return null;
+        }
+        if (selectedResumeFileId == null) {
+            return resumeFiles[0];
+        }
+        return resumeFiles.find((file) => file.id === selectedResumeFileId) ?? resumeFiles[0];
+    }, [resumeFiles, selectedResumeFileId]);
+    const [inlineResumePreviewBlob, setInlineResumePreviewBlob] = React.useState<Blob | null>(null);
+    const [inlineResumePreviewUrl, setInlineResumePreviewUrl] = React.useState<string | null>(null);
+    const [inlineResumePreviewFallback, setInlineResumePreviewFallback] = React.useState(false);
+    const [inlineResumePreviewLoading, setInlineResumePreviewLoading] = React.useState(false);
+    const [inlineResumePreviewError, setInlineResumePreviewError] = React.useState<string | null>(null);
+    const [inlineResumeFrameReady, setInlineResumeFrameReady] = React.useState(false);
+    const inlineResumeFrameReadyTimerRef = React.useRef<number | null>(null);
     const latestInterviewQuestion = candidateDetail?.interview_questions[0] ?? null;
     const latestResumeScoreLog = React.useMemo(
         () => candidateProcessActivity.find((log) => log.task_type === "resume_score") || null,
@@ -2285,7 +3068,167 @@ export function CandidatesPage({
         && candidateDetailDisplayStatus
         && candidateDetailDisplayStatus !== candidateDetail.candidate.status,
     );
-    const sanitizeTaskMessage = React.useCallback((
+    const candidateDetailScreenedPositionTitle = String(candidateDetail?.candidate.screened_position_title || "").trim();
+    const candidateDetailAiMatchPositionTitle = String(candidateDetail?.candidate.ai_match_position_title || "").trim();
+    const candidateDetailAiMatchReason = String(candidateDetail?.candidate.ai_match_reason || "").trim();
+    const candidateDetailAiPotentialPosition = String(candidateDetail?.candidate.ai_potential_position || "").trim();
+    const candidateDetailAiPotentialReason = String(candidateDetail?.candidate.ai_potential_reason || "").trim();
+    const candidateDetailPositionInsightVisible = Boolean(
+        candidateDetailScreenedPositionTitle
+        || candidateDetailAiMatchPositionTitle
+        || candidateDetailAiMatchReason
+        || candidateDetailAiPotentialPosition
+        || candidateDetailAiPotentialReason,
+    );
+    const refreshCurrentCandidateDetail = React.useCallback(async () => {
+        const candidateId = candidateDetail?.candidate.id;
+        if (!candidateId || !onRefreshCandidateDetail || candidateDetailRefreshing) {
+            return;
+        }
+        setCandidateDetailRefreshing(true);
+        try {
+            await onRefreshCandidateDetail(candidateId);
+            setCandidateResumePreviewRefreshKey((current) => current + 1);
+        } finally {
+            setCandidateDetailRefreshing(false);
+        }
+    }, [candidateDetail?.candidate.id, candidateDetailRefreshing, onRefreshCandidateDetail]);
+    const openCandidatePositionDialog = React.useCallback(() => {
+        if (!candidateDetail) {
+            return;
+        }
+        setSelectedCandidateIds([candidateDetail.candidate.id]);
+        setBatchBindPositionId(candidateDetail.candidate.position_id ? String(candidateDetail.candidate.position_id) : "");
+        setBatchBindDialogOpen(true);
+    }, [candidateDetail, setSelectedCandidateIds]);
+
+    React.useEffect(() => {
+        if (!resumeFiles.length) {
+            setSelectedResumeFileId(null);
+            return;
+        }
+        setSelectedResumeFileId((current) => {
+            if (current != null && resumeFiles.some((file) => file.id === current)) {
+                return current;
+            }
+            return resumeFiles[0].id;
+        });
+    }, [candidateDetail?.candidate.id, resumeFiles]);
+
+    React.useEffect(() => {
+        if (candidateDetailPanel !== "resume" || candidateResumeView !== "original" || !primaryResumeFile) {
+            setInlineResumePreviewBlob(null);
+            setInlineResumePreviewUrl(null);
+            setInlineResumePreviewFallback(false);
+            setInlineResumePreviewLoading(false);
+            setInlineResumePreviewError(null);
+            setInlineResumeFrameReady(false);
+            return;
+        }
+
+        const abortController = new AbortController();
+        let objectUrl: string | null = null;
+        if (inlineResumeFrameReadyTimerRef.current !== null) {
+            window.clearTimeout(inlineResumeFrameReadyTimerRef.current);
+            inlineResumeFrameReadyTimerRef.current = null;
+        }
+        setInlineResumePreviewBlob(null);
+        setInlineResumePreviewUrl(null);
+        setInlineResumePreviewFallback(false);
+        setInlineResumeFrameReady(false);
+        setInlineResumePreviewLoading(true);
+        setInlineResumePreviewError(null);
+
+        authenticatedFetch(`/api/recruitment/resume-files/${primaryResumeFile.id}/download`, {
+            method: "GET",
+            cache: "no-store",
+            signal: abortController.signal,
+        })
+            .then(async (response) => {
+                if (!response.ok) {
+                    throw new Error(await response.text());
+                }
+                return response.blob();
+            })
+            .then((blob) => {
+                if (abortController.signal.aborted) {
+                    return;
+                }
+                objectUrl = URL.createObjectURL(blob);
+                setInlineResumePreviewBlob(blob);
+                setInlineResumePreviewUrl(objectUrl);
+                setInlineResumePreviewLoading(false);
+            })
+            .catch((error) => {
+                if (abortController.signal.aborted) {
+                    return;
+                }
+                setInlineResumePreviewBlob(null);
+                setInlineResumeFrameReady(false);
+                setInlineResumePreviewLoading(false);
+                setInlineResumePreviewError(
+                    error instanceof Error && error.message
+                        ? error.message
+                        : (isZh ? "原始简历加载失败" : "Failed to load original resume"),
+                );
+            });
+
+        return () => {
+            abortController.abort();
+            if (inlineResumeFrameReadyTimerRef.current !== null) {
+                window.clearTimeout(inlineResumeFrameReadyTimerRef.current);
+                inlineResumeFrameReadyTimerRef.current = null;
+            }
+            if (objectUrl) {
+                URL.revokeObjectURL(objectUrl);
+            }
+        };
+    }, [candidateDetailPanel, candidateResumePreviewRefreshKey, candidateResumeView, isZh, primaryResumeFile?.id]);
+    const handleInlineResumeFrameLoad = React.useCallback(() => {
+        if (inlineResumeFrameReadyTimerRef.current !== null) {
+            window.clearTimeout(inlineResumeFrameReadyTimerRef.current);
+        }
+        inlineResumeFrameReadyTimerRef.current = window.setTimeout(() => {
+            inlineResumeFrameReadyTimerRef.current = null;
+            setInlineResumeFrameReady(true);
+        }, 180);
+    }, []);
+    const handleInlineResumePreviewError = React.useCallback((message: string) => {
+        setInlineResumePreviewFallback(true);
+        setInlineResumeFrameReady(false);
+        setInlineResumePreviewLoading(false);
+        setInlineResumePreviewError(message);
+    }, []);
+    const candidateDetailTabs = React.useMemo<Array<{key: CandidateDetailPanelKey; label: string; count?: number | null; disabled?: boolean}>>(() => ([
+        {key: "resume", label: isZh ? "简历" : "Resume"},
+        {key: "assessment", label: isZh ? "测评" : "Assessment", count: candidateDetail?.score ? 1 : null},
+        {key: "screening", label: isZh ? "筛选" : "Screening", count: candidateProcessActivity.length || null},
+        {key: "exam", label: isZh ? "考试" : "Exam", disabled: true},
+        {key: "interview", label: isZh ? "面试" : "Interview", count: interviewSchedules.length || candidateDetail?.interview_questions.length || null},
+        {key: "offer", label: "Offer", count: offers.length || null},
+        {key: "background", label: isZh ? "背调" : "Background", count: followUps.length || null},
+    ]), [candidateDetail?.interview_questions.length, candidateDetail?.score, candidateProcessActivity.length, followUps.length, interviewSchedules.length, isZh, offers.length]);
+    const candidateDetailFlowSteps = React.useMemo(() => ([
+        {status: "pending_screening", label: isZh ? "简历初筛" : "Resume Screen"},
+        {status: "screening_passed", label: isZh ? "业务筛选" : "Business Review"},
+        {status: "pending_interview", label: isZh ? "面试" : "Interview"},
+        {status: "pending_offer", label: "Offer"},
+        {status: "hired", label: isZh ? "入职" : "Hired"},
+    ]), [isZh]);
+    const candidateDetailFlowIndex = Math.max(
+        0,
+        candidateDetailFlowSteps.findIndex((step) => step.status === candidateDetailDisplayStatus),
+    );
+    const parsedResumeBasicInfo = candidateDetail?.parse_result?.basic_info ?? null;
+    const parsedResumeEducation = firstStructuredRecord(candidateDetail?.parse_result?.education_experiences);
+    const parsedResumeWork = firstStructuredRecord(candidateDetail?.parse_result?.work_experiences);
+    const parsedResumeSkills = Array.isArray(candidateDetail?.parse_result?.skills)
+        ? candidateDetail.parse_result.skills
+            .map((item) => (typeof item === "string" || typeof item === "number" ? String(item).trim() : formatStructuredValue(item, "")))
+            .filter(Boolean)
+            .slice(0, 8)
+        : [];
+	    const sanitizeTaskMessage = React.useCallback((
         value?: string | null,
         taskType?: string | null,
         autoRetry = false,
@@ -2329,20 +3272,16 @@ export function CandidatesPage({
                     />
                 ) : null}
 
-                <div
-                    ref={splitContainerRef}
-                    className="flex min-h-0 items-stretch gap-2 overflow-hidden"
-                >
-                {/* 左侧列表面板 */}
-                <div
-                    ref={leftPanelRef}
-                    className={cn(
-                        "min-h-0 overflow-hidden transition-all duration-200",
-                        detailExpanded ? "w-0 opacity-0 pointer-events-none" : ""
-                    )}
-                    style={!detailExpanded ? { width: `${splitRatioRef.current}%` } : undefined}
-                >
-                <Card className={cn(panelClass, "h-full !gap-0 overflow-hidden !py-0")}>
+                <div className="grid min-h-0 grid-cols-1 gap-3 overflow-hidden xl:grid-cols-[248px_minmax(0,1fr)]">
+                    <CandidatePositionScopeSidebar
+                        positions={positions}
+                        activePositionId={activeQuickPosition}
+                        allPositionCandidateCount={allPositionCandidateCount}
+                        onSelectPosition={(positionId) => setCandidatePositionFilter(positionId ? [positionId] : [])}
+                        tr={tr}
+                        isZh={isZh}
+                    />
+                <Card className="h-full !gap-0 overflow-hidden rounded-md border border-[#e5eaf3] bg-white !py-0 shadow-none dark:border-slate-800 dark:bg-slate-950">
                     <CardHeader className="px-4 pt-2 pb-0 sm:px-5">
                         <div className="flex flex-wrap items-center justify-between gap-3">
                             <CardTitle className="flex shrink-0 items-center gap-2 text-[19px] leading-none">
@@ -2395,7 +3334,7 @@ export function CandidatesPage({
                                     <Button
                                         size="sm"
                                         variant="outline"
-                                        className="h-7 rounded-md px-2 text-sm"
+                                        className="h-7 rounded-md px-2 text-xs"
                                         disabled={refreshLikeLoading || candidatesLoading}
                                         onClick={async () => {
                                             setRefreshing(true);
@@ -2413,7 +3352,7 @@ export function CandidatesPage({
                                 <Button
                                     size="sm"
                                     variant="outline"
-                                    className="h-7 rounded-md px-2.5 text-sm"
+                                    className="h-7 rounded-md px-2.5 text-xs"
                                     onClick={() => setCandidateFilterBarExpanded((current) => !current)}
                                 >
                                     <SlidersHorizontal className="h-4 w-4"/>
@@ -2421,10 +3360,14 @@ export function CandidatesPage({
                                 </Button>
                             </div>
                         </div>
+                        <CandidatePipelineBar
+                            stages={candidatePipelineStages}
+                            onSelect={selectCandidatePipelineStage}
+                        />
                     </CardHeader>
                     <CardContent className="flex min-h-0 flex-1 flex-col px-4 pt-1 pb-2.5 sm:px-5">
                         <div className="mb-0.5 flex flex-wrap items-center justify-between gap-2">
-                            <p className="text-sm text-slate-500 dark:text-slate-400">
+                            <p className="text-xs text-slate-500 dark:text-slate-400">
                                 {tr.selectedCandidates(selectedCandidateIds.length)}
                             </p>
                             <div className="flex flex-wrap items-center gap-2">
@@ -2436,7 +3379,37 @@ export function CandidatesPage({
                                 <Button
                                     size="sm"
                                     variant="outline"
-                                    className="h-7 rounded-md px-2.5 text-sm"
+                                    className="h-7 rounded-md px-2.5 text-sm text-emerald-700 hover:bg-emerald-50 dark:text-emerald-300 dark:hover:bg-emerald-950/30"
+                                    onClick={() => void runQuickDisposition("pass")}
+                                    disabled={!selectedCandidateIds.length || batchStatusSubmitting}
+                                >
+                                    <Check className="h-4 w-4"/>
+                                    {tr.quickDispositionPass}
+                                </Button>
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-7 rounded-md px-2.5 text-xs"
+                                    onClick={() => void runQuickDisposition("talent_pool")}
+                                    disabled={!selectedCandidateIds.length || batchStatusSubmitting}
+                                >
+                                    <Users className="h-4 w-4"/>
+                                    {tr.quickDispositionTalentPool}
+                                </Button>
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-7 rounded-md px-2.5 text-sm text-rose-600 hover:bg-rose-50 dark:text-rose-300 dark:hover:bg-rose-950/30"
+                                    onClick={() => void runQuickDisposition("reject")}
+                                    disabled={!selectedCandidateIds.length || batchStatusSubmitting}
+                                >
+                                    <Trash2 className="h-4 w-4"/>
+                                    {tr.quickDispositionReject}
+                                </Button>
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-7 rounded-md px-2.5 text-xs"
                                     onClick={() => void triggerScreening(selectedCandidateIds)}
                                     disabled={isBatchScreeningCancelling || (screeningSubmitting && !isBatchScreeningRunning) || (!isBatchScreeningRunning && !selectedCandidateIds.length)}
                                 >
@@ -2446,7 +3419,7 @@ export function CandidatesPage({
                                 <Button
                                     size="sm"
                                     variant="outline"
-                                    className="h-7 rounded-md px-2.5 text-sm"
+                                    className="h-7 rounded-md px-2.5 text-xs"
                                     onClick={() => void triggerFreshScreening(selectedCandidateIds)}
                                     disabled={screeningSubmitting || !selectedCandidateIds.length}
                                 >
@@ -2457,7 +3430,7 @@ export function CandidatesPage({
                                     <Button
                                         size="sm"
                                         variant="outline"
-                                        className="h-7 rounded-md px-2.5 text-sm"
+                                        className="h-7 rounded-md px-2.5 text-xs"
                                         onClick={() => setCandidateAdvancedActionsExpanded((current) => !current)}
                                         disabled={!selectedCandidateIds.length}
                                     >
@@ -2475,7 +3448,7 @@ export function CandidatesPage({
                                 <Button
                                     size="sm"
                                     variant="outline"
-                                    className="h-7 rounded-md px-2.5 text-sm"
+                                    className="h-7 rounded-md px-2.5 text-xs"
                                     onClick={async () => {
                                         if (onMoveToTalentPool) {
                                             await onMoveToTalentPool(selectedCandidateIds);
@@ -2488,23 +3461,23 @@ export function CandidatesPage({
                                     <Users className="h-4 w-4"/>
                                     {isZh ? "归入人才库" : "Move to Talent Pool"}
                                 </Button>
-                                <Button size="sm" variant="outline" className="h-7 rounded-md px-2.5 text-sm" onClick={() => setExportDialogOpen(true)} disabled={!selectedCandidateIds.length || exporting}>
+                                <Button size="sm" variant="outline" className="h-7 rounded-md px-2.5 text-xs" onClick={() => setExportDialogOpen(true)} disabled={!selectedCandidateIds.length || exporting}>
                                     <Download className="h-4 w-4"/>
                                     {exporting ? tr.exporting : tr.exportCandidates}
                                 </Button>
-                                <Button size="sm" variant="outline" className="h-7 rounded-md px-2.5 text-sm" onClick={() => openResumeMailDialog(selectedCandidateIds)} disabled={!selectedCandidateIds.length}>
+                                <Button size="sm" variant="outline" className="h-7 rounded-md px-2.5 text-xs" onClick={() => openResumeMailDialog(selectedCandidateIds)} disabled={!selectedCandidateIds.length}>
                                     <Mail className="h-4 w-4"/>
                                     {tr.sendResumesBatch}
                                 </Button>
-                                <Button size="sm" variant="outline" className="h-7 rounded-md px-2.5 text-sm" onClick={() => { setBatchBindPositionId(""); setBatchBindDialogOpen(true); }} disabled={!selectedCandidateIds.length}>
+                                <Button size="sm" variant="outline" className="h-7 rounded-md px-2.5 text-xs" onClick={() => { setBatchBindPositionId(""); setBatchBindDialogOpen(true); }} disabled={!selectedCandidateIds.length}>
                                     <Briefcase className="h-4 w-4"/>
                                     {tr.batchBindPosition}
                                 </Button>
-                                <Button size="sm" variant="outline" className="h-7 rounded-md px-2.5 text-sm" onClick={() => { setBatchStatusValue(""); setBatchStatusReason(""); setBatchStatusDialogOpen(true); }} disabled={!selectedCandidateIds.length}>
+                                <Button size="sm" variant="outline" className="h-7 rounded-md px-2.5 text-xs" onClick={() => { setBatchStatusValue(""); setBatchStatusReason(""); setBatchStatusDialogOpen(true); }} disabled={!selectedCandidateIds.length}>
                                     <ArrowRightLeft className="h-4 w-4"/>
                                     {tr.batchUpdateStatus}
                                 </Button>
-                                <Button size="sm" variant="outline" className="h-7 rounded-md px-2.5 text-sm text-rose-600 hover:text-rose-700 hover:bg-rose-50 dark:text-rose-400 dark:hover:text-rose-300 dark:hover:bg-rose-950/30" onClick={() => requestBatchDelete(selectedCandidateIds)} disabled={!selectedCandidateIds.length}>
+                                <Button size="sm" variant="outline" className="h-7 rounded-md px-2.5 text-xs text-rose-600 hover:text-rose-700 hover:bg-rose-50 dark:text-rose-400 dark:hover:text-rose-300 dark:hover:bg-rose-950/30" onClick={() => requestBatchDelete(selectedCandidateIds)} disabled={!selectedCandidateIds.length}>
                                     <Trash2 className="h-4 w-4"/>
                                 </Button>
                             </div>
@@ -2526,119 +3499,133 @@ export function CandidatesPage({
                                 <div className="min-h-0 flex flex-1 flex-col overflow-hidden">
                                     <div
                                         ref={mergedCandidateListScrollRef}
-                                        className={cn("relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto", SMOOTH_VERTICAL_SCROLLBAR_CLASS)}
+                                        className={cn("relative min-h-0 flex-1 overflow-y-auto pr-1", SMOOTH_VERTICAL_SCROLLBAR_CLASS)}
                                     >
                                         <div
-                                            role="table"
+                                            role="list"
                                             aria-rowcount={visibleCandidates.length}
-                                            style={{width: candidateListEffectiveTableWidth, minWidth: candidateListEffectiveTableWidth}}
-                                            className="relative text-base"
+                                            className="relative"
+                                            style={{height: rowVirtualizer.getTotalSize()}}
                                         >
-                                            <div
-                                                role="row"
-                                                style={{gridTemplateColumns: candidateListGridTemplateColumns}}
-                                                className="sticky top-0 z-10 grid h-10 border-b border-slate-200 bg-white/95 text-foreground transition-colors dark:border-slate-800 dark:bg-slate-950/95"
-                                            >
-                                                <div role="columnheader" className="flex items-center px-2 text-left align-middle font-medium whitespace-nowrap">
-                                                    <input
-                                                        type="checkbox"
-                                                        checked={allVisibleCandidatesSelected}
-                                                        onChange={(event) => setSelectedCandidateIds(event.target.checked ? visibleCandidateIds : [])}
-                                                        aria-label={tr.selectAllCandidates}
+                                            {virtualItems.map((virtualRow) => {
+                                                const candidate = visibleCandidates[virtualRow.index];
+                                                return (
+                                                    <CandidateApplicantCard
+                                                        key={candidate.id}
+                                                        candidate={candidate}
+                                                        isSelected={selectedCandidateId === candidate.id}
+                                                        isChecked={selectedCandidateIdSet.has(candidate.id)}
+                                                        rowStart={virtualRow.start}
+                                                        rowHeight={virtualRow.size}
+                                                        setSelectedCandidateId={setSelectedCandidateId}
+                                                        toggleCandidateSelection={toggleCandidateSelection}
+                                                        getResumeMailSummary={getVisibleCandidateResumeMailSummary}
+                                                        onDisposition={(candidateId, action) => void runCandidateDisposition([candidateId], action)}
+                                                        tr={tr}
+                                                        language={language}
                                                     />
-                                                </div>
-                                                {candidateListVisibleColumns.map((columnKey) => {
-                                                    const label = getColumnHeaderLabel(columnKey);
-
-                                                    if (!candidateListCompactMode) {
-                                                        return renderCandidateListHeaderCell(columnKey, label);
-                                                    }
-
-                                                    return (
-                                                        <div
-                                                            role="columnheader"
-                                                            key={columnKey}
-                                                            style={{
-                                                                width: candidateListEffectiveColumnWidths[columnKey],
-                                                                minWidth: candidateListEffectiveColumnWidths[columnKey],
-                                                                maxWidth: candidateListEffectiveColumnWidths[columnKey],
-                                                            }}
-                                                            className="flex h-10 items-center px-2 text-left text-sm font-medium whitespace-nowrap"
-                                                        >
-                                                            {label}
-                                                        </div>
-                                                    );
-                                                })}
-                                            </div>
-                                            <div
-                                                role="rowgroup"
-                                                className="relative"
-                                                style={{height: rowVirtualizer.getTotalSize()}}
-                                            >
-                                                {virtualItems.map((virtualRow) => {
-                                                    const candidate = visibleCandidates[virtualRow.index];
-                                                    return (
-                                                        <CandidateRow
-                                                            key={candidate.id}
-                                                            candidate={candidate}
-                                                            isSelected={selectedCandidateId === candidate.id}
-                                                            isChecked={selectedCandidateIdSet.has(candidate.id)}
-                                                            columns={candidateListVisibleColumns}
-                                                            columnWidths={candidateListEffectiveColumnWidths}
-                                                            gridTemplateColumns={candidateListGridTemplateColumns}
-                                                            rowStart={virtualRow.start}
-                                                            rowHeight={virtualRow.size}
-                                                            setSelectedCandidateId={setSelectedCandidateId}
-                                                            toggleCandidateSelection={toggleCandidateSelection}
-                                                            getResumeMailSummary={getCandidateResumeMailSummary}
-                                                            getOrganizationLabel={getOrganizationLabel}
-                                                            tr={tr}
-                                                            language={language}
-                                                        />
-                                                    );
-                                                })}
-                                            </div>
+                                                );
+                                            })}
                                         </div>
-                                        {isLoadingMoreCandidates ? (
-                                            <div className="flex items-center justify-center gap-2 py-3 text-base text-muted-foreground">
-                                                <Loader2 className="h-4 w-4 animate-spin"/>
-                                                <span>{tr.loadingMoreCandidates}</span>
-                                            </div>
-                                        ) : !isLoadingMoreCandidates && allCandidatesCount >= candidateTotal && candidateTotal > 0 ? (
-                                            <div className="flex items-center justify-center py-3 text-base text-muted-foreground">
-                                                <span>{tr.allCandidatesLoaded}</span>
-                                            </div>
-                                        ) : null}
                                     </div>
                                     <div className="shrink-0 border-t border-slate-200/80 pt-2 dark:border-slate-800">
-                                        <div
-                                            ref={candidateListHorizontalRailRef}
-                                            className={cn("overflow-x-auto overflow-y-hidden", SMOOTH_HORIZONTAL_SCROLLBAR_CLASS)}
-                                        >
-                                            <div style={{width: candidateListEffectiveTableWidth, height: 1}}/>
+                                        <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-slate-500 dark:text-slate-400">
+                                            <span>
+                                                {tr.candidatePageRange(candidatePageStart, candidatePageEnd, candidateTotal)}
+                                            </span>
+                                            <div className="flex flex-wrap items-center gap-1.5">
+                                                <NativeSelect
+                                                    value={String(candidatePageSize)}
+                                                    title={tr.rowsPerPage}
+                                                    onChange={(event) => setCandidatePageSize(Number(event.target.value))}
+                                                    className="h-8 w-[118px] shrink-0 rounded-md bg-white pr-8 text-sm dark:bg-slate-950"
+                                                >
+                                                    {candidatePageSizeOptions.map((option) => (
+                                                        <option key={option} value={option}>{option}{tr.rowsPerPage}</option>
+                                                    ))}
+                                                </NativeSelect>
+                                                <Button
+                                                    size="sm"
+                                                    variant="outline"
+                                                    className="h-7 rounded-md px-2.5 text-xs"
+                                                    disabled={candidatePageIndex <= 0 || candidatesLoading}
+                                                    onClick={() => setCandidatePageIndex(candidatePageIndex - 1)}
+                                                >
+                                                    {tr.previousPage}
+                                                </Button>
+                                                {candidatePaginationPages.map((pageIndex) => (
+                                                    <Button
+                                                        key={pageIndex}
+                                                        size="sm"
+                                                        variant={pageIndex === candidatePageIndex ? "default" : "outline"}
+                                                        className="h-7 min-w-7 rounded-md px-2 text-sm"
+                                                        disabled={candidatesLoading}
+                                                        onClick={() => setCandidatePageIndex(pageIndex)}
+                                                    >
+                                                        {pageIndex + 1}
+                                                    </Button>
+                                                ))}
+                                                <Button
+                                                    size="sm"
+                                                    variant="outline"
+                                                    className="h-7 rounded-md px-2.5 text-xs"
+                                                    disabled={candidatePageIndex >= candidateTotalPages - 1 || candidatesLoading}
+                                                    onClick={() => setCandidatePageIndex(candidatePageIndex + 1)}
+                                                >
+                                                    {tr.nextPage}
+                                                </Button>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
                             )
                         ) : (
-                            <div
-                                ref={setCandidateBoardViewportEl}
-                                className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable]"
-                            >
-                                <div className="grid gap-4 xl:grid-cols-2 2xl:grid-cols-3">
-                                    {groupedCandidates.map((group) => (
-                                        <CandidateBoardColumn
-                                            key={group.status}
-                                            group={group}
-                                            scrollElement={candidateBoardViewportEl}
-                                            selectedCandidateId={selectedCandidateId}
-                                            selectedCandidateIdSet={selectedCandidateIdSet}
-                                            setSelectedCandidateId={setSelectedCandidateId}
-                                            toggleCandidateSelection={toggleCandidateSelection}
-                                            getCandidateResumeMailSummary={getCandidateResumeMailSummary}
-                                            tr={tr}
-                                        />
-                                    ))}
+                            <div className="min-h-0 flex flex-1 flex-col">
+                                <div
+                                    ref={setCandidateBoardViewportEl}
+                                    className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable]"
+                                >
+                                    <div className="grid gap-4 xl:grid-cols-2 2xl:grid-cols-3">
+                                        {groupedCandidates.map((group) => (
+                                            <CandidateBoardColumn
+                                                key={group.status}
+                                                group={group}
+                                                scrollElement={candidateBoardViewportEl}
+                                                selectedCandidateId={selectedCandidateId}
+                                                selectedCandidateIdSet={selectedCandidateIdSet}
+                                                setSelectedCandidateId={setSelectedCandidateId}
+                                                toggleCandidateSelection={toggleCandidateSelection}
+                                                getCandidateResumeMailSummary={getVisibleCandidateResumeMailSummary}
+                                                tr={tr}
+                                            />
+                                        ))}
+                                    </div>
+                                </div>
+                                <div className="mt-2 flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-slate-200/80 pt-2 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
+                                    <span>{tr.candidatePageRange(candidatePageStart, candidatePageEnd, candidateTotal)}</span>
+                                    <div className="flex flex-wrap items-center gap-1.5">
+                                        <NativeSelect
+                                            value={String(candidatePageSize)}
+                                            title={tr.rowsPerPage}
+                                            onChange={(event) => setCandidatePageSize(Number(event.target.value))}
+                                            className="h-8 w-[118px] shrink-0 rounded-md bg-white pr-8 text-sm dark:bg-slate-950"
+                                        >
+                                            {candidatePageSizeOptions.map((option) => (
+                                                <option key={option} value={option}>{option}{tr.rowsPerPage}</option>
+                                            ))}
+                                        </NativeSelect>
+                                        <Button size="sm" variant="outline" className="h-7 rounded-md px-2.5 text-sm" disabled={candidatePageIndex <= 0 || candidatesLoading} onClick={() => setCandidatePageIndex(candidatePageIndex - 1)}>
+                                            {tr.previousPage}
+                                        </Button>
+                                        {candidatePaginationPages.map((pageIndex) => (
+                                            <Button key={pageIndex} size="sm" variant={pageIndex === candidatePageIndex ? "default" : "outline"} className="h-7 min-w-7 rounded-md px-2 text-sm" disabled={candidatesLoading} onClick={() => setCandidatePageIndex(pageIndex)}>
+                                                {pageIndex + 1}
+                                            </Button>
+                                        ))}
+                                        <Button size="sm" variant="outline" className="h-7 rounded-md px-2.5 text-sm" disabled={candidatePageIndex >= candidateTotalPages - 1 || candidatesLoading} onClick={() => setCandidatePageIndex(candidatePageIndex + 1)}>
+                                            {tr.nextPage}
+                                        </Button>
+                                    </div>
                                 </div>
                             </div>
                         )}
@@ -2646,316 +3633,485 @@ export function CandidatesPage({
                 </Card>
                 </div>
 
-                {/* 拖拽分割条 */}
-                {!detailExpanded && (
-                    <div
-                        ref={resizeHandleRef}
-                        onMouseDown={handleResizeMouseDown}
-                        className="relative z-10 flex-shrink-0 cursor-col-resize select-none group/handle"
-                        style={{ width: '6px' }}
-                    >
-                        <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-[3px] rounded-full
-                                        bg-slate-300/50 dark:bg-slate-600/50
-                                        group-hover/handle:bg-teal-400 dark:group-hover/handle:bg-teal-500
-                                        transition-colors duration-150" />
-                        {/* 首次使用提示 */}
-                        {showWidthHint && (
-                            <div
-                                ref={widthHintRef}
-                                className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2
-                                           whitespace-nowrap z-50 pointer-events-none"
-                            >
-                                <div className="bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900
-                                                text-sm font-medium px-3 py-2 rounded-lg shadow-lg
-                                                animate-pulse">
-                                    {tr.splitResizeHint}
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                )}
-
-                {/* 右侧详情面板 */}
-                <div
-                    ref={rightPanelRef}
-                    className="min-h-0 min-w-0 flex-1 overflow-hidden"
+                <Dialog
+                    open={selectedCandidateId !== null}
+                    onOpenChange={(open) => {
+                        if (!open) {
+                            setSelectedCandidateId(null);
+                        }
+                    }}
                 >
-                <Card className={cn(panelClass, "h-full min-w-0 gap-0 overflow-hidden py-0")}>
-                    {candidateDetailLoading ? <LoadingPanel label={tr.loadingCandidateDetail}/> : candidateDetail ? (
-                        <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
-                            <div
-    className="border-b border-slate-200/80 px-4 py-2 dark:border-slate-800"
-    onDoubleClick={(e) => {
-        const target = e.target as HTMLElement;
-        if (target.closest("button, a, [data-no-zoom]")) return;
-        setDetailExpanded(v => !v);
-    }}
-    onMouseMove={(e) => {
-        const target = e.target as HTMLElement;
-        if (target.closest("button, a, [data-no-zoom]")) {
-            if (zoomHintRef.current) zoomHintRef.current.style.display = 'none';
-            e.currentTarget.style.cursor = "";
-            return;
-        }
-        if (zoomHintRef.current) {
-            zoomHintRef.current.style.left = `${e.clientX + 14}px`;
-            zoomHintRef.current.style.top = `${e.clientY + 14}px`;
-            zoomHintRef.current.style.display = 'flex';
-        }
-        e.currentTarget.style.cursor = detailExpanded ? "zoom-out" : "zoom-in";
-    }}
-    onMouseLeave={() => {
-        if (zoomHintRef.current) zoomHintRef.current.style.display = 'none';
-    }}
->
-                                <div className="space-y-1">
-                                    <div className="flex items-start justify-between gap-3">
-                                        <div className="min-w-0 flex-1 space-y-1">
-                                            <div data-no-zoom className="flex flex-wrap items-center gap-2 text-[15px] text-slate-500 dark:text-slate-400 cursor-text select-text">
-                                                <span className="text-[1.25rem] font-semibold text-slate-900 dark:text-slate-100">{candidateDetail.candidate.name}</span>
-                                                <Badge className={cn("rounded-full border", statusBadgeClass("candidate", candidateDetailDisplayStatus))}>
+                    <DialogContent
+                        className="h-[min(92vh,920px)] max-h-[92vh] overflow-hidden rounded-[6px] border border-slate-200 bg-[#f4f7fb] p-0 shadow-2xl"
+                        style={{
+                            width: "min(1180px, calc(100vw - 32px))",
+                            maxWidth: "min(1180px, calc(100vw - 32px))",
+                        }}
+                    >
+                        <DialogTitle className="sr-only">
+                            {candidateDetail?.candidate.name
+                                ? `${candidateDetail.candidate.name} · ${isZh ? "候选人详情" : "Candidate Details"}`
+                                : (isZh ? "候选人详情" : "Candidate Details")}
+                        </DialogTitle>
+                    {candidateDetailLoading ? (
+                        <div className="flex h-full items-center justify-center bg-white">
+                            <LoadingPanel label={tr.loadingCandidateDetail}/>
+                        </div>
+                    ) : candidateDetail ? (
+                        <div className="grid h-full min-h-0 grid-cols-1 bg-[#f4f7fb] lg:grid-cols-[minmax(0,1fr)_320px]">
+                            <section
+                                ref={candidateDetailMainScrollRef}
+                                onScroll={handleCandidateDetailMainScroll}
+                                className={cn("relative min-h-0 min-w-0 overflow-y-auto bg-white", SMOOTH_VERTICAL_SCROLLBAR_CLASS)}
+                            >
+                                <div className="sticky top-0 z-30 h-0 overflow-visible">
+                                    <div className={cn(
+                                        "border-b border-slate-200 bg-white/95 px-7 py-3 shadow-[0_4px_18px_rgba(15,23,42,0.08)] backdrop-blur transition duration-200",
+                                        candidateDetailMainScrolled ? "translate-y-0 opacity-100" : "pointer-events-none -translate-y-full opacity-0",
+                                    )}>
+                                        <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
+                                            <div className="min-w-0">
+                                                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                                                    <span className="truncate text-[18px] font-semibold leading-6 text-slate-950">{candidateDetail.candidate.name}</span>
+                                                    <span className="truncate text-[13px] text-slate-500">{candidateDetail.candidate.candidate_code || "-"}</span>
+                                                    <span className="text-[13px] text-slate-400">|</span>
+                                                    <span className="text-[13px] text-slate-600">{candidateDetail.candidate.age ? `${candidateDetail.candidate.age}${isZh ? "岁" : ""}` : "--"}</span>
+                                                    <span className="text-[13px] text-slate-400">|</span>
+                                                    <span className="truncate text-[13px] text-slate-600">
+                                                        {candidateDetail.candidate.education || readStructuredText(parsedResumeEducation, ["degree", "education", "学历"]) || "-"}
+                                                    </span>
+                                                </div>
+                                                <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 text-[13px] text-slate-500">
+                                                    <span className="truncate">
+                                                        {candidateDetail.candidate.position_title || candidateDetail.candidate.screened_position_title || candidateDetail.candidate.ai_match_position_title || tr.unassignedPosition}
+                                                    </span>
+                                                    <span className="truncate">{candidateDetail.candidate.phone || candidateDetail.candidate.email || tr.noContact}</span>
+                                                </div>
+                                            </div>
+                                            <div className="flex shrink-0 flex-wrap items-center gap-2">
+                                                <Badge className={cn("h-6 rounded-[3px] border px-2 text-[12px]", statusBadgeClass("candidate", candidateDetailDisplayStatus))}>
                                                     {labelForCandidateStatus(candidateDetailDisplayStatus)}
                                                 </Badge>
-                                                {candidateDetailHasRuntimeOverride ? (
-                                                    <Badge variant="outline" className="rounded-full">
-                                                        {tr.originalStatus} {labelForCandidateStatus(candidateDetail.candidate.status)}
-                                                    </Badge>
-                                                ) : null}
-                                                <Badge variant="outline" className="rounded-full">
+                                                <Badge variant="outline" className="h-6 rounded-[3px] border-emerald-200 bg-emerald-50 px-2 text-[12px] text-emerald-700">
                                                     {tr.matchBadge} {formatPercent(candidateScoreDisplayValues.matchPercent ?? resolveCandidateSummaryMatchPercent(candidateDetail.candidate))}
                                                 </Badge>
-                                                <Badge variant="outline" className="rounded-full">
-                                                    {tr.sentBadge} {selectedCandidateResumeMailCountLabel}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="border-b border-slate-200 px-7 pb-0 pt-5">
+                                    <div className="mb-5 flex flex-wrap items-center justify-between gap-3 text-[13px] text-slate-500">
+                                        <div className="flex min-w-0 items-center gap-2">
+                                            <span className="rounded-[3px] bg-slate-100 px-3 py-1.5 text-slate-700">{isZh ? "1次应聘" : "1 Application"}</span>
+                                            <span className="max-w-[360px] truncate rounded-[3px] border border-slate-200 px-3 py-1.5 text-slate-700">
+                                                {candidateDetail.candidate.position_title || candidateDetail.candidate.screened_position_title || tr.unassignedPosition}
+                                            </span>
+                                        </div>
+                                        <span className="truncate">
+                                            {formatLongDateTime(candidateDetail.candidate.updated_at || candidateDetail.candidate.created_at)}
+                                        </span>
+                                    </div>
+
+                                    <div className="flex items-start gap-5">
+                                        <CandidateDetailAvatar name={candidateDetail.candidate.name}/>
+                                        <div className="min-w-0 flex-1 pb-5">
+                                            <div className="flex flex-wrap items-center gap-2">
+                                                <h3 data-no-zoom className="truncate text-[22px] font-semibold leading-8 text-slate-950">
+                                                    {candidateDetail.candidate.name}
+                                                </h3>
+                                                <span className="text-[14px] text-slate-500">{candidateDetail.candidate.candidate_code}</span>
+                                                <span className="text-[14px] text-slate-500">|</span>
+                                                <span className="text-[14px] text-slate-600">{candidateDetail.candidate.age ? `${candidateDetail.candidate.age}${isZh ? "岁" : ""}` : "--"}</span>
+                                            </div>
+                                            <div className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-2">
+                                                <CandidateMetaItem icon={GraduationCap}>{candidateDetail.candidate.education || readStructuredText(parsedResumeEducation, ["degree", "education", "学历"]) || "-"}</CandidateMetaItem>
+                                                <CandidateMetaItem icon={Briefcase}>{candidateDetail.candidate.years_of_experience || candidateDetailIdentityMeta || "-"}</CandidateMetaItem>
+                                                <CandidateMetaItem icon={Phone}>{candidateDetail.candidate.phone || "-"}</CandidateMetaItem>
+                                                <CandidateMetaItem icon={AtSign}>{candidateDetail.candidate.email || tr.noContact}</CandidateMetaItem>
+                                            </div>
+                                            <div className="mt-3 flex flex-wrap items-center gap-2">
+                                                <Badge className={cn("h-6 rounded-[3px] border px-2 text-[12px]", statusBadgeClass("candidate", candidateDetailDisplayStatus))}>
+                                                    {labelForCandidateStatus(candidateDetailDisplayStatus)}
                                                 </Badge>
-                                                <span>{candidateDetail.candidate.candidate_code}</span>
+                                                <Badge variant="outline" className="h-6 rounded-[3px] border-emerald-200 bg-emerald-50 px-2 text-[12px] text-emerald-700">
+                                                    {tr.matchBadge} {formatPercent(candidateScoreDisplayValues.matchPercent ?? resolveCandidateSummaryMatchPercent(candidateDetail.candidate))}
+                                                </Badge>
+                                                <Badge variant="outline" className="h-6 rounded-[3px] px-2 text-[12px]">
+                                                    {candidateDetail.candidate.position_title || candidateDetail.candidate.ai_match_position_title || tr.unassignedPosition}
+                                                </Badge>
                                                 {selectedCandidateResumeMailSummary ? (
-                                                    <Badge className="rounded-full border border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
+                                                    <Badge variant="outline" className="h-6 rounded-[3px] border-sky-200 bg-sky-50 px-2 text-[12px] text-sky-700">
                                                         {selectedCandidateResumeMailSummary}
                                                     </Badge>
                                                 ) : null}
+                                                <Button size="sm" variant="outline" className="h-6 rounded-[3px] px-2 text-[12px]" onClick={() => setCandidateDetailPanel("resume")}>
+                                                    <Tag className="h-3.5 w-3.5"/>
+                                                    {isZh ? "打标签" : "Tag"}
+                                                </Button>
                                             </div>
-                                            <div data-no-zoom className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-slate-500 dark:text-slate-400 cursor-text select-text">
-                                                {candidateDetailIdentityMeta ? <span>{candidateDetailIdentityMeta}</span> : null}
-                                            </div>
+                                            {candidateDetailPositionInsightVisible ? (
+                                                <div className="mt-3 grid gap-2 text-[12px] text-slate-600 lg:grid-cols-2">
+                                                    <div className="min-w-0 rounded-[4px] border border-sky-100 bg-sky-50/70 px-3 py-2">
+                                                        <div className="mb-1 flex items-center gap-1.5 font-medium text-sky-700">
+                                                            <Sparkles className="h-3.5 w-3.5"/>
+                                                            {isZh ? "AI 推荐" : "AI Recommendation"}
+                                                        </div>
+                                                        <p className="truncate text-slate-800">
+                                                            {candidateDetailAiMatchPositionTitle || candidateDetailScreenedPositionTitle || tr.unassignedPosition}
+                                                        </p>
+                                                        {candidateDetailAiMatchReason ? (
+                                                            <p className="mt-1 line-clamp-2 text-slate-500">
+                                                                {sanitizeCandidateFacingErrorText(candidateDetailAiMatchReason, {
+                                                                    context: resolveCandidateFacingErrorContext("ai_position_match"),
+                                                                    language,
+                                                                })}
+                                                            </p>
+                                                        ) : null}
+                                                    </div>
+                                                    <div className="min-w-0 rounded-[4px] border border-indigo-100 bg-indigo-50/60 px-3 py-2">
+                                                        <div className="mb-1 flex items-center gap-1.5 font-medium text-indigo-700">
+                                                            <ArrowRightLeft className="h-3.5 w-3.5"/>
+                                                            {isZh ? "转岗建议" : "Transfer Suggestion"}
+                                                        </div>
+                                                        <p className="truncate text-slate-800">
+                                                            {candidateDetailAiPotentialPosition || (isZh ? "暂无转岗建议" : "No suggestion")}
+                                                        </p>
+                                                        {candidateDetailAiPotentialReason ? (
+                                                            <p className="mt-1 line-clamp-2 text-slate-500">
+                                                                {sanitizeCandidateFacingErrorText(candidateDetailAiPotentialReason, {
+                                                                    context: resolveCandidateFacingErrorContext("ai_position_match"),
+                                                                    language,
+                                                                })}
+                                                            </p>
+                                                        ) : null}
+                                                    </div>
+                                                </div>
+                                            ) : null}
+                                            {candidateDetailHasRuntimeOverride ? (
+                                                <p className="mt-2 text-[12px] text-slate-400">
+                                                    {tr.originalStatus} {labelForCandidateStatus(candidateDetail.candidate.status)}
+                                                </p>
+                                            ) : null}
                                         </div>
-                                        <div data-no-zoom className="flex shrink-0 items-center gap-1 rounded-full border border-slate-200 bg-slate-50 p-1 dark:border-slate-800 dark:bg-slate-900">
-                                            <Button size="sm" variant={candidateDetailPanel === "profile" ? "default" : "ghost"} onClick={() => setCandidateDetailPanel("profile")}>
-                                                {tr.profileTab}
+                                        <div className="hidden items-center gap-2 xl:flex">
+                                            <Button size="icon" variant="outline" className="h-9 w-9 rounded-[4px] text-amber-500">
+                                                <Star className="h-4 w-4"/>
                                             </Button>
-                                            <Button size="sm" variant={candidateDetailPanel === "ai" ? "default" : "ghost"} onClick={() => setCandidateDetailPanel("ai")}>
-                                                {tr.aiAssessmentTab}
+                                            <Button size="icon" variant="outline" className="h-9 w-9 rounded-[4px]">
+                                                <UserPlus className="h-4 w-4"/>
                                             </Button>
-                                            <Button size="sm" variant={candidateDetailPanel === "interview" ? "default" : "ghost"} onClick={() => setCandidateDetailPanel("interview")}>
-                                                {tr.interviewPrepTab}
+                                            <Button size="icon" variant="outline" className="h-9 w-9 rounded-[4px]">
+                                                <ExternalLink className="h-4 w-4"/>
                                             </Button>
                                         </div>
                                     </div>
-                                    {(candidateDetail.candidate.ai_potential_position || candidateDetail.candidate.ai_potential_reason) ? (
-                                        <div data-no-zoom className="mt-2 w-full rounded-xl border border-sky-100 bg-sky-50/70 px-3 py-2.5 text-sm text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
-                                            <div className="flex flex-wrap items-start justify-between gap-2">
-                                                <div className="min-w-0 flex-1 font-medium">
-                                                    {`${isZh ? "转岗潜力方向" : "Potential Transition"}：`}
-                                                    {candidateDetail.candidate.ai_potential_position || (isZh ? "暂无" : "N/A")}
-                                                </div>
-                                                {candidateDetail.candidate.ai_potential_reason ? (
-                                                    <button
-                                                        type="button"
-                                                        className="shrink-0 rounded-full px-2 py-0.5 text-xs text-sky-500 transition hover:bg-sky-100 hover:text-sky-700 dark:text-sky-400 dark:hover:bg-sky-900/50 dark:hover:text-sky-200"
-                                                        onClick={() => setPotentialReasonExpanded((v) => !v)}
-                                                    >
-                                                        {potentialReasonExpanded ? (isZh ? "收起详情" : "Collapse") : (isZh ? "展开详情" : "Expand")}
-                                                    </button>
-                                                ) : null}
-                                            </div>
-                                            {candidateDetail.candidate.ai_potential_reason && potentialReasonExpanded ? (
-                                                <div className="mt-2 whitespace-pre-wrap break-words rounded-lg bg-white/65 px-2.5 py-2 leading-6 text-sky-700 dark:bg-sky-950/40 dark:text-sky-100/90">
-                                                    {candidateDetail.candidate.ai_potential_reason}
-                                                </div>
-                                            ) : null}
-                                        </div>
-                                    ) : null}
-                                </div>
-                                {ReactDOM.createPortal(
-                                    <div
-                                        ref={zoomHintRef}
-                                        style={{
-                                            position: "fixed",
-                                            display: "none",
-                                            pointerEvents: "none",
-                                            zIndex: 9999,
-                                        }}
-                                        className="flex items-center gap-1 rounded-md bg-slate-800/90 px-2 py-1 text-[15px] text-white shadow-lg dark:bg-slate-700/90"
-                                    >
-                                        <ZoomIn className="h-3 w-3 shrink-0" />
-                                        <span>{detailExpanded ? tr.zoomHintCollapse : tr.zoomHintExpand}</span>
-                                    </div>,
-                                    document.body
-                                )}
-                            </div>
-                            <div className="border-b border-slate-200/80 px-4 py-2 dark:border-slate-800">
-                                <div className="min-w-0">
-                                    <div
-                                        ref={candidateDetailToolbarScrollRef}
-                                        onScroll={handleCandidateDetailToolbarScroll}
-                                        onWheel={handleCandidateDetailToolbarWheel}
-                                        className="min-w-0 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-                                    >
-                                        <div className="flex w-max items-center gap-2 pr-1">
-                                            <Button
-                                                className="shrink-0"
-                                                size="sm"
-                                                variant="outline"
-                                                onClick={() => void triggerScreening()}
-                                                disabled={isSelectedCandidateScreeningCancelling || (screeningSubmitting && !selectedCandidateScreeningTaskId)}
+
+                                    <div data-no-zoom className="flex min-w-0 items-center gap-6 overflow-x-auto border-t border-slate-100 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                                        {candidateDetailTabs.map((tab) => (
+                                            <button
+                                                key={tab.key}
+                                                type="button"
+                                                className={cn(
+                                                    "relative h-12 shrink-0 text-[15px] text-slate-700 transition hover:text-[#243cff]",
+                                                    candidateDetailPanel === tab.key && "font-semibold text-[#243cff]",
+                                                    tab.disabled && "text-slate-400",
+                                                )}
+                                                onClick={() => setCandidateDetailPanel(tab.key)}
                                             >
-                                                {isSelectedCandidateScreeningCancelling ? <Loader2 className="h-4 w-4 animate-spin"/> : selectedCandidateScreeningTaskId ? <Square className="h-4 w-4"/> : screeningSubmitting ? <Loader2 className="h-4 w-4 animate-spin"/> : <Sparkles className="h-4 w-4"/>}
-                                                {isSelectedCandidateScreeningCancelling ? tr.stopping : selectedCandidateScreeningTaskId ? tr.stopScreening : screeningSubmitting ? tr.queueing : tr.startScreening}
+                                                {tab.label}
+                                                <span className="ml-1 text-[13px] text-slate-500">{tab.count || 0}</span>
+                                                {candidateDetailPanel === tab.key ? <span className="absolute inset-x-0 bottom-0 h-0.5 bg-[#243cff]"/> : null}
+                                            </button>
+                                        ))}
+                                    </div>
+
+                                    <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 py-3">
+                                        <div className="flex flex-wrap items-center gap-2">
+                                            <Button
+                                                size="sm"
+                                                variant={candidateResumeView === "original" ? "default" : "outline"}
+                                                className={cn("h-8 rounded-[4px] px-3 text-[13px]", candidateResumeView === "original" && "bg-[#243cff] text-white hover:bg-[#1730e8]")}
+                                                onClick={() => switchCandidateResumeView("original")}
+                                            >
+                                                {isZh ? "原始简历" : "Original"}
                                             </Button>
                                             <Button
-                                                className="shrink-0"
                                                 size="sm"
-                                                variant="outline"
-                                                onClick={() => void triggerFreshScreening()}
-                                                disabled={screeningSubmitting}
+                                                variant={candidateResumeView === "standard" ? "default" : "outline"}
+                                                className={cn("h-8 rounded-[4px] px-3 text-[13px]", candidateResumeView === "standard" && "bg-[#243cff] text-white hover:bg-[#1730e8]")}
+                                                onClick={() => switchCandidateResumeView("standard")}
                                             >
-                                                <RotateCcw className="h-4 w-4"/>
-                                                {tr.restartScreening}
+                                                {isZh ? "标准简历" : "Standard"}
+                                            </Button>
+                                            <Button
+                                                size="sm"
+                                                variant={candidateResumeView === "history" ? "default" : "outline"}
+                                                className={cn("h-8 rounded-[4px] px-3 text-[13px]", candidateResumeView === "history" && "bg-[#243cff] text-white hover:bg-[#1730e8]")}
+                                                onClick={() => switchCandidateResumeView("history")}
+                                            >
+                                                {isZh ? "历史简历" : "History"}
+                                            </Button>
+                                        </div>
+                                        <div className="flex min-w-0 flex-1 items-center justify-end gap-2 text-[13px] text-slate-500">
+                                            <Button
+                                                size="sm"
+                                                variant="ghost"
+                                                className="h-8 px-2 text-[13px]"
+                                                onClick={() => void refreshCurrentCandidateDetail()}
+                                                disabled={!onRefreshCandidateDetail || candidateDetailRefreshing}
+                                            >
+                                                <RotateCcw className={cn("h-3.5 w-3.5", candidateDetailRefreshing && "animate-spin")}/>
+                                                {tr.refresh}
                                             </Button>
                                             {primaryResumeFile ? (
-                                                <Button className="shrink-0" size="sm" variant="outline" onClick={() => previewResumeFile({ id: primaryResumeFile.id, original_name: primaryResumeFile.original_name }, candidateDetail.candidate.name)}>
-                                                    <Eye className="h-4 w-4"/>
-                                                    {tr.previewResume}
-                                                </Button>
+                                                <>
+                                                    <Button size="sm" variant="ghost" className="h-8 px-2 text-[13px]" onClick={() => void openResumeFile(primaryResumeFile, true)}>
+                                                        <Download className="h-3.5 w-3.5"/>
+                                                        {tr.downloadResume}
+                                                    </Button>
+                                                </>
                                             ) : null}
-                                            <Button className="shrink-0" size="sm" variant="outline" onClick={() => openResumeMailDialog([candidateDetail.candidate.id])}>
-                                                <Mail className="h-4 w-4"/>
-                                                {tr.sendResume}
+                                            <Button size="sm" variant="ghost" className="h-8 px-2 text-[13px]" onClick={() => window.print()}>
+                                                <Printer className="h-3.5 w-3.5"/>
+                                                {isZh ? "打印" : "Print"}
                                             </Button>
-                                            <Button
-                                                className="shrink-0"
-                                                size="sm"
-                                                variant="outline"
-                                                onClick={() => void generateInterviewQuestions()}
-                                                disabled={isCurrentInterviewTaskCancelling}
-                                            >
-                                                {currentCandidateInterviewTaskId ? <Square className="h-4 w-4"/> : <NotebookText className="h-4 w-4"/>}
-                                                {isCurrentInterviewTaskCancelling ? tr.stopping : currentCandidateInterviewTaskId ? tr.stopGeneration : tr.interviewQuestions}
-                                            </Button>
-                                            {/* 归入人才库 */}
-                                            <Button
-                                                className="shrink-0"
-                                                size="sm"
-                                                variant="outline"
-                                                onClick={async () => {
-                                                    if (onMoveToTalentPool) {
-                                                        await onMoveToTalentPool([candidateDetail.candidate.id]);
-                                                    } else {
-                                                        await batchBindPosition([candidateDetail.candidate.id], null);
-                                                    }
-                                                }}
-                                            >
-                                                <Users className="h-4 w-4"/>
-                                                {isZh ? "人才库" : "Talent Pool"}
-                                            </Button>
-                                            <Button
-                                                size="sm"
-                                                variant="outline"
-                                                className="shrink-0 border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800 dark:border-rose-900 dark:text-rose-200 dark:hover:bg-rose-950/40"
-                                                onClick={() => requestDeleteCandidate(candidateDetail.candidate)}
-                                            >
-                                                <Trash2 className="h-4 w-4"/>
-                                                {tr.deleteCandidate}
-                                            </Button>
+                                            <Popover open={candidateResumeMoreOpen} onOpenChange={setCandidateResumeMoreOpen}>
+                                                <PopoverTrigger asChild>
+                                                    <Button size="sm" variant="ghost" className="h-8 px-2 text-[13px]">
+                                                        <MoreHorizontal className="h-3.5 w-3.5"/>
+                                                        {isZh ? "更多" : "More"}
+                                                    </Button>
+                                                </PopoverTrigger>
+                                                <PopoverContent className="w-44 p-1" align="end">
+	                                                    <button
+	                                                        type="button"
+	                                                        className="flex w-full items-center rounded-[4px] px-3 py-2 text-left text-[13px] text-slate-700 hover:bg-slate-100"
+	                                                        onClick={(event) => {
+	                                                            event.preventDefault();
+	                                                            event.stopPropagation();
+	                                                            switchCandidateResumeView("standard");
+	                                                        }}
+	                                                    >
+	                                                        {isZh ? "查看标准简历" : "Standard Resume"}
+	                                                    </button>
+	                                                    <button
+	                                                        type="button"
+	                                                        className="flex w-full items-center rounded-[4px] px-3 py-2 text-left text-[13px] text-slate-700 hover:bg-slate-100"
+	                                                        onClick={(event) => {
+	                                                            event.preventDefault();
+	                                                            event.stopPropagation();
+	                                                            switchCandidateResumeView("history");
+	                                                        }}
+	                                                    >
+	                                                        {isZh ? "查看历史简历" : "Resume History"}
+	                                                    </button>
+                                                    <button
+	                                                        type="button"
+	                                                        className="flex w-full items-center rounded-[4px] px-3 py-2 text-left text-[13px] text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:text-slate-400"
+	                                                        disabled={!primaryResumeFile}
+	                                                        onClick={(event) => {
+	                                                            event.preventDefault();
+	                                                            event.stopPropagation();
+	                                                            setCandidateResumeMoreOpen(false);
+	                                                            if (primaryResumeFile) void openResumeFile(primaryResumeFile, false);
+	                                                        }}
+	                                                    >
+                                                        {isZh ? "新窗口打开" : "Open in New Window"}
+                                                    </button>
+                                                </PopoverContent>
+                                            </Popover>
                                         </div>
                                     </div>
-                                    {shouldShowCurrentScreeningTask ? (
-                                        <div className="mt-2 rounded-2xl border border-slate-200/80 bg-slate-50/70 px-3 py-3 dark:border-slate-800 dark:bg-slate-900/60">
-                                            <div className="flex flex-wrap items-center justify-between gap-2">
-                                                <div className="min-w-0">
-                                                    <p className="text-base font-medium text-slate-900 dark:text-slate-100">{tr.currentScreeningTask}</p>
-                                                    {(() => {
-                                                        const autoRetry = Boolean(candidateDetail?.candidate.active_screening_auto_retry_scheduled);
-                                                        const logMsg = sanitizeTaskMessage(
-                                                            currentScreeningTaskLog?.output_summary || currentScreeningTaskLog?.error_message || "",
-                                                            currentScreeningTaskType || currentScreeningTaskLog?.task_type,
-                                                            autoRetry,
-                                                        );
-                                                        const displayReason = sanitizeTaskMessage(
-                                                            candidateDetail?.candidate.display_status_reason || "",
-                                                            currentScreeningTaskType || candidateDetail?.candidate.active_screening_task_type,
-                                                            autoRetry,
-                                                        );
-                                                        const primary = displayReason || logMsg || tr.taskRunning;
-                                                        const secondary = displayReason && logMsg && logMsg !== displayReason ? logMsg : null;
-                                                        return (
-                                                            <>
-                                                                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{primary}</p>
-                                                                {secondary ? <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{secondary}</p> : null}
-                                                            </>
-                                                        );
-                                                    })()}
-                                                </div>
-                                                <div className="flex flex-wrap items-center gap-2">
-                                                    {currentScreeningTaskType ? (
-                                                        <Badge variant="outline" className="rounded-full">
-                                                            {labelForTaskType(currentScreeningTaskType)}
-                                                        </Badge>
-                                                    ) : null}
-                                                    <Badge variant="outline" className="rounded-full">
-                                                        {labelForScreeningTaskStage(currentScreeningTaskStage)}
-                                                    </Badge>
-                                                    {currentScreeningTaskStatus ? (
-                                                        <Badge className={cn("rounded-full border", statusBadgeClass("task", currentScreeningTaskStatus))}>
-                                                            {labelForTaskExecutionStatus(currentScreeningTaskStatus)}
-                                                        </Badge>
-                                                    ) : null}
-                                                </div>
-                                            </div>
-                                        </div>
-                                    ) : null}
-                                    {candidateDetailToolbarHasOverflow ? (
-                                        <div className="mt-1">
-                                            <div
-                                                ref={candidateDetailToolbarRailRef}
-                                                onScroll={handleCandidateDetailToolbarRailScroll}
-                                                className={cn("overflow-x-auto overflow-y-hidden", SMOOTH_HORIZONTAL_SCROLLBAR_CLASS)}
-                                            >
-                                                <div style={{width: candidateDetailToolbarRailWidth, height: 1}}/>
-                                            </div>
-                                        </div>
-                                    ) : null}
-                                </div>
-                            </div>
 
-                            <div className="min-h-0 flex-1 p-4">
-                                <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-[26px] border border-slate-200/80 bg-slate-50/70 dark:border-slate-800 dark:bg-slate-900/50">
-                                    <div className={cn("min-h-0 flex-1 overflow-y-auto", SMOOTH_VERTICAL_SCROLLBAR_CLASS)}>
-                                        <div className="min-w-0 space-y-4 px-4 py-4">
-                                    {candidateDetailPanel === "profile" ? (
+                                    <div className="flex min-w-0 items-center gap-3 pb-3">
+                                        <div className="min-w-0 flex-1">
+                                            <NativeSelect
+                                                className="h-8 rounded-[3px] border-slate-200 text-[13px]"
+                                                value={primaryResumeFile ? String(primaryResumeFile.id) : ""}
+                                                onChange={(event) => {
+                                                    const nextId = Number(event.target.value);
+                                                    setSelectedResumeFileId(Number.isFinite(nextId) ? nextId : null);
+                                                    setCandidateResumeView("original");
+                                                }}
+                                            >
+                                                {resumeFiles.length ? (
+                                                    resumeFiles.map((file) => (
+                                                        <option key={file.id} value={String(file.id)}>{file.original_name}</option>
+                                                    ))
+                                                ) : (
+                                                    <option value="">{tr.noResumeFile}</option>
+                                                )}
+                                            </NativeSelect>
+                                        </div>
+	                                    </div>
+                                </div>
+
+                                <div className="bg-white">
+                                    <div className="mx-auto min-w-0 max-w-[820px] space-y-6 px-8 py-7">
+                                    {candidateDetailPanel === "resume" ? (
                                         <>
-                                            {duplicateCandidates.length > 0 && (
-                                                <details className="rounded-2xl border border-amber-200 bg-amber-50/70 px-4 py-3 dark:border-amber-900/80 dark:bg-amber-950/30">
-                                                    <summary className="cursor-pointer text-base font-medium text-amber-800 dark:text-amber-200">
+	                                            {duplicateCandidates.length > 0 && (
+	                                                <details className="rounded-2xl border border-amber-200 bg-amber-50/70 px-4 py-3 dark:border-amber-900/80 dark:bg-amber-950/30">
+                                                    <summary className="cursor-pointer text-sm font-medium text-amber-800 dark:text-amber-200">
                                                         {tr.duplicateWarning}（{duplicateCandidates.length}）
                                                     </summary>
-                                                    <p className="mt-1 text-sm text-amber-700 dark:text-amber-300">{tr.duplicateWarningDesc(duplicateCandidates.length)}</p>
+                                                    <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">{tr.duplicateWarningDesc(duplicateCandidates.length)}</p>
                                                     <div className="mt-2 flex flex-wrap gap-1.5">
                                                         {duplicateCandidates.map((dup) => (
                                                             <Button
                                                                 key={dup.id}
                                                                 size="sm"
                                                                 variant="outline"
-                                                                className="h-6 rounded-full border-amber-300 px-2 text-sm text-amber-800 hover:bg-amber-100 dark:border-amber-800 dark:text-amber-200 dark:hover:bg-amber-900/40"
+                                                                className="h-6 rounded-full border-amber-300 px-2 text-xs text-amber-800 hover:bg-amber-100 dark:border-amber-800 dark:text-amber-200 dark:hover:bg-amber-900/40"
                                                                 onClick={() => setSelectedCandidateId(dup.id)}
                                                             >
                                                                 {dup.name} ({dup.candidate_code})
                                                             </Button>
                                                         ))}
                                                     </div>
-                                                </details>
-                                            )}
+		                                                </details>
+		                                            )}
 
-                                            <Field label={tr.baseInfo}>
+                                            {candidateResumeView === "original" ? (
+                                            <div className="overflow-hidden rounded-[4px] bg-white">
+                                                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3">
+                                                    <div className="min-w-0">
+                                                        <p className="truncate text-[14px] font-medium text-slate-900">
+                                                            {primaryResumeFile ? primaryResumeFile.original_name : tr.noResumeFile}
+                                                        </p>
+                                                        <p className="mt-0.5 text-[12px] text-slate-500">
+                                                            {primaryResumeFile
+                                                                ? tr.resumeFileDesc(primaryResumeFile.file_ext || "-", primaryResumeFile.file_size || 0, primaryResumeFile.parse_status)
+                                                                : tr.resumeFileEmptyDesc}
+                                                        </p>
+                                                    </div>
+                                                    {primaryResumeFile ? (
+                                                        <div className="flex items-center gap-2">
+                                                            <Button size="sm" variant="outline" className="h-8 rounded-[4px] px-3 text-[13px]" onClick={() => void openResumeFile(primaryResumeFile, false)}>
+                                                                <ExternalLink className="h-3.5 w-3.5"/>
+                                                                {isZh ? "新窗口打开" : "Open"}
+                                                            </Button>
+                                                            <Button size="sm" variant="outline" className="h-8 rounded-[4px] px-3 text-[13px]" onClick={() => void openResumeFile(primaryResumeFile, true)}>
+                                                                <Download className="h-3.5 w-3.5"/>
+                                                                {tr.downloadResume}
+                                                            </Button>
+                                                        </div>
+                                                    ) : null}
+                                                </div>
+                                                <div className="relative h-[min(70vh,720px)] min-h-[560px] overflow-hidden bg-white">
+                                                    {inlineResumePreviewLoading || ((inlineResumePreviewBlob || inlineResumePreviewUrl) && !inlineResumeFrameReady) ? (
+                                                        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-white/90 text-slate-500">
+                                                            <Loader2 className="h-8 w-8 animate-spin text-[#243cff]"/>
+                                                            <span className="text-[14px]">{isZh ? "正在加载原始简历..." : "Loading original resume..."}</span>
+                                                        </div>
+                                                    ) : null}
+                                                    {inlineResumePreviewBlob && !inlineResumePreviewFallback ? (
+                                                        <div
+                                                            className={cn(
+                                                                "absolute inset-0 bg-white transition-opacity duration-150",
+                                                                inlineResumeFrameReady ? "opacity-100" : "opacity-0",
+                                                            )}
+                                                        >
+                                                            <InlineResumePdfPreview
+                                                                blob={inlineResumePreviewBlob}
+                                                                fileName={primaryResumeFile?.original_name || "Original Resume"}
+                                                                isZh={isZh}
+                                                                onReady={handleInlineResumeFrameLoad}
+                                                                onError={handleInlineResumePreviewError}
+                                                            />
+                                                        </div>
+                                                    ) : inlineResumePreviewUrl ? (
+                                                        <iframe
+                                                            src={`${inlineResumePreviewUrl}#toolbar=0&navpanes=0&view=FitH&scrollbar=0`}
+                                                            className={cn(
+                                                                "absolute -left-7 -top-1 h-[calc(100%+8px)] w-[calc(100%+56px)] border-0 bg-white transition-opacity duration-150",
+                                                                inlineResumeFrameReady ? "opacity-100" : "opacity-0",
+                                                            )}
+                                                            style={{colorScheme: "light", backgroundColor: "#fff"}}
+                                                            title={primaryResumeFile?.original_name || "Original Resume"}
+                                                            onLoad={handleInlineResumeFrameLoad}
+                                                        />
+                                                    ) : !inlineResumePreviewLoading ? (
+                                                        <div className="flex h-full items-center justify-center px-6">
+                                                            <EmptyState
+                                                                title={primaryResumeFile ? (isZh ? "原始简历暂无法显示" : "Original Resume Unavailable") : tr.noResumeFile}
+                                                                description={inlineResumePreviewError || (primaryResumeFile ? (isZh ? "可使用上方按钮在新窗口打开或下载文件。" : "Use the actions above to open or download the file.") : tr.resumeFileEmptyDesc)}
+                                                            />
+                                                        </div>
+                                                    ) : null}
+                                                </div>
+                                            </div>
+                                            ) : null}
+
+                                            {candidateResumeView === "standard" ? (
+                                            <>
+                                            <div className="rounded-[4px] border border-slate-100 bg-white px-10 py-8 shadow-[0_1px_8px_rgba(15,23,42,0.04)]">
+                                                <div className="flex items-start gap-5 border-b border-slate-100 pb-6">
+                                                    <CandidateDetailAvatar name={candidateDetail.candidate.name}/>
+                                                    <div className="min-w-0 flex-1">
+                                                        <div className="flex flex-wrap items-center gap-4">
+                                                            <h4 className="text-[20px] font-semibold text-slate-900">{candidateDetail.candidate.name}</h4>
+                                                            <span className="text-[14px] text-slate-500">{candidateDetail.candidate.age ? `${candidateDetail.candidate.age}${isZh ? "岁" : ""}` : "--"}</span>
+                                                            <span className="text-[14px] text-slate-500">{candidateDetail.candidate.education || readStructuredText(parsedResumeEducation, ["degree", "education", "学历"]) || "-"}</span>
+                                                        </div>
+                                                        <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2">
+                                                            <CandidateMetaItem icon={GraduationCap}>{candidateDetail.candidate.education || readStructuredText(parsedResumeEducation, ["school", "school_name", "university", "学校"]) || "-"}</CandidateMetaItem>
+                                                            <CandidateMetaItem icon={Briefcase}>{candidateDetail.candidate.current_company || readStructuredText(parsedResumeWork, ["company", "company_name", "公司"]) || "-"}</CandidateMetaItem>
+                                                            <CandidateMetaItem icon={MapPin}>{candidateDetail.candidate.city || candidateDetail.candidate.expected_city || readStructuredText(parsedResumeBasicInfo, ["city", "current_city", "location", "城市"]) || "-"}</CandidateMetaItem>
+                                                            <CandidateMetaItem icon={FileText}>{primaryResumeFile?.parse_status || "-"}</CandidateMetaItem>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                <div className="mt-7 space-y-7">
+                                                    <ResumeSection title={isZh ? "个人信息" : "Personal Info"}>
+                                                        <div className="grid gap-y-4 text-[14px] text-slate-700 sm:grid-cols-2">
+                                                            <div><span className="mr-10 text-slate-400">{isZh ? "姓名" : "Name"}</span>{candidateDetail.candidate.name}</div>
+                                                            <div><span className="mr-10 text-slate-400">{isZh ? "年龄" : "Age"}</span>{candidateDetail.candidate.age || "-"}</div>
+                                                            <div><span className="mr-10 text-slate-400">{isZh ? "手机" : "Phone"}</span>{candidateDetail.candidate.phone || "-"}</div>
+                                                            <div><span className="mr-10 text-slate-400">{isZh ? "邮箱" : "Email"}</span>{candidateDetail.candidate.email || "-"}</div>
+                                                        </div>
+                                                    </ResumeSection>
+
+                                                    <ResumeSection title={isZh ? "求职意向" : "Job Intention"}>
+                                                        <div className="grid gap-y-4 text-[14px] text-slate-700 sm:grid-cols-2">
+                                                            <div><span className="mr-10 text-slate-400">{isZh ? "应聘职位" : "Position"}</span>{candidateDetail.candidate.position_title || candidateDetail.candidate.ai_match_position_title || tr.unassignedPosition}</div>
+                                                            <div><span className="mr-10 text-slate-400">{isZh ? "期望城市" : "Expected City"}</span>{candidateDetail.candidate.expected_city || candidateDetail.candidate.city || "-"}</div>
+                                                        </div>
+                                                    </ResumeSection>
+
+                                                    <ResumeSection title={isZh ? "教育经历" : "Education"}>
+                                                        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-[14px] text-slate-700">
+                                                            <span className="font-medium text-slate-900">{readStructuredText(parsedResumeEducation, ["school", "school_name", "university", "学校"]) || "-"}</span>
+                                                            <span>{readStructuredText(parsedResumeEducation, ["major", "专业"]) || "-"}</span>
+                                                            <span>{candidateDetail.candidate.education || readStructuredText(parsedResumeEducation, ["degree", "education", "学历"]) || "-"}</span>
+                                                            <span className="text-slate-400">{readStructuredText(parsedResumeEducation, ["start_date", "end_date", "time_range", "时间"]) || ""}</span>
+                                                        </div>
+                                                    </ResumeSection>
+
+                                                    <ResumeSection title={isZh ? "工作经历" : "Work Experience"}>
+                                                        <div className="space-y-2 text-[14px] leading-7 text-slate-700">
+                                                            <p className="font-medium text-slate-900">{candidateDetail.candidate.current_company || readStructuredText(parsedResumeWork, ["company", "company_name", "公司"]) || "-"}</p>
+                                                            <p>{readStructuredText(parsedResumeWork, ["position", "job_title", "title", "职位"]) || candidateDetail.candidate.years_of_experience || "-"}</p>
+                                                            {readStructuredText(parsedResumeWork, ["description", "职责", "work_content", "summary"]) ? (
+                                                                <p className="whitespace-pre-wrap text-slate-600">{readStructuredText(parsedResumeWork, ["description", "职责", "work_content", "summary"])}</p>
+                                                            ) : null}
+                                                        </div>
+                                                    </ResumeSection>
+
+                                                    {parsedResumeSkills.length ? (
+                                                        <ResumeSection title={isZh ? "技能标签" : "Skills"}>
+                                                            <div className="flex flex-wrap gap-2">
+                                                                {parsedResumeSkills.map((skill) => (
+                                                                    <span key={skill} className="rounded-[3px] bg-slate-100 px-2.5 py-1 text-[13px] text-slate-600">{skill}</span>
+                                                                ))}
+                                                            </div>
+                                                        </ResumeSection>
+                                                    ) : null}
+                                                </div>
+                                            </div>
+
+	                                            <Field label={tr.baseInfo}>
                                                 <div className="grid gap-3 md:grid-cols-2">
                                                     <Input value={candidateEditor.name} onChange={(event) => setCandidateEditor((current) => ({...current, name: event.target.value}))} placeholder={tr.namePlaceholder}/>
                                                     <Input value={candidateEditor.phone} onChange={(event) => setCandidateEditor((current) => ({...current, phone: event.target.value}))} placeholder={tr.phonePlaceholder}/>
@@ -3000,6 +4156,94 @@ export function CandidatesPage({
                                                 </div>
                                             </Field>
 
+                                            <div className="rounded-md border border-slate-200 bg-white px-4 py-4 dark:border-slate-800 dark:bg-slate-950">
+                                                <div className="flex flex-wrap items-start justify-between gap-3">
+                                                    <div className="min-w-0 flex-1">
+                                                        <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                                                            {primaryResumeFile ? primaryResumeFile.original_name : tr.noResumeFile}
+                                                        </p>
+                                                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                                            {primaryResumeFile
+                                                                ? tr.resumeFileDesc(primaryResumeFile.file_ext || "-", primaryResumeFile.file_size || 0, primaryResumeFile.parse_status)
+                                                                : tr.resumeFileEmptyDesc}
+                                                        </p>
+                                                    </div>
+                                                    {primaryResumeFile ? (
+                                                        <div className="flex flex-wrap gap-2">
+                                                            <Button size="sm" variant="outline" onClick={() => void openResumeFile(primaryResumeFile, true)}>{tr.downloadResume}</Button>
+                                                            <Button
+                                                                size="sm"
+                                                                variant="outline"
+                                                                className="border-rose-200 text-rose-600 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700 dark:border-rose-900/80 dark:text-rose-200 dark:hover:bg-rose-950/30"
+                                                                onClick={() => requestDeleteResumeFile(primaryResumeFile)}
+                                                            >
+                                                                <Trash2 className="h-4 w-4"/>
+                                                                {tr.deleteResume}
+                                                            </Button>
+                                                        </div>
+                                                    ) : null}
+                                                </div>
+                                                {primaryResumeFile?.parse_error ? (
+                                                    <div className="mt-3 rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-base text-rose-700 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-200">
+                                                        {tr.parseErrorLine(primaryResumeFile.parse_error)}
+                                                    </div>
+                                                ) : null}
+                                            </div>
+                                            </>
+                                            ) : null}
+
+                                            {candidateResumeView === "history" ? (
+                                                <div className="rounded-[4px] bg-white px-5 py-4">
+                                                    {resumeFiles.length ? (
+                                                        <div className="space-y-3">
+                                                            {resumeFiles.map((file) => {
+                                                                const active = primaryResumeFile?.id === file.id;
+                                                                return (
+                                                                    <div
+                                                                        key={file.id}
+                                                                        className={cn(
+                                                                            "flex flex-wrap items-center justify-between gap-3 rounded-[4px] border px-4 py-3",
+                                                                            active ? "border-[#243cff] bg-blue-50/60" : "border-slate-200 bg-white",
+                                                                        )}
+                                                                    >
+                                                                        <div className="min-w-0">
+                                                                            <p className="truncate text-[14px] font-medium text-slate-900">{file.original_name}</p>
+                                                                            <p className="mt-1 text-[12px] text-slate-500">
+                                                                                {tr.resumeFileDesc(file.file_ext || "-", file.file_size || 0, file.parse_status)}
+                                                                            </p>
+                                                                        </div>
+                                                                        <div className="flex items-center gap-2">
+                                                                            <Button
+                                                                                size="sm"
+                                                                                variant={active ? "default" : "outline"}
+                                                                                className={cn("h-8 rounded-[4px] px-3 text-[13px]", active && "bg-[#243cff] text-white hover:bg-[#1730e8]")}
+                                                                                onClick={() => {
+                                                                                    setSelectedResumeFileId(file.id);
+                                                                                    setCandidateResumeView("original");
+                                                                                }}
+                                                                            >
+                                                                                {isZh ? "查看原始简历" : "View Original"}
+                                                                            </Button>
+                                                                            <Button size="sm" variant="outline" className="h-8 rounded-[4px] px-3 text-[13px]" onClick={() => void openResumeFile(file, true)}>
+                                                                                <Download className="h-3.5 w-3.5"/>
+                                                                                {tr.downloadResume}
+                                                                            </Button>
+                                                                        </div>
+                                                                    </div>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    ) : (
+                                                        <EmptyState title={tr.noResumeFile} description={tr.resumeFileEmptyDesc}/>
+                                                    )}
+                                                </div>
+                                            ) : null}
+                                        </>
+                                    ) : null}
+
+                                    {candidateDetailPanel === "screening" ? (
+                                        <>
+
                                             <Field label={tr.statusFlow}>
                                                 <div className="space-y-3">
                                                     <div className="flex flex-wrap gap-2">
@@ -3025,10 +4269,10 @@ export function CandidatesPage({
                                                                         </Button>
                                                                     </PopoverTrigger>
                                                                     <PopoverContent className="w-56 p-3" side="bottom" align="start">
-                                                                        <p className="text-base font-medium text-slate-900 dark:text-slate-100">
+                                                                        <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
                                                                             {tr.confirmStatusChange(label)}
                                                                         </p>
-                                                                        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                                                                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                                                                             {tr.currentStatusLine(labelForCandidateStatus(resolveCandidateDisplayStatus(candidateDetail.candidate)))}
                                                                         </p>
                                                                         <div className="mt-3 flex gap-2">
@@ -3054,12 +4298,12 @@ export function CandidatesPage({
                                                         {candidateDetail.status_history.length ? candidateDetail.status_history.map((history) => (
                                                             <div key={history.id} className="rounded-2xl border border-slate-200/80 px-4 py-4 dark:border-slate-800">
                                                                 <div className="flex items-center justify-between gap-3">
-                                                                    <p className="text-base font-medium text-slate-900 dark:text-slate-100">
+                                                                    <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
                                                                         {labelForCandidateStatus(history.from_status || "")} → {labelForCandidateStatus(history.to_status)}
                                                                     </p>
-                                                                    <p className="text-sm text-slate-500 dark:text-slate-400">{formatDateTime(history.created_at)}</p>
+                                                                    <p className="text-xs text-slate-500 dark:text-slate-400">{formatDateTime(history.created_at)}</p>
                                                                 </div>
-                                                                <p className="mt-2 text-base text-slate-600 dark:text-slate-300">{history.reason || tr.noReasonProvided}</p>
+                                                                <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{history.reason || tr.noReasonProvided}</p>
                                                             </div>
                                                         )) : (
                                                             <EmptyState title={tr.noStatusHistory} description={tr.noStatusHistoryDesc}/>
@@ -3068,9 +4312,115 @@ export function CandidatesPage({
                                                 </div>
                                             </Field>
 
+                                            <Field label={tr.screeningMemory}>
+                                                {candidateDetail.workflow_memory ? (
+                                                    <div className="grid gap-3 md:grid-cols-2">
+                                                        <InfoTile label={tr.memorySource} value={labelForMemorySource(candidateDetail.workflow_memory.screening_memory_source)}/>
+                                                        <InfoTile label={tr.lastScreeningTime} value={formatLongDateTime(candidateDetail.workflow_memory.last_screened_at)}/>
+                                                        <InfoTile label={tr.screeningSkills} value={formatSkillNames(candidateDetail.workflow_memory.screening_skill_ids, skillMap, language)}/>
+                                                        <InfoTile label={tr.interviewSkills} value={formatSkillNames(candidateDetail.workflow_memory.interview_skill_ids, skillMap, language)}/>
+                                                    </div>
+                                                ) : (
+                                                    <EmptyState title={tr.noScreeningMemory} description={tr.noScreeningMemoryDesc}/>
+                                                )}
+                                                <p className="mt-3 break-words text-xs leading-6 text-slate-500 dark:text-slate-400">
+                                                    {tr.screeningMemoryHint(effectiveScreeningSkillSourceLabel)}
+                                                </p>
+                                                <p className="mt-2 break-words text-xs leading-6 text-slate-500 dark:text-slate-400">
+                                                    {tr.screeningSkillPreview(formatSkillNames(effectiveScreeningSkillIds, skillMap, language))}
+                                                </p>
+                                            </Field>
+
+                                            <Field label={tr.aiAssistant}>
+                                                <div className="rounded-md border border-slate-200 bg-slate-50 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/60">
+                                                    <div className="flex flex-wrap items-start justify-between gap-3">
+                                                        <div className="min-w-0 flex-1">
+                                                            <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{tr.assistantPackedTitle}</p>
+                                                            <p className="mt-1 break-words text-xs leading-6 text-slate-500 dark:text-slate-400">
+                                                                {candidateAssistantActivity.length
+                                                                    ? tr.assistantPackedDescWithCount(candidateAssistantActivity.length)
+                                                                    : tr.assistantPackedDescEmpty}
+                                                            </p>
+                                                        </div>
+                                                        <Button size="sm" variant="outline" onClick={() => openAssistantMode("drawer")}>
+                                                            <Bot className="h-4 w-4"/>
+                                                            {tr.openAiAssistant}
+                                                        </Button>
+                                                    </div>
+                                                </div>
+                                            </Field>
+
+                                            <Field label={tr.aiExecutionLogs}>
+                                                <div className="space-y-3">
+                                                    {candidateProcessActivity.length ? (
+                                                        <>
+                                                            <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-slate-200 bg-slate-50 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/60">
+                                                                <div className="min-w-0">
+                                                                    <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                                                                        {tr.recordedLogs(candidateProcessActivity.length)}
+                                                                    </p>
+                                                                    <p className="mt-1 break-words text-xs text-slate-500 dark:text-slate-400">
+                                                                        {tr.logsCollapsedHint}
+                                                                    </p>
+                                                                </div>
+                                                                <Button size="sm" variant="outline" onClick={() => setCandidateProcessLogsExpanded((current) => !current)}>
+                                                                    {candidateProcessLogsExpanded ? tr.collapseLogs : tr.expandLogs}
+                                                                </Button>
+                                                            </div>
+                                                            {candidateProcessLogsExpanded ? candidateProcessActivity.map((log) => {
+                                                                const logSkillSnapshots = resolveLogSkillSnapshots(log, skillMap);
+                                                                return (
+                                                                    <div key={log.id} className="rounded-md border border-slate-200 px-4 py-4 dark:border-slate-800">
+                                                                        <div className="flex flex-wrap items-start justify-between gap-3">
+                                                                            <div className="min-w-0 flex-1">
+                                                                                <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{labelForTaskType(log.task_type)}</p>
+                                                                                <p className="mt-1 break-words text-xs text-slate-500 dark:text-slate-400">{labelForProvider(log.model_provider)} · {log.model_name || "-"} · {formatLongDateTime(log.created_at)}</p>
+                                                                            </div>
+                                                                            <Badge className={cn("rounded border", statusBadgeClass("task", log.status))}>
+                                                                                {labelForTaskExecutionStatus(log.status)}
+                                                                            </Badge>
+                                                                        </div>
+                                                                        <div className="mt-3 grid gap-3 md:grid-cols-2">
+                                                                            <InfoTile label={tr.screeningSkills} value={formatSkillSnapshotNames(logSkillSnapshots, language)}/>
+                                                                            <InfoTile label={tr.memorySource} value={labelForMemorySource(log.memory_source)}/>
+                                                                        </div>
+                                                                        {log.error_message ? (
+                                                                            <p className="mt-3 break-all text-sm text-rose-600">
+                                                                                {sanitizeTaskMessage(
+                                                                                    log.error_message,
+                                                                                    log.task_type,
+                                                                                    Boolean(log.status === "queued"),
+                                                                                )}
+                                                                            </p>
+                                                                        ) : null}
+                                                                        <OutputSnippet content={formatStructuredValue(
+                                                                            log.output_snapshot,
+                                                                            sanitizeTaskMessage(
+                                                                                log.output_summary || tr.runningAwaitModel,
+                                                                                log.task_type,
+                                                                                Boolean(log.status === "queued"),
+                                                                            ),
+                                                                        )}/>
+                                                                        <div className="mt-3 flex flex-wrap gap-2">
+                                                                            <Button size="sm" variant="outline" onClick={() => openTaskLogDetail(log.id)}>{tr.viewFullLog}</Button>
+                                                                        </div>
+                                                                    </div>
+                                                                );
+                                                            }) : null}
+                                                        </>
+                                                    ) : (
+                                                        <EmptyState title={tr.noAiLogs} description={tr.noAiLogsDesc}/>
+                                                    )}
+                                                </div>
+                                            </Field>
+                                        </>
+                                    ) : null}
+
+                                    {candidateDetailPanel === "offer" ? (
+                                        <>
                                             <div className="rounded-2xl border border-slate-200/80 bg-white/85 px-4 py-4 dark:border-slate-800 dark:bg-slate-950/70">
                                                 <div className="flex flex-wrap items-center justify-between gap-2">
-                                                    <p className="text-base font-medium text-slate-900 dark:text-slate-100">{tr.offers}</p>
+                                                    <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{tr.offers}</p>
                                                     <Button size="sm" variant="outline" onClick={() => { setOfferForm({offer_title: "", salary: "", department: "", entry_date: "", offer_content: "", notes: ""}); setOfferFormOpen(!offerFormOpen); }}>
                                                         <Plus className="h-4 w-4"/>
                                                         {tr.addOffer}
@@ -3119,19 +4469,19 @@ export function CandidatesPage({
                                                                 <div className="flex items-start justify-between gap-2">
                                                                     <div className="min-w-0 flex-1">
                                                                         <div className="flex items-center gap-2">
-                                                                            <p className="text-base font-medium text-slate-900 dark:text-slate-100">{offer.offer_title || "-"}</p>
-                                                                            <Badge variant="outline" className="rounded-full text-sm">{statusLabels[offer.status] || offer.status}</Badge>
+                                                                            <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{offer.offer_title || "-"}</p>
+                                                                            <Badge variant="outline" className="rounded-full text-xs">{statusLabels[offer.status] || offer.status}</Badge>
                                                                         </div>
-                                                                        {offer.salary && <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">{offer.salary}</p>}
-                                                                        {offer.department && <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">{offer.department}</p>}
-                                                                        {offer.entry_date && <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">{offer.entry_date}</p>}
-                                                                        {offer.offer_content && <p className="mt-1 text-sm text-slate-600 dark:text-slate-300 whitespace-pre-wrap">{offer.offer_content}</p>}
+                                                                        {offer.salary && <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{offer.salary}</p>}
+                                                                        {offer.department && <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{offer.department}</p>}
+                                                                        {offer.entry_date && <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{offer.entry_date}</p>}
+                                                                        {offer.offer_content && <p className="mt-1 text-xs text-slate-600 dark:text-slate-300 whitespace-pre-wrap">{offer.offer_content}</p>}
                                                                     </div>
                                                                     <div className="flex items-center gap-1">
                                                                         <NativeSelect
                                                                             value={offer.status}
                                                                             onChange={(e) => void updateOffer(offer.id, {status: e.target.value})}
-                                                                            className="h-6 text-sm"
+                                                                            className="h-6 text-xs"
                                                                         >
                                                                             <option value="draft">{tr.offerStatusDraft}</option>
                                                                             <option value="sent">{tr.offerStatusSent}</option>
@@ -3151,10 +4501,20 @@ export function CandidatesPage({
                                                     )}
                                                 </div>
                                             </div>
+                                        </>
+                                    ) : null}
 
+                                    {candidateDetailPanel === "background" ? (
+                                        <>
+                                            <div className="rounded-md border border-slate-200 bg-white px-4 py-4 dark:border-slate-800 dark:bg-slate-950">
+                                                <p className="text-base font-medium text-slate-900 dark:text-slate-100">{isZh ? "背调信息" : "Background Check"}</p>
+                                                <p className="mt-1 text-sm leading-6 text-slate-500 dark:text-slate-400">
+                                                    {isZh ? "当前系统还没有独立背调数据模型，先把跟进记录放在这里承接；后续新增背调供应商、授权、报告状态时可以直接扩展本页。" : "No dedicated background-check data model is available yet. Follow-up notes are shown here for now and can be extended with providers, authorizations, and report status later."}
+                                                </p>
+                                            </div>
                                             <div className="rounded-2xl border border-slate-200/80 bg-white/85 px-4 py-4 dark:border-slate-800 dark:bg-slate-950/70">
                                                 <div className="flex flex-wrap items-center justify-between gap-2">
-                                                    <p className="text-base font-medium text-slate-900 dark:text-slate-100">{tr.followUps}</p>
+                                                    <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{tr.followUps}</p>
                                                     <Button size="sm" variant="outline" onClick={() => { setFollowUpContent(""); setFollowUpType("note"); setFollowUpFormOpen(!followUpFormOpen); }}>
                                                         <Plus className="h-4 w-4"/>
                                                         {tr.addFollowUp}
@@ -3164,7 +4524,7 @@ export function CandidatesPage({
                                                     <div className="mt-3 space-y-2 rounded-xl border border-slate-200/70 bg-slate-50/50 p-3 dark:border-slate-800 dark:bg-slate-900/50">
                                                         <Textarea value={followUpContent} onChange={(e) => setFollowUpContent(e.target.value)} rows={3} placeholder={tr.followUpContentPlaceholder}/>
                                                         <div className="flex items-center gap-2">
-                                                            <NativeSelect value={followUpType} onChange={(e) => setFollowUpType(e.target.value)} className="h-8 text-sm">
+                                                            <NativeSelect value={followUpType} onChange={(e) => setFollowUpType(e.target.value)} className="h-8 text-xs">
                                                                 <option value="note">{tr.followUpTypeNote}</option>
                                                                 <option value="call">{tr.followUpTypeCall}</option>
                                                                 <option value="email">{tr.followUpTypeEmail}</option>
@@ -3197,10 +4557,10 @@ export function CandidatesPage({
                                                                 <div className="flex items-start justify-between gap-2">
                                                                     <div className="min-w-0 flex-1">
                                                                         <div className="flex items-center gap-2">
-                                                                            <Badge variant="outline" className="rounded-full text-sm">{typeLabels[fu.follow_up_type] || fu.follow_up_type}</Badge>
-                                                                            {fu.created_at && <span className="text-sm text-slate-400 dark:text-slate-500">{formatDateTime(fu.created_at)}</span>}
+                                                                            <Badge variant="outline" className="rounded-full text-xs">{typeLabels[fu.follow_up_type] || fu.follow_up_type}</Badge>
+                                                                            {fu.created_at && <span className="text-xs text-slate-400 dark:text-slate-500">{formatDateTime(fu.created_at)}</span>}
                                                                         </div>
-                                                                        <p className="mt-1 text-base text-slate-700 dark:text-slate-300 whitespace-pre-wrap">{fu.content}</p>
+                                                                        <p className="mt-1 text-sm text-slate-700 dark:text-slate-300 whitespace-pre-wrap">{fu.content}</p>
                                                                     </div>
                                                                     <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-rose-500 hover:text-rose-700" onClick={() => { if (window.confirm(tr.confirmDeleteFollowUp)) void deleteFollowUp(fu.id); }}>
                                                                         <Trash2 className="h-3.5 w-3.5"/>
@@ -3216,11 +4576,11 @@ export function CandidatesPage({
                                         </>
                                     ) : null}
 
-                                    {candidateDetailPanel === "ai" ? (
+                                    {candidateDetailPanel === "assessment" ? (
                                         <>
                                             <div className="min-w-0 space-y-2">
                                                 <div className="flex flex-wrap items-center justify-between gap-3">
-                                                    <p className="text-base font-medium text-slate-900 dark:text-slate-100">{tr.aiScoreAndAdvice}</p>
+                                                    <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{tr.aiScoreAndAdvice}</p>
                                                     <Button
                                                         size="sm"
                                                         variant="outline"
@@ -3234,7 +4594,7 @@ export function CandidatesPage({
                                                     <div className="rounded-2xl border border-slate-200/80 bg-slate-50/70 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/60">
                                                         <div className="flex flex-wrap items-start justify-between gap-3">
                                                             <div className="min-w-0 flex-1">
-                                                                <p className="text-4xl font-semibold text-slate-900 dark:text-slate-100">
+                                                                <p className="text-3xl font-semibold text-slate-900 dark:text-slate-100">
                                                                     {candidateScoreDisplayValues.totalScore !== null
                                                                         ? formatScoreValue(
                                                                             candidateScoreDisplayValues.totalScore,
@@ -3242,7 +4602,7 @@ export function CandidatesPage({
                                                                         )
                                                                         : "-"}
                                                                 </p>
-                                                            <p className="mt-1 break-words text-base text-slate-500 dark:text-slate-400">
+                                                            <p className="mt-1 break-words text-sm text-slate-500 dark:text-slate-400">
                                                                 {tr.aiRecommendationLine(
                                                                     candidateScoreDecisionValues.recommendation || "-",
                                                                     labelForCandidateStatus(candidateScoreDecisionValues.suggestedStatus) || "-",
@@ -3262,9 +4622,9 @@ export function CandidatesPage({
                                                             </Badge>
                                                         </div>
                                                     </div>
-                                                    <div className="mt-4 space-y-3 text-base text-slate-600 dark:text-slate-300">
+                                                    <div className="mt-4 space-y-3 text-sm text-slate-600 dark:text-slate-300">
                                                         {Array.isArray(candidateDetail.score?.validation_warnings) && candidateDetail.score.validation_warnings.length > 0 ? (
-                                                            <details className="rounded-xl border border-amber-200 bg-amber-50/70 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/80 dark:bg-amber-950/30 dark:text-amber-200">
+                                                            <details className="rounded-xl border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs text-amber-900 dark:border-amber-900/80 dark:bg-amber-950/30 dark:text-amber-200">
                                                                 <summary className="cursor-pointer font-medium">{tr.viewScoreWarnings}</summary>
                                                                 <ul className="mt-2 space-y-1">
                                                                     {candidateDetail.score.validation_warnings.map((item, index) => (
@@ -3347,11 +4707,11 @@ export function CandidatesPage({
                                                                         return (
                                                                             <li key={`dimension-${index}`} className="rounded-xl border border-slate-200/70 px-3 py-3 dark:border-slate-800">
                                                                                 <div className="flex items-center justify-between gap-2">
-                                                                                    <p className="text-base font-medium text-slate-900 dark:text-slate-100">
+                                                                                    <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
                                                                                         {label}
-                                                                                        {isInferred ? <span className="ml-1 text-sm text-slate-400 dark:text-slate-500">{tr.inferredDimension}</span> : null}
+                                                                                        {isInferred ? <span className="ml-1 text-xs text-slate-400 dark:text-slate-500">{tr.inferredDimension}</span> : null}
                                                                                     </p>
-                                                                                    <p className="text-base font-semibold text-slate-700 dark:text-slate-200">
+                                                                                    <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
                                                                                         {scoreValue !== null ? scoreValue : "-"} / {maxScore !== null ? maxScore : "-"}
                                                                                     </p>
                                                                                 </div>
@@ -3364,12 +4724,12 @@ export function CandidatesPage({
                                                                                     </div>
                                                                                 )}
                                                                                 {reason && (
-                                                                                    <div className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">
+                                                                                    <div className="mt-2 text-xs leading-6 text-slate-600 dark:text-slate-300">
                                                                                         <p className="font-medium text-slate-700 dark:text-slate-200">{tr.dimensionReason}:</p>
                                                                                         <p className="mt-0.5 break-words">{reason}</p>
                                                                                     </div>
                                                                                 )}
-                                                                                <div className="mt-2 text-sm leading-6 text-slate-500 dark:text-slate-400">
+                                                                                <div className="mt-2 text-xs leading-6 text-slate-500 dark:text-slate-400">
                                                                                     <p>{tr.evidence}:</p>
                                                                                     {evidences.length ? (
                                                                                         <ul className="mt-1 space-y-1">
@@ -3394,25 +4754,6 @@ export function CandidatesPage({
                                                     </div>
                                                 </div>
                                             </div>
-
-                                            <Field label={tr.screeningMemory}>
-                                                {candidateDetail.workflow_memory ? (
-                                                    <div className="grid gap-3 md:grid-cols-2">
-                                                        <InfoTile label={tr.memorySource} value={labelForMemorySource(candidateDetail.workflow_memory.screening_memory_source)}/>
-                                                        <InfoTile label={tr.lastScreeningTime} value={formatLongDateTime(candidateDetail.workflow_memory.last_screened_at)}/>
-                                                        <InfoTile label={tr.screeningSkills} value={formatSkillNames(candidateDetail.workflow_memory.screening_skill_ids, skillMap, language)}/>
-                                                        <InfoTile label={tr.interviewSkills} value={formatSkillNames(candidateDetail.workflow_memory.interview_skill_ids, skillMap, language)}/>
-                                                    </div>
-                                                ) : (
-                                                    <EmptyState title={tr.noScreeningMemory} description={tr.noScreeningMemoryDesc}/>
-                                                )}
-                                                <p className="mt-3 break-words text-sm leading-6 text-slate-500 dark:text-slate-400">
-                                                    {tr.screeningMemoryHint(effectiveScreeningSkillSourceLabel)}
-                                                </p>
-                                                <p className="mt-2 break-words text-sm leading-6 text-slate-500 dark:text-slate-400">
-                                                    {tr.screeningSkillPreview(formatSkillNames(effectiveScreeningSkillIds, skillMap, language))}
-                                                </p>
-                                            </Field>
 
                                             <div className="grid gap-4 md:grid-cols-2">
                                                 <Field label={tr.manualOverrideScore}>
@@ -3460,150 +4801,37 @@ export function CandidatesPage({
                                                 {candidateSaving ? tr.savingCandidate : tr.saveCandidateInfo}
                                             </Button>
 
-                                            <Field label={tr.aiAssistant}>
-                                                <div className="rounded-2xl border border-slate-200/80 bg-slate-50/70 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/60">
-                                                    <div className="flex flex-wrap items-start justify-between gap-3">
-                                                        <div className="min-w-0 flex-1">
-                                                            <p className="text-base font-medium text-slate-900 dark:text-slate-100">{tr.assistantPackedTitle}</p>
-                                                            <p className="mt-1 break-words text-base leading-6 text-slate-500 dark:text-slate-400">
-                                                                {candidateAssistantActivity.length
-                                                                    ? tr.assistantPackedDescWithCount(candidateAssistantActivity.length)
-                                                                    : tr.assistantPackedDescEmpty}
-                                                            </p>
-                                                            <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">{tr.defaultInterviewSource(preferredInterviewSkillSourceLabel)}</p>
-                                                            <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">{tr.actualSource(effectiveInterviewSkillSourceLabel)}</p>
-                                                        </div>
-                                                        <Button size="sm" variant="outline" onClick={() => openAssistantMode("drawer")}>
-                                                            <Bot className="h-4 w-4"/>
-                                                            {tr.openAiAssistant}
-                                                        </Button>
-                                                    </div>
-                                                </div>
-                                            </Field>
-
-                                            <Field label={tr.aiExecutionLogs}>
-                                                <div className="space-y-3">
-                                                    {candidateProcessActivity.length ? (
-                                                        <>
-                                                            <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200/80 bg-slate-50/70 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/60">
-                                                                <div className="min-w-0">
-                                                                    <p className="text-base font-medium text-slate-900 dark:text-slate-100">
-                                                                        {tr.recordedLogs(candidateProcessActivity.length)}
-                                                                    </p>
-                                                                    <p className="mt-1 break-words text-sm text-slate-500 dark:text-slate-400">
-                                                                        {tr.logsCollapsedHint}
-                                                                    </p>
-                                                                </div>
-                                                                <Button size="sm" variant="outline" onClick={() => setCandidateProcessLogsExpanded((current) => !current)}>
-                                                                    {candidateProcessLogsExpanded ? tr.collapseLogs : tr.expandLogs}
-                                                                </Button>
-                                                            </div>
-                                                            {candidateProcessLogsExpanded ? candidateProcessActivity.map((log) => {
-                                                                const logSkillSnapshots = resolveLogSkillSnapshots(log, skillMap);
-                                                                return (
-                                                                    <div key={log.id} className="rounded-2xl border border-slate-200/80 px-4 py-4 dark:border-slate-800">
-                                                                        <div className="flex flex-wrap items-start justify-between gap-3">
-                                                                            <div className="min-w-0 flex-1">
-                                                                                <p className="text-base font-medium text-slate-900 dark:text-slate-100">{labelForTaskType(log.task_type)}</p>
-                                                                                <p className="mt-1 break-words text-sm text-slate-500 dark:text-slate-400">{labelForProvider(log.model_provider)} · {log.model_name || "-"} · {formatLongDateTime(log.created_at)}</p>
-                                                                            </div>
-                                                                            <Badge className={cn("rounded-full border", statusBadgeClass("task", log.status))}>
-                                                                                {labelForTaskExecutionStatus(log.status)}
-                                                                            </Badge>
-                                                                        </div>
-                                                                        <div className="mt-3 grid gap-3 md:grid-cols-2">
-                                                                            <InfoTile label={tr.screeningSkills} value={formatSkillSnapshotNames(logSkillSnapshots, language)}/>
-                                                                            <InfoTile label={tr.memorySource} value={labelForMemorySource(log.memory_source)}/>
-                                                                        </div>
-                                                                        {log.error_message ? (
-                                                                            <p className="mt-3 break-all text-base text-rose-600">
-                                                                                {sanitizeTaskMessage(
-                                                                                    log.error_message,
-                                                                                    log.task_type,
-                                                                                    Boolean(log.status === "queued"),
-                                                                                )}
-                                                                            </p>
-                                                                        ) : null}
-                                                                        <OutputSnippet content={formatStructuredValue(
-                                                                            log.output_snapshot,
-                                                                            sanitizeTaskMessage(
-                                                                                log.output_summary || tr.runningAwaitModel,
-                                                                                log.task_type,
-                                                                                Boolean(log.status === "queued"),
-                                                                            ),
-                                                                        )}/>
-                                                                        <div className="mt-3 flex flex-wrap gap-2">
-                                                                            <Button size="sm" variant="outline" onClick={() => openTaskLogDetail(log.id)}>{tr.viewFullLog}</Button>
-                                                                        </div>
-                                                                    </div>
-                                                                );
-                                                            }) : null}
-                                                        </>
-                                                    ) : (
-                                                        <EmptyState title={tr.noAiLogs} description={tr.noAiLogsDesc}/>
-                                                    )}
-                                                </div>
-                                            </Field>
                                         </>
+                                    ) : null}
+
+                                    {candidateDetailPanel === "exam" ? (
+                                        <div className="rounded-md border border-dashed border-slate-200 bg-white px-4 py-10 dark:border-slate-800 dark:bg-slate-950">
+                                            <EmptyState
+                                                title={isZh ? "暂无考试记录" : "No Exam Records"}
+                                                description={isZh ? "考试模块先按竞品结构预留，后续接入笔试、测评考试或第三方测评后可直接落在这里。" : "The exam section is reserved for written tests, assessment exams, or third-party assessments."}
+                                            />
+                                        </div>
                                     ) : null}
 
                                     {candidateDetailPanel === "interview" ? (
                                         <div className="space-y-4">
-                                            <div className="rounded-2xl border border-slate-200/80 bg-white/85 px-4 py-4 dark:border-slate-800 dark:bg-slate-950/70">
-                                                <div className="flex flex-wrap items-start justify-between gap-3">
-                                                    <div className="min-w-0 flex-1">
-                                                        <p className="text-base font-medium text-slate-900 dark:text-slate-100">
-                                                            {primaryResumeFile ? primaryResumeFile.original_name : tr.noResumeFile}
-                                                        </p>
-                                                        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                                                            {primaryResumeFile
-                                                                ? tr.resumeFileDesc(primaryResumeFile.file_ext || "-", primaryResumeFile.file_size || 0, primaryResumeFile.parse_status)
-                                                                : tr.resumeFileEmptyDesc}
-                                                        </p>
-                                                    </div>
-                                                    {primaryResumeFile ? (
-                                                        <div className="flex flex-wrap gap-2">
-                                                            <Button size="sm" variant="outline" onClick={() => previewResumeFile({ id: primaryResumeFile.id, original_name: primaryResumeFile.original_name }, candidateDetail.candidate.name)}>
-                                                                <Eye className="mr-1 h-4 w-4"/>
-                                                                {tr.viewOriginal}
-                                                            </Button>
-                                                            <Button size="sm" variant="outline" onClick={() => void openResumeFile(primaryResumeFile, true)}>{tr.downloadResume}</Button>
-                                                            <Button
-                                                                size="sm"
-                                                                variant="outline"
-                                                                className="border-rose-200 text-rose-600 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700 dark:border-rose-900/80 dark:text-rose-200 dark:hover:bg-rose-950/30"
-                                                                onClick={() => requestDeleteResumeFile(primaryResumeFile)}
-                                                            >
-                                                                <Trash2 className="h-4 w-4"/>
-                                                                {tr.deleteResume}
-                                                            </Button>
-                                                        </div>
-                                                    ) : null}
-                                                </div>
-                                                {primaryResumeFile?.parse_error ? (
-                                                    <div className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-base text-rose-700 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-200">
-                                                        {tr.parseErrorLine(primaryResumeFile.parse_error)}
-                                                    </div>
-                                                ) : null}
-                                            </div>
-
                                             <div className="rounded-2xl border border-slate-200/80 bg-white/85 px-4 py-4 dark:border-slate-800 dark:bg-slate-950/70 space-y-3">
                                                 <div className="grid gap-3">
                                                     <Input value={interviewRoundName} onChange={(event) => setInterviewRoundName(event.target.value)} placeholder={tr.roundPlaceholder}/>
                                                     <Input value={joinTags(effectiveInterviewSkillIds.map((id) => skillMap.get(id)?.name || ""))} readOnly placeholder={tr.currentSkillsPlaceholder}/>
                                                 </div>
-                                                <p className="text-sm text-slate-500 dark:text-slate-400">{tr.defaultInterviewSource(preferredInterviewSkillSourceLabel)}</p>
+                                                <p className="text-xs text-slate-500 dark:text-slate-400">{tr.defaultInterviewSource(preferredInterviewSkillSourceLabel)}</p>
                                                 <Textarea
                                                     value={interviewCustomRequirements}
                                                     onChange={(event) => setInterviewCustomRequirements(event.target.value)}
                                                     rows={3}
                                                     placeholder={tr.interviewRequirementsPlaceholder}
                                                 />
-                                                <p className="text-sm leading-6 text-slate-500 dark:text-slate-400">
+                                                <p className="text-xs leading-6 text-slate-500 dark:text-slate-400">
                                                     {tr.actualSkills(formatSkillNames(effectiveInterviewSkillIds, skillMap, language))}
                                                 </p>
                                                 <div className="flex flex-wrap items-center justify-between gap-3">
-                                                    <p className="text-sm text-slate-500 dark:text-slate-400">{tr.actualSource(effectiveInterviewSkillSourceLabel)}</p>
+                                                    <p className="text-xs text-slate-500 dark:text-slate-400">{tr.actualSource(effectiveInterviewSkillSourceLabel)}</p>
                                                     {interviewSkillSelectionDirty ? (
                                                         <Button
                                                             size="sm"
@@ -3617,7 +4845,7 @@ export function CandidatesPage({
                                                         </Button>
                                                     ) : null}
                                                 </div>
-                                                <p className="text-sm leading-6 text-slate-500 dark:text-slate-400">
+                                                <p className="text-xs leading-6 text-slate-500 dark:text-slate-400">
                                                     {!interviewSkillSelectionDirty
                                                         ? tr.interviewSkillHintDefault
                                                         : tr.interviewSkillHintManual}
@@ -3628,7 +4856,7 @@ export function CandidatesPage({
                                                             key={skill.id}
                                                             type="button"
                                                             className={cn(
-                                                                "rounded-full border px-3 py-2 text-sm transition",
+                                                                "rounded-full border px-3 py-2 text-xs transition",
                                                                 effectiveInterviewSkillIds.includes(skill.id)
                                                                     ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
                                                                     : "border-slate-200 bg-white text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300",
@@ -3660,7 +4888,7 @@ export function CandidatesPage({
 
                                             <div className="rounded-2xl border border-slate-200/80 bg-white/85 px-4 py-4 dark:border-slate-800 dark:bg-slate-950/70">
                                                 <div className="flex flex-wrap items-center justify-between gap-2">
-                                                    <p className="text-base font-medium text-slate-900 dark:text-slate-100">{tr.interviewSchedules}</p>
+                                                    <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{tr.interviewSchedules}</p>
                                                     <Button size="sm" variant="outline" onClick={() => { setScheduleForm({round_name: interviewRoundName || defaultRoundName, interviewer_name: "", scheduled_at: "", duration_minutes: "60", location: "", meeting_link: "", notes: ""}); setScheduleFormOpen(!scheduleFormOpen); }}>
                                                         <Plus className="h-4 w-4"/>
                                                         {tr.addSchedule}
@@ -3708,20 +4936,20 @@ export function CandidatesPage({
                                                         <div key={schedule.id} className="rounded-xl border border-slate-200/70 px-3 py-2 dark:border-slate-800">
                                                             <div className="flex items-start justify-between gap-2">
                                                                 <div className="min-w-0 flex-1">
-                                                                    <p className="text-base font-medium text-slate-900 dark:text-slate-100">
+                                                                    <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
                                                                         {schedule.round_name}
                                                                         {schedule.interviewer_name ? ` · ${schedule.interviewer_name}` : ""}
                                                                     </p>
                                                                     {schedule.scheduled_at && (
-                                                                        <p className="mt-0.5 flex items-center gap-1 text-sm text-slate-500 dark:text-slate-400">
+                                                                        <p className="mt-0.5 flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
                                                                             <Calendar className="h-3 w-3"/>
                                                                             {new Date(schedule.scheduled_at).toLocaleString()}
                                                                             {schedule.duration_minutes ? ` (${schedule.duration_minutes} min)` : ""}
                                                                         </p>
                                                                     )}
-                                                                    {schedule.location && <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">{schedule.location}</p>}
-                                                                    {schedule.meeting_link && <p className="mt-0.5 text-sm text-blue-600 dark:text-blue-400 truncate">{schedule.meeting_link}</p>}
-                                                                    {schedule.notes && <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">{schedule.notes}</p>}
+                                                                    {schedule.location && <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{schedule.location}</p>}
+                                                                    {schedule.meeting_link && <p className="mt-0.5 text-xs text-blue-600 dark:text-blue-400 truncate">{schedule.meeting_link}</p>}
+                                                                    {schedule.notes && <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{schedule.notes}</p>}
                                                                 </div>
                                                                 <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-rose-500 hover:text-rose-700" onClick={() => { if (window.confirm(tr.confirmDeleteSchedule)) void deleteInterviewSchedule(schedule.id); }}>
                                                                     <Trash2 className="h-3.5 w-3.5"/>
@@ -3735,17 +4963,156 @@ export function CandidatesPage({
                                             </div>
                                         </div>
                                     ) : null}
+                                    </div>
+                                </div>
+                            </section>
+                            <aside className={cn("hidden min-h-0 overflow-y-auto bg-[#f4f7fb] px-4 py-4 lg:block", SMOOTH_VERTICAL_SCROLLBAR_CLASS)}>
+                                <div className="space-y-3">
+                                    <div className="rounded-[6px] bg-white px-5 py-5">
+                                        <div className="flex items-center justify-between">
+                                            {candidateDetailFlowSteps.map((step, index) => {
+                                                const isActive = index === candidateDetailFlowIndex;
+                                                const isDone = index < candidateDetailFlowIndex;
+                                                return (
+                                                    <React.Fragment key={step.status}>
+                                                        <span className={cn(
+                                                            "flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[12px] font-semibold",
+                                                            isActive || isDone ? "bg-[#243cff] text-white" : "bg-slate-300 text-white",
+                                                        )}>
+                                                            {index + 1}
+                                                        </span>
+                                                        {index < candidateDetailFlowSteps.length - 1 ? (
+                                                            <span className={cn("h-px flex-1 border-t border-dashed", index < candidateDetailFlowIndex ? "border-[#243cff]" : "border-slate-300")}/>
+                                                        ) : null}
+                                                    </React.Fragment>
+                                                );
+                                            })}
+                                        </div>
+                                        <div className="mt-3">
+                                            <p className="text-[15px] font-medium text-slate-900">
+                                                {candidateDetailFlowSteps[candidateDetailFlowIndex]?.label || labelForCandidateStatus(candidateDetailDisplayStatus)}
+                                            </p>
+                                            <p className="mt-1 text-[13px] text-slate-500">
+                                                {labelForCandidateStatus(candidateDetailDisplayStatus)}
+                                            </p>
+                                        </div>
+                                        <div className="mt-5 grid gap-2">
+                                            <RailActionButton tone="primary" onClick={() => void updateCandidateStatus("screening_passed")}>
+                                                {isZh ? "通过" : "Pass"}
+                                            </RailActionButton>
+                                            <RailActionButton tone="primary" onClick={() => void updateCandidateStatus("pending_screening")}>
+                                                {isZh ? "待定" : "Pending"}
+                                            </RailActionButton>
+                                            <RailActionButton tone="primary" onClick={() => void updateCandidateStatus("screening_rejected")}>
+                                                {isZh ? "淘汰" : "Reject"}
+                                            </RailActionButton>
+                                        </div>
+                                        <div className="mt-2 grid grid-cols-2 gap-2">
+                                            <RailActionButton onClick={() => void updateCandidateStatus("pending_interview")}>
+                                                {isZh ? "进入初试" : "To Interview"}
+                                            </RailActionButton>
+                                            <RailActionButton
+                                                onClick={() => void triggerScreening()}
+                                                disabled={isSelectedCandidateScreeningCancelling || (screeningSubmitting && !selectedCandidateScreeningTaskId)}
+                                            >
+                                                {isZh ? "发起业务筛选" : "Start Review"}
+                                            </RailActionButton>
+                                            <RailActionButton onClick={openCandidatePositionDialog}>
+                                                {isZh ? "转移" : "Transfer"}
+                                            </RailActionButton>
+                                            <RailActionButton onClick={() => setCandidateDetailPanel("exam")}>
+                                                {isZh ? "邀请测评" : "Assessment"}
+                                            </RailActionButton>
+                                            <RailActionButton onClick={() => openResumeMailDialog([candidateDetail.candidate.id])}>
+                                                {isZh ? "邀请更新简历" : "Update Resume"}
+                                            </RailActionButton>
+                                            <RailActionButton onClick={openCandidatePositionDialog}>
+                                                {isZh ? "推荐到职位" : "Recommend"}
+                                            </RailActionButton>
+                                            <RailActionButton onClick={() => openResumeMailDialog([candidateDetail.candidate.id])}>
+                                                {isZh ? "转发简历" : "Forward Resume"}
+                                            </RailActionButton>
+                                            <RailActionButton onClick={() => void updateCandidateStatus("talent_pool")}>
+                                                {isZh ? "储备至人才库" : "Talent Pool"}
+                                            </RailActionButton>
+                                            <RailActionButton disabled>
+                                                {isZh ? "加入黑名单" : "Blacklist"}
+                                            </RailActionButton>
+                                            <RailActionButton tone="danger" onClick={() => requestDeleteCandidate(candidateDetail.candidate)}>
+                                                {isZh ? "删除" : "Delete"}
+                                            </RailActionButton>
+                                            <RailActionButton disabled>
+                                                {isZh ? "加入人才地图" : "Talent Map"}
+                                            </RailActionButton>
+                                            <RailActionButton onClick={() => void generateInterviewQuestions()} disabled={isCurrentInterviewTaskCancelling}>
+                                                {isCurrentInterviewTaskCancelling ? tr.stopping : currentCandidateInterviewTaskId ? tr.stopGeneration : tr.interviewQuestions}
+                                            </RailActionButton>
+                                        </div>
+                                        <button type="button" className="mt-4 w-full text-center text-[13px] font-medium text-[#243cff]">
+                                            {isZh ? "操作设置" : "Action Settings"}
+                                        </button>
+                                    </div>
+                                    {shouldShowCurrentScreeningTask ? (
+                                        <div className="rounded-[6px] bg-white px-5 py-4">
+                                            <div className="flex items-center justify-between gap-2">
+                                                <p className="text-[15px] font-semibold text-slate-900">{tr.currentScreeningTask}</p>
+                                                {currentScreeningTaskStatus ? (
+                                                    <Badge className={cn("rounded-[3px] border", statusBadgeClass("task", currentScreeningTaskStatus))}>
+                                                        {labelForTaskExecutionStatus(currentScreeningTaskStatus)}
+                                                    </Badge>
+                                                ) : null}
+                                            </div>
+                                            {(() => {
+                                                const autoRetry = Boolean(candidateDetail?.candidate.active_screening_auto_retry_scheduled);
+                                                const logMsg = sanitizeTaskMessage(
+                                                    currentScreeningTaskLog?.output_summary || currentScreeningTaskLog?.error_message || "",
+                                                    currentScreeningTaskType || currentScreeningTaskLog?.task_type,
+                                                    autoRetry,
+                                                );
+                                                const displayReason = sanitizeTaskMessage(
+                                                    candidateDetail?.candidate.display_status_reason || "",
+                                                    currentScreeningTaskType || candidateDetail?.candidate.active_screening_task_type,
+                                                    autoRetry,
+                                                );
+                                                const primary = displayReason || logMsg || tr.taskRunning;
+                                                return <p className="mt-2 text-[13px] leading-6 text-slate-500">{primary}</p>;
+                                            })()}
+                                        </div>
+                                    ) : null}
+                                    <div className="rounded-[6px] bg-white px-5 py-4">
+                                        <div className="flex items-center gap-5 border-b border-slate-100">
+                                            <button type="button" className="relative h-9 text-[15px] font-semibold text-[#243cff]">
+                                                {isZh ? "备注" : "Notes"}
+                                                <span className="absolute inset-x-0 bottom-0 h-0.5 bg-[#243cff]"/>
+                                            </button>
+                                            <button type="button" className="h-9 text-[15px] text-slate-600" onClick={() => setCandidateDetailPanel("background")}>
+                                                {isZh ? "我的跟进" : "Follow-ups"}
+                                            </button>
+                                        </div>
+                                        <Textarea
+                                            value={statusUpdateReason}
+                                            onChange={(event) => setStatusUpdateReason(event.target.value)}
+                                            rows={5}
+                                            className="mt-4 resize-none rounded-[4px] border-slate-200 text-[14px]"
+                                            placeholder={tr.statusReasonPlaceholder}
+                                        />
+                                        <div className="mt-3 flex items-center justify-between gap-2 text-[13px] text-slate-500">
+                                            <span>@ {isZh ? "同事" : "Colleague"}</span>
+                                            <span>{statusUpdateReason.length}/1000</span>
+                                            <Button size="sm" className="h-7 rounded-[4px] bg-[#6c7cff] px-3 text-[13px] text-white hover:bg-[#5264f6]" onClick={() => setStatusUpdateReason(statusUpdateReason.trim())}>
+                                                {isZh ? "确定" : "Confirm"}
+                                            </Button>
                                         </div>
                                     </div>
                                 </div>
-                            </div>
+                            </aside>
                         </div>
                     ) : (
                         <div className="flex h-full min-h-0 flex-1 flex-col">
                             <div className="border-b border-slate-200/80 px-5 py-4 dark:border-slate-800">
                                 <div className="space-y-1.5">
-                                    <h3 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">{tr.candidateWorkspace}</h3>
-                                    <p className="text-base text-slate-500 dark:text-slate-400">{tr.candidateWorkspaceDesc}</p>
+                                    <h3 className="text-lg font-semibold tracking-tight text-slate-900 dark:text-slate-100">{tr.candidateWorkspace}</h3>
+                                    <p className="text-xs text-slate-500 dark:text-slate-400">{tr.candidateWorkspaceDesc}</p>
                                 </div>
                             </div>
                             <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
@@ -3771,16 +5138,16 @@ export function CandidatesPage({
                                                 >
                                                     <div className="min-w-0">
                                                         <p className="font-medium text-slate-900 dark:text-slate-100">{candidate.name}</p>
-                                                        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                                                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                                                             {candidate.position_title || tr.unassignedPosition} · {labelForCandidateStatus(resolveCandidateDisplayStatus(candidate))} · {tr.matchBadge} {formatPercent(resolveCandidateSummaryMatchPercent(candidate))}
                                                         </p>
                                                         {candidate.ai_potential_position ? (
-                                                            <p className="mt-1 text-sm text-sky-600 dark:text-sky-300">
+                                                            <p className="mt-1 text-xs text-sky-600 dark:text-sky-300">
                                                                 {`${isZh ? "转岗潜力" : "Potential Transition"}：${candidate.ai_potential_position}`}
                                                             </p>
                                                         ) : null}
                                                     </div>
-                                                    <p className="shrink-0 text-sm text-slate-500 dark:text-slate-400">{formatDateTime(candidate.updated_at)}</p>
+                                                    <p className="shrink-0 text-xs text-slate-500 dark:text-slate-400">{formatDateTime(candidate.updated_at)}</p>
                                                 </button>
                                             )) : (
                                                 <EmptyState title={tr.noCandidates} description={tr.noCandidatesDesc}/>
@@ -3791,12 +5158,12 @@ export function CandidatesPage({
                                     <Field label={tr.recommendedActions}>
                                         <div className="grid gap-3 md:grid-cols-2">
                                             <div className="rounded-2xl border border-slate-200/80 bg-slate-50/70 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/60">
-                                                <p className="text-base font-medium text-slate-900 dark:text-slate-100">{tr.continueFiltering}</p>
-                                                <p className="mt-1 text-sm leading-6 text-slate-500 dark:text-slate-400">{tr.continueFilteringDesc}</p>
+                                                <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{tr.continueFiltering}</p>
+                                                <p className="mt-1 text-xs leading-6 text-slate-500 dark:text-slate-400">{tr.continueFilteringDesc}</p>
                                             </div>
                                             <div className="rounded-2xl border border-slate-200/80 bg-slate-50/70 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/60">
-                                                <p className="text-base font-medium text-slate-900 dark:text-slate-100">{tr.batchHandleResults}</p>
-                                                <p className="mt-1 text-sm leading-6 text-slate-500 dark:text-slate-400">{tr.batchHandleResultsDesc}</p>
+                                                <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{tr.batchHandleResults}</p>
+                                                <p className="mt-1 text-xs leading-6 text-slate-500 dark:text-slate-400">{tr.batchHandleResultsDesc}</p>
                                             </div>
                                         </div>
                                     </Field>
@@ -3804,10 +5171,9 @@ export function CandidatesPage({
                             </div>
                         </div>
                     )}
-                </Card>
+                    </DialogContent>
+                </Dialog>
                 </div>
-                </div>
-            </div>
             <CandidateAiOutputDialog
                 open={candidateAiOutputDialogOpen}
                 onOpenChange={setCandidateAiOutputDialogOpen}
@@ -3822,10 +5188,10 @@ export function CandidatesPage({
                         <DialogTitle>{isZh ? "导出候选人" : "Export Candidates"}</DialogTitle>
                     </DialogHeader>
                     <div className="space-y-4 py-2">
-                        <div className="rounded-xl border border-slate-200/80 bg-slate-50/80 px-4 py-3 text-base text-slate-600 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-300">
+                        <div className="rounded-xl border border-slate-200/80 bg-slate-50/80 px-4 py-3 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-300">
                             {isZh ? `将导出 ${selectedCandidateIds.length} 位候选人，可自定义字段，并选择是否打包原始简历。` : `Export ${selectedCandidateIds.length} candidates with custom fields and optional resume files.`}
                         </div>
-                        <label className="flex items-center gap-2 text-base text-slate-700 dark:text-slate-300">
+                        <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
                             <input
                                 type="checkbox"
                                 checked={exportIncludeResumes}
@@ -3835,7 +5201,7 @@ export function CandidatesPage({
                         </label>
                         <div className="space-y-2">
                             <div className="flex items-center justify-between">
-                                <p className="text-base font-medium text-slate-700 dark:text-slate-300">{isZh ? "导出字段" : "Export Fields"}</p>
+                                <p className="text-sm font-medium text-slate-700 dark:text-slate-300">{isZh ? "导出字段" : "Export Fields"}</p>
                                 <Button
                                     size="sm"
                                     variant="outline"
@@ -3848,7 +5214,7 @@ export function CandidatesPage({
                                 {exportFieldOptions.map((field) => {
                                     const checked = exportFieldKeys.includes(field.key);
                                     return (
-                                        <label key={`export-field-${field.key}`} className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-base text-slate-700 dark:border-slate-800 dark:text-slate-300">
+                                        <label key={`export-field-${field.key}`} className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 dark:border-slate-800 dark:text-slate-300">
                                             <input
                                                 type="checkbox"
                                                 checked={checked}
@@ -3934,7 +5300,7 @@ export function CandidatesPage({
                     </DialogHeader>
                     <div className="space-y-4 py-2">
                         <div className="space-y-1.5">
-                            <p className="text-base font-medium text-slate-700 dark:text-slate-300">{tr.batchUpdateStatusLabel}</p>
+                            <p className="text-sm font-medium text-slate-700 dark:text-slate-300">{tr.batchUpdateStatusLabel}</p>
                             <NativeSelect value={batchStatusValue} onChange={(event) => setBatchStatusValue(event.target.value)}>
                                 <option value="" disabled>{tr.batchUpdateStatusSelectPlaceholder}</option>
                                 {Object.entries(candidateStatusLabels).map(([value, label]) => (
@@ -3943,7 +5309,7 @@ export function CandidatesPage({
                             </NativeSelect>
                         </div>
                         <div className="space-y-1.5">
-                            <p className="text-base font-medium text-slate-700 dark:text-slate-300">{tr.batchUpdateStatusReason}</p>
+                            <p className="text-sm font-medium text-slate-700 dark:text-slate-300">{tr.batchUpdateStatusReason}</p>
                             <Textarea
                                 value={batchStatusReason}
                                 onChange={(event) => setBatchStatusReason(event.target.value)}
@@ -3958,12 +5324,12 @@ export function CandidatesPage({
                             <Button
                                 disabled={batchStatusSubmitting || !batchStatusValue}
                                 onClick={async () => {
-                                    setBatchStatusSubmitting(true);
+                                    updateBatchStatusSubmitting(true);
                                     try {
                                         await batchUpdateStatus(selectedCandidateIds, batchStatusValue, batchStatusReason);
                                         setBatchStatusDialogOpen(false);
                                     } finally {
-                                        setBatchStatusSubmitting(false);
+                                        updateBatchStatusSubmitting(false);
                                     }
                                 }}
                             >

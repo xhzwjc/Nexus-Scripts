@@ -27,6 +27,7 @@ interface HeaderProps {
     now: Date;
     weather: WeatherState;
     weatherRefreshing: boolean;
+    weatherLocationLabel: string;
     onRefreshWeather: () => void;
     // 健康检测
     hasHealthPermission?: boolean;
@@ -50,6 +51,7 @@ export const DashboardHeader: React.FC<HeaderProps> = ({
     now,
     weather,
     weatherRefreshing,
+    weatherLocationLabel,
     onRefreshWeather,
     hasHealthPermission = false,
     userKey,
@@ -186,6 +188,7 @@ export const DashboardHeader: React.FC<HeaderProps> = ({
                     <WeatherChip
                         state={weather}
                         refreshing={weatherRefreshing}
+                        label={weatherLocationLabel}
                         onRefresh={onRefreshWeather}
                     />
 

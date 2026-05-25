@@ -1366,6 +1366,8 @@ export function resolveCandidateDisplayStatus(candidate?: CandidateSummary | nul
     if (!candidate) {
         return "";
     }
+    const normalizedStatus = String(candidate.status || "").trim().toLowerCase();
+    const talentPoolReason = String(candidate.talent_pool_reason || "").trim().toLowerCase();
     const queuedForAutoRetry = Boolean(
         candidate.active_screening_task_status === "queued"
         && candidate.active_screening_auto_retry_scheduled,
@@ -1376,6 +1378,13 @@ export function resolveCandidateDisplayStatus(candidate?: CandidateSummary | nul
         && !queuedForAutoRetry
     ) {
         return "screening_running";
+    }
+    if (
+        normalizedStatus === "unmatched"
+        && Boolean(candidate.position_id)
+        && (talentPoolReason === "auto_archived" || talentPoolReason === "moved_by_hr")
+    ) {
+        return "talent_pool";
     }
     if (candidate.display_status) {
         return candidate.display_status;

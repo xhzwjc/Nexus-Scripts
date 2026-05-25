@@ -315,8 +315,8 @@ const zhRecruitmentLocale: RecruitmentLocaleBundle = {
             description: "聚合指标、待办、快捷动作和近期进展，一眼看清招聘推进状态。",
         },
         positions: {
-            title: "岗位管理",
-            description: "以岗位为主线查看基本信息、当前 JD、历史版本、发布状态和关联候选人。",
+            title: "招聘需求与职位",
+            description: "以招聘需求为入口，维护职位信息、JD、候选人和流程配置。",
         },
         candidates: {
             title: "候选人",
@@ -393,8 +393,8 @@ const zhRecruitmentLocale: RecruitmentLocaleBundle = {
         entities: {
             baseConfig: "基础配置",
             workspace: "工作台",
-            positions: "岗位列表",
-            positionDetail: "岗位详情",
+            positions: "招聘需求列表",
+            positionDetail: "招聘需求详情",
             candidates: "候选人列表",
             candidateDetail: "候选人详情",
             aiTasks: "AI 任务",
@@ -411,7 +411,7 @@ const zhRecruitmentLocale: RecruitmentLocaleBundle = {
             assistant: "助手生成",
             publishText: "发布文案",
             publishTask: "发布任务",
-            position: "岗位",
+            position: "招聘需求",
             candidate: "候选人",
             resume: "简历",
             skill: "评估方案",
@@ -513,8 +513,8 @@ const enRecruitmentLocale: RecruitmentLocaleBundle = {
             description: "See hiring metrics, todos, quick actions, and recent progress in one place.",
         },
         positions: {
-            title: "Positions",
-            description: "Manage position basics, current JD, version history, publish state, and linked candidates.",
+            title: "Hiring Requests & Positions",
+            description: "Manage hiring requests, position details, JDs, candidates, and workflow settings.",
         },
         candidates: {
             title: "Candidates",
@@ -591,8 +591,8 @@ const enRecruitmentLocale: RecruitmentLocaleBundle = {
         entities: {
             baseConfig: "base config",
             workspace: "workspace",
-            positions: "position list",
-            positionDetail: "position detail",
+            positions: "hiring request list",
+            positionDetail: "hiring request detail",
             candidates: "candidate list",
             candidateDetail: "candidate detail",
             aiTasks: "AI tasks",
@@ -609,7 +609,7 @@ const enRecruitmentLocale: RecruitmentLocaleBundle = {
             assistant: "assistant run",
             publishText: "publish copy",
             publishTask: "publish task",
-            position: "position",
+            position: "hiring request",
             candidate: "candidate",
             resume: "resume",
             skill: "assessment plan",
@@ -800,7 +800,7 @@ export const mailSenderPresets: MailSenderPreset[] = [
 ];
 
 export const panelClass =
-    "rounded-[24px] border border-slate-200/80 bg-white/95 shadow-[0_20px_50px_-30px_rgba(15,23,42,0.45)] backdrop-blur dark:border-slate-800/90 dark:bg-slate-950/85";
+    "rounded-md border border-slate-200 bg-white shadow-none dark:border-slate-800 dark:bg-slate-950";
 
 export type CandidateListColumnKey = "candidate" | "organization" | "position" | "status" | "match" | "city" | "expected_city" | "source" | "updated";
 export type AuditListColumnKey = "taskType" | "object" | "status" | "model" | "duration" | "time";

@@ -340,7 +340,7 @@ export function OrgScopeBreadcrumbPicker({
             <div key={node.orgCode}>
                 <div
                     className={cn(
-                        'flex items-center gap-1.5 rounded-md px-2 py-1.5 text-base cursor-pointer transition-colors',
+                        'flex items-center gap-1.5 rounded-md px-2 py-1.5 text-sm cursor-pointer transition-colors',
                         isSelected && selectable
                             ? 'bg-primary/10 text-primary font-medium'
                             : selectable
@@ -385,7 +385,7 @@ export function OrgScopeBreadcrumbPicker({
                     >
                         {node.name}
                     </span>
-                    <span className="ml-auto shrink-0 text-sm text-muted-foreground">
+                    <span className="ml-auto shrink-0 text-xs text-muted-foreground">
                         {tr.orgTypeLabels[node.orgType as keyof typeof tr.orgTypeLabels] || node.orgType}
                     </span>
                 </div>
@@ -405,23 +405,23 @@ export function OrgScopeBreadcrumbPicker({
                     variant="outline"
                     disabled={disabled}
                     className={cn(
-                        'h-9 max-w-[320px] justify-start text-left rounded-xl border-slate-200/80 bg-white/90 px-3 dark:border-slate-800 dark:bg-slate-950/80',
+                        'h-8 max-w-[280px] justify-start rounded-lg border-slate-200/80 bg-white/90 px-2.5 text-left text-sm dark:border-slate-800 dark:bg-slate-950/80',
                         !breadcrumbPath.length && 'text-muted-foreground',
                     )}
                 >
-                    <Building2 className="h-4 w-4 shrink-0 text-slate-500 dark:text-slate-400" />
-                    <span className="ml-1.5 flex min-w-0 flex-1 items-center overflow-hidden text-base">
+                    <Building2 className="h-3.5 w-3.5 shrink-0 text-slate-500 dark:text-slate-400" />
+                    <span className="ml-1.5 flex min-w-0 flex-1 items-center overflow-hidden text-sm">
                         {breadcrumbPath.length > 0 ? (
                             <span className="flex min-w-0 items-center gap-0.5 overflow-hidden">
                                 {breadcrumbPath.length <= 3 ? (
                                     breadcrumbPath.map((segment, i) => (
                                         <span key={i} className="flex shrink-0 items-center gap-0.5">
                                             {i > 0 && (
-                                                <span className="mx-0.5 shrink-0 text-sm text-muted-foreground/40">/</span>
+                                                <span className="mx-0.5 shrink-0 text-xs text-muted-foreground/40">/</span>
                                             )}
                                             <span
                                                 className={cn(
-                                                    'max-w-[120px] truncate',
+                                                    'max-w-[104px] truncate',
                                                     i === breadcrumbPath.length - 1
                                                         ? 'font-medium text-foreground'
                                                         : 'text-muted-foreground',
@@ -433,12 +433,12 @@ export function OrgScopeBreadcrumbPicker({
                                     ))
                                 ) : (
                                     <>
-                                        <span className="max-w-[80px] shrink-0 truncate text-muted-foreground">
+                                        <span className="max-w-[70px] shrink-0 truncate text-muted-foreground">
                                             {breadcrumbPath[0]}
                                         </span>
-                                        <span className="mx-0.5 shrink-0 text-sm text-muted-foreground/40">/</span>
+                                        <span className="mx-0.5 shrink-0 text-xs text-muted-foreground/40">/</span>
                                         <span className="shrink-0 text-muted-foreground">…</span>
-                                        <span className="mx-0.5 shrink-0 text-sm text-muted-foreground/40">/</span>
+                                        <span className="mx-0.5 shrink-0 text-xs text-muted-foreground/40">/</span>
                                         <span className="min-w-0 truncate font-medium text-foreground">
                                             {breadcrumbPath[breadcrumbPath.length - 1]}
                                         </span>
@@ -446,10 +446,10 @@ export function OrgScopeBreadcrumbPicker({
                                 )}
                             </span>
                         ) : (
-                            <span className="text-sm text-muted-foreground">{tr.selectOrgScope}</span>
+                            <span className="text-xs text-muted-foreground">{tr.selectOrgScope}</span>
                         )}
                     </span>
-                    <ChevronDown className="ml-auto h-4 w-4 shrink-0 text-slate-400" />
+                    <ChevronDown className="ml-auto h-3.5 w-3.5 shrink-0 text-slate-400" />
                 </Button>
             </PopoverTrigger>
             <PopoverContent
@@ -463,7 +463,7 @@ export function OrgScopeBreadcrumbPicker({
                         placeholder={tr.searchOrg}
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
-                        className="h-8 pl-8 pr-8 text-base rounded-lg"
+                        className="h-8 pl-8 pr-8 text-sm rounded-lg"
                     />
                     {search && (
                         <button
@@ -477,7 +477,7 @@ export function OrgScopeBreadcrumbPicker({
                 <ScrollArea className="max-h-80">
                     <div className="space-y-0.5">
                         {filteredTree.length === 0 ? (
-                            <p className="py-6 text-center text-base text-muted-foreground">
+                            <p className="py-6 text-center text-sm text-muted-foreground">
                                 {tr.noResults}
                             </p>
                         ) : (

@@ -559,6 +559,8 @@ export interface RecruitmentVisibleScreeningCancelResponse {
 }
 
 export interface ResumeUploadItem extends CandidateSummary {
+  skipped_duplicate?: boolean;
+  overwritten?: boolean;
   auto_screen_enabled?: boolean;
   auto_screen_needed?: boolean;
   auto_screen_candidate_id?: number | null;
@@ -572,12 +574,14 @@ export interface ResumeUploadItem extends CandidateSummary {
 export interface ResumeUploadResponse {
   items: ResumeUploadItem[];
   uploaded_count: number;
+  skipped_duplicate_count?: number;
+  returned_count?: number;
   auto_screen_queued_count: number;
   auto_screen_skipped_existing_live_task_count: number;
   auto_screen_failed_count: number;
   auto_screen_task_ids: number[];
   auto_screen_tasks: RecruitmentTaskStartResponse[];
-  ai_match_result?: { matched_count: number; total_candidates: number; message?: string; error?: string } | null;
+  ai_match_result?: { matched_count: number; total_candidates: number; background?: boolean; skipped_duplicate_count?: number; message?: string; error?: string } | null;
 }
 
 export interface CandidateExportRequest {

@@ -625,21 +625,61 @@ export function TalentPoolPage({
     }
 
     return (
-        <div className="flex h-full overflow-hidden">
+        <div className="grid h-full min-h-0 grid-cols-1 gap-3 overflow-hidden bg-slate-50 p-3 dark:bg-slate-950 xl:grid-cols-[248px_minmax(0,1fr)]">
+            <aside className="hidden min-h-0 xl:flex xl:flex-col rounded-md border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
+                <div className="border-b border-slate-200 px-4 py-3 dark:border-slate-800">
+                    <p className="text-base font-semibold text-slate-950 dark:text-slate-50">{tr.title}</p>
+                    <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">{tr.statSelectHint}</p>
+                </div>
+                <div className="min-h-0 flex-1 overflow-y-auto p-2">
+                    {statCards.map((card) => (
+                        <button
+                            key={card.filter}
+                            type="button"
+                            aria-pressed={activeStatFilter === card.filter}
+                            onClick={() => handleStatFilterClick(card.filter)}
+                            className={cn(
+                                "mb-1 flex w-full min-w-0 items-start justify-between gap-3 rounded-md px-3 py-2.5 text-left text-sm transition",
+                                activeStatFilter === card.filter
+                                    ? "bg-[#2454ff] text-white"
+                                    : "text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-900",
+                            )}
+                        >
+                            <span className="min-w-0">
+                                <span className="block truncate font-medium">{card.label}</span>
+                                <span className={cn("mt-0.5 block truncate text-xs", activeStatFilter === card.filter ? "text-white/75" : "text-slate-400")}>
+                                    {card.hint}
+                                </span>
+                            </span>
+                            <span className={cn("shrink-0 rounded px-1.5 py-0.5 text-xs tabular-nums", activeStatFilter === card.filter ? "bg-white/15 text-white" : "bg-slate-100 text-slate-500 dark:bg-slate-900 dark:text-slate-300")}>
+                                {card.value}
+                            </span>
+                        </button>
+                    ))}
+                </div>
+                <div className="border-t border-slate-200 p-3 dark:border-slate-800">
+                    {onUploadResume ? (
+                        <Button size="sm" className="w-full rounded-md" onClick={onUploadResume}>
+                            <Upload className="mr-1.5 h-3.5 w-3.5"/>
+                            {tr.uploadResume}
+                        </Button>
+                    ) : null}
+                </div>
+            </aside>
             {/* ── 主内容区 ── */}
-            <div className="flex flex-1 flex-col overflow-y-auto p-6">
+            <div className="flex min-h-0 flex-1 flex-col overflow-y-auto rounded-md border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950">
                 {/* 页面头部 */}
-                <div className="mb-6 flex items-start justify-between">
+                <div className="mb-4 flex items-start justify-between">
                     <div>
-                        <h1 className="text-xl font-medium text-slate-900 dark:text-slate-100">{tr.title}</h1>
-                        <p className="mt-1 text-[17px] text-slate-500 dark:text-slate-400">{tr.description}</p>
+                        <h1 className="text-lg font-medium text-slate-900 dark:text-slate-100">{tr.title}</h1>
+                        <p className="mt-1 text-[13px] text-slate-500 dark:text-slate-400">{tr.description}</p>
                     </div>
                     <div className="flex items-center gap-2">
                         {onRefresh ? (
                             <Button
                                 size="sm"
                                 variant="outline"
-                                className="h-8 rounded-md px-2 text-sm"
+                                className="h-8 rounded-md px-2 text-xs"
                                 disabled={refreshing || loading}
                                 onClick={async () => {
                                     setRefreshing(true);
@@ -664,7 +704,7 @@ export function TalentPoolPage({
                 </div>
 
                 {/* 统计卡片 */}
-                <div className="mb-4 grid grid-cols-2 gap-2.5 md:grid-cols-3 2xl:grid-cols-6">
+                <div className="mb-4 grid grid-cols-2 gap-2.5 md:grid-cols-3 xl:hidden">
                     {statCards.map((card) => (
                         <StatCard
                             key={card.filter}
@@ -711,21 +751,21 @@ export function TalentPoolPage({
                 <div className="mb-5 flex items-center gap-2.5">
                     <div className="relative max-w-xs flex-1">
                         <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400"/>
-                        <Input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder={tr.searchPlaceholder} className="h-8 rounded-lg pl-8 text-[17px]"/>
+                        <Input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder={tr.searchPlaceholder} className="h-8 rounded-lg pl-8 text-[13px]"/>
                     </div>
-                    <select value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)} className="h-8 rounded-lg border border-slate-200 bg-white px-2.5 text-[17px] text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
+                    <select value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)} className="h-8 rounded-lg border border-slate-200 bg-white px-2.5 text-[13px] text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
                         <option value="all">{tr.allSources}</option>
                         <option value="boss_zhipin">{tr.bossZhipin}</option>
                         <option value="liepin">{tr.liepin}</option>
                         <option value="manual_upload">{tr.manualUpload}</option>
                         <option value="headhunter">{tr.headhunter}</option>
                     </select>
-                    <select value={tagFilter} onChange={(e) => setTagFilter(e.target.value)} className="h-8 rounded-lg border border-slate-200 bg-white px-2.5 text-[17px] text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
+                    <select value={tagFilter} onChange={(e) => setTagFilter(e.target.value)} className="h-8 rounded-lg border border-slate-200 bg-white px-2.5 text-[13px] text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
                         <option value="all">{tr.allTags}</option>
                         {availableTags.map(tag => <option key={tag} value={tag}>{tag}</option>)}
                         <option value="__none">{tr.unmatchedGroup}</option>
                     </select>
-                    <select value={sortBy} onChange={(e) => setSortBy(e.target.value as typeof sortBy)} className="h-8 rounded-lg border border-slate-200 bg-white px-2.5 text-[17px] text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
+                    <select value={sortBy} onChange={(e) => setSortBy(e.target.value as typeof sortBy)} className="h-8 rounded-lg border border-slate-200 bg-white px-2.5 text-[13px] text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
                         <option value="time">{tr.sortByTime}</option>
                         <option value="name">{tr.sortByName}</option>
                         <option value="name_desc">{tr.sortByNameDesc}</option>
@@ -734,9 +774,9 @@ export function TalentPoolPage({
 
                 {/* 批量操作栏 */}
                 {selectedIds.size > 0 && (
-                    <div className="mb-3 flex items-center gap-2.5 rounded-lg border border-sky-200 bg-sky-50 px-3.5 py-2.5 text-[17px] text-sky-800 dark:border-sky-800 dark:bg-sky-950/30 dark:text-sky-200">
+                    <div className="mb-3 flex items-center gap-2.5 rounded-lg border border-sky-200 bg-sky-50 px-3.5 py-2.5 text-[13px] text-sky-800 dark:border-sky-800 dark:bg-sky-950/30 dark:text-sky-200">
                         <span className="flex-1">{tr.selectedCount(selectedIds.size)}</span>
-                        <Button size="sm" variant="outline" className="h-7 rounded-md border-sky-300 px-3 text-sm text-sky-700 hover:bg-sky-100 dark:border-sky-700 dark:text-sky-300 dark:hover:bg-sky-900/30" onClick={() => setAssignDialogOpen(true)}>
+                        <Button size="sm" variant="outline" className="h-7 rounded-md border-sky-300 px-3 text-xs text-sky-700 hover:bg-sky-100 dark:border-sky-700 dark:text-sky-300 dark:hover:bg-sky-900/30" onClick={() => setAssignDialogOpen(true)}>
                             <Briefcase className="mr-1 h-3.5 w-3.5"/>
                             {tr.batchAssign}
                         </Button>
@@ -750,7 +790,7 @@ export function TalentPoolPage({
                             <RotateCcw className="mr-1 h-3.5 w-3.5"/>
                             {tr.batchReIdentify}
                         </Button>
-                        <Button size="sm" variant="outline" className="h-7 rounded-md px-3 text-sm text-rose-600 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-950/30" onClick={() => setDeleteDialogOpen(true)}>
+                        <Button size="sm" variant="outline" className="h-7 rounded-md px-3 text-xs text-rose-600 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-950/30" onClick={() => setDeleteDialogOpen(true)}>
                             <Trash2 className="mr-1 h-3.5 w-3.5"/>
                             {tr.batchDelete}
                         </Button>
@@ -796,11 +836,11 @@ export function TalentPoolPage({
                         <div className="mb-2.5 flex items-center justify-between">
                             <div className="flex items-center gap-2 text-[17px] font-medium text-slate-500 dark:text-slate-400">
                                 <span>{tr.currentView}</span>
-                                <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[15px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                                <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
                                     {tr.visibleResultCount(filteredCandidates.length, total ?? filteredCandidates.length)}
                                 </span>
                             </div>
-                            <label className="flex cursor-pointer items-center gap-1.5 text-sm text-slate-500 dark:text-slate-400">
+                            <label className="flex cursor-pointer items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
                                 <input
                                     type="checkbox"
                                     className="h-3.5 w-3.5 accent-sky-600"
@@ -855,9 +895,9 @@ export function TalentPoolPage({
             {assignDialogOpen && (
                 <DialogOverlay onClose={() => setAssignDialogOpen(false)}>
                     <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl dark:bg-slate-950">
-                        <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100">{tr.batchAssign}</h2>
-                        <p className="mt-1 text-base text-slate-500 dark:text-slate-400">{tr.selectedCount(selectedIds.size)}</p>
-                        <select value={assignPositionId} onChange={(e) => setAssignPositionId(e.target.value)} className="mt-3 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-base dark:border-slate-800 dark:bg-slate-950">
+                        <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">{tr.batchAssign}</h2>
+                        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{tr.selectedCount(selectedIds.size)}</p>
+                        <select value={assignPositionId} onChange={(e) => setAssignPositionId(e.target.value)} className="mt-3 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-950">
                             <option value="">{tr.selectPosition}</option>
                             {positions.map(p => <option key={p.id} value={p.id}>{p.title}</option>)}
                         </select>
@@ -873,8 +913,8 @@ export function TalentPoolPage({
             {singleAssignOpen && (
                 <DialogOverlay onClose={() => setSingleAssignOpen(false)}>
                     <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl dark:bg-slate-950">
-                        <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100">{tr.manualAssign}</h2>
-                        <select value={singleAssignPositionId} onChange={(e) => setSingleAssignPositionId(e.target.value)} className="mt-3 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-base dark:border-slate-800 dark:bg-slate-950">
+                        <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">{tr.manualAssign}</h2>
+                        <select value={singleAssignPositionId} onChange={(e) => setSingleAssignPositionId(e.target.value)} className="mt-3 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-950">
                             <option value="">{tr.selectPosition}</option>
                             {positions.map(p => <option key={p.id} value={p.id}>{p.title}</option>)}
                         </select>
@@ -890,8 +930,8 @@ export function TalentPoolPage({
             {deleteDialogOpen && (
                 <DialogOverlay onClose={() => setDeleteDialogOpen(false)}>
                     <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl dark:bg-slate-950">
-                        <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100">{tr.deleteConfirmTitle}</h2>
-                        <p className="mt-2 text-base text-slate-600 dark:text-slate-400">{tr.deleteConfirmMsg(selectedIds.size)}</p>
+                        <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">{tr.deleteConfirmTitle}</h2>
+                        <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">{tr.deleteConfirmMsg(selectedIds.size)}</p>
                         <div className="mt-4 flex justify-end gap-2">
                             <Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>{tr.cancel}</Button>
                             <Button variant="destructive" onClick={() => void handleBatchDelete()} disabled={deleting}>{deleting && <Loader2 className="mr-1 h-4 w-4 animate-spin"/>}{tr.confirm}</Button>
@@ -1071,7 +1111,7 @@ function CandidateCard({
     const getDescription = () => {
         if (isMatching) {
             return (
-                <div className="inline-flex items-center gap-1.5 text-[15px] text-slate-400 dark:text-slate-500">
+                <div className="inline-flex items-center gap-1.5 text-[11px] text-slate-400 dark:text-slate-500">
                     <Loader2 className="h-3 w-3 animate-spin"/>
                     {tr.aiMatchingHint}
                 </div>
@@ -1079,20 +1119,20 @@ function CandidateCard({
         }
         if (isArchived) {
             if (candidate.talent_pool_reason === "auto_archived") {
-                return <div className="text-sm text-slate-400 dark:text-slate-500">{tr.autoArchivedDesc}</div>;
+                return <div className="text-xs text-slate-400 dark:text-slate-500">{tr.autoArchivedDesc}</div>;
             }
             if (candidate.talent_pool_reason === "moved_by_hr") {
                 const sourceLabel = STATUS_LABEL_MAP[candidate.talent_pool_source_status || ""] || candidate.talent_pool_source_status || "";
                 const moveDate = candidate.talent_pool_moved_at ? formatDateTime(candidate.talent_pool_moved_at) : "";
-                return <div className="text-sm text-slate-400 dark:text-slate-500">{tr.movedByHRDesc(candidate.talent_pool_moved_by || "", moveDate, sourceLabel)}</div>;
+                return <div className="text-xs text-slate-400 dark:text-slate-500">{tr.movedByHRDesc(candidate.talent_pool_moved_by || "", moveDate, sourceLabel)}</div>;
             }
             // 旧数据（status=talent_pool 无 reason）
-            return <div className="text-sm text-slate-400 dark:text-slate-500">{tr.archivedGroupDesc}</div>;
+            return <div className="text-xs text-slate-400 dark:text-slate-500">{tr.archivedGroupDesc}</div>;
         }
         // 待处理分组
         if (candidate.talent_pool_reason === "ai_error") {
             return (
-                <div className="text-sm text-amber-500 dark:text-amber-400">
+                <div className="text-xs text-amber-500 dark:text-amber-400">
                     {sanitizeCandidateFacingErrorText(candidate.ai_match_reason || tr.aiErrorDesc, {
                         context: "position_match",
                         language,
@@ -1102,9 +1142,9 @@ function CandidateCard({
         }
         // unmatched_by_ai 或无 reason
         if (reIdentifyFailed) {
-            return <div className="text-sm text-rose-500 dark:text-rose-400">{tr.aiStillNoMatch}</div>;
+            return <div className="text-xs text-rose-500 dark:text-rose-400">{tr.aiStillNoMatch}</div>;
         }
-        return <div className="text-sm text-slate-400 dark:text-slate-500">{tr.aiNoMatch}</div>;
+        return <div className="text-xs text-slate-400 dark:text-slate-500">{tr.aiNoMatch}</div>;
     };
 
     return (
@@ -1113,30 +1153,30 @@ function CandidateCard({
             selected ? "border-sky-500 bg-sky-50 dark:border-sky-600 dark:bg-sky-950/30" : "border-slate-200 bg-white hover:border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:hover:border-slate-600"
         )}>
             <input type="checkbox" checked={selected} onChange={onToggleSelect} className="mt-1 h-[15px] w-[15px] flex-shrink-0 accent-sky-600"/>
-            <div className={cn("flex h-[38px] w-[38px] flex-shrink-0 items-center justify-center rounded-full text-[17px] font-medium", AVATAR_BG[AVATAR_COLORS[colorIdx]])}>
+            <div className={cn("flex h-[38px] w-[38px] flex-shrink-0 items-center justify-center rounded-full text-[13px] font-medium", AVATAR_BG[AVATAR_COLORS[colorIdx]])}>
                 {initial}
             </div>
             <div className="min-w-0 flex-1">
                 <div className="mb-1.5 flex flex-wrap items-center gap-2.5">
-                    <span className="text-base font-medium text-slate-900 dark:text-slate-100">{candidate.name}</span>
+                    <span className="text-sm font-medium text-slate-900 dark:text-slate-100">{candidate.name}</span>
                     {isMatching ? (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[15px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                        <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
                             <Loader2 className="h-3 w-3 animate-spin"/>
                             {tr.matching}
                         </span>
                     ) : talentPoolDisplayStatus === "talent_pool" ? (
-                        <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[15px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">{tr.archived}</span>
+                        <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">{tr.archived}</span>
                     ) : (
-                        <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[15px] font-medium text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">{tr.pendingIdentify}</span>
+                        <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">{tr.pendingIdentify}</span>
                     )}
-                    <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[15px] text-slate-500 dark:bg-slate-800 dark:text-slate-400">{sourceLabel(candidate.source, tr)}</span>
+                    <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-500 dark:bg-slate-800 dark:text-slate-400">{sourceLabel(candidate.source, tr)}</span>
                     {!isMatching ? (
                         <span className="inline-flex items-center rounded-full bg-indigo-50 px-2 py-0.5 text-[15px] font-medium text-indigo-600 dark:bg-indigo-950/40 dark:text-indigo-300">
                             {`${tr.sourceStage}：${sourceStageLabel}`}
                         </span>
                     ) : null}
                 </div>
-                <div className="mb-2 flex flex-wrap items-center gap-3 text-sm text-slate-500 dark:text-slate-400">
+                <div className="mb-2 flex flex-wrap items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
                     {candidate.years_of_experience && <span className="inline-flex items-center gap-1"><Briefcase className="h-3 w-3"/>{candidate.years_of_experience}</span>}
                     {candidate.education && <span className="inline-flex items-center gap-1"><GraduationCap className="h-3 w-3"/>{candidate.education}</span>}
                     {candidate.city && <span className="inline-flex items-center gap-1"><Building2 className="h-3 w-3"/>{candidate.city}</span>}
@@ -1144,14 +1184,14 @@ function CandidateCard({
                 </div>
                 {getDescription()}
                 {isMatching ? (
-                    <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2 text-sm text-slate-500 dark:border-slate-800 dark:bg-slate-900/30 dark:text-slate-400">
+                    <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-900/30 dark:text-slate-400">
                         <div className="flex items-center gap-1.5">
                             <Loader2 className="h-3 w-3 animate-spin"/>
                             <span>AI 正在分析简历，匹配岗位中...</span>
                         </div>
                     </div>
                 ) : (screeningPositionTitle || aiRecommendedTitle || candidate.ai_potential_position) ? (
-                    <div className="mt-2 rounded-lg border border-sky-100 bg-sky-50/70 px-3 py-2 text-sm text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
+                    <div className="mt-2 rounded-lg border border-sky-100 bg-sky-50/70 px-3 py-2 text-xs text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
                         {screeningPositionTitle ? <div className="font-medium">{`${tr.screeningPosition}：${screeningPositionTitle}`}</div> : null}
                         {aiRecommendedTitle ? (
                             <div className={screeningPositionTitle ? "mt-1" : "font-medium"}>
@@ -1182,30 +1222,30 @@ function CandidateCard({
             <div className="flex flex-shrink-0 self-stretch flex-col items-end justify-between gap-2">
                 <div className="flex flex-wrap items-center justify-end gap-1.5">
                     {hasAIMatch && onConfirmMatch && (
-                        <Button size="sm" variant="outline" className="h-8 rounded-md border-sky-300 px-3 text-sm text-sky-700 hover:bg-sky-50 dark:border-sky-700 dark:text-sky-300 dark:hover:bg-sky-900/30" onClick={onConfirmMatch}>
+                        <Button size="sm" variant="outline" className="h-8 rounded-md border-sky-300 px-3 text-xs text-sky-700 hover:bg-sky-50 dark:border-sky-700 dark:text-sky-300 dark:hover:bg-sky-900/30" onClick={onConfirmMatch}>
                             <Check className="mr-1 h-3 w-3"/>{tr.confirmMatch}
                         </Button>
                     )}
                     {hasAIMatch && onChangePosition && (
-                        <Button size="sm" variant="outline" className="h-8 rounded-md px-3 text-sm" onClick={onChangePosition}>{tr.changePosition}</Button>
+                        <Button size="sm" variant="outline" className="h-8 rounded-md px-3 text-xs" onClick={onChangePosition}>{tr.changePosition}</Button>
                     )}
                     {onReIdentify && !isMatching && (
-                        <Button size="sm" variant="outline" className="h-8 rounded-md px-3 text-sm" onClick={onReIdentify} disabled={reIdentifying}>
+                        <Button size="sm" variant="outline" className="h-8 rounded-md px-3 text-xs" onClick={onReIdentify} disabled={reIdentifying}>
                             {reIdentifying ? <Loader2 className="mr-1 h-3 w-3 animate-spin"/> : <RefreshCw className="mr-1 h-3 w-3"/>}
                             {reIdentifying ? tr.reIdentifying : tr.reIdentify}
                         </Button>
                     )}
                     {onManualAssign && (
-                        <Button size="sm" variant="outline" className="h-8 rounded-md border-sky-300 px-3 text-sm text-sky-700 hover:bg-sky-50 dark:border-sky-700 dark:text-sky-300 dark:hover:bg-sky-900/30" onClick={onManualAssign}>
+                        <Button size="sm" variant="outline" className="h-8 rounded-md border-sky-300 px-3 text-xs text-sky-700 hover:bg-sky-50 dark:border-sky-700 dark:text-sky-300 dark:hover:bg-sky-900/30" onClick={onManualAssign}>
                             <Briefcase className="mr-1 h-3 w-3"/>{tr.manualAssign}
                         </Button>
                     )}
                     {isMatching && onCancelMatch && (
-                        <Button size="sm" variant="outline" className="h-8 rounded-md border-rose-300 px-3 text-sm text-rose-600 hover:bg-rose-50 dark:border-rose-700 dark:text-rose-400 dark:hover:bg-rose-900/30" onClick={onCancelMatch}>
+                        <Button size="sm" variant="outline" className="h-8 rounded-md border-rose-300 px-3 text-xs text-rose-600 hover:bg-rose-50 dark:border-rose-700 dark:text-rose-400 dark:hover:bg-rose-900/30" onClick={onCancelMatch}>
                             <Square className="mr-1 h-3 w-3"/>{tr.stopMatch}
                         </Button>
                     )}
-                    <Button size="sm" variant="outline" className="h-8 rounded-md px-3 text-sm" onClick={onView}>
+                    <Button size="sm" variant="outline" className="h-8 rounded-md px-3 text-xs" onClick={onView}>
                         <Eye className="mr-1 h-3 w-3"/>{tr.view}
                     </Button>
                 </div>
