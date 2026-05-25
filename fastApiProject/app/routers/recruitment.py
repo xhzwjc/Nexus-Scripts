@@ -75,6 +75,10 @@ POSITION_SKILL_BIND_FIELDS = {"jd_skill_ids", "screening_skill_ids", "interview_
 logger = logging.getLogger(__name__)
 
 
+def _filter_uploaded_resume_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    return [row for row in rows if not row.get("skipped_duplicate")]
+
+
 @recruitment_router.get("/task-events")
 async def stream_task_events(
     request: Request,
@@ -259,7 +263,6 @@ async def _dispatch_ai_position_match_background(
         result = await service.trigger_ai_position_match(
             candidate_ids,
             actor_id,
-            require_auto_screen_ready=True,
         )
         logger.info("AI position match background dispatched: %s", result)
     except Exception:
@@ -789,11 +792,13 @@ async def upload_resumes(
             match_mode=match_mode,
             source=source, duplicate_strategy=duplicate_strategy
         )
+        uploaded_rows = _filter_uploaded_resume_rows(rows)
+        skipped_duplicate_count = len(rows) - len(uploaded_rows)
 
         # 如果是AI智能匹配模式，只提交后台任务，不在上传接口里等待 OCR/识别链路。
         ai_match_result = None
-        if match_mode == "smart" and rows:
-            candidate_ids = [row["id"] for row in rows]
+        if match_mode == "smart" and uploaded_rows:
+            candidate_ids = [row["id"] for row in uploaded_rows]
             actor_id = _session.get("id") or "unknown"
             session_token = get_script_hub_token_from_request(request)
             governance_session = _with_session_token(request, _session)
@@ -812,6 +817,14 @@ async def upload_resumes(
                 "message": "AI岗位匹配已提交后台处理，结果将实时更新",
             }
             logger.info("AI position match scheduled in background: candidate_ids=%s", candidate_ids)
+        elif match_mode == "smart" and rows and skipped_duplicate_count:
+            ai_match_result = {
+                "matched_count": 0,
+                "total_candidates": 0,
+                "background": False,
+                "skipped_duplicate_count": skipped_duplicate_count,
+                "message": "重复简历已跳过，未启动AI岗位匹配",
+            }
 
         auto_screen_queued_count = 0
         auto_screen_skipped_existing_live_task_count = 0
@@ -862,9 +875,11 @@ async def upload_resumes(
                 request=request,
                 action="recruitment.candidate.upload",
                 target_type="recruitment-candidate",
-                target_code=f"batch-{len(rows)}",
+                target_code=f"batch-{len(uploaded_rows)}",
                 details={
-                    "uploaded_count": len(rows),
+                    "uploaded_count": len(uploaded_rows),
+                    "skipped_duplicate_count": skipped_duplicate_count,
+                    "returned_count": len(rows),
                     "match_mode": match_mode,
                     "source": source,
                     "duplicate_strategy": duplicate_strategy,
@@ -872,12 +887,29 @@ async def upload_resumes(
                     "auto_screen_queued_count": auto_screen_queued_count,
                     "ai_match_result": ai_match_result,
                     "candidate_ids": [row["id"] for row in rows],
+                    "uploaded_candidate_ids": [row["id"] for row in uploaded_rows],
                 }
             )
         except Exception as log_exc:
             logger.warning(f"Failed to write audit log for upload: {log_exc}")
 
-        return {"success": True, "data": {"items": rows, "uploaded_count": len(rows), "auto_screen_queued_count": auto_screen_queued_count, "auto_screen_skipped_existing_live_task_count": auto_screen_skipped_existing_live_task_count, "auto_screen_failed_count": auto_screen_failed_count, "auto_screen_task_ids": [task.get("task_id") for task in auto_screen_tasks if task.get("task_id")], "auto_screen_tasks": auto_screen_tasks, "batch_id": batch_id, "ai_match_result": ai_match_result}, "request_id": str(uuid.uuid4())}
+        return {
+            "success": True,
+            "data": {
+                "items": rows,
+                "uploaded_count": len(uploaded_rows),
+                "skipped_duplicate_count": skipped_duplicate_count,
+                "returned_count": len(rows),
+                "auto_screen_queued_count": auto_screen_queued_count,
+                "auto_screen_skipped_existing_live_task_count": auto_screen_skipped_existing_live_task_count,
+                "auto_screen_failed_count": auto_screen_failed_count,
+                "auto_screen_task_ids": [task.get("task_id") for task in auto_screen_tasks if task.get("task_id")],
+                "auto_screen_tasks": auto_screen_tasks,
+                "batch_id": batch_id,
+                "ai_match_result": ai_match_result,
+            },
+            "request_id": str(uuid.uuid4()),
+        }
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     finally:

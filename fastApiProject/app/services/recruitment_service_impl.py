@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import httpx
-from sqlalchemy import and_, case, func, or_
+from sqlalchemy import and_, case, func, literal_column, or_
 from sqlalchemy.exc import DataError, IntegrityError, OperationalError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -7719,6 +7719,34 @@ class RecruitmentService:
         candidate.updated_by = actor_id
         self.db.flush()
 
+    def _apply_candidate_status_transition(
+        self,
+        candidate: RecruitmentCandidate,
+        to_status: str,
+        reason: str,
+        actor_id: str,
+        source: str,
+    ) -> None:
+        normalized_status = str(to_status or "").strip()
+        if normalized_status not in VALID_CANDIDATE_STATUS_VALUES:
+            raise ValueError(f"无效候选人状态: {normalized_status or '-'}")
+
+        from_status = str(candidate.status or "").strip()
+        self._create_status_history(candidate, normalized_status, reason, actor_id, source)
+        if normalized_status == "talent_pool":
+            candidate.talent_pool_reason = "moved_by_hr"
+            # Preserve the original source stage after the first move into talent pool.
+            # Repeating the same action must not overwrite it with "talent_pool".
+            if from_status != "talent_pool" or not candidate.talent_pool_source_status:
+                candidate.talent_pool_source_status = from_status or None
+            candidate.talent_pool_moved_by = actor_id
+            candidate.talent_pool_moved_at = datetime.now()
+        elif normalized_status not in {"matching", "unmatched"}:
+            candidate.talent_pool_reason = None
+            candidate.talent_pool_source_status = None
+            candidate.talent_pool_moved_by = None
+            candidate.talent_pool_moved_at = None
+
     def _sync_candidate_related_org_code(self, candidate: RecruitmentCandidate, next_org_code: Optional[str]) -> None:
         normalized_org_code = normalize_org_code(next_org_code)
         if normalize_org_code(getattr(candidate, "org_code", None)) == normalized_org_code:
@@ -8913,8 +8941,61 @@ class RecruitmentService:
         return payload
 
     def _apply_position_pipeline_candidate_filter(self, builder):
-        return builder.filter(
-            RecruitmentCandidate.status.notin_(["matching", "unmatched", "talent_pool"])
+        builder = builder.filter(self._position_pipeline_candidate_filter_expr())
+        return self._apply_business_org_filter(builder, RecruitmentCandidate)
+
+    @staticmethod
+    def _position_pipeline_candidate_filter_expr():
+        return or_(
+            RecruitmentCandidate.status.notin_(["matching", "unmatched"]),
+            and_(
+                RecruitmentCandidate.status == "unmatched",
+                RecruitmentCandidate.position_id.isnot(None),
+                RecruitmentCandidate.talent_pool_reason.in_(["auto_archived", "moved_by_hr"]),
+            ),
+        )
+
+    @staticmethod
+    def _candidate_belongs_to_position_pipeline(row: RecruitmentCandidate) -> bool:
+        status = str(getattr(row, "status", "") or "").strip().lower()
+        if not status or status == "matching":
+            return False
+        if status == "unmatched":
+            reason = str(getattr(row, "talent_pool_reason", "") or "").strip().lower()
+            return bool(getattr(row, "position_id", None)) and reason in {"auto_archived", "moved_by_hr"}
+        return True
+
+    def _candidate_display_status_expr(self):
+        active_screening_exists = (
+            self.db.query(func.count(RecruitmentAITaskLog.id))
+            .filter(
+                RecruitmentAITaskLog.related_candidate_id == RecruitmentCandidate.id,
+                RecruitmentAITaskLog.task_type == SCREENING_FLOW_TASK_TYPE,
+                RecruitmentAITaskLog.parent_task_id.is_(None),
+                RecruitmentAITaskLog.status.in_(SCREENING_LIVE_TASK_STATUSES),
+            )
+            .correlate(RecruitmentCandidate)
+            .scalar_subquery()
+        )
+        return case(
+            (active_screening_exists > 0, literal_column("'screening_running'")),
+            (
+                and_(
+                    RecruitmentCandidate.status == "pending_screening",
+                    RecruitmentCandidate.ai_recommended_status.isnot(None),
+                    RecruitmentCandidate.ai_recommended_status != "",
+                ),
+                RecruitmentCandidate.ai_recommended_status,
+            ),
+            (
+                and_(
+                    RecruitmentCandidate.status == "unmatched",
+                    RecruitmentCandidate.position_id.isnot(None),
+                    RecruitmentCandidate.talent_pool_reason.in_(["auto_archived", "moved_by_hr"]),
+                ),
+                literal_column("'talent_pool'"),
+            ),
+            else_=RecruitmentCandidate.status,
         )
 
     def _build_position_task_skill_row_map(self, rows: Sequence[RecruitmentPosition]) -> Dict[int, Dict[str, List[RecruitmentSkill]]]:
@@ -9323,7 +9404,8 @@ class RecruitmentService:
         latest_log = self.db.query(RecruitmentAITaskLog).filter(RecruitmentAITaskLog.task_type == "jd_generation", RecruitmentAITaskLog.related_position_id == row.id).order_by(RecruitmentAITaskLog.created_at.desc(), RecruitmentAITaskLog.id.desc()).first()
         jd_generation = None if not latest_log else {"status": latest_log.status, "task_id": latest_log.id, "last_generated_at": isoformat_or_none(latest_log.updated_at or latest_log.created_at), "started_at": isoformat_or_none(latest_log.created_at), "error_message": latest_log.error_message, "model_provider": latest_log.model_provider, "model_name": latest_log.model_name}
         publish_tasks = self.db.query(RecruitmentPublishTask).filter(RecruitmentPublishTask.position_id == row.id).order_by(RecruitmentPublishTask.created_at.desc(), RecruitmentPublishTask.id.desc()).all()
-        return {"position": self._serialize_position(row), "current_jd_version": self._serialize_jd_version(current_jd) if current_jd else None, "jd_versions": [self._serialize_jd_version(item) for item in jd_versions], "jd_generation": jd_generation, "publish_tasks": [self._serialize_publish_task(item) for item in publish_tasks], "candidates": []}
+        candidate_page = self.list_candidates(position_id=row.id, limit=20, offset=0, compact=True)
+        return {"position": self._serialize_position(row), "current_jd_version": self._serialize_jd_version(current_jd) if current_jd else None, "jd_versions": [self._serialize_jd_version(item) for item in jd_versions], "jd_generation": jd_generation, "publish_tasks": [self._serialize_publish_task(item) for item in publish_tasks], "candidates": candidate_page.get("items", [])}
 
     def list_skills(self) -> List[Dict[str, Any]]:
         rows = self.db.query(RecruitmentSkill).filter(RecruitmentSkill.deleted.is_(False)).order_by(RecruitmentSkill.sort_order.asc(), RecruitmentSkill.created_at.desc(), RecruitmentSkill.id.desc()).all()
@@ -10006,6 +10088,12 @@ class RecruitmentService:
             display_status = "screening_running"
         elif row.status == "pending_screening" and ai_recommended_status and not active_screening_auto_retry_scheduled:
             display_status = ai_recommended_status
+        elif (
+            row.status == "unmatched"
+            and row.position_id
+            and str(getattr(row, "talent_pool_reason", "") or "").strip() in {"auto_archived", "moved_by_hr"}
+        ):
+            display_status = "talent_pool"
         else:
             display_status = row.status or ""
         return {
@@ -10079,6 +10167,7 @@ class RecruitmentService:
             "org_code": normalize_org_code(getattr(row, "org_code", None)),
             "position_id": row.position_id,
             "position_title": position.title if position else None,
+            "screened_position_title": position.title if position else None,
             "name": row.name,
             "current_company": row.current_company,
             "phone": row.phone,
@@ -10099,10 +10188,24 @@ class RecruitmentService:
             "active_screening_auto_retry_scheduled": display_payload["active_screening_auto_retry_scheduled"],
             "ai_recommended_status": display_payload["ai_recommended_status"],
             "match_percent": display_payload["display_match_percent"],
+            "latest_resume_file_id": row.latest_resume_file_id,
+            "latest_parse_result_id": row.latest_parse_result_id,
+            "latest_score_id": row.latest_score_id,
+            "latest_total_score": display_payload["display_total_score"],
+            "owner_id": row.owner_id,
+            "ai_match_position_id": ai_match_snapshot.get("ai_match_position_id"),
+            "ai_match_position_title": ai_match_snapshot.get("ai_match_position_title"),
+            "ai_match_confidence": ai_match_snapshot.get("ai_match_confidence"),
+            "ai_match_reason": ai_match_snapshot.get("ai_match_reason"),
             "ai_potential_position": ai_match_snapshot.get("ai_potential_position"),
             "ai_potential_reason": ai_match_snapshot.get("ai_potential_reason"),
+            "tags": json_loads_safe(row.tags_json, []),
             "created_at": isoformat_or_none(row.created_at),
             "updated_at": isoformat_or_none(row.updated_at),
+            "talent_pool_reason": getattr(row, "talent_pool_reason", None),
+            "talent_pool_source_status": getattr(row, "talent_pool_source_status", None),
+            "talent_pool_moved_by": getattr(row, "talent_pool_moved_by", None),
+            "talent_pool_moved_at": isoformat_or_none(getattr(row, "talent_pool_moved_at", None)),
         }
 
     def _serialize_position_candidate_item(
@@ -10161,6 +10264,10 @@ class RecruitmentService:
             "note_summary": note_summary or None,
             "created_at": isoformat_or_none(row.created_at),
             "updated_at": isoformat_or_none(row.updated_at),
+            "talent_pool_reason": getattr(row, "talent_pool_reason", None),
+            "talent_pool_source_status": getattr(row, "talent_pool_source_status", None),
+            "talent_pool_moved_by": getattr(row, "talent_pool_moved_by", None),
+            "talent_pool_moved_at": isoformat_or_none(getattr(row, "talent_pool_moved_at", None)),
         }
 
     def _serialize_talent_pool_item(
@@ -10192,7 +10299,11 @@ class RecruitmentService:
             "city": getattr(row, "city", None),
             "source": row.source,
             "status": row.status,
+            "owner_id": row.owner_id,
+            "created_by": row.created_by,
+            "updated_by": row.updated_by,
             "created_at": isoformat_or_none(row.created_at),
+            "updated_at": isoformat_or_none(row.updated_at),
             "ai_match_position_id": ai_match_snapshot.get("ai_match_position_id"),
             "ai_match_position_title": ai_match_snapshot.get("ai_match_position_title"),
             "ai_match_reason": ai_match_snapshot.get("ai_match_reason"),
@@ -10205,8 +10316,7 @@ class RecruitmentService:
         }
 
     def _serialize_realtime_candidate_item(self, row: RecruitmentCandidate) -> Dict[str, Any]:
-        normalized_status = str(getattr(row, "status", "") or "").strip().lower()
-        if normalized_status in {"matching", "unmatched", "talent_pool"}:
+        if not self._candidate_belongs_to_position_pipeline(row):
             return self._serialize_talent_pool_item(row)
         return self._serialize_candidate_list_item(row)
 
@@ -10243,32 +10353,10 @@ class RecruitmentService:
     def get_candidate_stats(self, position_id: Optional[int] = None, org_code: Optional[str] = None) -> Dict[str, Any]:
         """Candidate stats grouped by display_status (matches frontend resolveCandidateDisplayStatus).
         Returns both full counts and today-only counts."""
-        from sqlalchemy import func as sa_func, case, literal_column, cast, Date
+        from sqlalchemy import func as sa_func, cast, Date
         from datetime import date as date_type
         today = date_type.today()
-        active_screening_exists = (
-            self.db.query(sa_func.count(RecruitmentAITaskLog.id))
-            .filter(
-                RecruitmentAITaskLog.related_candidate_id == RecruitmentCandidate.id,
-                RecruitmentAITaskLog.task_type == SCREENING_FLOW_TASK_TYPE,
-                RecruitmentAITaskLog.parent_task_id.is_(None),
-                RecruitmentAITaskLog.status.in_(SCREENING_LIVE_TASK_STATUSES),
-            )
-            .correlate(RecruitmentCandidate)
-            .scalar_subquery()
-        )
-        display_status_expr = case(
-            (active_screening_exists > 0, literal_column("'screening_running'")),
-            (
-                and_(
-                    RecruitmentCandidate.status == "pending_screening",
-                    RecruitmentCandidate.ai_recommended_status.isnot(None),
-                    RecruitmentCandidate.ai_recommended_status != "",
-                ),
-                RecruitmentCandidate.ai_recommended_status,
-            ),
-            else_=RecruitmentCandidate.status,
-        ).label("display_status")
+        display_status_expr = self._candidate_display_status_expr().label("display_status")
 
         def _run_stats_query(extra_filters=None):
             q = (
@@ -10285,6 +10373,7 @@ class RecruitmentService:
                     q = q.filter(RecruitmentCandidate.created_by == self.permission_context.actor_user_code)
             else:
                 q = self._apply_business_org_filter(q, RecruitmentCandidate)
+            q = q.filter(self._position_pipeline_candidate_filter_expr())
             if position_id:
                 q = q.filter(RecruitmentCandidate.position_id == position_id)
             if extra_filters:
@@ -10331,6 +10420,7 @@ class RecruitmentService:
                 base_q = base_q.filter(RecruitmentCandidate.created_by == self.permission_context.actor_user_code)
         else:
             base_q = self._apply_business_org_filter(base_q, RecruitmentCandidate)
+        base_q = base_q.filter(self._position_pipeline_candidate_filter_expr())
         if position_id:
             base_q = base_q.filter(RecruitmentCandidate.position_id == position_id)
 
@@ -10346,7 +10436,14 @@ class RecruitmentService:
             {"key": "hired", "label_zh": "已入职", "label_en": "Hired", "count": _count(["hired"])},
         ]
         rejected_count = _count(["screening_failed", "screening_rejected", "interview_rejected"])
-        talent_pool_count = _count(["talent_pool"])
+        talent_pool_count = base_q.filter(or_(
+            RecruitmentCandidate.status == "talent_pool",
+            and_(
+                RecruitmentCandidate.status == "unmatched",
+                RecruitmentCandidate.position_id.isnot(None),
+                RecruitmentCandidate.talent_pool_reason.in_(["auto_archived", "moved_by_hr"]),
+            ),
+        )).count()
 
         return {
             "stages": stages,
@@ -10372,6 +10469,7 @@ class RecruitmentService:
                 base_q = base_q.filter(RecruitmentCandidate.created_by == self.permission_context.actor_user_code)
         else:
             base_q = self._apply_business_org_filter(base_q, RecruitmentCandidate)
+        base_q = base_q.filter(self._position_pipeline_candidate_filter_expr())
         if position_id:
             base_q = base_q.filter(RecruitmentCandidate.position_id == position_id)
         rows = base_q.group_by(RecruitmentCandidate.source).all()
@@ -10408,17 +10506,15 @@ class RecruitmentService:
         builder = self._build_candidate_scoped_query(org_code)
         # 排除待归岗候选人（这些候选人在人才库中显示）
         if not status:
-            builder = builder.filter(RecruitmentCandidate.status.notin_(["matching", "unmatched", "talent_pool"]))
+            builder = builder.filter(self._position_pipeline_candidate_filter_expr())
         if position_id:
             builder = builder.filter(RecruitmentCandidate.position_id == position_id)
         if query:
             keyword = f"%{query.strip()}%"
             builder = builder.filter(or_(RecruitmentCandidate.name.like(keyword), RecruitmentCandidate.phone.like(keyword), RecruitmentCandidate.email.like(keyword), RecruitmentCandidate.current_company.like(keyword)))
         if status:
-            builder = builder.filter(or_(
-                RecruitmentCandidate.status == status,
-                RecruitmentCandidate.ai_recommended_status == status,
-            ))
+            normalized_status = str(status or "").strip().lower()
+            builder = builder.filter(self._candidate_display_status_expr() == normalized_status)
         if tag:
             builder = builder.filter(RecruitmentCandidate.tags_json.like(f"%{tag}%"))
         db_engine = self.db.get_bind()
@@ -10732,7 +10828,7 @@ class RecruitmentService:
                 candidate = self._get_candidate(candidate_id)
             except ValueError:
                 continue
-            self._create_status_history(candidate, status, reason, actor_id, "manual")
+            self._apply_candidate_status_transition(candidate, status, reason, actor_id, "manual")
             self.db.add(candidate)
             updated += 1
         self.db.commit()
@@ -10954,7 +11050,7 @@ class RecruitmentService:
 
     def update_candidate_status(self, candidate_id: int, status: str, reason: str, actor_id: str) -> Dict[str, Any]:
         candidate = self._get_candidate(candidate_id)
-        self._create_status_history(candidate, status, reason, actor_id, "manual")
+        self._apply_candidate_status_transition(candidate, status, reason, actor_id, "manual")
         self.db.add(candidate)
         self.db.commit()
         self.db.refresh(candidate)
@@ -11167,11 +11263,7 @@ class RecruitmentService:
             if not resume_content:
                 return
             org_code = candidate.org_code or self._current_org_code()
-            positions = self.db.query(RecruitmentPosition).filter(
-                RecruitmentPosition.status.in_(["recruiting", "draft"]),
-                RecruitmentPosition.deleted.is_(False),
-                RecruitmentPosition.org_code == org_code,
-            ).all()
+            positions = self._get_position_match_pool(org_code=org_code)
             if not positions:
                 return
             position_summaries = []
@@ -11346,16 +11438,12 @@ class RecruitmentService:
         else:
             match_org_code = None
 
-        position_query = self.db.query(RecruitmentPosition).filter(
-            RecruitmentPosition.status.in_(["recruiting", "draft"]),
-            RecruitmentPosition.deleted.is_(False),
+        positions = self._get_position_match_pool(
+            org_code=match_org_code,
+            require_auto_screen_ready=require_auto_screen_ready,
         )
-        if match_org_code:
-            position_query = position_query.filter(RecruitmentPosition.org_code == match_org_code)
-        positions = position_query.all()
 
         if require_auto_screen_ready:
-            positions = [position for position in positions if self._is_position_auto_screen_ready(position)]
             logger.info(
                 "[AI_MATCH] Filtered smart-upload positions to auto-screen-ready pool: remaining=%d",
                 len(positions),
@@ -11422,7 +11510,7 @@ class RecruitmentService:
             return {
                 "batch_id": batch_id,
                 "matched_count": 0,
-                "total_candidates": 0,
+                "total_candidates": len(candidates),
                 "message": message,
             }
 
@@ -12156,12 +12244,14 @@ class RecruitmentService:
             raise ValueError("Candidate not found")
 
         source_status = candidate.status
-        candidate.status = "unmatched"
-        candidate.talent_pool_reason = "moved_by_hr"
-        candidate.talent_pool_source_status = source_status
-        candidate.talent_pool_moved_by = actor_id
-        candidate.talent_pool_moved_at = datetime.now()
-        candidate.updated_by = actor_id
+        self._apply_candidate_status_transition(
+            candidate,
+            "talent_pool",
+            "人工归入人才库",
+            actor_id,
+            "manual",
+        )
+        self.db.add(candidate)
         self.db.commit()
 
         now = datetime.now()
@@ -12186,13 +12276,14 @@ class RecruitmentService:
             RecruitmentCandidate.deleted.is_(False),
         ).all()
         for c in candidates:
-            source_status = c.status
-            c.status = "unmatched"
-            c.talent_pool_reason = "moved_by_hr"
-            c.talent_pool_source_status = source_status
-            c.talent_pool_moved_by = actor_id
-            c.talent_pool_moved_at = datetime.now()
-            c.updated_by = actor_id
+            self._apply_candidate_status_transition(
+                c,
+                "talent_pool",
+                "人工归入人才库",
+                actor_id,
+                "manual",
+            )
+            self.db.add(c)
         self.db.commit()
         logger.info("[TALENT_POOL] Batch moved %d candidates to talent pool", len(candidates))
         return {"moved_count": len(candidates)}
@@ -12653,13 +12744,30 @@ class RecruitmentService:
             "active_jd_snapshot": self._serialize_active_jd_snapshot(position),
         }
 
+    def _get_position_match_pool(
+        self,
+        *,
+        org_code: Optional[str] = None,
+        require_auto_screen_ready: bool = False,
+    ) -> List[RecruitmentPosition]:
+        # Only active recruiting positions are sent to AI matching. Draft, paused,
+        # and closed positions may be incomplete or intentionally unavailable.
+        query = self.db.query(RecruitmentPosition).filter(
+            RecruitmentPosition.status == "recruiting",
+            RecruitmentPosition.deleted.is_(False),
+        )
+        query = self._apply_business_org_filter(query, RecruitmentPosition)
+        normalized_org_code = normalize_org_code(org_code) if org_code else None
+        if normalized_org_code:
+            query = query.filter(RecruitmentPosition.org_code == normalized_org_code)
+        positions = query.order_by(RecruitmentPosition.updated_at.desc(), RecruitmentPosition.id.desc()).all()
+        if require_auto_screen_ready:
+            positions = [position for position in positions if self._is_position_auto_screen_ready(position)]
+        return positions
+
     def _build_available_positions_text(self, candidate: RecruitmentCandidate) -> str:
         org_code = getattr(candidate, "org_code", None) or self._current_org_code()
-        positions = self.db.query(RecruitmentPosition).filter(
-            RecruitmentPosition.status.in_(["recruiting", "draft"]),
-            RecruitmentPosition.deleted.is_(False),
-            RecruitmentPosition.org_code == org_code,
-        ).all()
+        positions = self._get_position_match_pool(org_code=org_code)
         if not isinstance(positions, (list, tuple)):
             positions = []
         position_list_lines = []

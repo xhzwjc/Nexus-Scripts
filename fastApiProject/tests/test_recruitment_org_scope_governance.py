@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -184,10 +186,14 @@ def _add_candidate(db, *, org_code, position_id, name, created_by):
 
 
 def _names(rows):
+    if isinstance(rows, dict):
+        rows = rows.get("items", [])
     return {row["title"] if "title" in row else row["name"] for row in rows}
 
 
 def _orgs(rows):
+    if isinstance(rows, dict):
+        rows = rows.get("items", [])
     return {row["org_code"] for row in rows}
 
 
@@ -285,6 +291,202 @@ def test_recruitment_positions_and_candidates_follow_group_company_department_sc
             actor_id="chunmiao-leader",
         )
         assert created_by_leader["org_code"] == "chunmiao-rd"
+    finally:
+        db.close()
+
+
+def test_ai_position_match_pool_follows_self_data_scope():
+    db = _build_test_db()
+    try:
+        _seed_org_tree(db)
+        _seed_catalog(db)
+        admin = _session("group-admin", "group", DATA_SCOPE_ALL, super_admin=True)
+        own_position = _service(db, admin).create_position(
+            {
+                "org_code": "group",
+                "title": "本人可见岗位",
+                "headcount": 1,
+                "status": "recruiting",
+            },
+            "self-user",
+        )
+        _service(db, admin).create_position(
+            {
+                "org_code": "group",
+                "title": "同组织他人岗位",
+                "headcount": 1,
+                "status": "recruiting",
+            },
+            "other-user",
+        )
+        _service(db, admin).create_position(
+            {
+                "org_code": "haoshi",
+                "title": "其他组织岗位",
+                "headcount": 1,
+                "status": "recruiting",
+            },
+            "self-user",
+        )
+        for status, title in [
+            ("draft", "本人草稿岗位"),
+            ("paused", "本人暂停岗位"),
+            ("closed", "本人关闭岗位"),
+        ]:
+            _service(db, admin).create_position(
+                {
+                    "org_code": "group",
+                    "title": title,
+                    "headcount": 1,
+                    "status": status,
+                },
+                "self-user",
+            )
+        candidate = _add_candidate(
+            db,
+            org_code="group",
+            position_id=own_position["id"],
+            name="智能匹配候选人",
+            created_by="self-user",
+        )
+        _add_candidate(
+            db,
+            org_code="group",
+            position_id=own_position["id"],
+            name="同岗位他人候选人",
+            created_by="other-user",
+        )
+
+        self_scope_service = _service(db, _session("self-user", "group", DATA_SCOPE_SELF))
+        self_position_summary = next(position for position in self_scope_service.list_positions() if position["id"] == own_position["id"])
+        assert self_position_summary["candidate_count"] == 1
+        self_scope_titles = {position.title for position in self_scope_service._get_position_match_pool(org_code="group")}
+        assert self_scope_titles == {"本人可见岗位"}
+        assert self_scope_service._get_position_match_pool(org_code="group", require_auto_screen_ready=True) == []
+        available_positions_text = self_scope_service._build_available_positions_text(candidate)
+        assert "本人可见岗位" in available_positions_text
+        assert "同组织他人岗位" not in available_positions_text
+        assert "其他组织岗位" not in available_positions_text
+        assert "本人草稿岗位" not in available_positions_text
+        assert "本人暂停岗位" not in available_positions_text
+        assert "本人关闭岗位" not in available_positions_text
+
+        org_scope_service = _service(db, _session("self-user", "group", DATA_SCOPE_ORG_ONLY))
+        org_position_summary = next(position for position in org_scope_service.list_positions() if position["id"] == own_position["id"])
+        assert org_position_summary["candidate_count"] == 2
+        org_scope_titles = {position.title for position in org_scope_service._get_position_match_pool(org_code="group")}
+        assert org_scope_titles == {"本人可见岗位", "同组织他人岗位"}
+    finally:
+        db.close()
+
+
+def test_smart_match_enqueues_visible_positions_without_auto_screen(monkeypatch):
+    db = _build_test_db()
+
+    class FakeMatchScheduler:
+        running = False
+
+        def __init__(self):
+            self.enqueued_batches = []
+            self.callbacks_set = False
+            self.live_candidate_ids = set()
+
+        def is_candidate_live(self, candidate_id):
+            return int(candidate_id) in self.live_candidate_ids
+
+        def clear_cancelled(self, candidate_id):
+            return None
+
+        def set_callbacks(self, **kwargs):
+            self.callbacks_set = True
+
+        async def enqueue_batch(self, *, user_id, batch_id, candidates, position_summaries):
+            self.live_candidate_ids.update(candidate.id for candidate in candidates)
+            self.enqueued_batches.append(
+                {
+                    "user_id": user_id,
+                    "batch_id": batch_id,
+                    "candidate_ids": [candidate.id for candidate in candidates],
+                    "position_summaries": position_summaries,
+                }
+            )
+
+    try:
+        _seed_org_tree(db)
+        _seed_catalog(db)
+        admin = _session("group-admin", "group", DATA_SCOPE_ALL, super_admin=True)
+        own_position = _service(db, admin).create_position(
+            {
+                "org_code": "group",
+                "title": "本人未开自动初筛岗位",
+                "headcount": 1,
+                "status": "recruiting",
+                "auto_screen_on_upload": False,
+            },
+            "self-user",
+        )
+        _service(db, admin).create_position(
+            {
+                "org_code": "group",
+                "title": "同组织他人未开自动初筛岗位",
+                "headcount": 1,
+                "status": "recruiting",
+                "auto_screen_on_upload": False,
+            },
+            "other-user",
+        )
+        for status, title in [
+            ("draft", "本人草稿未开自动初筛岗位"),
+            ("paused", "本人暂停未开自动初筛岗位"),
+            ("closed", "本人关闭未开自动初筛岗位"),
+        ]:
+            _service(db, admin).create_position(
+                {
+                    "org_code": "group",
+                    "title": title,
+                    "headcount": 1,
+                    "status": status,
+                    "auto_screen_on_upload": False,
+                },
+                "self-user",
+            )
+        candidate = _add_candidate(
+            db,
+            org_code="group",
+            position_id=None,
+            name="待智能匹配候选人",
+            created_by="self-user",
+        )
+        candidate.status = "matching"
+        db.add(candidate)
+        db.commit()
+
+        fake_scheduler = FakeMatchScheduler()
+        import app.services.match_scheduler as match_scheduler_module
+
+        monkeypatch.setattr(match_scheduler_module, "scheduler", fake_scheduler)
+
+        service = _service(db, _session("self-user", "group", DATA_SCOPE_SELF))
+        result = asyncio.run(service.trigger_ai_position_match([candidate.id], "self-user"))
+
+        assert result["total_candidates"] == 1
+        assert len(fake_scheduler.enqueued_batches) == 1
+        enqueued = fake_scheduler.enqueued_batches[0]
+        assert enqueued["candidate_ids"] == [candidate.id]
+        assert [item["id"] for item in enqueued["position_summaries"]] == [own_position["id"]]
+        assert [item["title"] for item in enqueued["position_summaries"]] == ["本人未开自动初筛岗位"]
+
+        db.refresh(candidate)
+        assert candidate.status == "matching"
+        talent_pool_page = service.get_talent_pool_candidates(
+            org_code="group",
+            paginated=True,
+            stat_filter="matching",
+        )
+        assert talent_pool_page["total"] == 1
+        assert [item["id"] for item in talent_pool_page["items"]] == [candidate.id]
+        assert talent_pool_page["items"][0]["created_by"] == "self-user"
+        assert talent_pool_page["items"][0]["updated_by"] == "self-user"
     finally:
         db.close()
 
