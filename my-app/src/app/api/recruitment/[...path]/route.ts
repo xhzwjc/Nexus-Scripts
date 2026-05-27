@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { getBackendBaseUrl } from "@/lib/server/backendBaseUrl";
-import { requireScriptHubPermission } from "@/lib/server/scriptHubSession";
+import { requireScriptHubAnyPermission, requireScriptHubPermission } from "@/lib/server/scriptHubSession";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-function resolveRecruitmentPermission(path: string, method: string) {
+function resolveRecruitmentPermission(path: string, method: string): string | string[] {
   const normalizedMethod = method.toUpperCase();
 
   if (path === "llm-configs" || path.startsWith("llm-configs/")) {
@@ -37,6 +37,38 @@ function resolveRecruitmentPermission(path: string, method: string) {
     return normalizedMethod === "GET" || normalizedMethod === "HEAD"
       ? "recruitment-review-view"
       : "recruitment-review-act";
+  }
+
+  if (path === "interview-availability/my") {
+    return normalizedMethod === "GET" || normalizedMethod === "HEAD"
+      ? ["recruitment-interview-view", "recruitment-interview-act"]
+      : "recruitment-interview-act";
+  }
+
+  if (path === "interview-availability") {
+    return "recruitment-interview-manage";
+  }
+
+  if (path === "interviews/my") {
+    return ["recruitment-interview-view", "recruitment-interview-act"];
+  }
+
+  if (path.startsWith("interviews/candidates/") || path.startsWith("interviews/resume-files/")) {
+    return ["recruitment-interview-view", "recruitment-interview-act", "recruitment-interview-manage"];
+  }
+
+  if (path === "interviews" || path === "interviews/interviewers") {
+    return "recruitment-interview-manage";
+  }
+
+  if (path.startsWith("interview-schedules/") && path.endsWith("/result")) {
+    return "recruitment-interview-act";
+  }
+
+  if (path === "interview-schedules" || path.startsWith("interview-schedules/")) {
+    return normalizedMethod === "GET" || normalizedMethod === "HEAD"
+      ? ["recruitment-interview-view", "recruitment-interview-manage"]
+      : "recruitment-interview-manage";
   }
 
   if (path === "resume-mail-dispatches/send") {
@@ -86,7 +118,10 @@ async function proxyRecruitmentRequest(
   params: { path: string[] },
 ) {
   const path = params.path.join("/");
-  const auth = requireScriptHubPermission(request, resolveRecruitmentPermission(path, request.method));
+  const requiredPermission = resolveRecruitmentPermission(path, request.method);
+  const auth = Array.isArray(requiredPermission)
+    ? requireScriptHubAnyPermission(request, requiredPermission)
+    : requireScriptHubPermission(request, requiredPermission);
   if ("response" in auth) {
     return auth.response;
   }
@@ -251,6 +286,14 @@ export async function POST(
 }
 
 export async function PATCH(
+  request: NextRequest,
+  context: { params: Promise<{ path: string[] }> },
+) {
+  const params = await context.params;
+  return proxyRecruitmentRequest(request, params);
+}
+
+export async function PUT(
   request: NextRequest,
   context: { params: Promise<{ path: string[] }> },
 ) {

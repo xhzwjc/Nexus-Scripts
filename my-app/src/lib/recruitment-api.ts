@@ -282,16 +282,58 @@ export interface InterviewSchedule {
   position_id?: number | null;
   org_code?: string | null;
   round_name: string;
+  round_index?: number | null;
+  interviewer_user_code?: string | null;
   interviewer_name?: string | null;
   scheduled_at?: string | null;
   duration_minutes?: number | null;
   location?: string | null;
   meeting_link?: string | null;
   notes?: string | null;
+  availability_slot_id?: number | null;
+  department_review_assignment_id?: number | null;
+  notification_status?: string | null;
+  notified_at?: string | null;
+  result_status?: string | null;
+  result_comment?: string | null;
+  result_submitted_at?: string | null;
   status: string;
   created_by?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
+}
+
+export interface InterviewAvailabilitySlot {
+  id: number;
+  interviewer_user_code: string;
+  interviewer_name?: string | null;
+  org_code?: string | null;
+  start_at?: string | null;
+  end_at?: string | null;
+  status: "available" | "booked" | "cancelled" | string;
+  schedule_id?: number | null;
+  notes?: string | null;
+  created_by?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface InterviewTask {
+  task_type?: "scheduled" | "needs_scheduling" | string;
+  schedule?: InterviewSchedule | null;
+  candidate: CandidateSummary;
+  position?: PositionSummary | null;
+}
+
+export interface InterviewTaskList {
+  items: InterviewTask[];
+  total: number;
+  counts: {
+    todo: number;
+    today: number;
+    completed: number;
+    cancelled: number;
+  };
 }
 
 export interface FollowUp {

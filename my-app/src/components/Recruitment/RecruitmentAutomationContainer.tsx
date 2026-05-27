@@ -58,7 +58,10 @@ import {
     type CandidateDetail,
     type CandidateSummary,
     type ChatContext,
+    type InterviewAvailabilitySlot,
     type InterviewSchedule,
+    type InterviewTaskList,
+    type InterviewTask,
     type FollowUp,
     type RecruitmentOffer,
     type ChatResponse,
@@ -208,6 +211,7 @@ import {AuditPage} from "./pages/AuditPage";
 import {CandidatesPage} from "./pages/CandidatesPage";
 import {MailSettingsPage} from "./pages/MailSettingsPage";
 import {ModelSettingsPage} from "./pages/ModelSettingsPage";
+import {InterviewWorkbenchPage} from "./pages/InterviewWorkbenchPage";
 import {ReviewWorkbenchPage} from "./pages/ReviewWorkbenchPage";
 import {SkillSettingsPage} from "./pages/SkillSettingsPage";
 import {TalentPoolPage} from "./pages/TalentPoolPage";
@@ -1678,10 +1682,14 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const canManagePosition = Boolean(perms["recruitment-position-manage"]);
     const canManageCandidate = Boolean(perms["recruitment-candidate-manage"]);
     const canExecuteProcess = Boolean(perms["recruitment-process-execute"]);
+    const canViewRecruitmentDashboard = Boolean(perms["recruitment-dashboard-view"]);
     const canViewLog = Boolean(perms["recruitment-log-view"]);
     const canViewReview = Boolean(perms["recruitment-review-view"]);
     const canActReview = Boolean(perms["recruitment-review-act"]);
     const canManageReview = Boolean(perms["recruitment-review-manage"]);
+    const canViewInterview = Boolean(perms["recruitment-interview-view"]);
+    const canActInterview = Boolean(perms["recruitment-interview-act"]);
+    const canManageInterview = Boolean(perms["recruitment-interview-manage"]);
     const canViewSkill = Boolean(perms["recruitment-skill-view"]);
     const canBindSkill = Boolean(perms["recruitment-skill-bind"]);
     const canManageSkill = Boolean(perms["recruitment-skill-manage"]);
@@ -1690,6 +1698,13 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const canManageMailConfig = Boolean(perms["recruitment-mail-config-manage"] || perms["recruitment-mail-sender-manage"]);
     const canViewLLMConfig = Boolean(perms["recruitment-llm-config-view"]);
     const canManageLLMConfig = Boolean(perms["recruitment-llm-config-manage"]);
+    const canUseRecruitmentWorkspace = Boolean(
+        canViewRecruitmentDashboard
+        || canManagePosition
+        || canManageCandidate
+        || canExecuteProcess
+        || canViewLog
+    );
     const canManageSharing = Boolean(perms["resource-sharing-manage"]);
     const canManageRBAC = Boolean(perms["rbac-manage"]);
     // Derived: show settings button if any view/manage permission for config pages exists
@@ -2072,6 +2087,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         || activePage === "candidates"
         || activePage === "positions"
         || activePage === "review-workbench"
+        || activePage === "interviews"
         || activePage === "audit"
         || activePage === "talent-pool"
         || activePage === "assistant"
@@ -2079,7 +2095,15 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         || activePage === "settings-models"
         || activePage === "settings-mail"
     );
-    const taskSSEEnabled = taskSSEPageActive && (canExecuteProcess || canViewLog);
+    const taskSSEEnabled = taskSSEPageActive && (
+        canExecuteProcess
+        || canViewLog
+        || canViewReview
+        || canActReview
+        || canViewInterview
+        || canActInterview
+        || canManageInterview
+    );
 
     const applyRecruitmentPageChange = useCallback((
         page: RecruitmentPage,
@@ -2106,6 +2130,20 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             return current === page ? current : page;
         });
     }, []);
+
+    const resolveFallbackRecruitmentPage = useCallback((): RecruitmentPage => {
+        if (canUseRecruitmentWorkspace) return "workspace";
+        if (canViewReview || canActReview) return "review-workbench";
+        if (canViewInterview || canActInterview || canManageInterview) return "interviews";
+        return "workspace";
+    }, [
+        canActInterview,
+        canActReview,
+        canManageInterview,
+        canUseRecruitmentWorkspace,
+        canViewInterview,
+        canViewReview,
+    ]);
 
     const handleSmartBack = useCallback(() => {
         const history = recruitmentPageHistoryRef.current;
@@ -2180,6 +2218,14 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const [departmentReviewCounts, setDepartmentReviewCounts] = useState({pending: 0, deferred: 0, completed: 0, todo: 0});
     const [departmentReviewLoading, setDepartmentReviewLoading] = useState(false);
     const [departmentReviewFilter, setDepartmentReviewFilter] = useState<"todo" | "completed" | "pending" | "deferred" | "passed" | "rejected">("todo");
+    const [interviewWorkbenchTasks, setInterviewWorkbenchTasks] = useState<InterviewTask[]>([]);
+    const [interviewWorkbenchCounts, setInterviewWorkbenchCounts] = useState({todo: 0, today: 0, completed: 0, cancelled: 0});
+    const [interviewWorkbenchLoading, setInterviewWorkbenchLoading] = useState(false);
+    const [interviewWorkbenchFilter, setInterviewWorkbenchFilter] = useState<"todo" | "today" | "completed" | "cancelled">("todo");
+    const [autoOpenInterviewScheduleCandidateId, setAutoOpenInterviewScheduleCandidateId] = useState<number | null>(null);
+    const [myInterviewAvailabilitySlots, setMyInterviewAvailabilitySlots] = useState<InterviewAvailabilitySlot[]>([]);
+    const [myInterviewAvailabilityLoading, setMyInterviewAvailabilityLoading] = useState(false);
+    const [myInterviewAvailabilitySaving, setMyInterviewAvailabilitySaving] = useState(false);
     const [candidateDetailReviewContext, setCandidateDetailReviewContext] = useState<{
         candidateId: number;
         assignmentId: number;
@@ -3377,28 +3423,40 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     }, [visibleAiLogs]);
 
     useEffect(() => {
-        if (activePage === "positions" && !canManagePosition) {
-            applyRecruitmentPageChange("workspace", "replace");
+        const fallbackPage = resolveFallbackRecruitmentPage();
+        if (activePage === "workspace" && !canUseRecruitmentWorkspace) {
+            applyRecruitmentPageChange(fallbackPage, "replace");
+        } else if (activePage === "assistant" && !canUseRecruitmentWorkspace) {
+            applyRecruitmentPageChange(fallbackPage, "replace");
+        } else if (activePage === "positions" && !canManagePosition) {
+            applyRecruitmentPageChange(fallbackPage, "replace");
         } else if (activePage === "candidates" && !canManageCandidate) {
-            applyRecruitmentPageChange("workspace", "replace");
+            applyRecruitmentPageChange(fallbackPage, "replace");
         } else if (activePage === "review-workbench" && !canViewReview && !canActReview) {
-            applyRecruitmentPageChange("workspace", "replace");
+            applyRecruitmentPageChange(fallbackPage, "replace");
+        } else if (activePage === "interviews" && !canViewInterview && !canActInterview && !canManageInterview) {
+            applyRecruitmentPageChange(fallbackPage, "replace");
         } else if (activePage === "audit" && !canViewLog) {
-            applyRecruitmentPageChange("workspace", "replace");
+            applyRecruitmentPageChange(fallbackPage, "replace");
         } else if (activePage === "settings-skills" && !canViewSkill && !canManageSkill) {
-            applyRecruitmentPageChange("workspace", "replace");
+            applyRecruitmentPageChange(fallbackPage, "replace");
         } else if (activePage === "settings-models" && !canViewLLMConfig && !canManageLLMConfig) {
-            applyRecruitmentPageChange("workspace", "replace");
+            applyRecruitmentPageChange(fallbackPage, "replace");
         } else if (activePage === "settings-mail" && !canViewMail && !canManageMailConfig) {
-            applyRecruitmentPageChange("workspace", "replace");
+            applyRecruitmentPageChange(fallbackPage, "replace");
         }
     }, [
         activePage,
         applyRecruitmentPageChange,
+        resolveFallbackRecruitmentPage,
+        canUseRecruitmentWorkspace,
         canManagePosition,
         canManageCandidate,
         canViewReview,
         canActReview,
+        canViewInterview,
+        canActInterview,
+        canManageInterview,
         canViewLog,
         canViewSkill,
         canManageSkill,
@@ -3889,6 +3947,13 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             void loadDepartmentReviewTasks();
         }
     }, [activePage, departmentReviewFilter]);
+
+    useEffect(() => {
+        if (activePage === "interviews") {
+            void loadMyInterviewTasks();
+            void loadMyInterviewAvailability({silent: true});
+        }
+    }, [activePage, interviewWorkbenchFilter]);
 
     useEffect(() => {
         if (activePage === "settings-skills") {
@@ -4610,7 +4675,24 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                     }
                 }
             },
-            onCandidateUpdated: queueCandidateUpdatedEvent,
+            onCandidateUpdated: (event) => {
+                queueCandidateUpdatedEvent(event);
+                if (event.task_type === "department_review" && activePageRef.current === "review-workbench") {
+                    void loadDepartmentReviewTasks({silent: true});
+                }
+                if (event.task_type === "interview_schedule" && activePageRef.current === "interviews") {
+                    void loadMyInterviewTasks({silent: true});
+                    void loadMyInterviewAvailability({silent: true});
+                    const assignedInterviewer = String(event.interviewer_user_code || "").trim();
+                    if (
+                        assignedInterviewer
+                        && assignedInterviewer === String(sessionUser?.id || "").trim()
+                        && event.schedule_status === "scheduled"
+                    ) {
+                        toast.info(isZh ? "收到新的面试安排" : "New interview scheduled");
+                    }
+                }
+            },
             onBatchSummary: () => {
                 void refreshCandidateStats();
             },
@@ -10155,21 +10237,136 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         ]);
     }
 
+    function buildInterviewAvailabilityRange() {
+        const start = new Date();
+        start.setHours(0, 0, 0, 0);
+        const end = new Date(start.getTime() + 14 * 24 * 60 * 60 * 1000);
+        return {start, end};
+    }
+
+    async function loadMyInterviewAvailability(options?: {silent?: boolean}) {
+        if (!options?.silent) {
+            setMyInterviewAvailabilityLoading(true);
+        }
+        try {
+            const {start, end} = buildInterviewAvailabilityRange();
+            const params = new URLSearchParams({
+                start_at: start.toISOString(),
+                end_at: end.toISOString(),
+            });
+            const data = await recruitmentApi<{items: InterviewAvailabilitySlot[]}>(`/interview-availability/my?${params.toString()}`);
+            if (mountedRef.current) {
+                setMyInterviewAvailabilitySlots(data?.items || []);
+            }
+        } catch (error) {
+            if (mountedRef.current) {
+                setMyInterviewAvailabilitySlots([]);
+            }
+            if (!options?.silent) {
+                toast.error(isZh ? `加载可面试时间失败：${formatActionError(error)}` : `Failed to load availability: ${formatActionError(error)}`);
+            }
+        } finally {
+            if (!options?.silent && mountedRef.current) {
+                setMyInterviewAvailabilityLoading(false);
+            }
+        }
+    }
+
+    async function saveMyInterviewAvailability(slots: Array<{start_at: string; end_at: string; notes?: string}>) {
+        setMyInterviewAvailabilitySaving(true);
+        try {
+            const {start, end} = buildInterviewAvailabilityRange();
+            const data = await recruitmentApi<{items: InterviewAvailabilitySlot[]}>("/interview-availability/my", {
+                method: "PUT",
+                body: JSON.stringify({
+                    slots,
+                    range_start: start.toISOString(),
+                    range_end: end.toISOString(),
+                }),
+            });
+            if (mountedRef.current) {
+                setMyInterviewAvailabilitySlots(data?.items || []);
+            }
+            toast.success(isZh ? "可面试时间已保存" : "Availability saved");
+        } catch (error) {
+            toast.error(isZh ? `保存可面试时间失败：${formatActionError(error)}` : `Failed to save availability: ${formatActionError(error)}`);
+        } finally {
+            if (mountedRef.current) {
+                setMyInterviewAvailabilitySaving(false);
+            }
+        }
+    }
+
+    async function loadMyInterviewTasks(options?: {silent?: boolean}) {
+        if (!options?.silent) {
+            setInterviewWorkbenchLoading(true);
+        }
+        try {
+            const query = interviewWorkbenchFilter ? `?status=${encodeURIComponent(interviewWorkbenchFilter)}` : "";
+            const endpoint = canManageInterview ? "/interviews" : "/interviews/my";
+            const data = await recruitmentApi<InterviewTaskList>(`${endpoint}${query}`);
+            if (mountedRef.current) {
+                setInterviewWorkbenchTasks(data?.items || []);
+                setInterviewWorkbenchCounts(data?.counts || {todo: 0, today: 0, completed: 0, cancelled: 0});
+            }
+        } catch (error) {
+            if (mountedRef.current) {
+                setInterviewWorkbenchTasks([]);
+            }
+            if (!options?.silent) {
+                toast.error(isZh ? `加载面试任务失败：${formatActionError(error)}` : `Failed to load interviews: ${formatActionError(error)}`);
+            }
+        } finally {
+            if (!options?.silent && mountedRef.current) {
+                setInterviewWorkbenchLoading(false);
+            }
+        }
+    }
+
+    async function submitInterviewResult(scheduleId: number, resultStatus: "passed" | "next_round" | "hold" | "rejected" | "no_show", comment: string) {
+        await recruitmentApi(`/interview-schedules/${scheduleId}/result`, {
+            method: "POST",
+            body: JSON.stringify({
+                result_status: resultStatus,
+                result_comment: comment.trim() || null,
+            }),
+        });
+        toast.success(isZh ? "面试结果已提交" : "Interview result submitted");
+        await Promise.allSettled([
+            loadMyInterviewTasks({silent: true}),
+            loadMyInterviewAvailability({silent: true}),
+            loadCandidates({silent: true, force: true}),
+            refreshCandidateStats(),
+            selectedCandidateIdRef.current ? loadInterviewSchedules(selectedCandidateIdRef.current) : Promise.resolve(),
+            selectedCandidateIdRef.current ? loadCandidateDetail(selectedCandidateIdRef.current, {silent: true, force: true}) : Promise.resolve(),
+        ]);
+    }
+
     async function createInterviewSchedule(payload: {
         candidate_id: number;
         round_name?: string;
+        round_index?: number;
+        interviewer_user_code?: string;
         interviewer_name?: string;
         scheduled_at?: string;
         duration_minutes?: number;
         location?: string;
         meeting_link?: string;
         notes?: string;
+        availability_slot_id?: number;
+        department_review_assignment_id?: number;
     }) {
         const data = await recruitmentApi<InterviewSchedule>("/interview-schedules", {
             method: "POST",
             body: JSON.stringify(payload),
         });
         toast.success(recruitmentToast.interviewScheduleCreated);
+        await Promise.allSettled([
+            loadMyInterviewTasks({silent: true}),
+            loadMyInterviewAvailability({silent: true}),
+            loadCandidates({silent: true, force: true}),
+            refreshCandidateStats(),
+        ]);
         if (selectedCandidateId) {
             await loadInterviewSchedules(selectedCandidateId);
         }
@@ -10179,6 +10376,12 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     async function deleteInterviewSchedule(scheduleId: number) {
         await recruitmentApi(`/interview-schedules/${scheduleId}`, {method: "DELETE"});
         toast.success(recruitmentToast.interviewScheduleDeleted);
+        await Promise.allSettled([
+            loadMyInterviewTasks({silent: true}),
+            loadMyInterviewAvailability({silent: true}),
+            loadCandidates({silent: true, force: true}),
+            refreshCandidateStats(),
+        ]);
         if (selectedCandidateId) {
             await loadInterviewSchedules(selectedCandidateId);
         }
@@ -12371,6 +12574,12 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                         loadDepartmentReviews(candidateId),
                     ]);
                 }}
+                autoOpenInterviewScheduleCandidateId={autoOpenInterviewScheduleCandidateId}
+                onAutoOpenInterviewScheduleHandled={(candidateId) => {
+                    if (autoOpenInterviewScheduleCandidateId === candidateId) {
+                        setAutoOpenInterviewScheduleCandidateId(null);
+                    }
+                }}
                 batchUpdateStatus={batchUpdateStatus}
                 duplicateCandidates={duplicateCandidates}
                 followUps={followUps}
@@ -12559,6 +12768,33 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         );
     }
 
+    function renderInterviewWorkbenchPage() {
+        return (
+            <InterviewWorkbenchPage
+                tasks={interviewWorkbenchTasks}
+                counts={interviewWorkbenchCounts}
+                loading={interviewWorkbenchLoading}
+                activeFilter={interviewWorkbenchFilter}
+                setActiveFilter={setInterviewWorkbenchFilter}
+                currentUserCode={sessionUser?.id || null}
+                canManageInterview={canManageInterview}
+                canSubmitInterviewResults={canActInterview}
+                availabilitySlots={myInterviewAvailabilitySlots}
+                availabilityLoading={myInterviewAvailabilityLoading}
+                availabilitySaving={myInterviewAvailabilitySaving}
+                onRefresh={async () => {
+                    await Promise.allSettled([
+                        loadMyInterviewTasks(),
+                        loadMyInterviewAvailability({silent: true}),
+                    ]);
+                }}
+                onSubmitResult={submitInterviewResult}
+                onCreateSchedule={createInterviewSchedule}
+                onSaveAvailability={saveMyInterviewAvailability}
+            />
+        );
+    }
+
     function renderSkillsPage() {
         return (
             <SkillSettingsPage
@@ -12636,6 +12872,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 return renderCandidatesPage();
             case "review-workbench":
                 return renderReviewWorkbenchPage();
+            case "interviews":
+                return renderInterviewWorkbenchPage();
             case "talent-pool":
                 return renderTalentPoolPage();
             case "audit":
@@ -12845,6 +13083,11 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                     {activePage === "review-workbench" && (
                         <div className="h-full min-h-0 px-2 pb-2 pt-0">
                             {renderReviewWorkbenchPage()}
+                        </div>
+                    )}
+                    {activePage === "interviews" && (
+                        <div className="h-full min-h-0 px-2 pb-2 pt-0">
+                            {renderInterviewWorkbenchPage()}
                         </div>
                     )}
                     {activePage === "workspace" && (

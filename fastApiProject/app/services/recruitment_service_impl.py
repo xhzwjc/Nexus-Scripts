@@ -45,6 +45,7 @@ from ..recruitment_models import (
     RecruitmentChatContextMemory,
     RecruitmentDepartmentReviewAssignment,
     RecruitmentDepartmentReviewBatch,
+    RecruitmentInterviewAvailabilitySlot,
     RecruitmentInterviewResult,
     RecruitmentInterviewQuestion,
     RecruitmentInterviewSchedule,
@@ -10874,17 +10875,207 @@ class RecruitmentService:
             "position_id": row.position_id,
             "org_code": normalize_org_code(getattr(row, "org_code", None)),
             "round_name": row.round_name,
+            "round_index": getattr(row, "round_index", None) or 1,
+            "interviewer_user_code": getattr(row, "interviewer_user_code", None),
             "interviewer_name": row.interviewer_name,
             "scheduled_at": isoformat_or_none(row.scheduled_at),
             "duration_minutes": row.duration_minutes,
             "location": row.location,
             "meeting_link": row.meeting_link,
             "notes": row.notes,
+            "availability_slot_id": getattr(row, "availability_slot_id", None),
+            "department_review_assignment_id": getattr(row, "department_review_assignment_id", None),
+            "notification_status": getattr(row, "notification_status", None) or "pending",
+            "notified_at": isoformat_or_none(getattr(row, "notified_at", None)),
+            "result_status": getattr(row, "result_status", None),
+            "result_comment": getattr(row, "result_comment", None),
+            "result_submitted_at": isoformat_or_none(getattr(row, "result_submitted_at", None)),
             "status": row.status,
             "created_by": row.created_by,
             "created_at": isoformat_or_none(row.created_at),
             "updated_at": isoformat_or_none(row.updated_at),
         }
+
+    def _serialize_interview_availability_slot(self, row: RecruitmentInterviewAvailabilitySlot) -> Dict[str, Any]:
+        return {
+            "id": row.id,
+            "interviewer_user_code": row.interviewer_user_code,
+            "interviewer_name": row.interviewer_name,
+            "org_code": normalize_org_code(getattr(row, "org_code", None)),
+            "start_at": isoformat_or_none(row.start_at),
+            "end_at": isoformat_or_none(row.end_at),
+            "status": row.status,
+            "schedule_id": row.schedule_id,
+            "notes": row.notes,
+            "created_by": row.created_by,
+            "created_at": isoformat_or_none(row.created_at),
+            "updated_at": isoformat_or_none(row.updated_at),
+        }
+
+    def _resolve_interviewer_user(self, user_code: Optional[str], fallback_name: Optional[str] = None) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+        normalized_code = str(user_code or "").strip()
+        if not normalized_code:
+            return None, str(fallback_name or "").strip() or None, None
+        user = self.db.query(ScriptHubUser).filter(
+            ScriptHubUser.user_code == normalized_code,
+            ScriptHubUser.is_active.is_(True),
+            ScriptHubUser.is_deleted.is_(False),
+        ).first()
+        if not user:
+            raise ValueError(f"面试官账号 {normalized_code} 不存在或未启用")
+        permission_map = build_permission_map(self.db, user)
+        if not (permission_map.get("recruitment-interview-act") or permission_map.get("recruitment-review-act")):
+            raise ValueError(f"面试官 {normalized_code} 未分配面试处理权限")
+        return normalized_code, str(user.display_name or fallback_name or normalized_code).strip(), normalize_org_code(user.primary_org_code)
+
+    @staticmethod
+    def _interview_end_at(start_at: Optional[datetime], duration_minutes: Optional[int]) -> Optional[datetime]:
+        if not start_at:
+            return None
+        minutes = max(1, int(duration_minutes or 60))
+        return start_at + timedelta(minutes=minutes)
+
+    def _find_interview_schedule_conflict(
+        self,
+        interviewer_user_code: Optional[str],
+        start_at: Optional[datetime],
+        duration_minutes: Optional[int],
+        *,
+        exclude_schedule_id: Optional[int] = None,
+    ) -> Optional[RecruitmentInterviewSchedule]:
+        if not interviewer_user_code or not start_at:
+            return None
+        end_at = self._interview_end_at(start_at, duration_minutes)
+        if not end_at:
+            return None
+        window_start = start_at - timedelta(hours=12)
+        window_end = end_at + timedelta(hours=12)
+        rows = self.db.query(RecruitmentInterviewSchedule).filter(
+            RecruitmentInterviewSchedule.interviewer_user_code == interviewer_user_code,
+            RecruitmentInterviewSchedule.scheduled_at.isnot(None),
+            RecruitmentInterviewSchedule.scheduled_at >= window_start,
+            RecruitmentInterviewSchedule.scheduled_at <= window_end,
+            RecruitmentInterviewSchedule.status.in_(["scheduled", "confirmed", "in_progress"]),
+        )
+        if exclude_schedule_id:
+            rows = rows.filter(RecruitmentInterviewSchedule.id != exclude_schedule_id)
+        for row in rows.all():
+            row_start = row.scheduled_at
+            row_end = self._interview_end_at(row_start, row.duration_minutes)
+            if row_start and row_end and row_start < end_at and start_at < row_end:
+                return row
+        return None
+
+    def _resolve_interview_availability_slot(
+        self,
+        interviewer_user_code: Optional[str],
+        start_at: Optional[datetime],
+        duration_minutes: Optional[int],
+        availability_slot_id: Optional[int] = None,
+    ) -> Optional[RecruitmentInterviewAvailabilitySlot]:
+        if not interviewer_user_code or not start_at:
+            return None
+        end_at = self._interview_end_at(start_at, duration_minutes)
+        if not end_at:
+            return None
+        builder = self.db.query(RecruitmentInterviewAvailabilitySlot).filter(
+            RecruitmentInterviewAvailabilitySlot.interviewer_user_code == interviewer_user_code,
+            RecruitmentInterviewAvailabilitySlot.status == "available",
+            RecruitmentInterviewAvailabilitySlot.start_at <= start_at,
+            RecruitmentInterviewAvailabilitySlot.end_at >= end_at,
+        )
+        if availability_slot_id:
+            builder = builder.filter(RecruitmentInterviewAvailabilitySlot.id == int(availability_slot_id))
+        return builder.order_by(RecruitmentInterviewAvailabilitySlot.start_at.asc()).first()
+
+    def _resolve_existing_booked_interview_slot(
+        self,
+        slot_id: Optional[int],
+        schedule: RecruitmentInterviewSchedule,
+    ) -> Optional[RecruitmentInterviewAvailabilitySlot]:
+        if not slot_id or not schedule.interviewer_user_code or not schedule.scheduled_at:
+            return None
+        end_at = self._interview_end_at(schedule.scheduled_at, schedule.duration_minutes)
+        if not end_at:
+            return None
+        slot = self.db.query(RecruitmentInterviewAvailabilitySlot).filter(
+            RecruitmentInterviewAvailabilitySlot.id == int(slot_id),
+            RecruitmentInterviewAvailabilitySlot.interviewer_user_code == schedule.interviewer_user_code,
+        ).first()
+        if not slot:
+            return None
+        if slot.status == "booked" and slot.schedule_id != schedule.id:
+            return None
+        if slot.start_at and slot.end_at and slot.start_at <= schedule.scheduled_at and slot.end_at >= end_at:
+            return slot
+        return None
+
+    def _release_interview_availability_slot(self, slot_id: Optional[int]) -> None:
+        if not slot_id:
+            return
+        slot = self.db.query(RecruitmentInterviewAvailabilitySlot).filter(
+            RecruitmentInterviewAvailabilitySlot.id == int(slot_id),
+        ).first()
+        if not slot:
+            return
+        slot.status = "available"
+        slot.schedule_id = None
+        self.db.add(slot)
+
+    def _book_interview_availability_slot(
+        self,
+        slot: Optional[RecruitmentInterviewAvailabilitySlot],
+        schedule: RecruitmentInterviewSchedule,
+        actor_id: str,
+    ) -> None:
+        if not slot:
+            return
+        slot.status = "booked"
+        slot.schedule_id = schedule.id
+        slot.updated_by = actor_id
+        schedule.availability_slot_id = slot.id
+        self.db.add(slot)
+        self.db.add(schedule)
+
+    def _emit_interview_candidate_updated(self, candidate: Optional[RecruitmentCandidate], *, schedule_id: Optional[int] = None) -> None:
+        if not candidate:
+            return
+        try:
+            from .task_event_bus import TaskEventBus
+            schedule_payload: Dict[str, Any] = {}
+            if schedule_id:
+                schedule = self.db.query(RecruitmentInterviewSchedule).filter(
+                    RecruitmentInterviewSchedule.id == schedule_id,
+                ).first()
+                if schedule:
+                    schedule_payload = {
+                        "schedule_status": schedule.status,
+                        "interviewer_user_code": schedule.interviewer_user_code,
+                        "interviewer_name": schedule.interviewer_name,
+                        "interview_result_status": schedule.result_status,
+                        "notification_status": schedule.notification_status,
+                    }
+            TaskEventBus.emit_to_all("candidate_updated", {
+                "candidate_id": candidate.id,
+                "schedule_id": schedule_id,
+                "task_type": "interview_schedule",
+                "status": candidate.status,
+                **schedule_payload,
+                "candidate_snapshot": self._serialize_realtime_candidate_item(candidate),
+            })
+        except Exception:
+            logger.debug("Failed to emit interview candidate update", exc_info=True)
+
+    def _record_interview_notification_follow_up(self, schedule: RecruitmentInterviewSchedule, actor_id: str) -> None:
+        scheduled_text = isoformat_or_none(schedule.scheduled_at) or "待定"
+        content = f"已同步面试安排给面试官：{schedule.interviewer_name or schedule.interviewer_user_code or '未指定'}，轮次：{schedule.round_name or '面试'}，时间：{scheduled_text}"
+        self.db.add(RecruitmentFollowUp(
+            candidate_id=schedule.candidate_id,
+            org_code=normalize_org_code(getattr(schedule, "org_code", None)),
+            content=content,
+            follow_up_type="interview_notification",
+            created_by=actor_id,
+        ))
 
     def list_interview_schedules(self, candidate_id: int) -> List[Dict[str, Any]]:
         self._get_candidate(candidate_id)
@@ -10893,34 +11084,148 @@ class RecruitmentService:
         ).order_by(RecruitmentInterviewSchedule.scheduled_at.is_(None), RecruitmentInterviewSchedule.scheduled_at.desc(), RecruitmentInterviewSchedule.id.desc()).all()
         return [self._serialize_interview_schedule(r) for r in rows]
 
+    def list_my_interview_availability(
+        self,
+        actor_id: str,
+        *,
+        start_at: Optional[str] = None,
+        end_at: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        start = _parse_iso_datetime_value(start_at) or (datetime.now() - timedelta(days=1))
+        end = _parse_iso_datetime_value(end_at) or (start + timedelta(days=14))
+        rows = self.db.query(RecruitmentInterviewAvailabilitySlot).filter(
+            RecruitmentInterviewAvailabilitySlot.interviewer_user_code == actor_id,
+            RecruitmentInterviewAvailabilitySlot.end_at >= start,
+            RecruitmentInterviewAvailabilitySlot.start_at <= end,
+        ).order_by(RecruitmentInterviewAvailabilitySlot.start_at.asc(), RecruitmentInterviewAvailabilitySlot.id.asc()).all()
+        return {"items": [self._serialize_interview_availability_slot(row) for row in rows]}
+
+    def replace_my_interview_availability(self, payload: Dict[str, Any], actor_id: str) -> Dict[str, Any]:
+        _, interviewer_name, org_code = self._resolve_interviewer_user(actor_id)
+        range_start = _parse_iso_datetime_value(payload.get("range_start")) or datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        range_end = _parse_iso_datetime_value(payload.get("range_end")) or (range_start + timedelta(days=14))
+        if range_end <= range_start:
+            raise ValueError("可面试时间范围不合法")
+        existing = self.db.query(RecruitmentInterviewAvailabilitySlot).filter(
+            RecruitmentInterviewAvailabilitySlot.interviewer_user_code == actor_id,
+            RecruitmentInterviewAvailabilitySlot.start_at >= range_start,
+            RecruitmentInterviewAvailabilitySlot.end_at <= range_end,
+            RecruitmentInterviewAvailabilitySlot.status == "available",
+        ).all()
+        for row in existing:
+            self.db.delete(row)
+        created_rows: List[RecruitmentInterviewAvailabilitySlot] = []
+        normalized_slots: List[Tuple[datetime, datetime, Optional[str]]] = []
+        for item in payload.get("slots") or []:
+            start = _parse_iso_datetime_value((item or {}).get("start_at"))
+            end = _parse_iso_datetime_value((item or {}).get("end_at"))
+            if not start or not end or end <= start:
+                raise ValueError("可面试时间段不合法")
+            for existing_start, existing_end, _ in normalized_slots:
+                if existing_start < end and start < existing_end:
+                    raise ValueError("可面试时间段不能互相重叠")
+            conflict = self._find_interview_schedule_conflict(actor_id, start, int((end - start).total_seconds() / 60))
+            if conflict:
+                raise ValueError(f"可面试时间与已安排面试冲突：{conflict.round_name} {isoformat_or_none(conflict.scheduled_at)}")
+            normalized_slots.append((start, end, str((item or {}).get("notes") or "").strip() or None))
+        for start, end, notes in normalized_slots:
+            row = RecruitmentInterviewAvailabilitySlot(
+                interviewer_user_code=actor_id,
+                interviewer_name=interviewer_name,
+                org_code=org_code or self._current_org_code(),
+                start_at=start,
+                end_at=end,
+                status="available",
+                notes=notes,
+                created_by=actor_id,
+                updated_by=actor_id,
+            )
+            self.db.add(row)
+            created_rows.append(row)
+        self.db.commit()
+        for row in created_rows:
+            self.db.refresh(row)
+        return self.list_my_interview_availability(actor_id, start_at=range_start.isoformat(), end_at=range_end.isoformat())
+
+    def list_interview_availability(
+        self,
+        *,
+        interviewer_user_codes: Optional[Sequence[str]] = None,
+        start_at: Optional[str] = None,
+        end_at: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        start = _parse_iso_datetime_value(start_at) or (datetime.now() - timedelta(days=1))
+        end = _parse_iso_datetime_value(end_at) or (start + timedelta(days=14))
+        codes = [str(code or "").strip() for code in (interviewer_user_codes or []) if str(code or "").strip()]
+        builder = self.db.query(RecruitmentInterviewAvailabilitySlot).filter(
+            RecruitmentInterviewAvailabilitySlot.end_at >= start,
+            RecruitmentInterviewAvailabilitySlot.start_at <= end,
+        )
+        if codes:
+            builder = builder.filter(RecruitmentInterviewAvailabilitySlot.interviewer_user_code.in_(codes))
+        rows = builder.order_by(RecruitmentInterviewAvailabilitySlot.start_at.asc(), RecruitmentInterviewAvailabilitySlot.id.asc()).all()
+        visible_rows = [row for row in rows if self._is_business_row_visible(row)]
+        return {"items": [self._serialize_interview_availability_slot(row) for row in visible_rows]}
+
     def create_interview_schedule(self, payload: Dict[str, Any], actor_id: str) -> Dict[str, Any]:
         candidate = self._get_candidate(payload["candidate_id"])
         org_code = normalize_org_code(getattr(candidate, "org_code", None))
-        scheduled_at = None
-        if payload.get("scheduled_at"):
-            from datetime import datetime as _dt
-            try:
-                scheduled_at = _dt.fromisoformat(payload["scheduled_at"])
-            except (ValueError, TypeError):
-                pass
+        scheduled_at = _parse_iso_datetime_value(payload.get("scheduled_at"))
+        interviewer_user_code, interviewer_name, _ = self._resolve_interviewer_user(
+            payload.get("interviewer_user_code"),
+            payload.get("interviewer_name"),
+        )
+        duration_minutes = int(payload.get("duration_minutes") or 60)
+        if not interviewer_user_code:
+            raise ValueError("请选择面试官")
+        if not scheduled_at:
+            raise ValueError("请选择面试时间")
+        if duration_minutes <= 0:
+            raise ValueError("面试时长必须大于 0 分钟")
+        conflict = self._find_interview_schedule_conflict(interviewer_user_code, scheduled_at, duration_minutes)
+        if conflict:
+            raise ValueError(f"面试官该时间段已有面试安排：{conflict.round_name} {isoformat_or_none(conflict.scheduled_at)}")
+        slot = self._resolve_interview_availability_slot(
+            interviewer_user_code,
+            scheduled_at,
+            duration_minutes,
+            payload.get("availability_slot_id"),
+        )
+        if payload.get("availability_slot_id") and not slot:
+            raise ValueError("选择的可面试时间段不可用或已被占用")
         row = RecruitmentInterviewSchedule(
             candidate_id=candidate.id,
             position_id=payload.get("position_id") or candidate.position_id,
             org_code=org_code,
             round_name=payload.get("round_name") or "初试",
-            interviewer_name=payload.get("interviewer_name"),
+            round_index=int(payload.get("round_index") or 1),
+            interviewer_user_code=interviewer_user_code,
+            interviewer_name=interviewer_name,
             scheduled_at=scheduled_at,
-            duration_minutes=payload.get("duration_minutes") or 60,
+            duration_minutes=duration_minutes,
             location=payload.get("location"),
             meeting_link=payload.get("meeting_link"),
             notes=payload.get("notes"),
+            availability_slot_id=slot.id if slot else None,
+            department_review_assignment_id=payload.get("department_review_assignment_id"),
+            notification_status="sent" if interviewer_user_code else "pending",
+            notified_at=datetime.now() if interviewer_user_code else None,
             status="scheduled",
             created_by=actor_id,
             updated_by=actor_id,
         )
         self.db.add(row)
+        self.db.flush()
+        self._book_interview_availability_slot(slot, row, actor_id)
+        if candidate.status not in {"pending_interview", "interview_passed", "interview_rejected", "offer_sent", "hired"}:
+            self._apply_candidate_status_transition(candidate, "pending_interview", f"安排{row.round_name}", actor_id, "interview_schedule")
+            self.db.add(candidate)
+        if interviewer_user_code:
+            self._record_interview_notification_follow_up(row, actor_id)
         self.db.commit()
         self.db.refresh(row)
+        self.db.refresh(candidate)
+        self._emit_interview_candidate_updated(candidate, schedule_id=row.id)
         return self._serialize_interview_schedule(row)
 
     def update_interview_schedule(self, schedule_id: int, payload: Dict[str, Any], actor_id: str) -> Dict[str, Any]:
@@ -10928,19 +11233,76 @@ class RecruitmentService:
         if not row:
             raise ValueError(f"面试安排 ID={schedule_id} 不存在")
         self._assert_business_row_visible(row)
+        previous_slot_id = getattr(row, "availability_slot_id", None)
+        previous_interviewer_user_code = row.interviewer_user_code
+        previous_scheduled_at = row.scheduled_at
+        previous_duration_minutes = row.duration_minutes
+        previous_status = row.status
         if "scheduled_at" in payload:
-            from datetime import datetime as _dt
-            try:
-                row.scheduled_at = _dt.fromisoformat(payload["scheduled_at"]) if payload["scheduled_at"] else None
-            except (ValueError, TypeError):
-                pass
-        for field in ["round_name", "interviewer_name", "duration_minutes", "location", "meeting_link", "notes", "status"]:
+            row.scheduled_at = _parse_iso_datetime_value(payload.get("scheduled_at"))
+        if "interviewer_user_code" in payload or "interviewer_name" in payload:
+            interviewer_user_code, interviewer_name, _ = self._resolve_interviewer_user(
+                payload.get("interviewer_user_code") if "interviewer_user_code" in payload else row.interviewer_user_code,
+                payload.get("interviewer_name") if "interviewer_name" in payload else row.interviewer_name,
+            )
+            row.interviewer_user_code = interviewer_user_code
+            row.interviewer_name = interviewer_name
+        for field in ["round_name", "round_index", "duration_minutes", "location", "meeting_link", "notes", "status"]:
             if field in payload:
                 setattr(row, field, payload[field])
+        if row.status in {"scheduled", "confirmed", "in_progress"}:
+            if not row.interviewer_user_code:
+                raise ValueError("请选择面试官")
+            if not row.scheduled_at:
+                raise ValueError("请选择面试时间")
+            if int(row.duration_minutes or 0) <= 0:
+                raise ValueError("面试时长必须大于 0 分钟")
+        conflict = self._find_interview_schedule_conflict(row.interviewer_user_code, row.scheduled_at, row.duration_minutes, exclude_schedule_id=row.id)
+        if conflict:
+            raise ValueError(f"面试官该时间段已有面试安排：{conflict.round_name} {isoformat_or_none(conflict.scheduled_at)}")
+        next_slot = None
+        if row.status in {"cancelled", "completed", "no_show"}:
+            self._release_interview_availability_slot(previous_slot_id)
+            row.availability_slot_id = None
+        else:
+            next_slot_id = payload.get("availability_slot_id") if "availability_slot_id" in payload else previous_slot_id
+            if next_slot_id == previous_slot_id:
+                next_slot = self._resolve_existing_booked_interview_slot(previous_slot_id, row)
+            else:
+                next_slot = self._resolve_interview_availability_slot(row.interviewer_user_code, row.scheduled_at, row.duration_minutes, next_slot_id)
+            if next_slot_id and not next_slot:
+                raise ValueError("选择的可面试时间段不可用或已被占用")
+            if previous_slot_id and (not next_slot or next_slot.id != previous_slot_id):
+                self._release_interview_availability_slot(previous_slot_id)
         row.updated_by = actor_id
         self.db.add(row)
+        self.db.flush()
+        self._book_interview_availability_slot(next_slot, row, actor_id)
+        active_statuses = {"scheduled", "confirmed", "in_progress"}
+        should_notify_interviewer = (
+            row.status in active_statuses
+            and bool(row.interviewer_user_code)
+            and bool(row.scheduled_at)
+            and (
+                previous_interviewer_user_code != row.interviewer_user_code
+                or previous_scheduled_at != row.scheduled_at
+                or previous_duration_minutes != row.duration_minutes
+                or previous_status not in active_statuses
+                or getattr(row, "notification_status", None) != "sent"
+            )
+        )
+        if should_notify_interviewer:
+            row.notification_status = "sent"
+            row.notified_at = datetime.now()
+            self._record_interview_notification_follow_up(row, actor_id)
         self.db.commit()
         self.db.refresh(row)
+        candidate = self.db.query(RecruitmentCandidate).filter(
+            RecruitmentCandidate.id == row.candidate_id,
+            RecruitmentCandidate.deleted.is_(False),
+        ).first()
+        if candidate:
+            self._emit_interview_candidate_updated(candidate, schedule_id=row.id)
         return self._serialize_interview_schedule(row)
 
     def delete_interview_schedule(self, schedule_id: int, actor_id: str) -> None:
@@ -10948,8 +11310,240 @@ class RecruitmentService:
         if not row:
             raise ValueError(f"面试安排 ID={schedule_id} 不存在")
         self._assert_business_row_visible(row)
+        candidate_id = row.candidate_id
+        self._release_interview_availability_slot(getattr(row, "availability_slot_id", None))
         self.db.delete(row)
         self.db.commit()
+        candidate = self.db.query(RecruitmentCandidate).filter(
+            RecruitmentCandidate.id == candidate_id,
+            RecruitmentCandidate.deleted.is_(False),
+        ).first()
+        if candidate:
+            self._emit_interview_candidate_updated(candidate, schedule_id=schedule_id)
+
+    def list_my_interview_tasks(self, actor_id: str, status: Optional[str] = None) -> Dict[str, Any]:
+        return self._list_interview_tasks(status=status, interviewer_user_code=actor_id)
+
+    def list_interview_tasks(self, status: Optional[str] = None) -> Dict[str, Any]:
+        return self._list_interview_tasks(status=status, interviewer_user_code=None)
+
+    def _assert_interview_candidate_assigned_to_user(self, candidate_id: int, actor_id: str) -> None:
+        normalized_actor_id = str(actor_id or "").strip()
+        if not normalized_actor_id:
+            raise ValueError("无法识别当前面试官账号")
+        rows = self.db.query(RecruitmentInterviewSchedule).filter(
+            RecruitmentInterviewSchedule.candidate_id == candidate_id,
+            RecruitmentInterviewSchedule.interviewer_user_code == normalized_actor_id,
+        ).all()
+        if not any(self._is_business_row_visible(row) for row in rows):
+            raise ValueError("只能查看分配给自己的面试候选人")
+
+    def get_interview_candidate_detail(self, candidate_id: int, actor_id: str) -> Dict[str, Any]:
+        self._assert_interview_candidate_assigned_to_user(candidate_id, actor_id)
+        return self.get_candidate_detail(candidate_id)
+
+    def get_interview_resume_file_download(self, resume_file_id: int, actor_id: str) -> Dict[str, Any]:
+        resume_file = self._get_resume_file(resume_file_id)
+        self._assert_interview_candidate_assigned_to_user(resume_file.candidate_id, actor_id)
+        return self.get_resume_file_download(resume_file_id)
+
+    def _list_interview_tasks(
+        self,
+        *,
+        status: Optional[str] = None,
+        interviewer_user_code: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        normalized_status = str(status or "").strip()
+        builder = self.db.query(RecruitmentInterviewSchedule)
+        if interviewer_user_code:
+            builder = builder.filter(RecruitmentInterviewSchedule.interviewer_user_code == interviewer_user_code)
+        now = datetime.now()
+        if normalized_status == "completed":
+            builder = builder.filter(RecruitmentInterviewSchedule.status.in_(["completed", "no_show"]))
+        elif normalized_status == "cancelled":
+            builder = builder.filter(RecruitmentInterviewSchedule.status == "cancelled")
+        elif normalized_status in {"scheduled", "confirmed", "in_progress", "no_show"}:
+            builder = builder.filter(RecruitmentInterviewSchedule.status == normalized_status)
+        elif normalized_status == "todo":
+            builder = builder.filter(RecruitmentInterviewSchedule.status.in_(["scheduled", "confirmed", "in_progress"]))
+        elif normalized_status == "today":
+            start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            end = start + timedelta(days=1)
+            builder = builder.filter(RecruitmentInterviewSchedule.scheduled_at >= start, RecruitmentInterviewSchedule.scheduled_at < end)
+        elif normalized_status == "upcoming":
+            builder = builder.filter(
+                RecruitmentInterviewSchedule.status.in_(["scheduled", "confirmed", "in_progress"]),
+                or_(RecruitmentInterviewSchedule.scheduled_at.is_(None), RecruitmentInterviewSchedule.scheduled_at >= now),
+            )
+        rows = builder.order_by(RecruitmentInterviewSchedule.scheduled_at.is_(None), RecruitmentInterviewSchedule.scheduled_at.asc(), RecruitmentInterviewSchedule.id.desc()).all()
+        rows = [row for row in rows if self._is_business_row_visible(row)]
+        candidate_ids = [row.candidate_id for row in rows]
+        position_ids = [row.position_id for row in rows if row.position_id]
+        candidates = {
+            row.id: row
+            for row in self.db.query(RecruitmentCandidate).filter(
+                RecruitmentCandidate.id.in_(candidate_ids),
+                RecruitmentCandidate.deleted.is_(False),
+            ).all()
+        } if candidate_ids else {}
+        positions = {
+            row.id: row
+            for row in self.db.query(RecruitmentPosition).filter(
+                RecruitmentPosition.id.in_(position_ids),
+                RecruitmentPosition.deleted.is_(False),
+            ).all()
+        } if position_ids else {}
+        scheduled_items = []
+        for row in rows:
+            candidate = candidates.get(row.candidate_id)
+            if not candidate:
+                continue
+            scheduled_items.append({
+                "task_type": "scheduled",
+                "schedule": self._serialize_interview_schedule(row),
+                "candidate": self._serialize_candidate_summary(candidate),
+                "position": self._serialize_position(positions.get(row.position_id)) if row.position_id and positions.get(row.position_id) else None,
+            })
+
+        unscheduled_items: List[Dict[str, Any]] = []
+        can_include_unscheduled = not interviewer_user_code
+        should_include_unscheduled = can_include_unscheduled and normalized_status in {"", "todo", "upcoming"}
+        if can_include_unscheduled:
+            active_schedule_rows = self.db.query(RecruitmentInterviewSchedule.candidate_id).filter(
+                RecruitmentInterviewSchedule.status.in_(["scheduled", "confirmed", "in_progress"]),
+            ).all()
+            active_schedule_candidate_ids = {row[0] for row in active_schedule_rows if row and row[0]}
+            unscheduled_query = self.db.query(RecruitmentCandidate).filter(
+                RecruitmentCandidate.deleted.is_(False),
+                RecruitmentCandidate.status.in_(["department_review_passed", "pending_interview"]),
+            )
+            if active_schedule_candidate_ids:
+                unscheduled_query = unscheduled_query.filter(RecruitmentCandidate.id.notin_(active_schedule_candidate_ids))
+            unscheduled_candidates = [
+                candidate for candidate in unscheduled_query.order_by(
+                    RecruitmentCandidate.updated_at.desc(),
+                    RecruitmentCandidate.id.desc(),
+                ).all()
+                if self._is_business_row_visible(candidate)
+            ]
+            unscheduled_position_ids = [candidate.position_id for candidate in unscheduled_candidates if candidate.position_id]
+            unscheduled_positions = {
+                row.id: row
+                for row in self.db.query(RecruitmentPosition).filter(
+                    RecruitmentPosition.id.in_(unscheduled_position_ids),
+                    RecruitmentPosition.deleted.is_(False),
+                ).all()
+            } if unscheduled_position_ids else {}
+            for candidate in unscheduled_candidates:
+                position = unscheduled_positions.get(candidate.position_id) if candidate.position_id else None
+                unscheduled_items.append({
+                    "task_type": "needs_scheduling",
+                    "schedule": None,
+                    "candidate": self._serialize_candidate_summary(candidate, _preloaded_position=position),
+                    "position": self._serialize_position(position) if position else None,
+                })
+
+        def count_schedules(status_values: Sequence[str]) -> int:
+            query = self.db.query(RecruitmentInterviewSchedule).join(
+                RecruitmentCandidate,
+                RecruitmentCandidate.id == RecruitmentInterviewSchedule.candidate_id,
+            ).filter(
+                RecruitmentInterviewSchedule.status.in_(list(status_values)),
+                RecruitmentCandidate.deleted.is_(False),
+            )
+            if interviewer_user_code:
+                query = query.filter(RecruitmentInterviewSchedule.interviewer_user_code == interviewer_user_code)
+            return len([row for row in query.all() if self._is_business_row_visible(row)])
+
+        counts = {
+            "todo": count_schedules(["scheduled", "confirmed", "in_progress"]),
+            "completed": count_schedules(["completed", "no_show"]),
+            "cancelled": count_schedules(["cancelled"]),
+        }
+        if can_include_unscheduled:
+            counts["todo"] += len(unscheduled_items)
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        today_query = self.db.query(RecruitmentInterviewSchedule).join(
+            RecruitmentCandidate,
+            RecruitmentCandidate.id == RecruitmentInterviewSchedule.candidate_id,
+        ).filter(
+            RecruitmentInterviewSchedule.scheduled_at >= today_start,
+            RecruitmentInterviewSchedule.scheduled_at < today_start + timedelta(days=1),
+            RecruitmentCandidate.deleted.is_(False),
+        )
+        if interviewer_user_code:
+            today_query = today_query.filter(RecruitmentInterviewSchedule.interviewer_user_code == interviewer_user_code)
+        counts["today"] = len([row for row in today_query.all() if self._is_business_row_visible(row)])
+        items = [*unscheduled_items, *scheduled_items] if should_include_unscheduled else scheduled_items
+        return {"items": items, "total": len(items), "counts": counts}
+
+    def submit_interview_schedule_result(self, schedule_id: int, payload: Dict[str, Any], actor_id: str) -> Dict[str, Any]:
+        schedule = self.db.query(RecruitmentInterviewSchedule).filter(
+            RecruitmentInterviewSchedule.id == schedule_id,
+        ).first()
+        if not schedule:
+            raise ValueError(f"面试安排 ID={schedule_id} 不存在")
+        if schedule.interviewer_user_code and schedule.interviewer_user_code != actor_id:
+            raise ValueError("只能处理分配给自己的面试任务")
+        normalized_result = str(payload.get("result_status") or "").strip()
+        result_mapping = {
+            "passed": "passed",
+            "pass": "passed",
+            "final_pass": "passed",
+            "next_round": "next_round",
+            "hold": "hold",
+            "deferred": "hold",
+            "rejected": "rejected",
+            "reject": "rejected",
+            "no_show": "no_show",
+        }
+        result_status = result_mapping.get(normalized_result)
+        if result_status not in {"passed", "next_round", "hold", "rejected", "no_show"}:
+            raise ValueError("面试结果只能是 passed/next_round/hold/rejected/no_show")
+        comment = str(payload.get("result_comment") or "").strip()
+        schedule.result_status = result_status
+        schedule.result_comment = comment or None
+        schedule.result_submitted_at = datetime.now()
+        schedule.status = "no_show" if result_status == "no_show" else "completed"
+        schedule.updated_by = actor_id
+        self._release_interview_availability_slot(getattr(schedule, "availability_slot_id", None))
+        schedule.availability_slot_id = None
+        candidate = self.db.query(RecruitmentCandidate).filter(
+            RecruitmentCandidate.id == schedule.candidate_id,
+            RecruitmentCandidate.deleted.is_(False),
+        ).first()
+        result = RecruitmentInterviewResult(
+            candidate_id=schedule.candidate_id,
+            position_id=schedule.position_id,
+            org_code=normalize_org_code(getattr(schedule, "org_code", None)),
+            interviewer_name=schedule.interviewer_name,
+            round_name=schedule.round_name,
+            notes_text=comment or None,
+            final_recommendation=result_status,
+            created_by=actor_id,
+        )
+        self.db.add(schedule)
+        self.db.add(result)
+        if candidate:
+            if result_status == "rejected" or result_status == "no_show":
+                self._apply_candidate_status_transition(candidate, "interview_rejected", "面试淘汰", actor_id, "interview")
+            elif result_status == "passed":
+                self._apply_candidate_status_transition(candidate, "interview_passed", "面试通过", actor_id, "interview")
+            elif result_status == "next_round":
+                reason = f"{schedule.round_name}通过，待安排{str(payload.get('next_round_name') or '下一轮面试').strip()}"
+                self._apply_candidate_status_transition(candidate, "pending_interview", reason, actor_id, "interview")
+            else:
+                self._apply_candidate_status_transition(candidate, "pending_interview", "面试暂缓，待 HR 跟进", actor_id, "interview")
+            self.db.add(candidate)
+        self.db.commit()
+        self.db.refresh(schedule)
+        if candidate:
+            self.db.refresh(candidate)
+            self._emit_interview_candidate_updated(candidate, schedule_id=schedule.id)
+        return {
+            "schedule": self._serialize_interview_schedule(schedule),
+            "candidate": self._serialize_candidate_summary(candidate) if candidate else None,
+        }
 
     def _serialize_follow_up(self, row: RecruitmentFollowUp) -> Dict[str, Any]:
         return {
@@ -11185,6 +11779,55 @@ class RecruitmentService:
             if len(reviewers) >= max(1, min(int(limit or 80), 200)):
                 break
         return reviewers
+
+    def list_interviewers(
+        self,
+        org_code: Optional[str] = None,
+        query: Optional[str] = None,
+        limit: int = 80,
+    ) -> List[Dict[str, Any]]:
+        target_org_code = normalize_org_code(org_code or self._current_org_code())
+        if self.permission_context and not self.permission_context.has_all_orgs:
+            visible_orgs = set(self.permission_context.visible_org_codes or ())
+            if target_org_code not in visible_orgs:
+                visible = ", ".join(self.permission_context.visible_org_codes or [])
+                raise ValueError(f"无权查看组织 {target_org_code} 的面试官，当前用户可访问的组织为 {visible}")
+
+        normalized_query = str(query or "").strip().lower()
+        rows = (
+            self.db.query(ScriptHubUser)
+            .filter(
+                ScriptHubUser.is_active.is_(True),
+                ScriptHubUser.is_deleted.is_(False),
+            )
+            .order_by(ScriptHubUser.display_name.asc(), ScriptHubUser.user_code.asc())
+            .all()
+        )
+        interviewers: List[Dict[str, Any]] = []
+        for user in rows:
+            user_org_codes = {normalize_org_code(user.primary_org_code)}
+            user_org_codes.update(normalize_org_code_list(user.custom_org_codes_json))
+            if target_org_code not in user_org_codes:
+                continue
+            permission_map = build_permission_map(self.db, user)
+            if not permission_map.get("recruitment-interview-act"):
+                continue
+            searchable = " ".join([
+                str(user.user_code or ""),
+                str(user.display_name or ""),
+                str(user.primary_org_code or ""),
+            ]).lower()
+            if normalized_query and normalized_query not in searchable:
+                continue
+            interviewers.append({
+                "user_code": user.user_code,
+                "name": user.display_name,
+                "display_name": user.display_name,
+                "primary_org_code": normalize_org_code(user.primary_org_code),
+            })
+            if len(interviewers) >= max(1, min(int(limit or 80), 200)):
+                break
+        return interviewers
 
     def create_department_review(self, payload: Dict[str, Any], actor_id: str) -> Dict[str, Any]:
         candidate_id = int(payload.get("candidate_id") or 0)

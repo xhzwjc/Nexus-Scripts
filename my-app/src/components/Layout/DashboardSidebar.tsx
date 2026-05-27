@@ -2,6 +2,7 @@ import React from 'react';
 import {
     Bot,
     BriefcaseBusiness,
+    CalendarCheck,
     ChevronDown,
     CircleHelp,
     ClipboardCheck,
@@ -76,9 +77,29 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
     const canAccessRecruitment = Boolean(currentUser?.permissions?.['ai-recruitment']);
     const canManagePosition = Boolean(currentUser?.permissions?.['recruitment-position-manage']);
     const canManageCandidate = Boolean(currentUser?.permissions?.['recruitment-candidate-manage']);
+    const canManageReview = Boolean(currentUser?.permissions?.['recruitment-review-manage']);
+    const canManageInterview = Boolean(currentUser?.permissions?.['recruitment-interview-manage']);
+    const canUseRecruitmentWorkspace = Boolean(
+        currentUser?.permissions?.['recruitment-dashboard-view']
+        || currentUser?.permissions?.['recruitment-process-execute']
+        || canManagePosition
+        || canManageCandidate
+        || currentUser?.permissions?.['recruitment-log-view']
+    );
     const canUseReviewWorkbench = Boolean(currentUser?.permissions?.['recruitment-review-view'] || currentUser?.permissions?.['recruitment-review-act']);
+    const canUseInterviewWorkbench = Boolean(
+        currentUser?.permissions?.['recruitment-interview-view']
+        || currentUser?.permissions?.['recruitment-interview-act']
+        || canManageInterview
+    );
     const canViewLog = Boolean(currentUser?.permissions?.['recruitment-log-view']);
     const inRecruitmentView = currentView === 'ai-recruitment';
+    const reviewWorkbenchLabel = canManageReview
+        ? t.nav.aiRecruitmentReviewWorkbench
+        : (language === 'en-US' ? 'Resume Review' : '筛选简历');
+    const interviewWorkbenchLabel = canManageInterview
+        ? (language === 'en-US' ? 'Interview Scheduling' : '面试安排')
+        : (language === 'en-US' ? 'My Interviews' : '我的面试');
 
     React.useEffect(() => {
         if (typeof window === 'undefined') return;
@@ -108,13 +129,14 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
     }, [currentView]);
 
     const recruitmentSubItems = [
-        { key: 'workspace', label: t.nav.aiRecruitmentWorkspace, icon: <FolderKanban className="h-4 w-4" /> },
+        ...(canUseRecruitmentWorkspace ? [{ key: 'workspace', label: t.nav.aiRecruitmentWorkspace, icon: <FolderKanban className="h-4 w-4" /> }] : []),
         ...(canManagePosition ? [{ key: 'positions', label: t.nav.aiRecruitmentPositions, icon: <BriefcaseBusiness className="h-4 w-4" /> }] : []),
         ...(canManageCandidate ? [{ key: 'candidates', label: t.nav.aiRecruitmentCandidates, icon: <Users className="h-4 w-4" /> }] : []),
-        ...(canUseReviewWorkbench ? [{ key: 'review-workbench', label: t.nav.aiRecruitmentReviewWorkbench, icon: <ClipboardCheck className="h-4 w-4" /> }] : []),
+        ...(canUseReviewWorkbench ? [{ key: 'review-workbench', label: reviewWorkbenchLabel, icon: <ClipboardCheck className="h-4 w-4" /> }] : []),
+        ...(canUseInterviewWorkbench ? [{ key: 'interviews', label: interviewWorkbenchLabel, icon: <CalendarCheck className="h-4 w-4" /> }] : []),
         ...(canManageCandidate ? [{ key: 'talent-pool', label: t.nav.aiRecruitmentTalentPool, icon: <Users className="h-4 w-4" /> }] : []),
         ...(canViewLog ? [{ key: 'audit', label: t.nav.aiRecruitmentAudit, icon: <History className="h-4 w-4" /> }] : []),
-        { key: 'assistant', label: t.nav.aiRecruitmentAssistant, icon: <Bot className="h-4 w-4" /> },
+        ...(canUseRecruitmentWorkspace ? [{ key: 'assistant', label: t.nav.aiRecruitmentAssistant, icon: <Bot className="h-4 w-4" /> }] : []),
     ];
 
     const navItemClass = (active: boolean, disabled = false) =>

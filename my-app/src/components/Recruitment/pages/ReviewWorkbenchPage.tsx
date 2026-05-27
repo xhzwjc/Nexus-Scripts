@@ -9,9 +9,10 @@ import {Button} from "@/components/ui/button";
 import {Input} from "@/components/ui/input";
 import {Popover, PopoverContent, PopoverTrigger} from "@/components/ui/popover";
 import {Textarea} from "@/components/ui/textarea";
+import {toast} from "@/lib/toast";
 import {cn} from "@/lib/utils";
 import {useI18n} from "@/lib/i18n";
-import {formatDateTime, labelForCandidateStatus} from "../utils";
+import {formatActionError, formatDateTime, labelForCandidateStatus} from "../utils";
 
 type ReviewStatusFilter = "todo" | "completed" | "pending" | "deferred" | "passed" | "rejected";
 type ReviewResultFilter = "all" | "pending" | "deferred" | "passed" | "rejected";
@@ -282,6 +283,8 @@ export function ReviewWorkbenchPage({
         try {
             await onDecision(assignmentId, status, commentByAssignment[assignmentId] || "");
             setCommentByAssignment((current) => ({...current, [assignmentId]: ""}));
+        } catch (error) {
+            toast.error(isZh ? `提交评审结果失败：${formatActionError(error)}` : `Failed to submit review result: ${formatActionError(error)}`);
         } finally {
             setSubmittingKey(null);
         }

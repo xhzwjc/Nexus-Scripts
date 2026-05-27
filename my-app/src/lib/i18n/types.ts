@@ -204,6 +204,7 @@ export interface Translations {
     aiRecruitmentPositions: string;
     aiRecruitmentCandidates: string;
     aiRecruitmentReviewWorkbench: string;
+    aiRecruitmentInterviews: string;
     aiRecruitmentTalentPool: string;
     aiRecruitmentAudit: string;
     aiRecruitmentAssistant: string;

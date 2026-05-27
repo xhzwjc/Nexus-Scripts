@@ -13,6 +13,7 @@ from .permission_governance import ROOT_ORG_CODE
 from .rbac_models import ScriptHubOrganization, ScriptHubPermission, ScriptHubRole, ScriptHubRolePermission
 from .recruitment_models import (
     RecruitmentFollowUp,
+    RecruitmentInterviewAvailabilitySlot,
     RecruitmentInterviewSchedule,
     RecruitmentLLMConfig,
     RecruitmentMailRecipient,
@@ -922,6 +923,38 @@ def ensure_recruitment_schema() -> None:
                 "CREATE INDEX idx_candidate_position_deleted_updated ON recruitment_candidates (position_id, deleted, updated_at, id)",
                 "Created index idx_candidate_position_deleted_updated",
             )
+            if inspector.has_table("recruitment_interview_schedules"):
+                _add_column_if_missing(inspector, "recruitment_interview_schedules", "round_index", "ALTER TABLE recruitment_interview_schedules ADD COLUMN round_index INT NOT NULL DEFAULT 1", "Added recruitment_interview_schedules.round_index column")
+                _add_column_if_missing(inspector, "recruitment_interview_schedules", "interviewer_user_code", "ALTER TABLE recruitment_interview_schedules ADD COLUMN interviewer_user_code VARCHAR(100) NULL", "Added recruitment_interview_schedules.interviewer_user_code column")
+                _add_column_if_missing(inspector, "recruitment_interview_schedules", "availability_slot_id", "ALTER TABLE recruitment_interview_schedules ADD COLUMN availability_slot_id INT NULL", "Added recruitment_interview_schedules.availability_slot_id column")
+                _add_column_if_missing(inspector, "recruitment_interview_schedules", "department_review_assignment_id", "ALTER TABLE recruitment_interview_schedules ADD COLUMN department_review_assignment_id INT NULL", "Added recruitment_interview_schedules.department_review_assignment_id column")
+                _add_column_if_missing(inspector, "recruitment_interview_schedules", "notification_status", "ALTER TABLE recruitment_interview_schedules ADD COLUMN notification_status VARCHAR(50) NOT NULL DEFAULT 'pending'", "Added recruitment_interview_schedules.notification_status column")
+                _add_column_if_missing(inspector, "recruitment_interview_schedules", "notified_at", "ALTER TABLE recruitment_interview_schedules ADD COLUMN notified_at DATETIME NULL", "Added recruitment_interview_schedules.notified_at column")
+                _add_column_if_missing(inspector, "recruitment_interview_schedules", "result_status", "ALTER TABLE recruitment_interview_schedules ADD COLUMN result_status VARCHAR(50) NULL", "Added recruitment_interview_schedules.result_status column")
+                _add_column_if_missing(inspector, "recruitment_interview_schedules", "result_comment", "ALTER TABLE recruitment_interview_schedules ADD COLUMN result_comment TEXT NULL", "Added recruitment_interview_schedules.result_comment column")
+                _add_column_if_missing(inspector, "recruitment_interview_schedules", "result_submitted_at", "ALTER TABLE recruitment_interview_schedules ADD COLUMN result_submitted_at DATETIME NULL", "Added recruitment_interview_schedules.result_submitted_at column")
+                _add_index_if_missing(
+                    inspector,
+                    "recruitment_interview_schedules",
+                    "idx_interview_schedule_interviewer_time",
+                    "CREATE INDEX idx_interview_schedule_interviewer_time ON recruitment_interview_schedules (interviewer_user_code, scheduled_at, status)",
+                    "Created index idx_interview_schedule_interviewer_time",
+                )
+                _add_index_if_missing(
+                    inspector,
+                    "recruitment_interview_schedules",
+                    "idx_interview_schedule_candidate_status",
+                    "CREATE INDEX idx_interview_schedule_candidate_status ON recruitment_interview_schedules (candidate_id, status, scheduled_at)",
+                    "Created index idx_interview_schedule_candidate_status",
+                )
+            if inspector.has_table("recruitment_interview_availability_slots"):
+                _add_index_if_missing(
+                    inspector,
+                    "recruitment_interview_availability_slots",
+                    "idx_interview_availability_user_time",
+                    "CREATE INDEX idx_interview_availability_user_time ON recruitment_interview_availability_slots (interviewer_user_code, start_at, end_at, status)",
+                    "Created index idx_interview_availability_user_time",
+                )
             if inspector.has_table("recruitment_department_review_batches"):
                 _add_index_if_missing(
                     inspector,

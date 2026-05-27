@@ -52,6 +52,8 @@ import {
     type CandidateSummary,
     type DepartmentReviewBatch,
     type DepartmentReviewReviewerOption,
+    type InterviewAvailabilitySlot,
+    type InterviewSchedule,
     type PositionSummary,
     type RecruitmentSkill,
     type ResumeFile,
@@ -101,6 +103,7 @@ import {
     SearchField,
 } from "../components/SharedComponents";
 import {
+    formatActionError,
     formatDateTime,
     formatLongDateTime,
     formatPercent,
@@ -1305,8 +1308,6 @@ function getCandidatesLocale(language = getCurrentLanguage()) {
         stopBatchScreening: isZh ? "停止批量初筛" : "Stop Batch Screening",
         queueBatch: isZh ? "批量入队" : "Queue Batch",
         requeueFreshScreening: isZh ? "批量重新初筛" : "Fresh Screen Batch",
-        advancedActions: isZh ? "高级操作" : "Advanced Actions",
-        advancedActionsHint: isZh ? "归入人才库、导出、发送简历、设置岗位、变更状态和删除已收起，展开后使用。" : "Move to talent pool, export, send resumes, set position, change status, and delete are collapsed here.",
         quickDispositionPass: isZh ? "通过" : "Pass",
         quickDispositionTalentPool: isZh ? "入人才库" : "Talent Pool",
         quickDispositionReject: isZh ? "淘汰" : "Reject",
@@ -2430,10 +2431,12 @@ type CandidatesPageProps = {
     onMoveToTalentPool?: (candidateIds: number[]) => Promise<void>;
     onRefresh?: () => Promise<void>;
     onRefreshCandidateDetail?: (candidateId: number) => Promise<void>;
+    autoOpenInterviewScheduleCandidateId?: number | null;
+    onAutoOpenInterviewScheduleHandled?: (candidateId: number) => void;
     batchUpdateStatus: (candidateIds: number[], status: string, reason: string) => Promise<void>;
     duplicateCandidates: Array<{id: number; candidate_code: string; name: string; phone: string | null; email: string | null; status: string}>;
-    interviewSchedules: Array<{id: number; candidate_id: number; round_name: string; interviewer_name?: string | null; scheduled_at?: string | null; duration_minutes?: number | null; location?: string | null; meeting_link?: string | null; notes?: string | null; status: string; created_at?: string | null}>;
-    createInterviewSchedule: (payload: {candidate_id: number; round_name?: string; interviewer_name?: string; scheduled_at?: string; duration_minutes?: number; location?: string; meeting_link?: string; notes?: string}) => Promise<unknown>;
+    interviewSchedules: InterviewSchedule[];
+    createInterviewSchedule: (payload: {candidate_id: number; round_name?: string; round_index?: number; interviewer_user_code?: string; interviewer_name?: string; scheduled_at?: string; duration_minutes?: number; location?: string; meeting_link?: string; notes?: string; availability_slot_id?: number; department_review_assignment_id?: number}) => Promise<unknown>;
     deleteInterviewSchedule: (scheduleId: number) => Promise<void>;
     offers: Array<{id: number; candidate_id: number; offer_title?: string | null; salary?: string | null; department?: string | null; entry_date?: string | null; offer_content?: string | null; notes?: string | null; status: string; created_at?: string | null}>;
     createOffer: (payload: {candidate_id: number; offer_title?: string; salary?: string; department?: string; entry_date?: string; offer_content?: string; notes?: string}) => Promise<unknown>;
@@ -2549,6 +2552,8 @@ export function CandidatesPage({
     onMoveToTalentPool,
     onRefresh,
     onRefreshCandidateDetail,
+    autoOpenInterviewScheduleCandidateId,
+    onAutoOpenInterviewScheduleHandled,
     batchUpdateStatus,
     duplicateCandidates,
     interviewSchedules,
@@ -2611,14 +2616,13 @@ export function CandidatesPage({
     const [batchBindPositionId, setBatchBindPositionId] = React.useState<string>("");
     const [batchBindSubmitting, setBatchBindSubmitting] = React.useState(false);
     const [batchStatusDialogOpen, setBatchStatusDialogOpen] = React.useState(false);
-    const [batchActionsOpen, setBatchActionsOpen] = React.useState(false);
-
     useEffect(() => {
         setExportFieldKeys(defaultExportFieldKeys);
     }, [defaultExportFieldKeys]);
     const [batchStatusValue, setBatchStatusValue] = React.useState<string>("");
     const [batchStatusReason, setBatchStatusReason] = React.useState<string>("");
     const [batchStatusSubmitting, setBatchStatusSubmitting] = React.useState(false);
+    const [statusFlowSubmitting, setStatusFlowSubmitting] = React.useState<string | null>(null);
     const batchStatusSubmittingRef = React.useRef(false);
     const updateBatchStatusSubmitting = React.useCallback((nextValue: boolean) => {
         batchStatusSubmittingRef.current = nextValue;
@@ -2654,7 +2658,21 @@ export function CandidatesPage({
     }, [runCandidateDisposition, selectedCandidateIds]);
     const [scheduleFormOpen, setScheduleFormOpen] = React.useState(false);
     const defaultRoundName = tr.roundNameDefault;
-    const [scheduleForm, setScheduleForm] = React.useState({round_name: defaultRoundName, interviewer_name: "", scheduled_at: "", duration_minutes: "60", location: "", meeting_link: "", notes: ""});
+    const [scheduleForm, setScheduleForm] = React.useState({
+        round_name: defaultRoundName,
+        round_index: "1",
+        interviewer_user_code: "",
+        interviewer_name: "",
+        scheduled_at: "",
+        duration_minutes: "60",
+        availability_slot_id: "",
+        department_review_assignment_id: "",
+        location: "",
+        meeting_link: "",
+        notes: "",
+    });
+    const [scheduleAvailabilitySlots, setScheduleAvailabilitySlots] = React.useState<InterviewAvailabilitySlot[]>([]);
+    const [scheduleAvailabilityLoading, setScheduleAvailabilityLoading] = React.useState(false);
     const [scheduleSubmitting, setScheduleSubmitting] = React.useState(false);
     const [offerFormOpen, setOfferFormOpen] = React.useState(false);
     const [offerForm, setOfferForm] = React.useState({offer_title: "", salary: "", department: "", entry_date: "", offer_content: "", notes: ""});
@@ -2919,6 +2937,8 @@ export function CandidatesPage({
     const [departmentReviewSubmitting, setDepartmentReviewSubmitting] = React.useState(false);
     const [departmentReviewReviewerOptions, setDepartmentReviewReviewerOptions] = React.useState<DepartmentReviewReviewerOption[]>([]);
     const [departmentReviewReviewerLoading, setDepartmentReviewReviewerLoading] = React.useState(false);
+    const [interviewerOptions, setInterviewerOptions] = React.useState<DepartmentReviewReviewerOption[]>([]);
+    const [interviewerLoading, setInterviewerLoading] = React.useState(false);
     const [departmentReviewReviewerPickerOpen, setDepartmentReviewReviewerPickerOpen] = React.useState(false);
     const [departmentReviewReviewerQuery, setDepartmentReviewReviewerQuery] = React.useState("");
     const [selectedDepartmentReviewers, setSelectedDepartmentReviewers] = React.useState<string[]>([]);
@@ -2955,6 +2975,15 @@ export function CandidatesPage({
     const activeDepartmentReviewBatch = React.useMemo(() => (
         departmentReviews.find((review) => review.status === "pending") || null
     ), [departmentReviews]);
+    const latestPassedDepartmentReviewAssignmentId = React.useMemo(() => {
+        for (const batch of departmentReviews) {
+            const passedAssignment = batch.assignments?.find((assignment) => assignment.status === "passed");
+            if (passedAssignment) {
+                return passedAssignment.id;
+            }
+        }
+        return null;
+    }, [departmentReviews]);
     const activeDepartmentReviewerCodes = React.useMemo(() => {
         if (!activeDepartmentReviewBatch) {
             return [];
@@ -2984,6 +3013,24 @@ export function CandidatesPage({
             setDepartmentReviewReviewerLoading(false);
         }
     }, [candidateDetail?.candidate.org_code]);
+    const loadInterviewers = React.useCallback(async () => {
+        const params = new URLSearchParams();
+        params.set("limit", "200");
+        const orgCode = candidateDetail?.candidate.org_code;
+        if (orgCode) {
+            params.set("org_code", orgCode);
+        }
+        setInterviewerLoading(true);
+        try {
+            const data = await recruitmentApi<DepartmentReviewReviewerOption[]>(`/interviews/interviewers?${params.toString()}`);
+            setInterviewerOptions(data || []);
+        } catch (error) {
+            console.warn("Failed to load interviewers", error);
+            setInterviewerOptions([]);
+        } finally {
+            setInterviewerLoading(false);
+        }
+    }, [candidateDetail?.candidate.org_code]);
     const openDepartmentReviewDialog = React.useCallback(() => {
         setSelectedDepartmentReviewers(activeDepartmentReviewerCodes);
         setDepartmentReviewReviewerQuery("");
@@ -2998,9 +3045,18 @@ export function CandidatesPage({
         }
         void loadDepartmentReviewers();
     }, [departmentReviewDialogOpen, loadDepartmentReviewers]);
+    React.useEffect(() => {
+        if (!scheduleFormOpen) {
+            return;
+        }
+        void loadInterviewers();
+    }, [loadInterviewers, scheduleFormOpen]);
     const departmentReviewerByCode = React.useMemo(() => new Map(
         departmentReviewReviewerOptions.map((reviewer) => [reviewer.user_code, reviewer]),
     ), [departmentReviewReviewerOptions]);
+    const interviewerByCode = React.useMemo(() => new Map(
+        interviewerOptions.map((reviewer) => [reviewer.user_code, reviewer]),
+    ), [interviewerOptions]);
     const visibleDepartmentReviewerOptions = React.useMemo(() => {
         const normalized = departmentReviewReviewerQuery.trim().toLowerCase();
         if (!normalized) {
@@ -3033,6 +3089,116 @@ export function CandidatesPage({
         event.stopPropagation();
         toggleDepartmentReviewer(userCode);
     }, [toggleDepartmentReviewer]);
+    const loadScheduleAvailabilitySlots = React.useCallback(async (userCode: string) => {
+        const normalizedUserCode = userCode.trim();
+        if (!normalizedUserCode) {
+            setScheduleAvailabilitySlots([]);
+            return;
+        }
+        const start = new Date();
+        start.setHours(0, 0, 0, 0);
+        const end = new Date(start.getTime() + 14 * 24 * 60 * 60 * 1000);
+        const params = new URLSearchParams({
+            user_codes: normalizedUserCode,
+            start_at: start.toISOString(),
+            end_at: end.toISOString(),
+        });
+        setScheduleAvailabilityLoading(true);
+        try {
+            const data = await recruitmentApi<{items: InterviewAvailabilitySlot[]}>(`/interview-availability?${params.toString()}`);
+            setScheduleAvailabilitySlots((data?.items || []).filter((slot) => slot.status === "available"));
+        } catch (error) {
+            console.warn("Failed to load interview availability", error);
+            setScheduleAvailabilitySlots([]);
+        } finally {
+            setScheduleAvailabilityLoading(false);
+        }
+    }, []);
+    React.useEffect(() => {
+        if (!scheduleFormOpen) {
+            return;
+        }
+        void loadScheduleAvailabilitySlots(scheduleForm.interviewer_user_code);
+    }, [loadScheduleAvailabilitySlots, scheduleForm.interviewer_user_code, scheduleFormOpen]);
+    const applyScheduleAvailabilitySlot = React.useCallback((slotId: string) => {
+        const slot = scheduleAvailabilitySlots.find((item) => String(item.id) === slotId);
+        setScheduleForm((current) => {
+            if (!slot) {
+                return {...current, availability_slot_id: slotId};
+            }
+            const start = slot.start_at ? new Date(slot.start_at) : null;
+            const end = slot.end_at ? new Date(slot.end_at) : null;
+            const duration = start && end && Number.isFinite(start.getTime()) && Number.isFinite(end.getTime())
+                ? Math.max(1, Math.round((end.getTime() - start.getTime()) / 60000))
+                : Number(current.duration_minutes || 60);
+            const toInput = (date: Date | null) => {
+                if (!date || !Number.isFinite(date.getTime())) {
+                    return current.scheduled_at;
+                }
+                const pad = (value: number) => String(value).padStart(2, "0");
+                return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+            };
+            return {
+                ...current,
+                availability_slot_id: slotId,
+                scheduled_at: toInput(start),
+                duration_minutes: String(duration),
+            };
+        });
+    }, [scheduleAvailabilitySlots]);
+    const scheduleFormCanSubmit = Boolean(
+        scheduleForm.interviewer_user_code.trim()
+        && scheduleForm.scheduled_at
+        && Number(scheduleForm.duration_minutes || 0) > 0
+    );
+    const buildNextInterviewRoundName = React.useCallback((roundIndex: number) => {
+        if (!isZh) {
+            return roundIndex <= 1 ? "First Interview" : `Round ${roundIndex} Interview`;
+        }
+        if (roundIndex <= 1) return "初试";
+        if (roundIndex === 2) return "复试";
+        return `第 ${roundIndex} 轮面试`;
+    }, [isZh]);
+    const openInterviewScheduleForm = React.useCallback(() => {
+        const nextRoundIndex = Math.max(1, interviewSchedules.length + 1);
+        setCandidateDetailPanel("interview");
+        setScheduleForm({
+            round_name: buildNextInterviewRoundName(nextRoundIndex),
+            round_index: String(nextRoundIndex),
+            interviewer_user_code: "",
+            interviewer_name: "",
+            scheduled_at: "",
+            duration_minutes: "60",
+            availability_slot_id: "",
+            department_review_assignment_id: latestPassedDepartmentReviewAssignmentId ? String(latestPassedDepartmentReviewAssignmentId) : "",
+            location: "",
+            meeting_link: "",
+            notes: "",
+        });
+        setScheduleAvailabilitySlots([]);
+        setScheduleFormOpen(true);
+    }, [buildNextInterviewRoundName, interviewSchedules.length, latestPassedDepartmentReviewAssignmentId]);
+    const lastAutoOpenedScheduleCandidateIdRef = React.useRef<number | null>(null);
+    React.useEffect(() => {
+        if (!autoOpenInterviewScheduleCandidateId) {
+            lastAutoOpenedScheduleCandidateIdRef.current = null;
+            return;
+        }
+        if (candidateDetail?.candidate.id !== autoOpenInterviewScheduleCandidateId) {
+            return;
+        }
+        if (lastAutoOpenedScheduleCandidateIdRef.current === autoOpenInterviewScheduleCandidateId) {
+            return;
+        }
+        lastAutoOpenedScheduleCandidateIdRef.current = autoOpenInterviewScheduleCandidateId;
+        openInterviewScheduleForm();
+        onAutoOpenInterviewScheduleHandled?.(autoOpenInterviewScheduleCandidateId);
+    }, [
+        autoOpenInterviewScheduleCandidateId,
+        candidateDetail?.candidate.id,
+        onAutoOpenInterviewScheduleHandled,
+        openInterviewScheduleForm,
+    ]);
     const submitDepartmentReview = React.useCallback(async () => {
         if (!candidateDetail?.candidate.id || !createDepartmentReview || departmentReviewSubmitting) {
             return;
@@ -3142,6 +3308,28 @@ export function CandidatesPage({
         setStatusUpdateReason,
         statusUpdateReason,
     ]);
+    const manualCandidateStatusOptions = React.useMemo(
+        () => Object.entries(candidateStatusLabels).filter(([value]) => value !== "screening_running"),
+        [],
+    );
+    const pendingStatusOption = React.useMemo(
+        () => pendingStatus
+            ? manualCandidateStatusOptions.find(([value]) => value === pendingStatus) || null
+            : null,
+        [manualCandidateStatusOptions, pendingStatus],
+    );
+    const handleStatusFlowUpdate = React.useCallback(async (nextStatus: string) => {
+        const currentStatus = candidateDetail?.candidate.status;
+        if (!nextStatus || nextStatus === currentStatus || statusFlowSubmitting) {
+            return;
+        }
+        setStatusFlowSubmitting(nextStatus);
+        try {
+            await updateCandidateStatus(nextStatus);
+        } finally {
+            setStatusFlowSubmitting(null);
+        }
+    }, [candidateDetail?.candidate.status, statusFlowSubmitting, updateCandidateStatus]);
 
     React.useEffect(() => {
         setCandidateDetailPanel("resume");
@@ -3630,134 +3818,124 @@ export function CandidatesPage({
                                             <Trash2 className="h-3.5 w-3.5"/>
                                             {tr.quickDispositionReject}
                                         </Button>
-                                        <Popover open={batchActionsOpen} onOpenChange={setBatchActionsOpen}>
-                                            <PopoverTrigger asChild>
-                                                <Button size="sm" variant="outline" className="h-7 shrink-0 rounded-md px-2.5 text-xs">
-                                                    <MoreHorizontal className="h-3.5 w-3.5"/>
-                                                    {isZh ? "更多操作" : "More"}
-                                                </Button>
-                                            </PopoverTrigger>
-                                            <PopoverContent align="start" className="z-[10050] w-52 p-1">
-                                                <Button
-                                                    size="sm"
-                                                    variant="ghost"
-                                                    className="h-8 w-full justify-start rounded-md px-2 text-xs"
-                                                    onClick={() => {
-                                                        setBatchActionsOpen(false);
-                                                        void triggerScreening(selectedCandidateIds);
-                                                    }}
-                                                    disabled={isBatchScreeningCancelling || (screeningSubmitting && !isBatchScreeningRunning) || (!isBatchScreeningRunning && !selectedCandidateIds.length)}
-                                                >
-                                                    {isBatchScreeningCancelling ? <Loader2 className="h-3.5 w-3.5 animate-spin"/> : isBatchScreeningRunning ? <Square className="h-3.5 w-3.5"/> : screeningSubmitting ? <Loader2 className="h-3.5 w-3.5 animate-spin"/> : <Sparkles className="h-3.5 w-3.5"/>}
-                                                    {isBatchScreeningCancelling ? tr.stopping : isBatchScreeningRunning ? tr.stopBatchScreening : screeningSubmitting ? tr.queueing : tr.queueBatch}
-                                                </Button>
-                                                <Button
-                                                    size="sm"
-                                                    variant="ghost"
-                                                    className="h-8 w-full justify-start rounded-md px-2 text-xs"
-                                                    onClick={() => {
-                                                        setBatchActionsOpen(false);
-                                                        void triggerFreshScreening(selectedCandidateIds);
-                                                    }}
-                                                    disabled={screeningSubmitting}
-                                                >
-                                                    <RotateCcw className="h-3.5 w-3.5"/>
-                                                    {tr.requeueFreshScreening}
-                                                </Button>
-                                                <Button
-                                                    size="sm"
-                                                    variant="ghost"
-                                                    className="h-8 w-full justify-start rounded-md px-2 text-xs"
-                                                    onClick={() => {
-                                                        setBatchActionsOpen(false);
-                                                        void (async () => {
-                                                            if (onMoveToTalentPool) {
-                                                                await onMoveToTalentPool(selectedCandidateIds);
-                                                            } else {
-                                                                await batchBindPosition(selectedCandidateIds, null);
-                                                            }
-                                                        })();
-                                                    }}
-                                                >
-                                                    <Users className="h-3.5 w-3.5"/>
-                                                    {isZh ? "归入人才库" : "Move to Talent Pool"}
-                                                </Button>
-                                                <Button
-                                                    size="sm"
-                                                    variant="ghost"
-                                                    className="h-8 w-full justify-start rounded-md px-2 text-xs"
-                                                    onClick={() => {
-                                                        setBatchActionsOpen(false);
-                                                        setExportDialogOpen(true);
-                                                    }}
-                                                    disabled={exporting}
-                                                >
-                                                    <Download className="h-3.5 w-3.5"/>
-                                                    {exporting ? tr.exporting : tr.exportCandidates}
-                                                </Button>
-                                                <Button
-                                                    size="sm"
-                                                    variant="ghost"
-                                                    className="h-8 w-full justify-start rounded-md px-2 text-xs"
-                                                    onClick={() => {
-                                                        setBatchActionsOpen(false);
-                                                        openResumeMailDialog(selectedCandidateIds);
-                                                    }}
-                                                >
-                                                    <Mail className="h-3.5 w-3.5"/>
-                                                    {tr.sendResumesBatch}
-                                                </Button>
-                                                <Button
-                                                    size="sm"
-                                                    variant="ghost"
-                                                    className="h-8 w-full justify-start rounded-md px-2 text-xs"
-                                                    onClick={() => {
-                                                        setBatchActionsOpen(false);
-                                                        setBatchBindPositionId("");
-                                                        setBatchBindDialogOpen(true);
-                                                    }}
-                                                >
-                                                    <Briefcase className="h-3.5 w-3.5"/>
-                                                    {tr.batchBindPosition}
-                                                </Button>
-                                                <Button
-                                                    size="sm"
-                                                    variant="ghost"
-                                                    className="h-8 w-full justify-start rounded-md px-2 text-xs"
-                                                    onClick={() => {
-                                                        setBatchActionsOpen(false);
-                                                        setBatchStatusValue("");
-                                                        setBatchStatusReason("");
-                                                        setBatchStatusDialogOpen(true);
-                                                    }}
-                                                >
-                                                    <ArrowRightLeft className="h-3.5 w-3.5"/>
-                                                    {tr.batchUpdateStatus}
-                                                </Button>
-                                                <Button
-                                                    size="sm"
-                                                    variant="ghost"
-                                                    className="h-8 w-full justify-start rounded-md px-2 text-xs text-rose-600 hover:bg-rose-50 hover:text-rose-700 dark:text-rose-400 dark:hover:bg-rose-950/30 dark:hover:text-rose-300"
-                                                    onClick={() => {
-                                                        setBatchActionsOpen(false);
-                                                        requestBatchDelete(selectedCandidateIds);
-                                                    }}
-                                                >
-                                                    <Trash2 className="h-3.5 w-3.5"/>
-                                                    {tr.batchDelete}
-                                                </Button>
-                                            </PopoverContent>
-                                        </Popover>
-                                    </div>
-                                    <div className="ml-auto flex shrink-0 items-center gap-2">
                                         <Button
                                             size="sm"
-                                            variant="ghost"
-                                            className="h-7 rounded-md px-2 text-xs font-normal text-slate-600 hover:bg-white hover:text-slate-950 dark:text-slate-300 dark:hover:bg-slate-900"
-                                            onClick={() => setSelectedCandidateIds([])}
+                                            variant="outline"
+                                            className="h-7 shrink-0 rounded-md px-2.5 text-xs"
+                                            onClick={() => void triggerScreening(selectedCandidateIds)}
+                                            disabled={isBatchScreeningCancelling || (screeningSubmitting && !isBatchScreeningRunning) || (!isBatchScreeningRunning && !selectedCandidateIds.length)}
                                         >
-                                            {tr.clearSelection}
+                                            {isBatchScreeningCancelling ? <Loader2 className="h-3.5 w-3.5 animate-spin"/> : isBatchScreeningRunning ? <Square className="h-3.5 w-3.5"/> : screeningSubmitting ? <Loader2 className="h-3.5 w-3.5 animate-spin"/> : <Sparkles className="h-3.5 w-3.5"/>}
+                                            {isBatchScreeningCancelling ? tr.stopping : isBatchScreeningRunning ? tr.stopBatchScreening : screeningSubmitting ? tr.queueing : tr.queueBatch}
                                         </Button>
+                                        <Button
+                                            size="sm"
+                                            variant="outline"
+                                            className="h-7 shrink-0 rounded-md px-2.5 text-xs"
+                                            onClick={() => void triggerFreshScreening(selectedCandidateIds)}
+                                            disabled={screeningSubmitting}
+                                        >
+                                            <RotateCcw className="h-3.5 w-3.5"/>
+                                            {tr.requeueFreshScreening}
+                                        </Button>
+                                        <Button
+                                            size="sm"
+                                            variant="outline"
+                                            className="h-7 shrink-0 rounded-md px-2.5 text-xs"
+                                            onClick={() => void (async () => {
+                                                if (onMoveToTalentPool) {
+                                                    await onMoveToTalentPool(selectedCandidateIds);
+                                                } else {
+                                                    await batchBindPosition(selectedCandidateIds, null);
+                                                }
+                                            })()}
+                                        >
+                                            <Users className="h-3.5 w-3.5"/>
+                                            {isZh ? "归入人才库" : "Move to Talent Pool"}
+                                        </Button>
+                                        <Button
+                                            size="sm"
+                                            variant="outline"
+                                            className="h-7 shrink-0 rounded-md px-2.5 text-xs"
+                                            onClick={() => setExportDialogOpen(true)}
+                                            disabled={exporting}
+                                        >
+                                            <Download className="h-3.5 w-3.5"/>
+                                            {exporting ? tr.exporting : tr.exportCandidates}
+                                        </Button>
+                                        <Button
+                                            size="sm"
+                                            variant="outline"
+                                            className="h-7 shrink-0 rounded-md px-2.5 text-xs"
+                                            onClick={() => openResumeMailDialog(selectedCandidateIds)}
+                                        >
+                                            <Mail className="h-3.5 w-3.5"/>
+                                            {tr.sendResumesBatch}
+                                        </Button>
+                                        <Button
+                                            size="sm"
+                                            variant="outline"
+                                            className="h-7 shrink-0 rounded-md px-2.5 text-xs"
+                                            onClick={() => {
+                                                setBatchBindPositionId("");
+                                                setBatchBindDialogOpen(true);
+                                            }}
+                                        >
+                                            <Briefcase className="h-3.5 w-3.5"/>
+                                            {tr.batchBindPosition}
+                                        </Button>
+                                        <Button
+                                            size="sm"
+                                            variant="outline"
+                                            className="h-7 shrink-0 rounded-md px-2.5 text-xs"
+                                            onClick={() => {
+                                                setBatchStatusValue("");
+                                                setBatchStatusReason("");
+                                                setBatchStatusDialogOpen(true);
+                                            }}
+                                        >
+                                            <ArrowRightLeft className="h-3.5 w-3.5"/>
+                                            {tr.batchUpdateStatus}
+                                        </Button>
+                                        <Button
+                                            size="sm"
+                                            variant="outline"
+                                            className="h-7 shrink-0 rounded-md px-2.5 text-xs text-rose-600 hover:bg-rose-50 hover:text-rose-700 dark:text-rose-400 dark:hover:bg-rose-950/30 dark:hover:text-rose-300"
+                                            onClick={() => requestBatchDelete(selectedCandidateIds)}
+                                        >
+                                            <Trash2 className="h-3.5 w-3.5"/>
+                                            {tr.batchDelete}
+                                        </Button>
+                                    </div>
+                                </>
+                            ) : (
+                                <>
+                                    <div className="flex min-w-0 flex-wrap items-center gap-2">
+                                        <div className="flex min-w-0 flex-wrap items-center justify-start gap-2 text-xs text-slate-500 dark:text-slate-400">
+                                            <label
+                                                className={cn(
+                                                    "inline-flex h-7 items-center gap-2 rounded-md border border-slate-200 bg-white px-2.5 shadow-sm transition hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-950 dark:hover:bg-slate-900",
+                                                    visibleCandidateIds.length ? "cursor-pointer" : "cursor-not-allowed opacity-50",
+                                                )}
+                                            >
+                                                <input
+                                                    ref={visibleSelectAllCheckboxRef}
+                                                    type="checkbox"
+                                                    className="h-3.5 w-3.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                                                    checked={allVisibleCandidatesSelected}
+                                                    disabled={!visibleCandidateIds.length}
+                                                    aria-checked={someVisibleCandidatesSelected ? "mixed" : allVisibleCandidatesSelected}
+                                                    aria-label={allVisibleCandidatesSelected ? tr.unselectVisibleCandidates : tr.selectVisibleCandidates}
+                                                    onChange={toggleVisibleCandidateSelection}
+                                                />
+                                                <span className="font-medium text-slate-700 dark:text-slate-200">
+                                                    {allVisibleCandidatesSelected ? tr.unselectVisibleCandidates : tr.selectVisibleCandidates}
+                                                </span>
+                                            </label>
+                                            <span>{tr.visibleSelectionCount(selectedVisibleCandidateCount, visibleCandidateIds.length)}</span>
+                                            <span className="hidden text-slate-300 sm:inline">|</span>
+                                            <span>{tr.selectedCandidates(selectedCandidateIds.length)}</span>
+                                        </div>
                                         {onRefresh ? (
                                             <Button
                                                 size="sm"
@@ -3778,10 +3956,7 @@ export function CandidatesPage({
                                             </Button>
                                         ) : null}
                                     </div>
-                                </>
-                            ) : (
-                                <>
-                                    <div className="flex min-w-0 flex-wrap items-center gap-3">
+                                    <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-3">
                                         <NativeSelect
                                             value={activeQuickScreeningStatus || "__all__"}
                                             title={
@@ -3830,52 +4005,6 @@ export function CandidatesPage({
                                             <SlidersHorizontal className="h-3.5 w-3.5"/>
                                             {candidateFilterBarExpanded ? tr.collapseFilters : tr.filters}
                                         </Button>
-                                    </div>
-                                    <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2">
-                                        <div className="flex min-w-0 flex-wrap items-center justify-end gap-2 text-xs text-slate-500 dark:text-slate-400">
-                                            <label
-                                                className={cn(
-                                                    "inline-flex h-7 items-center gap-2 rounded-md border border-slate-200 bg-white px-2.5 shadow-sm transition hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-950 dark:hover:bg-slate-900",
-                                                    visibleCandidateIds.length ? "cursor-pointer" : "cursor-not-allowed opacity-50",
-                                                )}
-                                            >
-                                                <input
-                                                    ref={visibleSelectAllCheckboxRef}
-                                                    type="checkbox"
-                                                    className="h-3.5 w-3.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                                                    checked={allVisibleCandidatesSelected}
-                                                    disabled={!visibleCandidateIds.length}
-                                                    aria-checked={someVisibleCandidatesSelected ? "mixed" : allVisibleCandidatesSelected}
-                                                    aria-label={allVisibleCandidatesSelected ? tr.unselectVisibleCandidates : tr.selectVisibleCandidates}
-                                                    onChange={toggleVisibleCandidateSelection}
-                                                />
-                                                <span className="font-medium text-slate-700 dark:text-slate-200">
-                                                    {allVisibleCandidatesSelected ? tr.unselectVisibleCandidates : tr.selectVisibleCandidates}
-                                                </span>
-                                            </label>
-                                            <span>{tr.visibleSelectionCount(selectedVisibleCandidateCount, visibleCandidateIds.length)}</span>
-                                            <span className="hidden text-slate-300 sm:inline">|</span>
-                                            <span>{tr.selectedCandidates(selectedCandidateIds.length)}</span>
-                                        </div>
-                                        {onRefresh ? (
-                                            <Button
-                                                size="sm"
-                                                variant="outline"
-                                                className="h-7 rounded-md px-2 text-xs font-normal"
-                                                disabled={refreshLikeLoading || candidatesLoading}
-                                                onClick={async () => {
-                                                    setRefreshing(true);
-                                                    try {
-                                                        await onRefresh();
-                                                    } finally {
-                                                        setRefreshing(false);
-                                                    }
-                                                }}
-                                            >
-                                                <RotateCcw className={cn("h-3.5 w-3.5", refreshLikeLoading && "animate-spin")}/>
-                                                {tr.refresh}
-                                            </Button>
-                                        ) : null}
                                     </div>
                                 </>
                             )}
@@ -4647,44 +4776,24 @@ export function CandidatesPage({
                                             <Field label={tr.statusFlow}>
                                                 <div className="space-y-3">
                                                     <div className="flex flex-wrap gap-2">
-                                                        {Object.entries(candidateStatusLabels).map(([value, label]) => {
+                                                        {manualCandidateStatusOptions.map(([value, label]) => {
                                                             const isCurrent = candidateDetail.candidate.status === value;
+                                                            const isSubmitting = statusFlowSubmitting === value;
                                                             return (
-                                                                <Popover
+                                                                <Button
                                                                     key={value}
-                                                                    open={pendingStatus === value}
-                                                                    onOpenChange={(open) => {
-                                                                        if (!open) setPendingStatus(null);
+                                                                    size="sm"
+                                                                    variant={isCurrent ? "default" : "outline"}
+                                                                    aria-pressed={isCurrent}
+                                                                    disabled={Boolean(statusFlowSubmitting)}
+                                                                    title={isCurrent ? tr.currentStatusLine(label) : tr.confirmStatusChange(label)}
+                                                                    onClick={() => {
+                                                                        if (!isCurrent) setPendingStatus(value);
                                                                     }}
                                                                 >
-                                                                    <PopoverTrigger asChild>
-                                                                        <Button
-                                                                            size="sm"
-                                                                            variant={isCurrent ? "default" : "outline"}
-                                                                            onClick={() => {
-                                                                                if (!isCurrent) setPendingStatus(value);
-                                                                            }}
-                                                                        >
-                                                                            {label}
-                                                                        </Button>
-                                                                    </PopoverTrigger>
-                                                                    <PopoverContent className="w-56 p-3" side="bottom" align="start">
-                                                                        <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
-                                                                            {tr.confirmStatusChange(label)}
-                                                                        </p>
-                                                                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                                                                            {tr.currentStatusLine(labelForCandidateStatus(resolveCandidateDisplayStatus(candidateDetail.candidate)))}
-                                                                        </p>
-                                                                        <div className="mt-3 flex gap-2">
-                                                                            <Button size="sm" className="flex-1" onClick={() => void updateCandidateStatus(value)}>
-                                                                                {tr.confirm}
-                                                                            </Button>
-                                                                            <Button size="sm" variant="outline" className="flex-1" onClick={() => setPendingStatus(null)}>
-                                                                                {tr.cancel}
-                                                                            </Button>
-                                                                        </div>
-                                                                    </PopoverContent>
-                                                                </Popover>
+                                                                    {isSubmitting ? <Loader2 className="h-3.5 w-3.5 animate-spin"/> : null}
+                                                                    {label}
+                                                                </Button>
                                                             );
                                                         })}
                                                     </div>
@@ -5360,7 +5469,13 @@ export function CandidatesPage({
                                             <div className="rounded-2xl border border-slate-200/80 bg-white/85 px-4 py-4 dark:border-slate-800 dark:bg-slate-950/70">
                                                 <div className="flex flex-wrap items-center justify-between gap-2">
                                                     <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{tr.interviewSchedules}</p>
-                                                    <Button size="sm" variant="outline" onClick={() => { setScheduleForm({round_name: interviewRoundName || defaultRoundName, interviewer_name: "", scheduled_at: "", duration_minutes: "60", location: "", meeting_link: "", notes: ""}); setScheduleFormOpen(!scheduleFormOpen); }}>
+                                                    <Button size="sm" variant="outline" onClick={() => {
+                                                        if (scheduleFormOpen) {
+                                                            setScheduleFormOpen(false);
+                                                            return;
+                                                        }
+                                                        openInterviewScheduleForm();
+                                                    }}>
                                                         <Plus className="h-4 w-4"/>
                                                         {tr.addSchedule}
                                                     </Button>
@@ -5369,29 +5484,78 @@ export function CandidatesPage({
                                                     <div className="mt-3 space-y-2 rounded-xl border border-slate-200/70 bg-slate-50/50 p-3 dark:border-slate-800 dark:bg-slate-900/50">
                                                         <div className="grid gap-2 md:grid-cols-2">
                                                             <Input value={scheduleForm.round_name} onChange={(e) => setScheduleForm((f) => ({...f, round_name: e.target.value}))} placeholder={tr.scheduleRound}/>
-                                                            <Input value={scheduleForm.interviewer_name} onChange={(e) => setScheduleForm((f) => ({...f, interviewer_name: e.target.value}))} placeholder={tr.scheduleInterviewer}/>
+                                                            <Input type="number" min={1} value={scheduleForm.round_index} onChange={(e) => setScheduleForm((f) => ({...f, round_index: e.target.value}))} placeholder={isZh ? "面试轮次" : "Round index"}/>
+                                                            <NativeSelect
+                                                                value={scheduleForm.interviewer_user_code}
+                                                                onChange={(event) => {
+                                                                    const userCode = event.target.value;
+                                                                    const reviewer = interviewerByCode.get(userCode);
+                                                                    setScheduleForm((current) => ({
+                                                                        ...current,
+                                                                        interviewer_user_code: userCode,
+                                                                        interviewer_name: reviewer?.name || reviewer?.display_name || userCode,
+                                                                        availability_slot_id: "",
+                                                                    }));
+                                                                }}
+                                                                className="h-10"
+                                                            >
+                                                                <option value="">{interviewerLoading ? (isZh ? "正在加载面试官..." : "Loading interviewers...") : (isZh ? "选择面试官" : "Select interviewer")}</option>
+                                                                {interviewerOptions.map((reviewer) => (
+                                                                    <option key={reviewer.user_code} value={reviewer.user_code}>
+                                                                        {reviewer.name || reviewer.display_name || reviewer.user_code} · {reviewer.user_code}
+                                                                    </option>
+                                                                ))}
+                                                            </NativeSelect>
+                                                            <NativeSelect
+                                                                value={scheduleForm.availability_slot_id}
+                                                                onChange={(event) => applyScheduleAvailabilitySlot(event.target.value)}
+                                                                disabled={!scheduleForm.interviewer_user_code || scheduleAvailabilityLoading}
+                                                                className="h-10"
+                                                            >
+                                                                <option value="">
+                                                                    {scheduleForm.interviewer_user_code
+                                                                        ? (isZh ? "选择可面试时间（可手动填写）" : "Select available time or fill manually")
+                                                                        : (isZh ? "先选择面试官" : "Select interviewer first")}
+                                                                </option>
+                                                                {scheduleAvailabilitySlots.map((slot) => (
+                                                                    <option key={slot.id} value={String(slot.id)}>
+                                                                        {formatDateTime(slot.start_at)} - {formatDateTime(slot.end_at)}{slot.notes ? ` · ${slot.notes}` : ""}
+                                                                    </option>
+                                                                ))}
+                                                            </NativeSelect>
                                                             <Input type="datetime-local" value={scheduleForm.scheduled_at} onChange={(e) => setScheduleForm((f) => ({...f, scheduled_at: e.target.value}))} placeholder={tr.scheduleTime}/>
                                                             <Input type="number" value={scheduleForm.duration_minutes} onChange={(e) => setScheduleForm((f) => ({...f, duration_minutes: e.target.value}))} placeholder={tr.scheduleDuration}/>
                                                             <Input value={scheduleForm.location} onChange={(e) => setScheduleForm((f) => ({...f, location: e.target.value}))} placeholder={tr.scheduleLocation}/>
                                                             <Input value={scheduleForm.meeting_link} onChange={(e) => setScheduleForm((f) => ({...f, meeting_link: e.target.value}))} placeholder={tr.scheduleMeetingLink}/>
                                                         </div>
+                                                        {scheduleForm.interviewer_user_code && !scheduleAvailabilityLoading && scheduleAvailabilitySlots.length === 0 ? (
+                                                            <p className="text-xs text-amber-600">
+                                                                {isZh ? "该面试官近 14 天暂无可面试时间，可以手动填写时间；保存时系统仍会校验冲突。" : "No available slots in the next 14 days. You can fill the time manually; conflicts are still checked."}
+                                                            </p>
+                                                        ) : null}
                                                         <Textarea value={scheduleForm.notes} onChange={(e) => setScheduleForm((f) => ({...f, notes: e.target.value}))} rows={2} placeholder={tr.scheduleNotes}/>
                                                         <div className="flex justify-end gap-2">
                                                             <Button size="sm" variant="outline" onClick={() => setScheduleFormOpen(false)}>{tr.batchBindPositionCancel}</Button>
-                                                            <Button size="sm" disabled={scheduleSubmitting} onClick={async () => {
+                                                            <Button size="sm" disabled={scheduleSubmitting || !scheduleFormCanSubmit} onClick={async () => {
                                                                 setScheduleSubmitting(true);
                                                                 try {
                                                                     await createInterviewSchedule({
                                                                         candidate_id: candidateDetail.candidate.id,
                                                                         round_name: scheduleForm.round_name || undefined,
+                                                                        round_index: scheduleForm.round_index ? Number(scheduleForm.round_index) : undefined,
+                                                                        interviewer_user_code: scheduleForm.interviewer_user_code || undefined,
                                                                         interviewer_name: scheduleForm.interviewer_name || undefined,
                                                                         scheduled_at: scheduleForm.scheduled_at ? new Date(scheduleForm.scheduled_at).toISOString() : undefined,
                                                                         duration_minutes: scheduleForm.duration_minutes ? Number(scheduleForm.duration_minutes) : undefined,
+                                                                        availability_slot_id: scheduleForm.availability_slot_id ? Number(scheduleForm.availability_slot_id) : undefined,
+                                                                        department_review_assignment_id: scheduleForm.department_review_assignment_id ? Number(scheduleForm.department_review_assignment_id) : undefined,
                                                                         location: scheduleForm.location || undefined,
                                                                         meeting_link: scheduleForm.meeting_link || undefined,
                                                                         notes: scheduleForm.notes || undefined,
                                                                     });
                                                                     setScheduleFormOpen(false);
+                                                                } catch (error) {
+                                                                    toast.error(isZh ? `安排面试失败：${formatActionError(error)}` : `Failed to schedule interview: ${formatActionError(error)}`);
                                                                 } finally {
                                                                     setScheduleSubmitting(false);
                                                                 }
@@ -5560,9 +5724,6 @@ export function CandidatesPage({
                                             </RailActionButton>
                                         </div>
                                         <div className="mt-2 grid grid-cols-2 gap-2">
-                                            <RailActionButton onClick={() => void updateCandidateStatus("pending_interview")}>
-                                                {isZh ? "进入初试" : "To Interview"}
-                                            </RailActionButton>
                                             <RailActionButton
                                                 onClick={openDepartmentReviewDialog}
                                                 disabled={!createDepartmentReview}
@@ -6104,6 +6265,54 @@ export function CandidatesPage({
                             >
                                 {batchStatusSubmitting ? <Loader2 className="h-4 w-4 animate-spin"/> : null}
                                 {tr.batchUpdateStatusConfirm}
+                            </Button>
+                        </div>
+                    </div>
+                </DialogContent>
+            </Dialog>
+            <Dialog
+                open={Boolean(pendingStatusOption)}
+                onOpenChange={(open) => {
+                    if (!open && !statusFlowSubmitting) {
+                        setPendingStatus(null);
+                    }
+                }}
+            >
+                <DialogContent className="sm:max-w-sm">
+                    <DialogHeader>
+                        <DialogTitle>
+                            {pendingStatusOption ? tr.confirmStatusChange(pendingStatusOption[1]) : tr.statusFlow}
+                        </DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-3 py-2">
+                        <p className="text-sm text-slate-600 dark:text-slate-300">
+                            {candidateDetail
+                                ? tr.currentStatusLine(labelForCandidateStatus(resolveCandidateDisplayStatus(candidateDetail.candidate)))
+                                : null}
+                        </p>
+                        {statusUpdateReason.trim() ? (
+                            <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+                                {statusUpdateReason.trim()}
+                            </div>
+                        ) : null}
+                        <div className="flex justify-end gap-2 pt-1">
+                            <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => setPendingStatus(null)}
+                                disabled={Boolean(statusFlowSubmitting)}
+                            >
+                                {tr.cancel}
+                            </Button>
+                            <Button
+                                size="sm"
+                                onClick={() => {
+                                    if (pendingStatusOption) void handleStatusFlowUpdate(pendingStatusOption[0]);
+                                }}
+                                disabled={Boolean(statusFlowSubmitting)}
+                            >
+                                {statusFlowSubmitting ? <Loader2 className="h-4 w-4 animate-spin"/> : null}
+                                {tr.confirm}
                             </Button>
                         </div>
                     </div>

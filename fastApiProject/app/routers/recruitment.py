@@ -35,8 +35,10 @@ from ..recruitment_schemas import (
     CandidateUpdateRequest,
     DepartmentReviewCreateRequest,
     DepartmentReviewDecisionRequest,
+    InterviewAvailabilityReplaceRequest,
     InterviewQuestionGenerateRequest,
     InterviewScheduleCreateRequest,
+    InterviewScheduleResultRequest,
     InterviewScheduleUpdateRequest,
     FollowUpCreateRequest,
     JDGenerateRequest,
@@ -1424,7 +1426,7 @@ async def download_interview_question(question_id: int, _session: Dict[str, Any]
 
 
 @recruitment_router.get("/candidates/{candidate_id}/interview-schedules")
-async def list_interview_schedules(candidate_id: int, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-dashboard-view")), service: RecruitmentService = Depends(get_recruitment_service)):
+async def list_interview_schedules(candidate_id: int, _session: Dict[str, Any] = Depends(require_script_hub_any_permission(["recruitment-dashboard-view", "recruitment-interview-view"])), service: RecruitmentService = Depends(get_recruitment_service)):
     try:
         data = service.list_interview_schedules(candidate_id)
         return {"success": True, "data": data}
@@ -1435,31 +1437,163 @@ async def list_interview_schedules(candidate_id: int, _session: Dict[str, Any] =
         raise HTTPException(status_code=500, detail=str(exc))
 
 
+@recruitment_router.get("/interview-availability/my")
+async def list_my_interview_availability(
+    start_at: Optional[str] = Query(None),
+    end_at: Optional[str] = Query(None),
+    _session: Dict[str, Any] = Depends(require_script_hub_any_permission(["recruitment-interview-view", "recruitment-interview-act"])),
+    service: RecruitmentService = Depends(get_recruitment_service),
+):
+    try:
+        data = service.list_my_interview_availability(
+            _session.get("id") or "unknown",
+            start_at=start_at,
+            end_at=end_at,
+        )
+        return {"success": True, "data": data}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@recruitment_router.put("/interview-availability/my")
+@recruitment_router.post("/interview-availability/my")
+async def replace_my_interview_availability(
+    payload: InterviewAvailabilityReplaceRequest,
+    _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-interview-act")),
+    service: RecruitmentService = Depends(get_recruitment_service),
+):
+    try:
+        data = service.replace_my_interview_availability(payload.model_dump(), _session.get("id") or "unknown")
+        return {"success": True, "data": data}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@recruitment_router.get("/interview-availability")
+async def list_interview_availability(
+    user_codes: Optional[str] = Query(None),
+    start_at: Optional[str] = Query(None),
+    end_at: Optional[str] = Query(None),
+    _session: Dict[str, Any] = Depends(require_script_hub_any_permission(["recruitment-candidate-manage", "recruitment-interview-manage"])),
+    service: RecruitmentService = Depends(get_recruitment_service),
+):
+    try:
+        codes = [code.strip() for code in (user_codes or "").split(",") if code.strip()]
+        data = service.list_interview_availability(
+            interviewer_user_codes=codes,
+            start_at=start_at,
+            end_at=end_at,
+        )
+        return {"success": True, "data": data}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@recruitment_router.get("/interviews/my")
+async def list_my_interview_tasks(
+    status: Optional[str] = Query(None),
+    _session: Dict[str, Any] = Depends(require_script_hub_any_permission(["recruitment-interview-view", "recruitment-interview-act"])),
+    service: RecruitmentService = Depends(get_recruitment_service),
+):
+    try:
+        data = service.list_my_interview_tasks(_session.get("id") or "unknown", status=status)
+        return {"success": True, "data": data}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@recruitment_router.get("/interviews/candidates/{candidate_id}")
+async def get_my_interview_candidate_detail(
+    candidate_id: int,
+    _session: Dict[str, Any] = Depends(require_script_hub_any_permission(["recruitment-interview-view", "recruitment-interview-act"])),
+    service: RecruitmentService = Depends(get_recruitment_service),
+):
+    try:
+        data = service.get_interview_candidate_detail(candidate_id, _session.get("id") or "unknown")
+        return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+
+
+@recruitment_router.get("/interviews/resume-files/{resume_file_id}/download")
+async def download_my_interview_resume_file(
+    resume_file_id: int,
+    _session: Dict[str, Any] = Depends(require_script_hub_any_permission(["recruitment-interview-view", "recruitment-interview-act"])),
+    service: RecruitmentService = Depends(get_recruitment_service),
+):
+    try:
+        payload = service.get_interview_resume_file_download(resume_file_id, _session.get("id") or "unknown")
+        file_name = payload["file_name"] or "resume.bin"
+        file_extension = f".{file_name.rsplit('.', 1)[1]}" if "." in file_name and not file_name.endswith(".") else ".bin"
+        quoted_name = quote(file_name)
+        headers = {"Content-Disposition": f"inline; filename=\"resume{file_extension}\"; filename*=UTF-8''{quoted_name}"}
+        return Response(content=payload["content"], media_type=payload["media_type"], headers=headers)
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+
+
+@recruitment_router.get("/interviews")
+async def list_interview_tasks(
+    status: Optional[str] = Query(None),
+    _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-interview-manage")),
+    service: RecruitmentService = Depends(get_recruitment_service),
+):
+    try:
+        data = service.list_interview_tasks(status=status)
+        return {"success": True, "data": data}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@recruitment_router.get("/interviews/interviewers")
+async def list_interviewers(
+    org_code: Optional[str] = Query(None),
+    q: Optional[str] = Query(None),
+    limit: int = Query(80, ge=1, le=200),
+    _session: Dict[str, Any] = Depends(require_script_hub_any_permission(["recruitment-candidate-manage", "recruitment-interview-manage"])),
+    service: RecruitmentService = Depends(get_recruitment_service),
+):
+    try:
+        data = service.list_interviewers(org_code=org_code, query=q, limit=limit)
+        return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 @recruitment_router.post("/interview-schedules")
-async def create_interview_schedule(payload: InterviewScheduleCreateRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-candidate-manage")), service: RecruitmentService = Depends(get_recruitment_service)):
+async def create_interview_schedule(payload: InterviewScheduleCreateRequest, _session: Dict[str, Any] = Depends(require_script_hub_any_permission(["recruitment-candidate-manage", "recruitment-interview-manage"])), service: RecruitmentService = Depends(get_recruitment_service)):
     try:
         data = service.create_interview_schedule(payload.model_dump(), _session.get("id") or "unknown")
         return {"success": True, "data": data}
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @recruitment_router.patch("/interview-schedules/{schedule_id}")
-async def update_interview_schedule(schedule_id: int, payload: InterviewScheduleUpdateRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-candidate-manage")), service: RecruitmentService = Depends(get_recruitment_service)):
+async def update_interview_schedule(schedule_id: int, payload: InterviewScheduleUpdateRequest, _session: Dict[str, Any] = Depends(require_script_hub_any_permission(["recruitment-candidate-manage", "recruitment-interview-manage"])), service: RecruitmentService = Depends(get_recruitment_service)):
     try:
         data = service.update_interview_schedule(schedule_id, payload.model_dump(exclude_none=True), _session.get("id") or "unknown")
         return {"success": True, "data": data}
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @recruitment_router.delete("/interview-schedules/{schedule_id}")
-async def delete_interview_schedule(schedule_id: int, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-candidate-manage")), service: RecruitmentService = Depends(get_recruitment_service)):
+async def delete_interview_schedule(schedule_id: int, _session: Dict[str, Any] = Depends(require_script_hub_any_permission(["recruitment-candidate-manage", "recruitment-interview-manage"])), service: RecruitmentService = Depends(get_recruitment_service)):
     try:
         service.delete_interview_schedule(schedule_id, _session.get("id") or "unknown")
         return {"success": True}
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@recruitment_router.post("/interview-schedules/{schedule_id}/result")
+async def submit_interview_schedule_result(schedule_id: int, payload: InterviewScheduleResultRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-interview-act")), service: RecruitmentService = Depends(get_recruitment_service)):
+    try:
+        data = service.submit_interview_schedule_result(schedule_id, payload.model_dump(), _session.get("id") or "unknown")
+        return {"success": True, "data": data}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @recruitment_router.get("/candidates/{candidate_id}/follow-ups")

@@ -12,6 +12,7 @@ export type RecruitmentPage =
     | "positions"
     | "candidates"
     | "review-workbench"
+    | "interviews"
     | "talent-pool"
     | "audit"
     | "assistant"
@@ -347,6 +348,10 @@ const zhRecruitmentLocale: RecruitmentLocaleBundle = {
             title: "评审工作台",
             description: "用人部门处理分配给自己的候选人评审任务。",
         },
+        interviews: {
+            title: "面试",
+            description: "面试官维护可面试时间，处理分配给自己的面试任务。",
+        },
         "talent-pool": {
             title: "人才库",
             description: "未分配岗位的候选人，可按 AI 识别的岗位标签批量分配到目标岗位。",
@@ -551,6 +556,10 @@ const enRecruitmentLocale: RecruitmentLocaleBundle = {
         "review-workbench": {
             title: "Review Workbench",
             description: "Hiring teams process candidate review tasks assigned to them.",
+        },
+        interviews: {
+            title: "Interviews",
+            description: "Interviewers maintain availability and process assigned interviews.",
         },
         "talent-pool": {
             title: "Talent Pool",

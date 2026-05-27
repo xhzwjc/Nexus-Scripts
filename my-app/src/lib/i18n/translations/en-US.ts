@@ -200,6 +200,7 @@ export const enUS: Translations = {
         aiRecruitmentPositions: 'Positions',
         aiRecruitmentCandidates: 'Candidates',
         aiRecruitmentReviewWorkbench: 'Review Workbench',
+        aiRecruitmentInterviews: 'Interviews',
         aiRecruitmentTalentPool: 'Talent Pool',
         aiRecruitmentAudit: 'Audit Center',
         aiRecruitmentAssistant: 'Recruiting Assistant',

@@ -165,6 +165,12 @@ export type TaskSSEEvent = {
   related_candidate_id?: number;
   candidate_id?: number;
   task_type?: string;
+  schedule_id?: number;
+  schedule_status?: string | null;
+  interviewer_user_code?: string | null;
+  interviewer_name?: string | null;
+  interview_result_status?: string | null;
+  notification_status?: string | null;
   auto_requeue_scheduled?: boolean;
   // AI 岗位匹配增量推送
   ai_match_reason?: string | null;
