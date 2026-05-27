@@ -122,6 +122,26 @@ class CandidateBatchStatusUpdateRequest(BaseModel):
     reason: Optional[str] = None
 
 
+class DepartmentReviewReviewerRequest(BaseModel):
+    user_code: str = Field(..., min_length=1, max_length=100)
+    name: Optional[str] = Field(None, max_length=120)
+
+
+class DepartmentReviewCreateRequest(BaseModel):
+    candidate_id: int = Field(..., ge=1)
+    reviewers: List[DepartmentReviewReviewerRequest] = Field(..., min_length=1)
+    visible_sections: List[str] = Field(default_factory=list)
+    cc_user_codes: List[str] = Field(default_factory=list)
+    message: Optional[str] = None
+    due_at: Optional[str] = None
+    replace_existing: bool = False
+
+
+class DepartmentReviewDecisionRequest(BaseModel):
+    status: str = Field(..., min_length=1, max_length=30)
+    comment: Optional[str] = None
+
+
 class TriggerCandidateProcessRequest(BaseModel):
     force: bool = False
 

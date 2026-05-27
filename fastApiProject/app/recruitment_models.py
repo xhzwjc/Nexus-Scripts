@@ -488,6 +488,43 @@ class RecruitmentInterviewSchedule(Base):
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
 
 
+class RecruitmentDepartmentReviewBatch(Base):
+    __tablename__ = "recruitment_department_review_batches"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    candidate_id = Column(Integer, nullable=False, index=True)
+    position_id = Column(Integer, index=True)
+    org_code = Column(String(100), default="group", nullable=False, index=True)
+    status = Column(String(50), default="pending", nullable=False, index=True)
+    visible_sections_json = Column(Text)
+    cc_user_codes_json = Column(Text)
+    message = Column(Text)
+    due_at = Column(DateTime)
+    created_by = Column(String(100), index=True)
+    cancelled_by = Column(String(100))
+    cancelled_at = Column(DateTime)
+    created_at = Column(DateTime, server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
+class RecruitmentDepartmentReviewAssignment(Base):
+    __tablename__ = "recruitment_department_review_assignments"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    batch_id = Column(Integer, nullable=False, index=True)
+    candidate_id = Column(Integer, nullable=False, index=True)
+    position_id = Column(Integer, index=True)
+    org_code = Column(String(100), default="group", nullable=False, index=True)
+    reviewer_user_code = Column(String(100), nullable=False, index=True)
+    reviewer_name = Column(String(120))
+    status = Column(String(50), default="pending", nullable=False, index=True)
+    comment = Column(Text)
+    decision_at = Column(DateTime)
+    created_by = Column(String(100), index=True)
+    created_at = Column(DateTime, server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
 class RecruitmentFollowUp(Base):
     __tablename__ = "recruitment_follow_ups"
 

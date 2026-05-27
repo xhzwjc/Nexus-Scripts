@@ -922,6 +922,36 @@ def ensure_recruitment_schema() -> None:
                 "CREATE INDEX idx_candidate_position_deleted_updated ON recruitment_candidates (position_id, deleted, updated_at, id)",
                 "Created index idx_candidate_position_deleted_updated",
             )
+            if inspector.has_table("recruitment_department_review_batches"):
+                _add_index_if_missing(
+                    inspector,
+                    "recruitment_department_review_batches",
+                    "idx_dept_review_batch_candidate",
+                    "CREATE INDEX idx_dept_review_batch_candidate ON recruitment_department_review_batches (candidate_id, status, created_at)",
+                    "Created index idx_dept_review_batch_candidate",
+                )
+                _add_index_if_missing(
+                    inspector,
+                    "recruitment_department_review_batches",
+                    "idx_dept_review_batch_position",
+                    "CREATE INDEX idx_dept_review_batch_position ON recruitment_department_review_batches (position_id, status, created_at)",
+                    "Created index idx_dept_review_batch_position",
+                )
+            if inspector.has_table("recruitment_department_review_assignments"):
+                _add_index_if_missing(
+                    inspector,
+                    "recruitment_department_review_assignments",
+                    "idx_dept_review_assignment_reviewer_status",
+                    "CREATE INDEX idx_dept_review_assignment_reviewer_status ON recruitment_department_review_assignments (reviewer_user_code, status, created_at)",
+                    "Created index idx_dept_review_assignment_reviewer_status",
+                )
+                _add_index_if_missing(
+                    inspector,
+                    "recruitment_department_review_assignments",
+                    "idx_dept_review_assignment_candidate",
+                    "CREATE INDEX idx_dept_review_assignment_candidate ON recruitment_department_review_assignments (candidate_id, status, created_at)",
+                    "Created index idx_dept_review_assignment_candidate",
+                )
 
             # Widen phone column to handle encrypted/masked values from resume platforms
             try:

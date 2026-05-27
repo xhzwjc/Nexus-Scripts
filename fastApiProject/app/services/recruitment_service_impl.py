@@ -32,6 +32,7 @@ from ..permission_governance import (
     SHARE_POLICY_SHARED_COPYABLE,
     build_permission_context,
     normalize_org_code,
+    normalize_org_code_list,
     normalize_share_policy,
     resource_is_visible_to_context,
 )
@@ -42,6 +43,8 @@ from ..recruitment_models import (
     RecruitmentCandidateStatusHistory,
     RecruitmentCandidateWorkflowMemory,
     RecruitmentChatContextMemory,
+    RecruitmentDepartmentReviewAssignment,
+    RecruitmentDepartmentReviewBatch,
     RecruitmentInterviewResult,
     RecruitmentInterviewQuestion,
     RecruitmentInterviewSchedule,
@@ -60,7 +63,7 @@ from ..recruitment_models import (
     RecruitmentRuleConfig,
     RecruitmentSkill,
 )
-from ..rbac_models import ScriptHubOrganization
+from ..rbac_models import ScriptHubOrganization, ScriptHubUser
 from ..secret_crypto import decrypt_secret, encrypt_secret, mask_secret
 from .recruitment_ai_gateway import RecruitmentAIGateway, RecruitmentAIJSONParseError, RecruitmentAIRetryExhaustedError, RecruitmentAIScreeningTotalTimeoutError, RecruitmentAITimeoutError, SCREENING_STAGE_MIN_TIMEOUT_SECONDS, SCREENING_TOTAL_TIMEOUT_SECONDS, _parse_llm_json_response, get_provider_options
 from .recruitment_mailer import RecruitmentMailSenderRuntime, build_resume_email, load_attachment_from_path, send_email_via_smtp
@@ -68,6 +71,7 @@ from .recruitment_prompts import INTERVIEW_QUESTION_STREAM_PREVIEW_SYSTEM_PROMPT
 from .recruitment_publish_adapters import build_publish_adapter
 from .recruitment_task_control import RecruitmentTaskCancelled, RecruitmentTaskControl, recruitment_task_registry
 from .recruitment_utils import CANDIDATE_STATUS_OPTIONS, DEFAULT_RULE_CONFIGS, POSITION_STATUS_OPTIONS, RECRUITMENT_UPLOAD_ROOT, build_jd_structured_fallback, detect_interview_rule_leakage, ensure_interview_html_document, extract_keywords, extract_resume_structured_data, extract_resume_text, extract_screening_dimension_rules, isoformat_or_none, json_dumps_safe, json_loads_safe, markdown_to_html, normalize_resume_fallback_name, normalize_structured_interview, normalize_structured_jd, render_interview_html, render_interview_markdown, render_jd_markdown_source, render_publish_ready_jd, safe_file_stem, score_candidate_fallback, strip_markdown, truncate_text, validate_structured_interview_payload
+from .script_hub_auth_service import build_permission_map
 
 def _resolve_resume_storage_path(storage_path: str) -> Path:
     """Resolve resume file path. Supports absolute, relative, and cross-environment paths."""
@@ -7758,6 +7762,8 @@ class RecruitmentService:
         self.db.query(RecruitmentCandidateWorkflowMemory).filter(RecruitmentCandidateWorkflowMemory.candidate_id == candidate.id).update({RecruitmentCandidateWorkflowMemory.org_code: normalized_org_code}, synchronize_session=False)
         self.db.query(RecruitmentInterviewQuestion).filter(RecruitmentInterviewQuestion.candidate_id == candidate.id).update({RecruitmentInterviewQuestion.org_code: normalized_org_code}, synchronize_session=False)
         self.db.query(RecruitmentAITaskLog).filter(RecruitmentAITaskLog.related_candidate_id == candidate.id).update({RecruitmentAITaskLog.org_code: normalized_org_code}, synchronize_session=False)
+        self.db.query(RecruitmentDepartmentReviewBatch).filter(RecruitmentDepartmentReviewBatch.candidate_id == candidate.id).update({RecruitmentDepartmentReviewBatch.org_code: normalized_org_code}, synchronize_session=False)
+        self.db.query(RecruitmentDepartmentReviewAssignment).filter(RecruitmentDepartmentReviewAssignment.candidate_id == candidate.id).update({RecruitmentDepartmentReviewAssignment.org_code: normalized_org_code}, synchronize_session=False)
         candidate.org_code = normalized_org_code
 
     def _reset_candidate_workflow_memory_for_position(self, candidate: RecruitmentCandidate, actor_id: str) -> None:
@@ -10513,8 +10519,15 @@ class RecruitmentService:
             keyword = f"%{query.strip()}%"
             builder = builder.filter(or_(RecruitmentCandidate.name.like(keyword), RecruitmentCandidate.phone.like(keyword), RecruitmentCandidate.email.like(keyword), RecruitmentCandidate.current_company.like(keyword)))
         if status:
-            normalized_status = str(status or "").strip().lower()
-            builder = builder.filter(self._candidate_display_status_expr() == normalized_status)
+            status_values = [
+                item.strip().lower()
+                for item in re.split(r"[,，;；\s]+", str(status or ""))
+                if item.strip()
+            ]
+            if len(status_values) == 1:
+                builder = builder.filter(self._candidate_display_status_expr() == status_values[0])
+            elif status_values:
+                builder = builder.filter(self._candidate_display_status_expr().in_(status_values))
         if tag:
             builder = builder.filter(RecruitmentCandidate.tags_json.like(f"%{tag}%"))
         db_engine = self.db.get_bind()
@@ -11060,6 +11073,400 @@ class RecruitmentService:
         self._get_candidate(candidate_id)
         rows = self.db.query(RecruitmentCandidateStatusHistory).filter(RecruitmentCandidateStatusHistory.candidate_id == candidate_id).order_by(RecruitmentCandidateStatusHistory.created_at.desc(), RecruitmentCandidateStatusHistory.id.desc()).all()
         return [self._serialize_status_history(row) for row in rows]
+
+    def _serialize_department_review_assignment(self, row: RecruitmentDepartmentReviewAssignment) -> Dict[str, Any]:
+        return {
+            "id": row.id,
+            "batch_id": row.batch_id,
+            "candidate_id": row.candidate_id,
+            "position_id": row.position_id,
+            "org_code": normalize_org_code(getattr(row, "org_code", None)),
+            "reviewer_user_code": row.reviewer_user_code,
+            "reviewer_name": row.reviewer_name,
+            "status": row.status,
+            "comment": row.comment,
+            "decision_at": isoformat_or_none(row.decision_at),
+            "created_by": row.created_by,
+            "created_at": isoformat_or_none(row.created_at),
+            "updated_at": isoformat_or_none(row.updated_at),
+        }
+
+    def _serialize_department_review_batch(
+        self,
+        row: RecruitmentDepartmentReviewBatch,
+        *,
+        assignments: Optional[Sequence[RecruitmentDepartmentReviewAssignment]] = None,
+    ) -> Dict[str, Any]:
+        assignment_rows = list(assignments) if assignments is not None else (
+            self.db.query(RecruitmentDepartmentReviewAssignment)
+            .filter(RecruitmentDepartmentReviewAssignment.batch_id == row.id)
+            .order_by(RecruitmentDepartmentReviewAssignment.id.asc())
+            .all()
+        )
+        return {
+            "id": row.id,
+            "candidate_id": row.candidate_id,
+            "position_id": row.position_id,
+            "org_code": normalize_org_code(getattr(row, "org_code", None)),
+            "status": row.status,
+            "visible_sections": json_loads_safe(row.visible_sections_json, []),
+            "cc_user_codes": json_loads_safe(row.cc_user_codes_json, []),
+            "message": row.message,
+            "due_at": isoformat_or_none(row.due_at),
+            "created_by": row.created_by,
+            "cancelled_by": row.cancelled_by,
+            "cancelled_at": isoformat_or_none(row.cancelled_at),
+            "created_at": isoformat_or_none(row.created_at),
+            "updated_at": isoformat_or_none(row.updated_at),
+            "assignments": [self._serialize_department_review_assignment(item) for item in assignment_rows],
+        }
+
+    def _emit_department_review_candidate_updated(self, candidate: Optional[RecruitmentCandidate], *, batch_id: Optional[int] = None) -> None:
+        if not candidate:
+            return
+        try:
+            from .task_event_bus import TaskEventBus
+            TaskEventBus.emit_to_all("candidate_updated", {
+                "candidate_id": candidate.id,
+                "batch_id": batch_id,
+                "task_type": "department_review",
+                "status": candidate.status,
+                "candidate_snapshot": self._serialize_realtime_candidate_item(candidate),
+            })
+        except Exception:
+            logger.debug("Failed to emit department review candidate update", exc_info=True)
+
+    def list_department_reviewers(
+        self,
+        *,
+        org_code: Optional[str] = None,
+        query: Optional[str] = None,
+        limit: int = 80,
+    ) -> List[Dict[str, Any]]:
+        target_org_code = normalize_org_code(org_code or self._current_org_code())
+        if self.permission_context and not self.permission_context.has_all_orgs:
+            visible_orgs = set(self.permission_context.visible_org_codes or ())
+            if target_org_code not in visible_orgs:
+                visible = ", ".join(self.permission_context.visible_org_codes or [])
+                raise ValueError(f"无权查看组织 {target_org_code} 的评审人，当前用户可访问的组织为 {visible}")
+
+        normalized_query = str(query or "").strip().lower()
+        rows = (
+            self.db.query(ScriptHubUser)
+            .filter(
+                ScriptHubUser.is_active.is_(True),
+                ScriptHubUser.is_deleted.is_(False),
+            )
+            .order_by(ScriptHubUser.display_name.asc(), ScriptHubUser.user_code.asc())
+            .all()
+        )
+        reviewers: List[Dict[str, Any]] = []
+        for user in rows:
+            user_org_codes = {normalize_org_code(user.primary_org_code)}
+            user_org_codes.update(normalize_org_code_list(user.custom_org_codes_json))
+            if target_org_code not in user_org_codes:
+                continue
+            permission_map = build_permission_map(self.db, user)
+            if not permission_map.get("recruitment-review-act"):
+                continue
+            searchable = " ".join([
+                str(user.user_code or ""),
+                str(user.display_name or ""),
+                str(user.primary_org_code or ""),
+            ]).lower()
+            if normalized_query and normalized_query not in searchable:
+                continue
+            reviewers.append({
+                "user_code": user.user_code,
+                "name": user.display_name,
+                "display_name": user.display_name,
+                "primary_org_code": normalize_org_code(user.primary_org_code),
+            })
+            if len(reviewers) >= max(1, min(int(limit or 80), 200)):
+                break
+        return reviewers
+
+    def create_department_review(self, payload: Dict[str, Any], actor_id: str) -> Dict[str, Any]:
+        candidate_id = int(payload.get("candidate_id") or 0)
+        candidate = self._get_candidate(candidate_id)
+        normalized_reviewers: List[Dict[str, str]] = []
+        seen_reviewers = set()
+        reviewer_rows = {
+            row["user_code"]: row
+            for row in self.list_department_reviewers(org_code=getattr(candidate, "org_code", None), limit=200)
+        }
+        for reviewer in payload.get("reviewers") or []:
+            user_code = str((reviewer or {}).get("user_code") or "").strip()
+            if not user_code or user_code in seen_reviewers:
+                continue
+            if user_code not in reviewer_rows:
+                raise ValueError(f"评审人 {user_code} 不存在、未启用，或未分配用人部门评审权限")
+            seen_reviewers.add(user_code)
+            normalized_reviewers.append({
+                "user_code": user_code,
+                "name": str((reviewer or {}).get("name") or "").strip() or str(reviewer_rows[user_code].get("name") or user_code),
+            })
+        if not normalized_reviewers:
+            raise ValueError("请至少选择一位评审人")
+
+        default_sections = ["original_resume", "standard_resume", "screening_result", "assessment_result"]
+        visible_sections = [
+            str(item or "").strip()
+            for item in (payload.get("visible_sections") or default_sections)
+            if str(item or "").strip()
+        ] or default_sections
+        cc_user_codes = [
+            str(item or "").strip()
+            for item in (payload.get("cc_user_codes") or [])
+            if str(item or "").strip()
+        ]
+        due_at = _parse_iso_datetime_value(payload.get("due_at"))
+        org_code = normalize_org_code(getattr(candidate, "org_code", None))
+        batch = (
+            self.db.query(RecruitmentDepartmentReviewBatch)
+            .filter(
+                RecruitmentDepartmentReviewBatch.candidate_id == candidate.id,
+                RecruitmentDepartmentReviewBatch.status == "pending",
+            )
+            .order_by(RecruitmentDepartmentReviewBatch.id.desc())
+            .first()
+        )
+        if batch:
+            batch.position_id = candidate.position_id
+            batch.org_code = org_code
+            batch.visible_sections_json = json_dumps_safe(visible_sections)
+            batch.cc_user_codes_json = json_dumps_safe(cc_user_codes)
+            batch.message = str(payload.get("message") or "").strip() or batch.message
+            if payload.get("due_at") is not None:
+                batch.due_at = due_at
+            self.db.add(batch)
+            self.db.flush()
+        else:
+            batch = RecruitmentDepartmentReviewBatch(
+                candidate_id=candidate.id,
+                position_id=candidate.position_id,
+                org_code=org_code,
+                status="pending",
+                visible_sections_json=json_dumps_safe(visible_sections),
+                cc_user_codes_json=json_dumps_safe(cc_user_codes),
+                message=str(payload.get("message") or "").strip() or None,
+                due_at=due_at,
+                created_by=actor_id,
+            )
+            self.db.add(batch)
+            self.db.flush()
+
+        existing_assignments = {
+            row.reviewer_user_code: row
+            for row in (
+                self.db.query(RecruitmentDepartmentReviewAssignment)
+                .filter(RecruitmentDepartmentReviewAssignment.batch_id == batch.id)
+                .all()
+            )
+        }
+        if batch and payload.get("replace_existing"):
+            selected_reviewer_codes = {reviewer["user_code"] for reviewer in normalized_reviewers}
+            for user_code, assignment in list(existing_assignments.items()):
+                if user_code in selected_reviewer_codes or assignment.status not in {"pending", "deferred"}:
+                    continue
+                self.db.delete(assignment)
+                existing_assignments.pop(user_code, None)
+            self.db.flush()
+
+        assignments: List[RecruitmentDepartmentReviewAssignment] = []
+        for reviewer in normalized_reviewers:
+            assignment = existing_assignments.get(reviewer["user_code"])
+            if assignment:
+                assignment.position_id = candidate.position_id
+                assignment.org_code = org_code
+                assignment.reviewer_name = reviewer["name"]
+                assignment.status = "pending"
+                assignment.comment = None
+                assignment.decision_at = None
+            else:
+                assignment = RecruitmentDepartmentReviewAssignment(
+                    batch_id=batch.id,
+                    candidate_id=candidate.id,
+                    position_id=candidate.position_id,
+                    org_code=org_code,
+                    reviewer_user_code=reviewer["user_code"],
+                    reviewer_name=reviewer["name"],
+                    status="pending",
+                    created_by=actor_id,
+                )
+            self.db.add(assignment)
+            assignments.append(assignment)
+
+        if candidate.status != "department_review_pending":
+            self._apply_candidate_status_transition(candidate, "department_review_pending", "发起部门评审", actor_id, "department_review")
+        else:
+            candidate.updated_by = actor_id
+        self.db.add(candidate)
+        self.db.commit()
+        self.db.refresh(batch)
+        all_assignments = (
+            self.db.query(RecruitmentDepartmentReviewAssignment)
+            .filter(RecruitmentDepartmentReviewAssignment.batch_id == batch.id)
+            .order_by(RecruitmentDepartmentReviewAssignment.id.asc())
+            .all()
+        )
+        for assignment in all_assignments:
+            self.db.refresh(assignment)
+        self.db.refresh(candidate)
+        self._emit_department_review_candidate_updated(candidate, batch_id=batch.id)
+        return {
+            "batch": self._serialize_department_review_batch(batch, assignments=all_assignments),
+            "candidate": self._serialize_candidate_summary(candidate),
+        }
+
+    def list_candidate_department_reviews(self, candidate_id: int) -> List[Dict[str, Any]]:
+        candidate = self._get_candidate(candidate_id)
+        rows = (
+            self.db.query(RecruitmentDepartmentReviewBatch)
+            .filter(RecruitmentDepartmentReviewBatch.candidate_id == candidate.id)
+            .order_by(RecruitmentDepartmentReviewBatch.created_at.desc(), RecruitmentDepartmentReviewBatch.id.desc())
+            .all()
+        )
+        return [self._serialize_department_review_batch(row) for row in rows]
+
+    def list_my_department_review_tasks(self, actor_id: str, status: Optional[str] = None) -> Dict[str, Any]:
+        normalized_status = str(status or "").strip()
+        builder = self.db.query(RecruitmentDepartmentReviewAssignment).filter(
+            RecruitmentDepartmentReviewAssignment.reviewer_user_code == actor_id,
+        )
+        if normalized_status in {"pending", "deferred", "passed", "rejected"}:
+            builder = builder.filter(RecruitmentDepartmentReviewAssignment.status == normalized_status)
+        elif normalized_status == "todo":
+            builder = builder.filter(RecruitmentDepartmentReviewAssignment.status.in_(["pending", "deferred"]))
+        elif normalized_status == "completed":
+            builder = builder.filter(RecruitmentDepartmentReviewAssignment.status.in_(["passed", "rejected"]))
+        rows = builder.order_by(RecruitmentDepartmentReviewAssignment.updated_at.desc(), RecruitmentDepartmentReviewAssignment.id.desc()).all()
+        batch_ids = [row.batch_id for row in rows]
+        candidate_ids = [row.candidate_id for row in rows]
+        position_ids = [row.position_id for row in rows if row.position_id]
+        batches = {
+            row.id: row
+            for row in self.db.query(RecruitmentDepartmentReviewBatch).filter(RecruitmentDepartmentReviewBatch.id.in_(batch_ids)).all()
+        } if batch_ids else {}
+        candidates = {
+            row.id: row
+            for row in self.db.query(RecruitmentCandidate).filter(
+                RecruitmentCandidate.id.in_(candidate_ids),
+                RecruitmentCandidate.deleted.is_(False),
+            ).all()
+        } if candidate_ids else {}
+        positions = {
+            row.id: row
+            for row in self.db.query(RecruitmentPosition).filter(
+                RecruitmentPosition.id.in_(position_ids),
+                RecruitmentPosition.deleted.is_(False),
+            ).all()
+        } if position_ids else {}
+        items: List[Dict[str, Any]] = []
+        for row in rows:
+            batch = batches.get(row.batch_id)
+            candidate = candidates.get(row.candidate_id)
+            position = positions.get(row.position_id) if row.position_id else None
+            if not batch or not candidate:
+                continue
+            items.append({
+                "assignment": self._serialize_department_review_assignment(row),
+                "batch": self._serialize_department_review_batch(batch, assignments=[row]),
+                "candidate": self._serialize_candidate_summary(candidate),
+                "position": self._serialize_position(position) if position else None,
+            })
+        def count_review_assignments(status_values: Sequence[str]) -> int:
+            return int(self.db.query(func.count(RecruitmentDepartmentReviewAssignment.id)).join(
+                RecruitmentCandidate,
+                RecruitmentCandidate.id == RecruitmentDepartmentReviewAssignment.candidate_id,
+            ).filter(
+                RecruitmentDepartmentReviewAssignment.reviewer_user_code == actor_id,
+                RecruitmentDepartmentReviewAssignment.status.in_(list(status_values)),
+                RecruitmentCandidate.deleted.is_(False),
+            ).scalar() or 0)
+
+        counts = {
+            "pending": count_review_assignments(["pending"]),
+            "deferred": count_review_assignments(["deferred"]),
+            "completed": count_review_assignments(["passed", "rejected"]),
+        }
+        counts["todo"] = count_review_assignments(["pending", "deferred"])
+        return {"items": items, "total": len(items), "counts": counts}
+
+    def decide_department_review_assignment(self, assignment_id: int, payload: Dict[str, Any], actor_id: str) -> Dict[str, Any]:
+        assignment = self.db.query(RecruitmentDepartmentReviewAssignment).filter(
+            RecruitmentDepartmentReviewAssignment.id == assignment_id,
+        ).first()
+        if not assignment:
+            raise ValueError(f"部门评审任务 ID={assignment_id} 不存在")
+        if assignment.reviewer_user_code != actor_id:
+            raise ValueError("只能处理分配给自己的部门评审任务")
+        batch = self.db.query(RecruitmentDepartmentReviewBatch).filter(
+            RecruitmentDepartmentReviewBatch.id == assignment.batch_id,
+        ).first()
+        if not batch or batch.status == "cancelled":
+            raise ValueError("该部门评审已取消或不存在")
+        normalized_status = str(payload.get("status") or "").strip()
+        status_mapping = {
+            "pass": "passed",
+            "passed": "passed",
+            "approve": "passed",
+            "reject": "rejected",
+            "rejected": "rejected",
+            "defer": "deferred",
+            "deferred": "deferred",
+            "pending": "deferred",
+        }
+        next_assignment_status = status_mapping.get(normalized_status)
+        if next_assignment_status not in {"passed", "rejected", "deferred"}:
+            raise ValueError("部门评审结果只能是 passed/rejected/deferred")
+
+        assignment.status = next_assignment_status
+        assignment.comment = str(payload.get("comment") or "").strip() or None
+        assignment.decision_at = datetime.now()
+        self.db.add(assignment)
+        self.db.flush()
+
+        assignments = (
+            self.db.query(RecruitmentDepartmentReviewAssignment)
+            .filter(RecruitmentDepartmentReviewAssignment.batch_id == batch.id)
+            .order_by(RecruitmentDepartmentReviewAssignment.id.asc())
+            .all()
+        )
+        statuses = [item.status for item in assignments]
+        previous_batch_status = str(batch.status or "").strip()
+        if any(status == "rejected" for status in statuses):
+            next_batch_status = "rejected"
+            next_candidate_status = "department_review_rejected"
+            transition_reason = "部门评审淘汰"
+        elif statuses and all(status == "passed" for status in statuses):
+            next_batch_status = "passed"
+            next_candidate_status = "department_review_passed"
+            transition_reason = "部门评审通过"
+        else:
+            next_batch_status = "pending"
+            next_candidate_status = None
+            transition_reason = ""
+        batch.status = next_batch_status
+        self.db.add(batch)
+        candidate = self.db.query(RecruitmentCandidate).filter(
+            RecruitmentCandidate.id == assignment.candidate_id,
+            RecruitmentCandidate.deleted.is_(False),
+        ).first()
+        if candidate and next_candidate_status and previous_batch_status != next_batch_status:
+            self._apply_candidate_status_transition(candidate, next_candidate_status, transition_reason, actor_id, "department_review")
+            self.db.add(candidate)
+        self.db.commit()
+        self.db.refresh(assignment)
+        self.db.refresh(batch)
+        if candidate:
+            self.db.refresh(candidate)
+            self._emit_department_review_candidate_updated(candidate, batch_id=batch.id)
+        return {
+            "assignment": self._serialize_department_review_assignment(assignment),
+            "batch": self._serialize_department_review_batch(batch, assignments=assignments),
+            "candidate": self._serialize_candidate_summary(candidate) if candidate else None,
+        }
 
     def _find_duplicate_candidate(self, name: str, org_code: str, position_id: Optional[int]) -> Optional["RecruitmentCandidate"]:
         """查找重复候选人（按姓名+组织，可选岗位）"""

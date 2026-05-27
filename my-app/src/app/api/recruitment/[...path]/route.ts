@@ -19,6 +19,26 @@ function resolveRecruitmentPermission(path: string, method: string) {
     return "recruitment-log-view";
   }
 
+  if (path === "department-reviews/reviewers") {
+    return "recruitment-review-manage";
+  }
+
+  if (path === "department-reviews") {
+    return normalizedMethod === "GET" || normalizedMethod === "HEAD"
+      ? "recruitment-review-view"
+      : "recruitment-review-manage";
+  }
+
+  if (path === "department-reviews/my-tasks") {
+    return "recruitment-review-view";
+  }
+
+  if (path.startsWith("department-reviews/assignments/")) {
+    return normalizedMethod === "GET" || normalizedMethod === "HEAD"
+      ? "recruitment-review-view"
+      : "recruitment-review-act";
+  }
+
   if (path === "resume-mail-dispatches/send") {
     return "recruitment-mail-send";
   }

@@ -33,6 +33,8 @@ from ..recruitment_schemas import (
     CandidateStatusUpdateRequest,
     CandidateScreenRequest,
     CandidateUpdateRequest,
+    DepartmentReviewCreateRequest,
+    DepartmentReviewDecisionRequest,
     InterviewQuestionGenerateRequest,
     InterviewScheduleCreateRequest,
     InterviewScheduleUpdateRequest,
@@ -753,6 +755,57 @@ async def get_candidate_status_history(candidate_id: int, _session: Dict[str, An
         return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
+
+
+@recruitment_router.post("/department-reviews")
+async def create_department_review(payload: DepartmentReviewCreateRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-review-manage")), service: RecruitmentService = Depends(get_recruitment_service)):
+    try:
+        data = service.create_department_review(payload.model_dump(), _session.get("id") or "unknown")
+        return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@recruitment_router.get("/department-reviews/reviewers")
+async def list_department_reviewers(
+    org_code: Optional[str] = Query(None),
+    q: Optional[str] = Query(None),
+    limit: int = Query(80, ge=1, le=200),
+    _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-review-manage")),
+    service: RecruitmentService = Depends(get_recruitment_service),
+):
+    try:
+        data = service.list_department_reviewers(org_code=org_code, query=q, limit=limit)
+        return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@recruitment_router.get("/candidates/{candidate_id}/department-reviews")
+async def list_candidate_department_reviews(candidate_id: int, _session: Dict[str, Any] = Depends(require_script_hub_any_permission(["recruitment-dashboard-view", "recruitment-review-view"])), service: RecruitmentService = Depends(get_recruitment_service)):
+    try:
+        data = service.list_candidate_department_reviews(candidate_id)
+        return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+@recruitment_router.get("/department-reviews/my-tasks")
+async def list_my_department_review_tasks(status: Optional[str] = Query(None), _session: Dict[str, Any] = Depends(require_script_hub_any_permission(["recruitment-review-view", "recruitment-review-act"])), service: RecruitmentService = Depends(get_recruitment_service)):
+    try:
+        data = service.list_my_department_review_tasks(_session.get("id") or "unknown", status=status)
+        return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@recruitment_router.post("/department-reviews/assignments/{assignment_id}/decision")
+async def decide_department_review_assignment(assignment_id: int, payload: DepartmentReviewDecisionRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-review-act")), service: RecruitmentService = Depends(get_recruitment_service)):
+    try:
+        data = service.decide_department_review_assignment(assignment_id, payload.model_dump(), _session.get("id") or "unknown")
+        return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @recruitment_router.post("/candidates/upload-resumes")

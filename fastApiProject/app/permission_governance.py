@@ -39,6 +39,7 @@ LEGACY_RECRUITMENT_VIEW_PERMISSIONS = {
     "recruitment-candidate-manage",
     "recruitment-process-execute",
     "recruitment-log-view",
+    "recruitment-review-view",
     "recruitment-skill-view",
     "recruitment-skill-bind",
     "recruitment-mail-view",
@@ -47,6 +48,8 @@ LEGACY_RECRUITMENT_VIEW_PERMISSIONS = {
 
 LEGACY_RECRUITMENT_MANAGE_PERMISSIONS = {
     "recruitment-skill-manage",
+    "recruitment-review-act",
+    "recruitment-review-manage",
     "recruitment-mail-config-manage",
     "recruitment-mail-sender-manage",
     "recruitment-llm-config-view",

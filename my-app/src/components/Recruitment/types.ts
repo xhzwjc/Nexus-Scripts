@@ -11,6 +11,7 @@ export type RecruitmentPage =
     | "workspace"
     | "positions"
     | "candidates"
+    | "review-workbench"
     | "talent-pool"
     | "audit"
     | "assistant"
@@ -342,6 +343,10 @@ const zhRecruitmentLocale: RecruitmentLocaleBundle = {
             title: "邮件中心",
             description: "统一维护发件箱、收件人和发送记录，并支持候选人简历单发与批量发送。",
         },
+        "review-workbench": {
+            title: "评审工作台",
+            description: "用人部门处理分配给自己的候选人评审任务。",
+        },
         "talent-pool": {
             title: "人才库",
             description: "未分配岗位的候选人，可按 AI 识别的岗位标签批量分配到目标岗位。",
@@ -362,6 +367,9 @@ const zhRecruitmentLocale: RecruitmentLocaleBundle = {
         screening_failed: "初筛失败",
         screening_passed: "初筛通过",
         screening_rejected: "初筛淘汰",
+        department_review_pending: "部门评审中",
+        department_review_passed: "部门评审通过",
+        department_review_rejected: "部门评审淘汰",
         pending_interview: "待面试",
         interview_passed: "面试通过",
         interview_rejected: "面试淘汰",
@@ -540,6 +548,10 @@ const enRecruitmentLocale: RecruitmentLocaleBundle = {
             title: "Mail Center",
             description: "Manage senders, recipients, and delivery history, with single and batch resume sending.",
         },
+        "review-workbench": {
+            title: "Review Workbench",
+            description: "Hiring teams process candidate review tasks assigned to them.",
+        },
         "talent-pool": {
             title: "Talent Pool",
             description: "Candidates without assigned positions, batch assign to target positions by AI-recognized tags.",
@@ -560,6 +572,9 @@ const enRecruitmentLocale: RecruitmentLocaleBundle = {
         screening_failed: "Screen Fail",
         screening_passed: "Screen Pass",
         screening_rejected: "Screen Reject",
+        department_review_pending: "Dept Review",
+        department_review_passed: "Review Pass",
+        department_review_rejected: "Review Reject",
         pending_interview: "To Interview",
         interview_passed: "Interview ✓",
         interview_rejected: "Interview ✗",

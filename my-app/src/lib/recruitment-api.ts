@@ -321,6 +321,65 @@ export interface RecruitmentOffer {
   updated_at?: string | null;
 }
 
+export interface DepartmentReviewAssignment {
+  id: number;
+  batch_id: number;
+  candidate_id: number;
+  position_id?: number | null;
+  org_code?: string | null;
+  reviewer_user_code: string;
+  reviewer_name?: string | null;
+  status: "pending" | "passed" | "rejected" | "deferred" | string;
+  comment?: string | null;
+  decision_at?: string | null;
+  created_by?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface DepartmentReviewReviewerOption {
+  user_code: string;
+  name?: string | null;
+  display_name?: string | null;
+  primary_org_code?: string | null;
+}
+
+export interface DepartmentReviewBatch {
+  id: number;
+  candidate_id: number;
+  position_id?: number | null;
+  org_code?: string | null;
+  status: "pending" | "passed" | "rejected" | "cancelled" | string;
+  visible_sections: string[];
+  cc_user_codes: string[];
+  message?: string | null;
+  due_at?: string | null;
+  created_by?: string | null;
+  cancelled_by?: string | null;
+  cancelled_at?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  assignments: DepartmentReviewAssignment[];
+}
+
+export interface DepartmentReviewTask {
+  assignment: DepartmentReviewAssignment;
+  batch: DepartmentReviewBatch;
+  candidate: CandidateSummary;
+  position?: PositionSummary | null;
+}
+
+export interface DepartmentReviewTaskList {
+  items: DepartmentReviewTask[];
+  total: number;
+  counts: {
+    pending: number;
+    deferred: number;
+    completed: number;
+    todo: number;
+  };
+}
+
 export interface RecruitmentSkill {
   id: number;
   skill_code: string;

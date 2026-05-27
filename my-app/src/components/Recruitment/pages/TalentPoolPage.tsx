@@ -67,9 +67,21 @@ function getTalentPoolLocale(language = getCurrentLanguage()) {
         sortByName: isZh ? "姓名 A-Z" : "Name A-Z",
         sortByNameDesc: isZh ? "姓名 Z-A" : "Name Z-A",
         selectedCount: (n: number) => isZh ? `已选 ${n} 人` : `${n} selected`,
+        clearSelection: isZh ? "清空选择" : "Clear Selection",
         batchAssign: isZh ? "批量分配岗位" : "Batch Assign Position",
         batchReIdentify: isZh ? "批量重新识别" : "Batch Re-identify",
         batchDelete: isZh ? "批量删除" : "Batch Delete",
+        reIdentifyConfirmTitle: isZh ? "确认重新识别岗位" : "Confirm Re-identification",
+        reIdentifyConfirmDescription: (count: number) => isZh
+            ? `将对 ${count} 位人才重新识别匹配岗位。`
+            : `Re-identify matching positions for ${count} talent record(s).`,
+        reIdentifyConfirmWarning: isZh
+            ? "已选择的数据中包含非待识别人才。确认后这些人才也会重新进入岗位识别流程，原有来源阶段可能随新的识别结果更新。"
+            : "The selection includes records that are not pending identification. Confirming will send them through position matching again, and their source stage may update with the new result.",
+        reIdentifyConfirmIncludes: isZh ? "本次包含" : "Included",
+        reIdentifyConfirmCandidates: isZh ? "涉及人才" : "Candidates",
+        reIdentifyConfirmMore: (count: number) => isZh ? `等 ${count} 人` : `and ${count} more`,
+        confirmReIdentify: isZh ? "确认重新识别" : "Confirm Re-identify",
         aiRecognized: isZh ? "AI 识别" : "AI Match",
         unmatchedGroup: isZh ? "无法识别岗位" : "Unmatched",
         selectAllGroup: isZh ? "全选此分组" : "Select All",
@@ -242,6 +254,53 @@ function isPendingActionCandidate(candidate: CandidateSummary) {
     return isNoSystemPositionCandidate(candidate) || isIdentifyErrorCandidate(candidate);
 }
 
+function isTalentPoolReidentifyTarget(candidate?: CandidateSummary | null) {
+    return String(candidate?.status || "").trim().toLowerCase() !== "matching";
+}
+
+function needsTalentPoolReidentifyConfirmation(candidate?: CandidateSummary | null) {
+    return Boolean(candidate && isTalentPoolReidentifyTarget(candidate) && !isTalentPoolReidentifiable(candidate));
+}
+
+function talentPoolCandidateName(candidate: CandidateSummary) {
+    const name = String(candidate.name || "").trim() || `ID:${candidate.id}`;
+    const code = String(candidate.candidate_code || "").trim();
+    return code ? `${name}（${code}）` : name;
+}
+
+function talentPoolSourceStageLabel(candidate: CandidateSummary, tr: ReturnType<typeof getTalentPoolLocale>) {
+    const reason = String(candidate.talent_pool_reason || "").trim().toLowerCase();
+    if (reason === "unmatched_by_ai") {
+        return tr.sourceAiUnmatched;
+    }
+    if (reason === "ai_error") {
+        return tr.sourceAiError;
+    }
+    if (reason === "auto_archived") {
+        return tr.sourceScreeningArchived;
+    }
+    if (reason === "moved_by_hr") {
+        const sourceLabel = STATUS_LABEL_MAP[candidate.talent_pool_source_status || ""] || candidate.talent_pool_source_status || "";
+        return sourceLabel ? sourceLabel : tr.archived;
+    }
+    return tr.sourceLegacyArchived;
+}
+
+function talentPoolReidentifyGroupLabel(candidate: CandidateSummary, tr: ReturnType<typeof getTalentPoolLocale>) {
+    const normalizedStatus = String(candidate.status || "").trim().toLowerCase();
+    const reason = String(candidate.talent_pool_reason || "").trim().toLowerCase();
+    if (normalizedStatus === "matching") {
+        return tr.matching;
+    }
+    if (reason === "unmatched_by_ai") {
+        return tr.pendingIdentify;
+    }
+    if (reason === "ai_error") {
+        return tr.identifyError;
+    }
+    return talentPoolSourceStageLabel(candidate, tr);
+}
+
 function resolveTalentPoolEnteredAt(candidate: CandidateSummary) {
     return candidate.talent_pool_moved_at || candidate.created_at || candidate.updated_at || null;
 }
@@ -311,7 +370,7 @@ export function TalentPoolPage({
     const [sourceFilter, setSourceFilter] = React.useState("all");
     const [tagFilter, setTagFilter] = React.useState("all");
     const [sortBy, setSortBy] = React.useState<"time" | "name" | "name_desc">("time");
-    const [activeStatFilter, setActiveStatFilter] = React.useState<TalentPoolStatFilter>("all");
+    const [activeStatFilter, setActiveStatFilter] = React.useState<TalentPoolStatFilter>("pending");
     const [statFilterPending, setStatFilterPending] = React.useState(false);
     const [selectedIds, setSelectedIds] = React.useState<Set<number>>(new Set());
     const [initialLoadComplete, setInitialLoadComplete] = React.useState(candidates.length > 0);
@@ -330,6 +389,10 @@ export function TalentPoolPage({
     const [singleAssignCandidateId, setSingleAssignCandidateId] = React.useState<number | null>(null);
     const [singleAssignPositionId, setSingleAssignPositionId] = React.useState("");
     const [singleAssigning, setSingleAssigning] = React.useState(false);
+    const [reIdentifyConfirmOpen, setReIdentifyConfirmOpen] = React.useState(false);
+    const [reIdentifyConfirmMode, setReIdentifyConfirmMode] = React.useState<"single" | "batch">("batch");
+    const [reIdentifyConfirmCandidates, setReIdentifyConfirmCandidates] = React.useState<CandidateSummary[]>([]);
+    const [reIdentifyConfirmSubmitting, setReIdentifyConfirmSubmitting] = React.useState(false);
 
     /* ── 重新识别 loading ── */
     const [reIdentifyingIds, setReIdentifyingIds] = React.useState<Set<number>>(new Set());
@@ -359,12 +422,12 @@ export function TalentPoolPage({
     const stats = serverStats || localStats;
 
     const statCards = React.useMemo(() => ([
-        { filter: "all" as const, label: tr.totalCandidates, value: stats.total, hint: tr.totalHint, tone: "slate" as const },
-        { filter: "matching" as const, label: tr.matchingStat, value: stats.matching, hint: tr.matchingStatHint, tone: "sky" as const },
         { filter: "pending" as const, label: tr.pendingAction, value: stats.pending_action, hint: tr.pendingActionHint, tone: "amber" as const },
         { filter: "no_match" as const, label: tr.noSystemPosition, value: stats.no_system_position, hint: tr.noSystemPositionHint, tone: "orange" as const },
         { filter: "ai_error" as const, label: tr.identifyError, value: stats.identify_error, hint: tr.identifyErrorHint, tone: "rose" as const },
+        { filter: "matching" as const, label: tr.matchingStat, value: stats.matching, hint: tr.matchingStatHint, tone: "sky" as const },
         { filter: "week_new" as const, label: tr.newThisWeek, value: stats.week_new, hint: tr.newThisWeekHint, tone: "emerald" as const },
+        { filter: "all" as const, label: tr.totalCandidates, value: stats.total, hint: tr.totalHint, tone: "slate" as const },
     ]), [stats.identify_error, stats.matching, stats.no_system_position, stats.pending_action, stats.total, stats.week_new, tr]);
 
     const activeStatCard = React.useMemo(
@@ -470,12 +533,41 @@ export function TalentPoolPage({
         return result;
     }, [activeStatFilter, candidates, recentCutoffMs, searchQuery, sourceFilter, tagFilter, sortBy]);
 
-    const selectedReidentifiableCount = React.useMemo(() => (
-        Array.from(selectedIds).filter((candidateId) => {
-            const candidate = candidates.find((item) => item.id === candidateId);
-            return Boolean(candidate && isTalentPoolReidentifiable(candidate));
-        }).length
+    const selectedCandidates = React.useMemo(() => (
+        Array.from(selectedIds)
+            .map((candidateId) => candidates.find((item) => item.id === candidateId))
+            .filter((candidate): candidate is CandidateSummary => Boolean(candidate))
     ), [candidates, selectedIds]);
+    const selectedReidentifyCandidates = React.useMemo(() => (
+        selectedCandidates.filter(isTalentPoolReidentifyTarget)
+    ), [selectedCandidates]);
+    const selectedReidentifiableCount = React.useMemo(() => (
+        selectedReidentifyCandidates.length
+    ), [selectedReidentifyCandidates]);
+    const reIdentifyConfirmGroups = React.useMemo(() => {
+        const groups = new Map<string, {label: string; candidates: CandidateSummary[]}>();
+        reIdentifyConfirmCandidates.forEach((candidate) => {
+            const label = talentPoolReidentifyGroupLabel(candidate, tr);
+            const current = groups.get(label) || {label, candidates: []};
+            current.candidates.push(candidate);
+            groups.set(label, current);
+        });
+        return Array.from(groups.values());
+    }, [reIdentifyConfirmCandidates, tr]);
+    const reIdentifyConfirmHasNonPending = React.useMemo(() => (
+        reIdentifyConfirmCandidates.some(needsTalentPoolReidentifyConfirmation)
+    ), [reIdentifyConfirmCandidates]);
+    const selectedVisibleCount = React.useMemo(() => (
+        filteredCandidates.reduce((count, candidate) => count + (selectedIds.has(candidate.id) ? 1 : 0), 0)
+    ), [filteredCandidates, selectedIds]);
+    const allVisibleSelected = filteredCandidates.length > 0 && selectedVisibleCount === filteredCandidates.length;
+    const someVisibleSelected = selectedVisibleCount > 0 && !allVisibleSelected;
+    const selectAllVisibleRef = React.useRef<HTMLInputElement | null>(null);
+    React.useEffect(() => {
+        if (selectAllVisibleRef.current) {
+            selectAllVisibleRef.current.indeterminate = someVisibleSelected;
+        }
+    }, [someVisibleSelected]);
 
     // 当候选人离开待处理分组（SSE驱动进入匹配中或从人才库移除），清除 reIdentifying 标记
     React.useEffect(() => {
@@ -542,63 +634,91 @@ export function TalentPoolPage({
         }
     }, [singleAssignPositionId, singleAssignCandidateId, onAssignPosition, onRefresh]);
 
-    /* ── 重新识别（异步，结果通过SSE推送） ── */
-    const handleReIdentify = React.useCallback(async (candidateId: number) => {
-        setReIdentifyingIds(prev => new Set(prev).add(candidateId));
-        setReIdentifyFailedIds(prev => { const next = new Set(prev); next.delete(candidateId); return next; });
-        try {
-            if (onReIdentify) {
-                await onReIdentify(candidateId);
-            } else {
-                await triggerAIPositionMatch([candidateId]);
-            }
-            // API立即返回，匹配在后台执行
-            // 不清除 reIdentifyingIds，由 SSE candidate_updated 事件驱动状态变更
-            // 候选人会从待处理分组移入匹配中分组（isMatching=true 显示 loading）
-        } catch {
-            setReIdentifyFailedIds(prev => new Set(prev).add(candidateId));
-            setReIdentifyingIds(prev => { const next = new Set(prev); next.delete(candidateId); return next; });
-        }
-    }, [onReIdentify]);
-
-    const handleBatchReIdentify = React.useCallback(async () => {
-        const candidateIds = Array.from(selectedIds).filter((candidateId) => {
-            const candidate = candidates.find((item) => item.id === candidateId);
-            return Boolean(candidate && isTalentPoolReidentifiable(candidate));
-        });
-        if (!candidateIds.length) {
+    const runReIdentify = React.useCallback(async (
+        candidateIds: number[],
+        options: {single?: boolean; clearSelection?: boolean} = {},
+    ) => {
+        const uniqueIds = Array.from(new Set(candidateIds));
+        if (!uniqueIds.length) {
             return;
         }
-        setReIdentifyingIds((prev) => {
+        setReIdentifyingIds(prev => {
             const next = new Set(prev);
-            candidateIds.forEach((candidateId) => next.add(candidateId));
+            uniqueIds.forEach((candidateId) => next.add(candidateId));
             return next;
         });
-        setReIdentifyFailedIds((prev) => {
+        setReIdentifyFailedIds(prev => {
             const next = new Set(prev);
-            candidateIds.forEach((candidateId) => next.delete(candidateId));
+            uniqueIds.forEach((candidateId) => next.delete(candidateId));
             return next;
         });
         try {
-            if (onBatchReIdentify) {
-                await onBatchReIdentify(candidateIds);
+            if (options.single && uniqueIds.length === 1 && onReIdentify) {
+                await onReIdentify(uniqueIds[0]);
+            } else if (onBatchReIdentify) {
+                await onBatchReIdentify(uniqueIds);
             } else {
-                await triggerAIPositionMatch(candidateIds);
+                await triggerAIPositionMatch(uniqueIds);
             }
-            setSelectedIds(new Set());
+            if (options.clearSelection) {
+                setSelectedIds(new Set());
+            }
         } catch {
-            setReIdentifyFailedIds((prev) => {
+            setReIdentifyFailedIds(prev => {
                 const next = new Set(prev);
-                candidateIds.forEach((candidateId) => next.add(candidateId));
+                uniqueIds.forEach((candidateId) => next.add(candidateId));
                 return next;
             });
-            setReIdentifyingIds((prev) => {
+            setReIdentifyingIds(prev => {
                 const next = new Set(prev);
-                candidateIds.forEach((candidateId) => next.delete(candidateId));
+                uniqueIds.forEach((candidateId) => next.delete(candidateId));
                 return next;
             });
+            throw new Error("reidentify_failed");
         }
-    }, [candidates, onBatchReIdentify, selectedIds]);
+    }, [onBatchReIdentify, onReIdentify]);
+
+    /* ── 重新识别（异步，结果通过SSE推送） ── */
+    const requestReIdentify = React.useCallback((targetCandidates: CandidateSummary[], mode: "single" | "batch") => {
+        const candidatesToIdentify = targetCandidates.filter(isTalentPoolReidentifyTarget);
+        if (!candidatesToIdentify.length) {
+            return;
+        }
+        if (candidatesToIdentify.some(needsTalentPoolReidentifyConfirmation)) {
+            setReIdentifyConfirmMode(mode);
+            setReIdentifyConfirmCandidates(candidatesToIdentify);
+            setReIdentifyConfirmOpen(true);
+            return;
+        }
+        void runReIdentify(candidatesToIdentify.map((candidate) => candidate.id), {
+            single: mode === "single",
+            clearSelection: mode === "batch",
+        }).catch(() => undefined);
+    }, [runReIdentify]);
+
+    const handleBatchReIdentify = React.useCallback(async () => {
+        requestReIdentify(selectedReidentifyCandidates, "batch");
+    }, [requestReIdentify, selectedReidentifyCandidates]);
+
+    const handleConfirmReIdentify = React.useCallback(async () => {
+        const candidateIds = reIdentifyConfirmCandidates.filter(isTalentPoolReidentifyTarget).map((candidate) => candidate.id);
+        if (!candidateIds.length || reIdentifyConfirmSubmitting) {
+            return;
+        }
+        setReIdentifyConfirmSubmitting(true);
+        try {
+            await runReIdentify(candidateIds, {
+                single: reIdentifyConfirmMode === "single",
+                clearSelection: reIdentifyConfirmMode === "batch",
+            });
+            setReIdentifyConfirmOpen(false);
+            setReIdentifyConfirmCandidates([]);
+        } catch {
+            // runReIdentify 已经标记失败状态，这里保留弹窗让用户确认发生了什么。
+        } finally {
+            setReIdentifyConfirmSubmitting(false);
+        }
+    }, [reIdentifyConfirmCandidates, reIdentifyConfirmMode, reIdentifyConfirmSubmitting, runReIdentify]);
 
     /* ── 批量删除 ── */
     const handleBatchDelete = React.useCallback(async () => {
@@ -629,7 +749,6 @@ export function TalentPoolPage({
             <aside className="hidden min-h-0 xl:flex xl:flex-col rounded-md border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
                 <div className="border-b border-slate-200 px-4 py-3 dark:border-slate-800">
                     <p className="text-base font-semibold text-slate-950 dark:text-slate-50">{tr.title}</p>
-                    <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">{tr.statSelectHint}</p>
                 </div>
                 <div className="min-h-0 flex-1 overflow-y-auto p-2">
                     {statCards.map((card) => (
@@ -667,42 +786,7 @@ export function TalentPoolPage({
                 </div>
             </aside>
             {/* ── 主内容区 ── */}
-            <div className="flex min-h-0 flex-1 flex-col overflow-y-auto rounded-md border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950">
-                {/* 页面头部 */}
-                <div className="mb-4 flex items-start justify-between">
-                    <div>
-                        <h1 className="text-lg font-medium text-slate-900 dark:text-slate-100">{tr.title}</h1>
-                        <p className="mt-1 text-[13px] text-slate-500 dark:text-slate-400">{tr.description}</p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        {onRefresh ? (
-                            <Button
-                                size="sm"
-                                variant="outline"
-                                className="h-8 rounded-md px-2 text-xs"
-                                disabled={refreshing || loading}
-                                onClick={async () => {
-                                    setRefreshing(true);
-                                    try {
-                                        await onRefresh();
-                                    } finally {
-                                        setRefreshing(false);
-                                    }
-                                }}
-                            >
-                                <RotateCcw className={cn("h-3.5 w-3.5", refreshing && "animate-spin")}/>
-                                {tr.refresh}
-                            </Button>
-                        ) : null}
-                        {onUploadResume && (
-                            <Button size="sm" className="rounded-lg" onClick={onUploadResume}>
-                                <Upload className="mr-1.5 h-3.5 w-3.5"/>
-                                {tr.uploadResume}
-                            </Button>
-                        )}
-                    </div>
-                </div>
-
+            <div className="flex min-h-0 flex-1 flex-col overflow-y-auto rounded-md border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-950">
                 {/* 统计卡片 */}
                 <div className="mb-4 grid grid-cols-2 gap-2.5 md:grid-cols-3 xl:hidden">
                     {statCards.map((card) => (
@@ -718,84 +802,166 @@ export function TalentPoolPage({
                         />
                     ))}
                 </div>
-                {activeStatFilter !== "all" || statFilterPending ? (
-                    <div className="mb-4 flex min-h-7 flex-wrap items-center gap-2">
-                        {activeStatFilter !== "all" ? (
-                            <button
-                                type="button"
-                                onClick={() => handleStatFilterClick(activeStatFilter)}
-                                className="inline-flex items-center gap-2 rounded-full border border-sky-200 bg-white/80 px-3 py-1.5 text-sm text-sky-700 shadow-sm backdrop-blur-xl transition hover:border-sky-300 hover:bg-sky-50 dark:border-sky-800 dark:bg-slate-900/80 dark:text-sky-300 dark:hover:bg-sky-950/40"
-                                title={tr.clearStatFilter}
-                            >
-                                <span className="h-1.5 w-1.5 rounded-full bg-sky-500 shadow-[0_0_14px_rgba(14,165,233,0.85)]"/>
-                                {tr.activeStatFilter(activeStatCard.label)}
-                            </button>
-                        ) : null}
-                        {statFilterPending ? (
-                            <span className="inline-flex items-center gap-2 rounded-full bg-slate-100/80 px-3 py-1.5 text-sm text-slate-500 backdrop-blur-xl dark:bg-slate-800/70 dark:text-slate-300">
-                                <span className="relative flex h-3 w-3">
-                                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-sky-400 opacity-60"/>
-                                    <span className="relative inline-flex h-3 w-3 rounded-full bg-sky-500"/>
-                                </span>
-                                {tr.statFiltering}
-                            </span>
-                        ) : null}
-                    </div>
-                ) : null}
-
-                <div className="mb-5 text-sm text-slate-400 dark:text-slate-500">
-                    {tr.statSelectHint}
-                </div>
 
                 {/* 工具栏 */}
-                <div className="mb-5 flex items-center gap-2.5">
-                    <div className="relative max-w-xs flex-1">
-                        <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400"/>
-                        <Input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder={tr.searchPlaceholder} className="h-8 rounded-lg pl-8 text-[13px]"/>
-                    </div>
-                    <select value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)} className="h-8 rounded-lg border border-slate-200 bg-white px-2.5 text-[13px] text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
-                        <option value="all">{tr.allSources}</option>
-                        <option value="boss_zhipin">{tr.bossZhipin}</option>
-                        <option value="liepin">{tr.liepin}</option>
-                        <option value="manual_upload">{tr.manualUpload}</option>
-                        <option value="headhunter">{tr.headhunter}</option>
-                    </select>
-                    <select value={tagFilter} onChange={(e) => setTagFilter(e.target.value)} className="h-8 rounded-lg border border-slate-200 bg-white px-2.5 text-[13px] text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
-                        <option value="all">{tr.allTags}</option>
-                        {availableTags.map(tag => <option key={tag} value={tag}>{tag}</option>)}
-                        <option value="__none">{tr.unmatchedGroup}</option>
-                    </select>
-                    <select value={sortBy} onChange={(e) => setSortBy(e.target.value as typeof sortBy)} className="h-8 rounded-lg border border-slate-200 bg-white px-2.5 text-[13px] text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
-                        <option value="time">{tr.sortByTime}</option>
-                        <option value="name">{tr.sortByName}</option>
-                        <option value="name_desc">{tr.sortByNameDesc}</option>
-                    </select>
+                <div
+                    className={cn(
+                        "mb-2 flex items-center gap-2 border-b border-slate-100 pb-2 dark:border-slate-800",
+                        selectedIds.size > 0
+                            ? "overflow-hidden rounded-md bg-sky-50/60 px-2 dark:bg-sky-950/20"
+                            : "flex-wrap justify-between",
+                    )}
+                >
+                    {selectedIds.size > 0 ? (
+                        <>
+                            <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                                {filteredCandidates.length > 0 ? (
+                                    <label className="inline-flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 text-xs text-slate-600 shadow-sm transition hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300 dark:hover:bg-slate-900">
+                                        <input
+                                            ref={selectAllVisibleRef}
+                                            type="checkbox"
+                                            className="h-3.5 w-3.5 accent-sky-600"
+                                            checked={allVisibleSelected}
+                                            onChange={() => selectGroup(filteredCandidates.map(c => c.id))}
+                                        />
+                                        {tr.selectAllVisible}
+                                    </label>
+                                ) : null}
+                                <span className="inline-flex h-8 shrink-0 items-center rounded-md border border-sky-200 bg-white px-2.5 text-xs font-medium text-sky-700 dark:border-sky-900/70 dark:bg-slate-950 dark:text-sky-300">
+                                    {tr.selectedCount(selectedIds.size)}
+                                </span>
+                                <Button size="sm" variant="outline" className="h-8 shrink-0 rounded-md border-sky-300 px-3 text-xs text-sky-700 hover:bg-sky-100 dark:border-sky-700 dark:text-sky-300 dark:hover:bg-sky-900/30" onClick={() => setAssignDialogOpen(true)}>
+                                    <Briefcase className="mr-1 h-3.5 w-3.5"/>
+                                    {tr.batchAssign}
+                                </Button>
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-8 shrink-0 rounded-md border-sky-300 px-3 text-xs text-sky-700 hover:bg-sky-100 dark:border-sky-700 dark:text-sky-300 dark:hover:bg-sky-900/30"
+                                    onClick={() => void handleBatchReIdentify()}
+                                    disabled={selectedReidentifiableCount === 0}
+                                >
+                                    <RotateCcw className="mr-1 h-3.5 w-3.5"/>
+                                    {tr.batchReIdentify}
+                                </Button>
+                                {onDeleteCandidates ? (
+                                    <Button size="sm" variant="outline" className="h-8 shrink-0 rounded-md px-3 text-xs text-rose-600 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-950/30" onClick={() => setDeleteDialogOpen(true)}>
+                                        <Trash2 className="mr-1 h-3.5 w-3.5"/>
+                                        {tr.batchDelete}
+                                    </Button>
+                                ) : null}
+                            </div>
+                            <div className="ml-auto flex shrink-0 items-center gap-2">
+                                <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="h-8 rounded-md px-2 text-xs font-normal text-slate-600 hover:bg-white hover:text-slate-950 dark:text-slate-300 dark:hover:bg-slate-900"
+                                    onClick={() => setSelectedIds(new Set())}
+                                >
+                                    {tr.clearSelection}
+                                </Button>
+                                {onRefresh ? (
+                                    <Button
+                                        size="sm"
+                                        variant="outline"
+                                        className="h-8 rounded-md px-2 text-xs"
+                                        disabled={refreshing || loading}
+                                        onClick={async () => {
+                                            setRefreshing(true);
+                                            try {
+                                                await onRefresh();
+                                            } finally {
+                                                setRefreshing(false);
+                                            }
+                                        }}
+                                    >
+                                        <RotateCcw className={cn("h-3.5 w-3.5", refreshing && "animate-spin")}/>
+                                        {tr.refresh}
+                                    </Button>
+                                ) : null}
+                            </div>
+                        </>
+                    ) : (
+                        <>
+                            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                                <div className="relative w-full max-w-[330px]">
+                                    <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400"/>
+                                    <Input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder={tr.searchPlaceholder} className="h-8 rounded-lg pl-8 text-[13px]"/>
+                                </div>
+                                <select value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)} className="h-8 rounded-lg border border-slate-200 bg-white px-2.5 text-[13px] text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
+                                    <option value="all">{tr.allSources}</option>
+                                    <option value="boss_zhipin">{tr.bossZhipin}</option>
+                                    <option value="liepin">{tr.liepin}</option>
+                                    <option value="manual_upload">{tr.manualUpload}</option>
+                                    <option value="headhunter">{tr.headhunter}</option>
+                                </select>
+                                <select value={tagFilter} onChange={(e) => setTagFilter(e.target.value)} className="h-8 rounded-lg border border-slate-200 bg-white px-2.5 text-[13px] text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
+                                    <option value="all">{tr.allTags}</option>
+                                    {availableTags.map(tag => <option key={tag} value={tag}>{tag}</option>)}
+                                    <option value="__none">{tr.unmatchedGroup}</option>
+                                </select>
+                                <select value={sortBy} onChange={(e) => setSortBy(e.target.value as typeof sortBy)} className="h-8 rounded-lg border border-slate-200 bg-white px-2.5 text-[13px] text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
+                                    <option value="time">{tr.sortByTime}</option>
+                                    <option value="name">{tr.sortByName}</option>
+                                    <option value="name_desc">{tr.sortByNameDesc}</option>
+                                </select>
+                                {activeStatFilter !== "all" ? (
+                                    <button
+                                        type="button"
+                                        onClick={() => handleStatFilterClick(activeStatFilter)}
+                                        className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-sky-200 bg-sky-50 px-2.5 text-xs text-sky-700 transition hover:border-sky-300 hover:bg-sky-100 dark:border-sky-800 dark:bg-sky-950/30 dark:text-sky-300"
+                                        title={tr.clearStatFilter}
+                                    >
+                                        <span className="h-1.5 w-1.5 rounded-full bg-sky-500"/>
+                                        {activeStatCard.label}
+                                    </button>
+                                ) : null}
+                                {statFilterPending ? (
+                                    <span className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-slate-100 px-2.5 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-300">
+                                        <Loader2 className="h-3 w-3 animate-spin"/>
+                                        {tr.statFiltering}
+                                    </span>
+                                ) : null}
+                                <span className="text-xs text-slate-400 dark:text-slate-500">
+                                    {tr.visibleResultCount(filteredCandidates.length, total ?? filteredCandidates.length)}
+                                </span>
+                            </div>
+                            <div className="flex shrink-0 items-center gap-2">
+                                {filteredCandidates.length > 0 ? (
+                                    <label className="flex cursor-pointer items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+                                        <input
+                                            ref={selectAllVisibleRef}
+                                            type="checkbox"
+                                            className="h-3.5 w-3.5 accent-sky-600"
+                                            checked={allVisibleSelected}
+                                            onChange={() => selectGroup(filteredCandidates.map(c => c.id))}
+                                        />
+                                        {tr.selectAllVisible}
+                                    </label>
+                                ) : null}
+                                {onRefresh ? (
+                                    <Button
+                                        size="sm"
+                                        variant="outline"
+                                        className="h-8 rounded-md px-2 text-xs"
+                                        disabled={refreshing || loading}
+                                        onClick={async () => {
+                                            setRefreshing(true);
+                                            try {
+                                                await onRefresh();
+                                            } finally {
+                                                setRefreshing(false);
+                                            }
+                                        }}
+                                    >
+                                        <RotateCcw className={cn("h-3.5 w-3.5", refreshing && "animate-spin")}/>
+                                        {tr.refresh}
+                                    </Button>
+                                ) : null}
+                            </div>
+                        </>
+                    )}
                 </div>
-
-                {/* 批量操作栏 */}
-                {selectedIds.size > 0 && (
-                    <div className="mb-3 flex items-center gap-2.5 rounded-lg border border-sky-200 bg-sky-50 px-3.5 py-2.5 text-[13px] text-sky-800 dark:border-sky-800 dark:bg-sky-950/30 dark:text-sky-200">
-                        <span className="flex-1">{tr.selectedCount(selectedIds.size)}</span>
-                        <Button size="sm" variant="outline" className="h-7 rounded-md border-sky-300 px-3 text-xs text-sky-700 hover:bg-sky-100 dark:border-sky-700 dark:text-sky-300 dark:hover:bg-sky-900/30" onClick={() => setAssignDialogOpen(true)}>
-                            <Briefcase className="mr-1 h-3.5 w-3.5"/>
-                            {tr.batchAssign}
-                        </Button>
-                        <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-7 rounded-md border-sky-300 px-3 text-sm text-sky-700 hover:bg-sky-100 dark:border-sky-700 dark:text-sky-300 dark:hover:bg-sky-900/30"
-                            onClick={() => void handleBatchReIdentify()}
-                            disabled={selectedReidentifiableCount === 0}
-                        >
-                            <RotateCcw className="mr-1 h-3.5 w-3.5"/>
-                            {tr.batchReIdentify}
-                        </Button>
-                        <Button size="sm" variant="outline" className="h-7 rounded-md px-3 text-xs text-rose-600 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-950/30" onClick={() => setDeleteDialogOpen(true)}>
-                            <Trash2 className="mr-1 h-3.5 w-3.5"/>
-                            {tr.batchDelete}
-                        </Button>
-                    </div>
-                )}
 
                 {/* 候选人列表 */}
                 {showInlineUpdating ? (
@@ -833,23 +999,6 @@ export function TalentPoolPage({
                     </div>
                 ) : (
                     <div className={cn("flex-1 transition duration-200 ease-out", statFilterPending && "scale-[0.998] opacity-70")}>
-                        <div className="mb-2.5 flex items-center justify-between">
-                            <div className="flex items-center gap-2 text-[17px] font-medium text-slate-500 dark:text-slate-400">
-                                <span>{tr.currentView}</span>
-                                <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-                                    {tr.visibleResultCount(filteredCandidates.length, total ?? filteredCandidates.length)}
-                                </span>
-                            </div>
-                            <label className="flex cursor-pointer items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
-                                <input
-                                    type="checkbox"
-                                    className="h-3.5 w-3.5 accent-sky-600"
-                                    checked={filteredCandidates.length > 0 && filteredCandidates.every(c => selectedIds.has(c.id))}
-                                    onChange={() => selectGroup(filteredCandidates.map(c => c.id))}
-                                />
-                                {tr.selectAllVisible}
-                            </label>
-                        </div>
                         <div className="flex flex-col gap-2">
                             {filteredCandidates.map(candidate => {
                                 const matching = isTalentPoolMatching(candidate);
@@ -863,7 +1012,7 @@ export function TalentPoolPage({
                                         reIdentifyFailed={reIdentifyFailedIds.has(candidate.id)}
                                         onToggleSelect={() => toggleSelect(candidate.id)}
                                         onCancelMatch={matching && onCancelMatch ? () => onCancelMatch(candidate.id) : undefined}
-                                        onReIdentify={!matching && isTalentPoolReidentifiable(candidate) ? () => handleReIdentify(candidate.id) : undefined}
+                                        onReIdentify={!matching ? () => requestReIdentify([candidate], "single") : undefined}
                                         onManualAssign={!matching ? () => openSingleAssign(candidate.id) : undefined}
                                         onView={() => onViewCandidate(candidate.id)}
                                         tr={tr}
@@ -921,6 +1070,71 @@ export function TalentPoolPage({
                         <div className="mt-4 flex justify-end gap-2">
                             <Button variant="outline" onClick={() => setSingleAssignOpen(false)}>{tr.cancel}</Button>
                             <Button onClick={() => void handleSingleAssign()} disabled={!singleAssignPositionId || singleAssigning}>{singleAssigning && <Loader2 className="mr-1 h-4 w-4 animate-spin"/>}{tr.confirmAssign}</Button>
+                        </div>
+                    </div>
+                </DialogOverlay>
+            )}
+
+            {/* ── 重新识别二次确认弹窗 ── */}
+            {reIdentifyConfirmOpen && (
+                <DialogOverlay
+                    onClose={() => {
+                        if (reIdentifyConfirmSubmitting) return;
+                        setReIdentifyConfirmOpen(false);
+                    }}
+                >
+                    <div className="w-full max-w-xl rounded-2xl bg-white p-6 shadow-xl dark:bg-slate-950">
+                        <div className="flex items-start gap-3">
+                            <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-amber-50 text-amber-600 dark:bg-amber-950/40 dark:text-amber-300">
+                                <RotateCcw className="h-4 w-4"/>
+                            </div>
+                            <div className="min-w-0 flex-1">
+                                <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">{tr.reIdentifyConfirmTitle}</h2>
+                                <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+                                    {tr.reIdentifyConfirmDescription(reIdentifyConfirmCandidates.length)}
+                                </p>
+                            </div>
+                        </div>
+                        {reIdentifyConfirmHasNonPending ? (
+                            <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm leading-6 text-amber-800 dark:border-amber-900/70 dark:bg-amber-950/30 dark:text-amber-200">
+                                {tr.reIdentifyConfirmWarning}
+                            </div>
+                        ) : null}
+                        <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50/70 p-3 dark:border-slate-800 dark:bg-slate-900/40">
+                            <div className="mb-2 text-xs font-medium text-slate-500 dark:text-slate-400">{tr.reIdentifyConfirmIncludes}</div>
+                            <div className="space-y-2">
+                                {reIdentifyConfirmGroups.map((group) => {
+                                    const visibleNames = group.candidates.slice(0, 4).map(talentPoolCandidateName);
+                                    const hiddenCount = Math.max(0, group.candidates.length - visibleNames.length);
+                                    return (
+                                        <div key={group.label} className="rounded-lg bg-white px-3 py-2 text-sm shadow-sm ring-1 ring-slate-100 dark:bg-slate-950 dark:ring-slate-800">
+                                            <div className="flex items-center justify-between gap-3">
+                                                <span className="font-medium text-slate-800 dark:text-slate-100">{group.label}</span>
+                                                <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-300">
+                                                    {tr.candidatesCount(group.candidates.length)}
+                                                </span>
+                                            </div>
+                                            <div className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">
+                                                {visibleNames.join("、")}
+                                                {hiddenCount > 0 ? `，${tr.reIdentifyConfirmMore(hiddenCount)}` : ""}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                        <div className="mt-5 flex justify-end gap-2">
+                            <Button
+                                variant="outline"
+                                onClick={() => setReIdentifyConfirmOpen(false)}
+                                disabled={reIdentifyConfirmSubmitting}
+                            >
+                                {tr.cancel}
+                            </Button>
+                            <Button onClick={() => void handleConfirmReIdentify()} disabled={reIdentifyConfirmSubmitting}>
+                                {reIdentifyConfirmSubmitting ? <Loader2 className="mr-1 h-4 w-4 animate-spin"/> : <RotateCcw className="mr-1 h-4 w-4"/>}
+                                {tr.confirmReIdentify}
+                            </Button>
                         </div>
                     </div>
                 </DialogOverlay>

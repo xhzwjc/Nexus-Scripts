@@ -188,3 +188,16 @@ def test_position_candidate_compact_item_displays_auto_archived_talent_pool_stat
     assert result["total"] == 1
     assert result["items"][0]["display_status"] == "talent_pool"
     assert result["items"][0]["talent_pool_reason"] == "auto_archived"
+
+
+def test_list_candidates_supports_multiple_display_status_filter_values():
+    db = _build_test_db()
+    _add_candidate(db, code="C-SCREEN-REJECT", name="初筛淘汰候选人", status="screening_rejected", position_id=1001)
+    _add_candidate(db, code="C-DEPT-REJECT", name="部门淘汰候选人", status="department_review_rejected", position_id=1001)
+    _add_candidate(db, code="C-PASS", name="通过候选人", status="screening_passed", position_id=1001)
+    service = RecruitmentService(db)
+
+    result = service.list_candidates(position_id=1001, status="screening_rejected,department_review_rejected")
+
+    assert result["total"] == 2
+    assert {item["status"] for item in result["items"]} == {"screening_rejected", "department_review_rejected"}

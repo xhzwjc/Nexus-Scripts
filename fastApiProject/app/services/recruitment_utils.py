@@ -38,6 +38,9 @@ CANDIDATE_STATUS_OPTIONS = [
     {"value": "screening_failed", "label": "初筛失败"},
     {"value": "screening_passed", "label": "初筛通过"},
     {"value": "screening_rejected", "label": "初筛淘汰"},
+    {"value": "department_review_pending", "label": "部门评审中"},
+    {"value": "department_review_passed", "label": "部门评审通过"},
+    {"value": "department_review_rejected", "label": "部门评审淘汰"},
     {"value": "pending_interview", "label": "待面试"},
     {"value": "interview_passed", "label": "面试通过"},
     {"value": "interview_rejected", "label": "面试淘汰"},
@@ -3237,6 +3240,9 @@ def _screening_status_label(score_payload: Optional[Dict[str, Any]]) -> str:
     status = str((score_payload or {}).get("suggested_status") or "").strip()
     mapping = {
         "screening_passed": "初筛通过",
+        "department_review_pending": "部门评审中",
+        "department_review_passed": "部门评审通过",
+        "department_review_rejected": "部门评审淘汰",
         "pending_interview": "待面试",
         "talent_pool": "进入人才库",
         "screening_rejected": "初筛未达标",

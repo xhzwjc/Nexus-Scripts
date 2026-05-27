@@ -68,6 +68,9 @@ import {
     type PositionSummary,
     type CandidateStatsData,
     type RecruitmentFunnelData,
+    type DepartmentReviewBatch,
+    type DepartmentReviewTask,
+    type DepartmentReviewTaskList,
     type RecruitmentLLMConfig,
     type RecruitmentMailRecipient,
     type RecruitmentMailSenderConfig,
@@ -205,6 +208,7 @@ import {AuditPage} from "./pages/AuditPage";
 import {CandidatesPage} from "./pages/CandidatesPage";
 import {MailSettingsPage} from "./pages/MailSettingsPage";
 import {ModelSettingsPage} from "./pages/ModelSettingsPage";
+import {ReviewWorkbenchPage} from "./pages/ReviewWorkbenchPage";
 import {SkillSettingsPage} from "./pages/SkillSettingsPage";
 import {TalentPoolPage} from "./pages/TalentPoolPage";
 import {WorkspacePage} from "./pages/WorkspacePage";
@@ -364,7 +368,7 @@ const DEFAULT_POSITION_SKILL_SECTION_EXPANDED_STATE: PositionSkillSectionExpande
 };
 const TALENT_POOL_PAGE_SIZE = 25;
 const DEFAULT_TALENT_POOL_QUERY: TalentPoolQueryState = {
-    statFilter: "all",
+    statFilter: "pending",
     searchQuery: "",
     sourceFilter: "all",
     tagFilter: "all",
@@ -430,6 +434,37 @@ function buildLocalCandidateStats(candidates: CandidateSummary[]): CandidateStat
         pending_screening: statusCounts.pending_screening || 0,
         status_counts: statusCounts,
         today_total: Object.values(todayStatusCounts).reduce((sum, count) => sum + Number(count || 0), 0),
+        today_status_counts: todayStatusCounts,
+    };
+}
+
+function decrementCandidateStatsData(stats: CandidateStatsData | null, deletedCandidates: CandidateSummary[]) {
+    if (!stats || deletedCandidates.length === 0) {
+        return stats;
+    }
+    const statusCounts = {...(stats.status_counts || {})};
+    const todayStatusCounts = {...(stats.today_status_counts || {})};
+    let pendingScreeningDelta = 0;
+    let todayDelta = 0;
+
+    deletedCandidates.forEach((candidate) => {
+        const status = resolveCandidateDisplayStatus(candidate);
+        statusCounts[status] = Math.max(0, Number(statusCounts[status] || 0) - 1);
+        if (status === "pending_screening") {
+            pendingScreeningDelta += 1;
+        }
+        if (isToday(candidate.updated_at || candidate.created_at)) {
+            todayStatusCounts[status] = Math.max(0, Number(todayStatusCounts[status] || 0) - 1);
+            todayDelta += 1;
+        }
+    });
+
+    return {
+        ...stats,
+        total: Math.max(0, Number(stats.total || 0) - deletedCandidates.length),
+        pending_screening: Math.max(0, Number(stats.pending_screening || 0) - pendingScreeningDelta),
+        status_counts: statusCounts,
+        today_total: Math.max(0, Number(stats.today_total || 0) - todayDelta),
         today_status_counts: todayStatusCounts,
     };
 }
@@ -1644,6 +1679,9 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const canManageCandidate = Boolean(perms["recruitment-candidate-manage"]);
     const canExecuteProcess = Boolean(perms["recruitment-process-execute"]);
     const canViewLog = Boolean(perms["recruitment-log-view"]);
+    const canViewReview = Boolean(perms["recruitment-review-view"]);
+    const canActReview = Boolean(perms["recruitment-review-act"]);
+    const canManageReview = Boolean(perms["recruitment-review-manage"]);
     const canViewSkill = Boolean(perms["recruitment-skill-view"]);
     const canBindSkill = Boolean(perms["recruitment-skill-bind"]);
     const canManageSkill = Boolean(perms["recruitment-skill-manage"]);
@@ -2033,6 +2071,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         activePage === "workspace"
         || activePage === "candidates"
         || activePage === "positions"
+        || activePage === "review-workbench"
         || activePage === "audit"
         || activePage === "talent-pool"
         || activePage === "assistant"
@@ -2136,6 +2175,18 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const [allCandidates, setAllCandidates] = useState<CandidateSummary[]>([]);
     const [candidates, setCandidates] = useState<CandidateSummary[]>([]);
     const [candidateDetail, setCandidateDetail] = useState<CandidateDetail | null>(null);
+    const [departmentReviews, setDepartmentReviews] = useState<DepartmentReviewBatch[]>([]);
+    const [departmentReviewTasks, setDepartmentReviewTasks] = useState<DepartmentReviewTask[]>([]);
+    const [departmentReviewCounts, setDepartmentReviewCounts] = useState({pending: 0, deferred: 0, completed: 0, todo: 0});
+    const [departmentReviewLoading, setDepartmentReviewLoading] = useState(false);
+    const [departmentReviewFilter, setDepartmentReviewFilter] = useState<"todo" | "completed" | "pending" | "deferred" | "passed" | "rejected">("todo");
+    const [candidateDetailReviewContext, setCandidateDetailReviewContext] = useState<{
+        candidateId: number;
+        assignmentId: number;
+        status: string;
+        comment?: string | null;
+        reviewerName?: string | null;
+    } | null>(null);
     const [allTalentPoolCandidates, setAllTalentPoolCandidates] = useState<CandidateSummary[]>([]);
     const [talentPoolCandidates, setTalentPoolCandidates] = useState<CandidateSummary[]>([]);
     const [talentPoolLoading, setTalentPoolLoading] = useState(false);
@@ -2843,12 +2894,17 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         );
     }, [assistantContextSkillIds, chatContext.candidate_id, chatContext.position_id, chatContext.skill_ids.length]);
     const selectedCandidateScreeningTaskId = selectedCandidateId
-        ? (
-            activeScreeningTaskMap[selectedCandidateId]
-            || candidateMap.get(selectedCandidateId)?.active_screening_task_id
-            || (candidateDetail?.candidate.id === selectedCandidateId ? candidateDetail?.candidate.active_screening_task_id : null)
-            || null
-        )
+        ? (() => {
+            const trackedTaskId = activeScreeningTaskMap[selectedCandidateId];
+            if (trackedTaskId) {
+                return trackedTaskId;
+            }
+            const snapshot = candidateMap.get(selectedCandidateId)
+                || (candidateDetail?.candidate.id === selectedCandidateId ? candidateDetail.candidate : null);
+            const taskId = snapshot?.active_screening_task_id || null;
+            const taskStatus = snapshot?.active_screening_task_status || snapshot?.active_screening_status || null;
+            return taskId && isLiveTaskStatus(taskStatus) ? taskId : null;
+        })()
         : null;
     const currentCandidateInterviewTaskId = activeInterviewCandidateId === selectedCandidateId ? activeInterviewTaskId : null;
     const isTaskCancelling = useCallback((taskId?: number | null) => {
@@ -3207,6 +3263,62 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         }
     }, [activeBusinessOrgCodes, businessRowFilterOptions]);
 
+    const removeDeletedCandidatesFromLocalState = useCallback((candidateIds: number[]) => {
+        const normalizedIds = Array.from(new Set(candidateIds.filter((id) => Number.isFinite(id) && id > 0)));
+        if (!normalizedIds.length) {
+            return;
+        }
+        const deletedIdSet = new Set(normalizedIds);
+        const snapshotById = new Map<number, CandidateSummary>();
+        [
+            ...allCandidatesRef.current,
+            ...candidates,
+            ...allTalentPoolCandidatesRef.current,
+        ].forEach((candidate) => {
+            if (deletedIdSet.has(candidate.id) && !snapshotById.has(candidate.id)) {
+                snapshotById.set(candidate.id, candidate);
+            }
+        });
+        const deletedSnapshots = normalizedIds
+            .map((id) => snapshotById.get(id))
+            .filter((candidate): candidate is CandidateSummary => Boolean(candidate));
+
+        const nextAllCandidates = allCandidatesRef.current.filter((candidate) => !deletedIdSet.has(candidate.id));
+        allCandidatesRef.current = nextAllCandidates;
+        setAllCandidates(nextAllCandidates);
+        setCandidates((current) => current.filter((candidate) => !deletedIdSet.has(candidate.id)));
+
+        const previousTalentPoolCount = allTalentPoolCandidatesRef.current.length;
+        const nextTalentPoolCandidates = allTalentPoolCandidatesRef.current.filter((candidate) => !deletedIdSet.has(candidate.id));
+        const removedTalentPoolCount = previousTalentPoolCount - nextTalentPoolCandidates.length;
+        if (removedTalentPoolCount > 0) {
+            allTalentPoolCandidatesRef.current = nextTalentPoolCandidates;
+            setAllTalentPoolCandidates(nextTalentPoolCandidates);
+            setTalentPoolTotal((current) => Math.max(0, current - removedTalentPoolCount));
+        }
+
+        const deletedCount = normalizedIds.length;
+        const nextCandidateTotal = Math.max(0, candidateTotalRef.current - deletedCount);
+        candidateTotalRef.current = nextCandidateTotal;
+        setCandidateTotal(nextCandidateTotal);
+        setCandidateScopeTotal((current) => Math.max(0, current - deletedCount));
+        setSelectedCandidateIds((current) => current.filter((id) => !deletedIdSet.has(id)));
+        setCandidateStatsData((current) => decrementCandidateStatsData(current, deletedSnapshots));
+        setCandidatePipelineStatsData((current) => decrementCandidateStatsData(current, deletedSnapshots));
+
+        if (candidateListPageCacheRef.current) {
+            const cache = candidateListPageCacheRef.current;
+            const nextCacheItems = cache.items.filter((candidate) => !deletedIdSet.has(candidate.id));
+            const removedFromCache = cache.items.length - nextCacheItems.length;
+            candidateListPageCacheRef.current = {
+                ...cache,
+                items: nextCacheItems,
+                total: Math.max(0, cache.total - Math.max(removedFromCache, deletedCount)),
+                loadedAt: Date.now(),
+            };
+        }
+    }, [candidates]);
+
     useEffect(() => {
         setSelectedPositionId((current) => {
             if (current && visiblePositions.some((position) => position.id === current)) {
@@ -3269,6 +3381,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             applyRecruitmentPageChange("workspace", "replace");
         } else if (activePage === "candidates" && !canManageCandidate) {
             applyRecruitmentPageChange("workspace", "replace");
+        } else if (activePage === "review-workbench" && !canViewReview && !canActReview) {
+            applyRecruitmentPageChange("workspace", "replace");
         } else if (activePage === "audit" && !canViewLog) {
             applyRecruitmentPageChange("workspace", "replace");
         } else if (activePage === "settings-skills" && !canViewSkill && !canManageSkill) {
@@ -3283,6 +3397,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         applyRecruitmentPageChange,
         canManagePosition,
         canManageCandidate,
+        canViewReview,
+        canActReview,
         canViewLog,
         canViewSkill,
         canManageSkill,
@@ -3455,6 +3571,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         const currentCandidateId = selectedCandidateIdRef.current;
         const nextCandidateId = typeof value === "function" ? value(currentCandidateId) : value;
         candidatePageTargetCandidateIdRef.current = null;
+        setCandidateDetailReviewContext(null);
         if (
             nextCandidateId
             && currentCandidateId === nextCandidateId
@@ -3727,6 +3844,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         const shouldLoadCandidateDetail = (
             activePage === "candidates"
             || activePage === "positions"
+            || (activePage === "review-workbench" && candidateDetailReviewContext?.candidateId === selectedCandidateId)
             || talentPoolCandidateDetailOpen
         );
         if (!shouldLoadCandidateDetail) {
@@ -3749,7 +3867,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             includeDuplicates: shouldCheckDuplicates,
             skipChatContextSave: isTalentPoolDetail,
         });
-    }, [activePage, candidateDetail, selectedCandidateDetailId, selectedCandidateId, talentPoolCandidateDetailOpen]);
+    }, [activePage, candidateDetail, candidateDetailReviewContext?.candidateId, selectedCandidateDetailId, selectedCandidateId, talentPoolCandidateDetailOpen]);
 
     useEffect(() => {
         if (!selectedLogId) {
@@ -3765,6 +3883,12 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             void loadLogs({ silent: true });
         }
     }, [activePage]);
+
+    useEffect(() => {
+        if (activePage === "review-workbench") {
+            void loadDepartmentReviewTasks();
+        }
+    }, [activePage, departmentReviewFilter]);
 
     useEffect(() => {
         if (activePage === "settings-skills") {
@@ -3959,8 +4083,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         if (activePositionId && String(candidate.position_id || "") !== activePositionId) {
             return false;
         }
-        const activeStatus = candidateStatusFilter[0] || "";
-        if (activeStatus && resolveCandidateDisplayStatus(candidate) !== activeStatus) {
+        const activeStatuses = candidateStatusFilter.map((item) => String(item || "").trim()).filter(Boolean);
+        if (activeStatuses.length && !activeStatuses.includes(resolveCandidateDisplayStatus(candidate))) {
             return false;
         }
         const normalizedQuery = candidateQuery.trim().toLowerCase();
@@ -4555,6 +4679,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         const shouldLoadCandidateSideData = (
             activePage === "candidates"
             || activePage === "positions"
+            || (activePage === "review-workbench" && candidateDetailReviewContext?.candidateId === selectedCandidateId)
             || talentPoolCandidateDetailOpen
         );
         if (selectedCandidateId && shouldLoadCandidateSideData) {
@@ -4567,18 +4692,21 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                     void loadInterviewSchedules(deferredCandidateId);
                     void loadOffers(deferredCandidateId);
                     void loadFollowUps(deferredCandidateId);
+                    void loadDepartmentReviews(deferredCandidateId);
                 }, 260);
                 return () => window.clearTimeout(timer);
             }
             void loadInterviewSchedules(selectedCandidateId);
             void loadOffers(selectedCandidateId);
             void loadFollowUps(selectedCandidateId);
+            void loadDepartmentReviews(selectedCandidateId);
         } else {
             setInterviewSchedules([]);
             setOffers([]);
             setFollowUps([]);
+            setDepartmentReviews([]);
         }
-    }, [activePage, selectedCandidateId, talentPoolCandidateDetailOpen]);
+    }, [activePage, candidateDetailReviewContext?.candidateId, selectedCandidateId, talentPoolCandidateDetailOpen]);
 
     useEffect(() => {
         if (activePage !== "assistant") {
@@ -5187,7 +5315,10 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         if (useVisibleFilters) {
             const normalizedQuery = String(options?.query ?? deferredCandidateQuery).trim();
             const positionId = String((options?.positionFilter ?? candidatePositionFilter)[0] || "").trim();
-            const status = String((options?.statusFilter ?? candidateStatusFilter)[0] || "").trim();
+            const status = (options?.statusFilter ?? candidateStatusFilter)
+                .map((item) => String(item || "").trim())
+                .filter(Boolean)
+                .join(",");
             const matchSortOrder = String(options?.matchSortOrder ?? candidateMatchSortOrder).trim().toLowerCase();
             if (normalizedQuery) {
                 params.set("query", normalizedQuery);
@@ -5318,12 +5449,15 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     }
 
     async function refreshCandidatesManually() {
-        await loadCandidates({
-            force: true,
-            useVisibleFilters: true,
-            pageIndex: candidatePageIndexRef.current,
-            pageSize: candidatePageSizeRef.current,
-        });
+        await Promise.all([
+            loadCandidates({
+                force: true,
+                useVisibleFilters: true,
+                pageIndex: candidatePageIndexRef.current,
+                pageSize: candidatePageSizeRef.current,
+            }),
+            refreshCandidateStats(),
+        ]);
         scrollCandidateListToTop();
         toast.success(
             isZh
@@ -5755,7 +5889,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             if (activePageRef.current === "candidates") {
                 const activePositionId = String(candidatePositionFilter[0] || "").trim();
                 if (activePositionId) {
-                    void refreshCandidatePipelineStats(departmentScope, orgScope, activePositionId);
+                    await refreshCandidatePipelineStats(departmentScope, orgScope, activePositionId);
                 } else {
                     setCandidatePipelineStatsData(stats);
                     setCandidatePipelineStatsScopeKey(resolveCandidatePipelineStatsScopeKey(departmentScope, orgScope, ""));
@@ -6853,10 +6987,12 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     }
 
     const handlePositionCandidateSelect = useCallback((candidateId: number) => {
+        setCandidateDetailReviewContext(null);
         setSelectedCandidateId(candidateId);
     }, []);
 
     const handleTalentPoolCandidateSelect = useCallback((candidateId: number) => {
+        setCandidateDetailReviewContext(null);
         setSelectedCandidateId(candidateId);
         selectedCandidateIdRef.current = candidateId;
         setTalentPoolCandidateDetailOpen(true);
@@ -7145,6 +7281,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                             onClose();
                             if (candidateId) {
                                 candidatePageTargetCandidateIdRef.current = candidateId;
+                                setCandidateDetailReviewContext(null);
                                 setSelectedCandidateId(candidateId);
                             }
                             navigateToRecruitmentPage("candidates");
@@ -9721,10 +9858,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 method: "DELETE",
             });
             markCandidatesDeleted([deletedCandidateId]);
-            setAllCandidates((current) => current.filter((candidate) => candidate.id !== deletedCandidateId));
-            setCandidateTotal((current) => Math.max(0, current - 1));
+            removeDeletedCandidatesFromLocalState([deletedCandidateId]);
             setCandidateDeleteTarget(null);
-            setSelectedCandidateIds((current) => current.filter((item) => item !== deletedCandidateId));
             if (selectedCandidateIdRef.current === deletedCandidateId) {
                 setSelectedCandidateId(null);
                 selectedCandidateIdRef.current = null;
@@ -9742,8 +9877,9 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 loadCandidates({silent: true, force: true}),
                 loadPositions({force: true}),
                 selectedPositionIdRef.current ? loadPositionDetail(selectedPositionIdRef.current) : Promise.resolve(),
+                refreshCandidateStats(),
             ]);
-            void Promise.all([loadLogs({silent: true}), refreshCandidateStats()]);
+            void loadLogs({silent: true});
             if ((chatContextRef.current.candidate_id ?? null) === deletedCandidateId) {
                 void saveChatContext(chatContextRef.current.position_id ?? null, chatContextRef.current.skill_ids, null, {quiet: true});
             }
@@ -9776,11 +9912,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             const skippedIds = new Set(skipped.map((item) => item.candidate_id));
             const actuallyDeletedIds = deletedIds.filter((id) => !skippedIds.has(id));
             markCandidatesDeleted(actuallyDeletedIds);
-            const actuallyDeletedIdSet = new Set(actuallyDeletedIds);
-            setAllCandidates((current) => current.filter((candidate) => !actuallyDeletedIdSet.has(candidate.id)));
-            setCandidateTotal((current) => Math.max(0, current - actuallyDeletedIds.length));
+            removeDeletedCandidatesFromLocalState(actuallyDeletedIds);
             setBatchDeleteTargetIds(null);
-            setSelectedCandidateIds((current) => current.filter((id) => !deletedIds.includes(id)));
             if (actuallyDeletedIds.includes(selectedCandidateIdRef.current ?? -1)) {
                 setSelectedCandidateId(null);
                 selectedCandidateIdRef.current = null;
@@ -9803,8 +9936,9 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 loadCandidates({silent: true, force: true}),
                 loadPositions({force: true}),
                 selectedPositionIdRef.current ? loadPositionDetail(selectedPositionIdRef.current) : Promise.resolve(),
+                refreshCandidateStats(),
             ]);
-            void Promise.all([loadLogs({silent: true}), refreshCandidateStats()]);
+            void loadLogs({silent: true});
         } catch (error) {
             setBatchDeleteError(formatActionError(error) || (isZh ? "批量删除候选人失败，请稍后重试" : "Failed to batch delete candidates. Please try again later."));
         } finally {
@@ -9937,6 +10071,88 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 setInterviewSchedules([]);
             }
         }
+    }
+
+    async function loadDepartmentReviews(candidateId: number) {
+        try {
+            const data = await recruitmentApi<DepartmentReviewBatch[]>(`/candidates/${candidateId}/department-reviews`);
+            if (mountedRef.current) {
+                setDepartmentReviews(data || []);
+            }
+        } catch {
+            if (mountedRef.current) {
+                setDepartmentReviews([]);
+            }
+        }
+    }
+
+    async function createDepartmentReview(payload: {
+        candidate_id: number;
+        reviewers: Array<{user_code: string; name?: string}>;
+        visible_sections?: string[];
+        cc_user_codes?: string[];
+        message?: string;
+        due_at?: string | null;
+        replace_existing?: boolean;
+    }) {
+        const data = await recruitmentApi<{batch: DepartmentReviewBatch; candidate: CandidateSummary}>("/department-reviews", {
+            method: "POST",
+            body: JSON.stringify(payload),
+        });
+        toast.success(isZh ? "已提交部门评审" : "Review submitted");
+        await Promise.allSettled([
+            loadDepartmentReviews(payload.candidate_id),
+            loadCandidateDetail(payload.candidate_id, {silent: true, force: true}),
+            loadCandidates({silent: true, force: true}),
+            refreshCandidateStats(),
+            loadDepartmentReviewTasks({silent: true}),
+        ]);
+        return data;
+    }
+
+    async function loadDepartmentReviewTasks(options?: {silent?: boolean}) {
+        if (!options?.silent) {
+            setDepartmentReviewLoading(true);
+        }
+        try {
+            const query = departmentReviewFilter ? `?status=${encodeURIComponent(departmentReviewFilter)}` : "";
+            const data = await recruitmentApi<DepartmentReviewTaskList>(`/department-reviews/my-tasks${query}`);
+            if (mountedRef.current) {
+                setDepartmentReviewTasks(data?.items || []);
+                setDepartmentReviewCounts(data?.counts || {pending: 0, deferred: 0, completed: 0, todo: 0});
+            }
+        } catch (error) {
+            if (mountedRef.current) {
+                setDepartmentReviewTasks([]);
+            }
+            if (!options?.silent) {
+                toast.error(isZh ? `加载评审任务失败：${formatActionError(error)}` : `Failed to load reviews: ${formatActionError(error)}`);
+            }
+        } finally {
+            if (!options?.silent && mountedRef.current) {
+                setDepartmentReviewLoading(false);
+            }
+        }
+    }
+
+    async function decideDepartmentReviewTask(assignmentId: number, status: "passed" | "rejected" | "deferred", comment: string) {
+        await recruitmentApi(`/department-reviews/assignments/${assignmentId}/decision`, {
+            method: "POST",
+            body: JSON.stringify({status, comment: comment.trim() || null}),
+        });
+        toast.success(isZh ? "评审结果已提交" : "Review decision submitted");
+        setCandidateDetailReviewContext((current) => (
+            current?.assignmentId === assignmentId
+                ? {...current, status, comment: comment.trim() || null}
+                : current
+        ));
+        await Promise.allSettled([
+            loadDepartmentReviewTasks({silent: true}),
+            loadCandidates({silent: true, force: true}),
+            refreshCandidateStats(),
+            selectedCandidateIdRef.current ? loadCandidateDetail(selectedCandidateIdRef.current, {silent: true, force: true}) : Promise.resolve(),
+            selectedCandidateIdRef.current ? loadDepartmentReviews(selectedCandidateIdRef.current) : Promise.resolve(),
+        ]);
     }
 
     async function createInterviewSchedule(payload: {
@@ -11930,6 +12146,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                                             className="flex w-full items-start justify-between rounded-2xl border border-slate-200/80 px-4 py-4 text-left transition hover:border-slate-400 dark:border-slate-800"
                                                             onClick={() => {
                                                                 candidatePageTargetCandidateIdRef.current = candidate.id;
+                                                                setCandidateDetailReviewContext(null);
                                                                 setSelectedCandidateId(candidate.id);
                                                                 navigateToRecruitmentPage("candidates");
                                                             }}
@@ -12069,6 +12286,15 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 groupedCandidates={groupedCandidates}
                 candidateDetailLoading={candidatePageDetailLoading}
                 candidateDetail={candidatePageDetailMatchesSelection ? candidateDetail : null}
+                departmentReviews={candidatePageDetailMatchesSelection ? departmentReviews : []}
+                createDepartmentReview={createDepartmentReview}
+                departmentReviewDecisionContext={
+                    candidatePageDetailMatchesSelection
+                    && candidateDetailReviewContext?.candidateId === selectedCandidateId
+                        ? candidateDetailReviewContext
+                        : null
+                }
+                submitDepartmentReviewDecision={decideDepartmentReviewTask}
                 isSelectedCandidateScreeningCancelling={isSelectedCandidateScreeningCancelling}
                 selectedCandidateScreeningTaskId={selectedCandidateScreeningTaskId}
                 openResumeFile={openResumeFile}
@@ -12142,6 +12368,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                         loadInterviewSchedules(candidateId),
                         loadOffers(candidateId),
                         loadFollowUps(candidateId),
+                        loadDepartmentReviews(candidateId),
                     ]);
                 }}
                 batchUpdateStatus={batchUpdateStatus}
@@ -12304,6 +12531,34 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         );
     }
 
+    function renderReviewWorkbenchPage() {
+        return (
+            <ReviewWorkbenchPage
+                panelClass={panelClass}
+                tasks={departmentReviewTasks}
+                counts={departmentReviewCounts}
+                loading={departmentReviewLoading}
+                activeFilter={departmentReviewFilter}
+                setActiveFilter={setDepartmentReviewFilter}
+                onRefresh={() => loadDepartmentReviewTasks()}
+                onOpenCandidate={(task) => {
+                    const candidateId = task.candidate.id;
+                    selectedCandidateIdRef.current = candidateId;
+                    setCandidateDetailReviewContext({
+                        candidateId,
+                        assignmentId: task.assignment.id,
+                        status: task.assignment.status,
+                        comment: task.assignment.comment,
+                        reviewerName: task.assignment.reviewer_name || task.assignment.reviewer_user_code,
+                    });
+                    setStatusUpdateReason("");
+                    setSelectedCandidateId(candidateId);
+                }}
+                onDecision={decideDepartmentReviewTask}
+            />
+        );
+    }
+
     function renderSkillsPage() {
         return (
             <SkillSettingsPage
@@ -12379,6 +12634,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 return renderPositionsPage();
             case "candidates":
                 return renderCandidatesPage();
+            case "review-workbench":
+                return renderReviewWorkbenchPage();
             case "talent-pool":
                 return renderTalentPoolPage();
             case "audit":
@@ -12402,6 +12659,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         // eslint-disable-next-line react-hooks/exhaustive-deps
         [
             visibleCandidates, selectedCandidateId, candidateDetail,
+            departmentReviews,
             candidatesLoading, candidatesInitialLoaded,
             selectedCandidateIds, candidateDetailLoading, candidateEditor,
             candidateSaving, exporting, pendingStatus, statusUpdateReason,
@@ -12413,6 +12671,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             batchStopScreeningTaskIds,
             candidateProcessLogsExpanded, interviewRoundName, interviewCustomRequirements,
             interviewSkillSelectionDirty, selectedInterviewSkillIds,
+            candidateDetailReviewContext,
         ]
     );
 
@@ -12581,6 +12840,11 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                     {activePage === "assistant" && (
                         <div className="h-full min-h-0 px-2 pb-2 pt-0">
                             {renderAssistantPage()}
+                        </div>
+                    )}
+                    {activePage === "review-workbench" && (
+                        <div className="h-full min-h-0 px-2 pb-2 pt-0">
+                            {renderReviewWorkbenchPage()}
                         </div>
                     )}
                     {activePage === "workspace" && (

@@ -3,6 +3,7 @@ export type CandidatePipelineStageKey =
     | "pending_screening"
     | "screening_running"
     | "screening_passed"
+    | "department_review_pending"
     | "pending_interview"
     | "talent_pool"
     | "screening_rejected";
@@ -10,6 +11,7 @@ export type CandidatePipelineStageKey =
 export type CandidatePipelineStageConfig = {
     key: CandidatePipelineStageKey;
     statusValue: string | null;
+    statusValues?: string[];
     labelZh: string;
     labelEn: string;
     hintZh: string;
@@ -46,12 +48,21 @@ export const CANDIDATE_PIPELINE_STAGES: CandidatePipelineStageConfig[] = [
         statusValue: "screening_passed",
         labelZh: "初筛通过",
         labelEn: "Passed",
-        hintZh: "可推进面试",
-        hintEn: "Move to interview",
+        hintZh: "可提交评审",
+        hintEn: "Ready for review",
+    },
+    {
+        key: "department_review_pending",
+        statusValue: "department_review_pending",
+        labelZh: "部门评审",
+        labelEn: "Dept Review",
+        hintZh: "用人部门处理中",
+        hintEn: "Reviewer in progress",
     },
     {
         key: "pending_interview",
         statusValue: "pending_interview",
+        statusValues: ["department_review_passed", "pending_interview"],
         labelZh: "待面试",
         labelEn: "Interview",
         hintZh: "需要安排面试",
@@ -68,6 +79,7 @@ export const CANDIDATE_PIPELINE_STAGES: CandidatePipelineStageConfig[] = [
     {
         key: "screening_rejected",
         statusValue: "screening_rejected",
+        statusValues: ["screening_rejected", "department_review_rejected", "interview_rejected"],
         labelZh: "已淘汰",
         labelEn: "Rejected",
         hintZh: "保留原因与记录",

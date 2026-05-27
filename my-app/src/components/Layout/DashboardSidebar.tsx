@@ -4,6 +4,7 @@ import {
     BriefcaseBusiness,
     ChevronDown,
     CircleHelp,
+    ClipboardCheck,
     FolderKanban,
     History,
     LogOut,
@@ -75,6 +76,7 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
     const canAccessRecruitment = Boolean(currentUser?.permissions?.['ai-recruitment']);
     const canManagePosition = Boolean(currentUser?.permissions?.['recruitment-position-manage']);
     const canManageCandidate = Boolean(currentUser?.permissions?.['recruitment-candidate-manage']);
+    const canUseReviewWorkbench = Boolean(currentUser?.permissions?.['recruitment-review-view'] || currentUser?.permissions?.['recruitment-review-act']);
     const canViewLog = Boolean(currentUser?.permissions?.['recruitment-log-view']);
     const inRecruitmentView = currentView === 'ai-recruitment';
 
@@ -109,6 +111,7 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
         { key: 'workspace', label: t.nav.aiRecruitmentWorkspace, icon: <FolderKanban className="h-4 w-4" /> },
         ...(canManagePosition ? [{ key: 'positions', label: t.nav.aiRecruitmentPositions, icon: <BriefcaseBusiness className="h-4 w-4" /> }] : []),
         ...(canManageCandidate ? [{ key: 'candidates', label: t.nav.aiRecruitmentCandidates, icon: <Users className="h-4 w-4" /> }] : []),
+        ...(canUseReviewWorkbench ? [{ key: 'review-workbench', label: t.nav.aiRecruitmentReviewWorkbench, icon: <ClipboardCheck className="h-4 w-4" /> }] : []),
         ...(canManageCandidate ? [{ key: 'talent-pool', label: t.nav.aiRecruitmentTalentPool, icon: <Users className="h-4 w-4" /> }] : []),
         ...(canViewLog ? [{ key: 'audit', label: t.nav.aiRecruitmentAudit, icon: <History className="h-4 w-4" /> }] : []),
         { key: 'assistant', label: t.nav.aiRecruitmentAssistant, icon: <Bot className="h-4 w-4" /> },
