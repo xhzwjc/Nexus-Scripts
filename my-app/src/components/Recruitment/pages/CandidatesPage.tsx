@@ -141,6 +141,47 @@ type CandidateResumeViewKey = "original" | "standard" | "history";
 type DetailIcon = React.ComponentType<{className?: string}>;
 type PdfJsModule = typeof import("pdfjs-dist");
 type PdfLoadingTask = ReturnType<PdfJsModule["getDocument"]>;
+type PdfWorkerMode = "bundled-worker" | "main-thread";
+type PdfWorkerModule = { WorkerMessageHandler?: unknown };
+
+const PDF_RENDER_FIRST_PAGE_TIMEOUT_MS = 10000;
+
+class PdfRenderTimeoutError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = "PdfRenderTimeoutError";
+    }
+}
+
+function withPdfRenderTimeout<T>(promise: Promise<T>, message: string): Promise<T> {
+    let timeoutId: number | null = null;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+        timeoutId = window.setTimeout(() => {
+            reject(new PdfRenderTimeoutError(message));
+        }, PDF_RENDER_FIRST_PAGE_TIMEOUT_MS);
+    });
+    return Promise.race([promise, timeoutPromise]).finally(() => {
+        if (timeoutId !== null) {
+            window.clearTimeout(timeoutId);
+        }
+    });
+}
+
+async function createPdfWorkerForPreview(pdfjsLib: PdfJsModule, mode: PdfWorkerMode) {
+    if (mode === "bundled-worker" && typeof Worker !== "undefined") {
+        const worker = new Worker(new URL("pdfjs-dist/build/pdf.worker.mjs", import.meta.url), {type: "module"});
+        return pdfjsLib.PDFWorker.create({port: worker, verbosity: 0});
+    }
+
+    const workerModule = await import("pdfjs-dist/build/pdf.worker.mjs") as PdfWorkerModule;
+    if (!workerModule.WorkerMessageHandler) {
+        throw new Error("PDF worker module is unavailable");
+    }
+    (globalThis as typeof globalThis & {pdfjsWorker?: PdfWorkerModule}).pdfjsWorker = {
+        WorkerMessageHandler: workerModule.WorkerMessageHandler,
+    };
+    return undefined;
+}
 
 function readStructuredText(source: unknown, keys: string[]): string | null {
     if (!source || typeof source !== "object" || Array.isArray(source)) {
@@ -246,17 +287,25 @@ function InlineResumePdfPreview({
 
         clearHost();
 
-        const renderPdf = async () => {
-            const pdfjsLib = await import("pdfjs-dist/build/pdf.mjs") as PdfJsModule;
-            pdfjsLib.GlobalWorkerOptions.workerSrc = "/vendor/pdfjs/pdf.worker.min.mjs";
-            const arrayBuffer = await blob.arrayBuffer();
+        const renderPdfWithMode = async (pdfjsLib: PdfJsModule, sourceBytes: Uint8Array, mode: PdfWorkerMode) => {
+            const worker = await createPdfWorkerForPreview(pdfjsLib, mode);
             if (cancelled) return;
 
             loadingTask = pdfjsLib.getDocument({
-                data: new Uint8Array(arrayBuffer),
+                data: sourceBytes.slice(),
+                worker,
                 verbosity: 0,
+                useWorkerFetch: false,
             });
-            const pdf = await loadingTask.promise;
+            const pdf = await withPdfRenderTimeout(
+                loadingTask.promise,
+                isZh ? "PDF 文档加载超时" : "PDF document loading timed out",
+            );
+            if (cancelled) {
+                await pdf.destroy();
+                return;
+            }
+
             const pageHostWidth = Math.max(320, Math.min(hostWidth - 8, 760));
             const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
 
@@ -284,16 +333,23 @@ function InlineResumePdfPreview({
                     pageNumber === 1 && "pt-0",
                     pageNumber === pdf.numPages && "pb-0",
                 );
-                pageShell.appendChild(canvas);
-                host.appendChild(pageShell);
-
-                await page.render({
+                const renderTask = page.render({
                     canvas,
                     canvasContext,
                     viewport,
                     transform: pixelRatio !== 1 ? [pixelRatio, 0, 0, pixelRatio, 0, 0] : undefined,
                     background: "#fff",
-                }).promise;
+                });
+                await withPdfRenderTimeout(
+                    renderTask.promise,
+                    isZh ? "PDF 页面渲染超时" : "PDF page rendering timed out",
+                );
+                if (cancelled) {
+                    page.cleanup();
+                    break;
+                }
+                pageShell.appendChild(canvas);
+                host.appendChild(pageShell);
                 page.cleanup();
 
                 if (pageNumber === 1) {
@@ -304,6 +360,38 @@ function InlineResumePdfPreview({
             await pdf.cleanup();
             await pdf.destroy();
             signalReady();
+        };
+
+        const renderPdf = async () => {
+            const pdfjsLib = await import("pdfjs-dist/build/pdf.mjs") as PdfJsModule;
+            const arrayBuffer = await blob.arrayBuffer();
+            if (cancelled) return;
+            const sourceBytes = new Uint8Array(arrayBuffer);
+            const modes: PdfWorkerMode[] = ["bundled-worker", "main-thread"];
+            let lastError: unknown = null;
+
+            for (const mode of modes) {
+                try {
+                    clearHost();
+                    loadingTask = null;
+                    await renderPdfWithMode(pdfjsLib, sourceBytes, mode);
+                    return;
+                } catch (error) {
+                    if (cancelled) return;
+                    lastError = error;
+                    await loadingTask?.destroy().catch(() => undefined);
+                    loadingTask = null;
+                    clearHost();
+                    console.warn("[recruitment-resume-preview] PDF.js render failed", {
+                        mode,
+                        fileName,
+                        error: error instanceof Error ? error.message : String(error),
+                    });
+                }
+            }
+            throw lastError instanceof Error
+                ? lastError
+                : new Error(isZh ? "原始简历加载失败" : "Failed to load original resume");
         };
 
         void renderPdf().catch((error) => {
@@ -4567,7 +4655,7 @@ export function CandidatesPage({
                                                 </div>
                                                 <div className="relative h-[min(70vh,720px)] min-h-[560px] overflow-hidden bg-white">
                                                     {inlineResumePreviewLoading || ((inlineResumePreviewBlob || inlineResumePreviewUrl) && !inlineResumeFrameReady) ? (
-                                                        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-white/90 text-slate-500">
+                                                        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-white text-slate-500">
                                                             <Loader2 className="h-8 w-8 animate-spin text-[#171717]"/>
                                                             <span className="text-[14px]">{isZh ? "正在加载原始简历..." : "Loading original resume..."}</span>
                                                         </div>
