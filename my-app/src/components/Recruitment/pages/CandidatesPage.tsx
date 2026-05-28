@@ -720,8 +720,9 @@ type CandidateApplicantCardProps = {
     candidate: CandidateSummary;
     isSelected: boolean;
     isChecked: boolean;
+    rowIndex: number;
     rowStart: number;
-    rowHeight: number;
+    measureElement: (node: Element | null) => void;
     setSelectedCandidateId: React.Dispatch<React.SetStateAction<number | null>>;
     toggleCandidateSelection: (candidateId: number, nextChecked?: boolean) => void;
     getResumeMailSummary: (candidateId: number) => string | null;
@@ -734,8 +735,9 @@ const CandidateApplicantCard = React.memo(function CandidateApplicantCard({
     candidate,
     isSelected,
     isChecked,
+    rowIndex,
     rowStart,
-    rowHeight,
+    measureElement,
     setSelectedCandidateId,
     toggleCandidateSelection,
     getResumeMailSummary,
@@ -748,18 +750,54 @@ const CandidateApplicantCard = React.memo(function CandidateApplicantCard({
     const matchPercent = resolveCandidateSummaryMatchPercent(candidate);
     const resumeMailSummary = getResumeMailSummary(candidate.id);
     const contactText = candidate.phone || candidate.email || tr.noContact;
+    const originalFileName = String(candidate.source_detail || "").trim();
+    const candidateNameText = String(candidate.name || "").trim();
+    const normalizeFileComparableText = (value: string) => value
+        .replace(/\.[a-z0-9]+$/i, "")
+        .replace(/[\s_\-—–()[\]【】{}·.]+/g, "")
+        .toLowerCase();
+    const originalFileStem = originalFileName.replace(/\.[^.]+$/, "");
+    const nameLooksLikeOriginalFile = Boolean(
+        originalFileName
+        && candidateNameText
+        && normalizeFileComparableText(candidateNameText) === normalizeFileComparableText(originalFileStem),
+    );
+    const displayCandidateName = nameLooksLikeOriginalFile
+        ? (isZh ? "未解析候选人" : "Unparsed Candidate")
+        : (candidateNameText || (isZh ? "未命名候选人" : "Unnamed Candidate"));
     const profileText = [
         candidate.age ? `${candidate.age}${tr.ageSuffix}` : "",
         candidate.education,
         candidate.city,
         candidate.expected_city ? `${isZh ? "期望" : "Expect"} ${candidate.expected_city}` : "",
     ].filter(Boolean).join(" · ");
-    const experienceLines = [
-        candidate.education ? `${isZh ? "学历" : "Education"}：${candidate.education}` : "",
-        candidate.current_company ? `${isZh ? "最近公司" : "Recent Company"}：${candidate.current_company}${candidate.years_of_experience ? ` · ${candidate.years_of_experience}` : ""}` : "",
-    ].filter(Boolean);
+    const locationHintText = [
+        candidate.city ? `${isZh ? "城市" : "City"}：${candidate.city}` : "",
+        candidate.expected_city ? `${isZh ? "期望" : "Expect"}：${candidate.expected_city}` : "",
+    ].filter(Boolean).join(" · ");
+    const hasStructuredProfile = Boolean(
+        candidate.latest_parse_result_id
+        || candidate.phone
+        || candidate.email
+        || candidate.education
+        || candidate.current_company
+        || candidate.age
+        || candidate.years_of_experience,
+    );
+    const profileHintText = hasStructuredProfile
+        ? (profileText || contactText)
+        : [isZh ? "基础信息待解析" : "Profile pending", locationHintText].filter(Boolean).join(" · ");
     const positionLabel = candidate.position_title || candidate.screened_position_title || tr.unassignedPosition;
-    const aiPositionLabel = candidate.ai_match_position_title || candidate.ai_potential_position || "";
+    const positionSourceLabel = candidate.position_id
+        ? (isZh ? "已关联" : "Assigned")
+        : (isZh ? "点击指定" : "Set position");
+    const aiPositionLabel = candidate.ai_match_position_title || "";
+    const matchIndicatorLabel = matchPercent != null
+        ? `${isZh ? "AI 匹配度" : "AI Match"} ${formatPercent(matchPercent)}`
+        : (displayStatus === "screening_running"
+            ? (isZh ? "智能初筛中" : "Screening")
+            : (hasStructuredProfile ? (isZh ? "待评估" : "Pending Score") : (isZh ? "信息待解析" : "Parsing Pending")));
+    const showOriginalFile = Boolean(originalFileName && (nameLooksLikeOriginalFile || !hasStructuredProfile));
     const fitLabel = (() => {
         if (displayStatus === "screening_running") {
             return isZh ? "初筛中" : "Screening";
@@ -806,12 +844,13 @@ const CandidateApplicantCard = React.memo(function CandidateApplicantCard({
         <div
             role="listitem"
             data-candidate-id={candidate.id}
+            data-index={rowIndex}
+            ref={measureElement}
             style={{
                 position: "absolute",
                 top: 0,
                 left: 0,
                 width: "100%",
-                height: rowHeight,
                 transform: `translateY(${rowStart}px)`,
             }}
             className="px-0 pb-3.5"
@@ -827,7 +866,7 @@ const CandidateApplicantCard = React.memo(function CandidateApplicantCard({
                     }
                 }}
                 className={cn(
-                    "flex h-full w-full min-w-0 flex-col rounded-md border bg-white px-4 pb-4 pt-3 text-left shadow-none transition dark:bg-slate-950",
+                    "flex min-h-[156px] w-full min-w-0 flex-col rounded-md border bg-white px-4 pb-3 pt-3 text-left shadow-none transition dark:bg-slate-950",
                     "border-[#e5e5e5] hover:border-[#d4d4d4] hover:bg-[#fafafa] dark:border-slate-800 dark:hover:border-slate-600 dark:hover:bg-slate-900/70",
                     isSelected && "border-[#171717] bg-[#f5f5f5] dark:border-slate-500 dark:bg-slate-900",
                 )}
@@ -838,49 +877,79 @@ const CandidateApplicantCard = React.memo(function CandidateApplicantCard({
                             type="checkbox"
                             checked={isChecked}
                             onChange={(event) => onToggleCheck(event.target.checked)}
-                            aria-label={tr.selectCandidate(candidate.name)}
+                            aria-label={tr.selectCandidate(displayCandidateName)}
                         />
                     </div>
                     <div className="min-w-0 flex-1">
-                        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5">
-                            <span className="h-1.5 w-1.5 rounded-full bg-lime-500"/>
-                            <span className="truncate text-[15px] font-semibold leading-5 text-slate-950 dark:text-slate-50">{candidate.name}</span>
-                            {profileText ? <span className="truncate text-sm leading-5 text-slate-500 dark:text-slate-400">{profileText}</span> : null}
-                            {resumeMailSummary ? (
-                                <Badge className="rounded border border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-900 dark:bg-violet-950/30 dark:text-violet-200">
-                                    {tr.resumeSent}
-                                </Badge>
-                            ) : null}
-                        </div>
-                        <div className="mt-2 space-y-1 text-xs leading-5 text-slate-600 dark:text-slate-300">
-                            {experienceLines.length ? experienceLines.map((line) => (
-                                <p key={line} className="line-clamp-1">
-                                    <span className="mr-1 text-slate-400">◆</span>{line}
+                        <div className="flex min-w-0 items-start justify-between gap-4">
+                            <div className="min-w-0">
+                                <div className="flex min-w-0 items-center gap-2">
+                                    <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-lime-500"/>
+                                    <span className="truncate text-[15px] font-semibold leading-5 text-slate-950 dark:text-slate-50">
+                                        {displayCandidateName}
+                                    </span>
+                                </div>
+                                <p className="mt-1 line-clamp-1 text-xs leading-5 text-slate-500 dark:text-slate-400">
+                                    {profileHintText}
                                 </p>
-                            )) : (
-                                <p className="text-slate-400 dark:text-slate-500">{contactText}</p>
-                            )}
+                            </div>
+                            <div className="flex shrink-0 items-center gap-1.5">
+                                {resumeMailSummary ? (
+                                    <Badge className="rounded border border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+                                        {tr.resumeSent}
+                                    </Badge>
+                                ) : null}
+                                <Badge className="rounded border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200">
+                                    {matchIndicatorLabel}
+                                </Badge>
+                            </div>
                         </div>
-                        <div className="mt-2 flex min-w-0 flex-wrap items-center gap-1.5">
-                            {topTags.map((tag) => (
-                                <span key={tag} className="rounded border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200">
-                                    {tag}
+                        <div className="mt-3 flex min-w-0 flex-wrap items-center gap-x-6 gap-y-2 border-t border-slate-100 pt-2.5 text-xs leading-5 text-slate-600 dark:border-slate-800 dark:text-slate-300">
+                            <div className="flex min-w-0 max-w-full items-center gap-2">
+                                <span className="shrink-0 text-slate-400">{isZh ? "岗位状态" : "Position"}</span>
+                                <span className="min-w-0 truncate rounded border border-slate-200 bg-white px-2 py-0.5 font-medium text-slate-800 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100">
+                                    {positionLabel}
                                 </span>
-                            ))}
-                            {aiPositionLabel ? (
-                                <span className="max-w-[280px] truncate rounded border border-violet-200 bg-violet-50 px-2 py-0.5 text-xs text-violet-700 dark:border-violet-900 dark:bg-violet-950/30 dark:text-violet-200">
-                                    AI：{aiPositionLabel}
-                                </span>
-                            ) : null}
-                            {candidate.ai_potential_position ? (
-                                <span className="rounded border border-violet-200 bg-violet-50 px-2 py-0.5 text-xs text-violet-700 dark:border-violet-900 dark:bg-violet-950/30 dark:text-violet-200">
-                                    {isZh ? "转岗" : "Potential"}：{candidate.ai_potential_position}
-                                </span>
-                            ) : null}
+                                <span className="shrink-0 text-slate-400">{positionSourceLabel}</span>
+                            </div>
+                            <div className="flex min-w-0 max-w-full items-center gap-2">
+                                <span className="shrink-0 text-slate-400">{isZh ? "流程阶段" : "Stage"}</span>
+                                <Badge className="h-6 rounded border border-slate-200 bg-slate-50 px-2 text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200">
+                                    {labelForCandidateStatus(displayStatus)}
+                                </Badge>
+                            </div>
                         </div>
-                        <div className="mt-2 flex min-w-0 items-center gap-2">
+                        {aiPositionLabel || candidate.ai_potential_position ? (
+                            <div className="mt-2 flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 text-xs leading-5 text-slate-600 dark:text-slate-300">
+                                {aiPositionLabel ? (
+                                    <span className="min-w-0 max-w-full truncate">
+                                        <span className="text-slate-400">{isZh ? "AI 推荐" : "AI recommendation"}</span>：{aiPositionLabel}
+                                    </span>
+                                ) : null}
+                                {candidate.ai_potential_position ? (
+                                    <span className="min-w-0 max-w-full truncate">
+                                        <span className="text-slate-400">{isZh ? "转岗建议" : "Transfer suggestion"}</span>：{candidate.ai_potential_position}
+                                    </span>
+                                ) : null}
+                            </div>
+                        ) : null}
+                        {showOriginalFile ? (
+                            <p className="mt-2 line-clamp-1 text-xs leading-5 text-slate-400 dark:text-slate-500">
+                                {isZh ? "原始文件" : "Original file"}：{originalFileName}
+                            </p>
+                        ) : null}
+                        {topTags.length ? (
+                            <div className="mt-2 flex min-w-0 flex-wrap items-center gap-1.5">
+                                {topTags.map((tag) => (
+                                    <span key={tag} className="rounded border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+                                        {tag}
+                                    </span>
+                                ))}
+                            </div>
+                        ) : null}
+                        <div className="mt-2 flex min-w-0 items-start gap-2">
                             <span className={fitClassName}>{fitLabel}</span>
-                            <p className="line-clamp-1 text-sm text-slate-600 dark:text-slate-300">
+                            <p className="line-clamp-2 text-sm leading-5 text-slate-600 dark:text-slate-300">
                                 {candidate.display_status_reason
                                     ? sanitizeCandidateFacingErrorText(candidate.display_status_reason, {
                                         context: resolveCandidateFacingErrorContext(candidate.active_screening_task_type, {
@@ -892,24 +961,11 @@ const CandidateApplicantCard = React.memo(function CandidateApplicantCard({
                             </p>
                         </div>
                     </div>
-                    <div className="hidden w-[250px] shrink-0 flex-col items-end gap-1 pt-1 text-right md:flex">
-                        <div className="min-w-0 space-y-0.5 text-xs text-slate-600 dark:text-slate-300">
-                            <p className="truncate font-medium text-[#171717] dark:text-neutral-300">{positionLabel}</p>
-                            <p className="truncate">{candidate.source || "-"} · {formatDateTime(candidate.updated_at)}</p>
-                            <p className="truncate">{isZh ? "业务筛选" : "Business Screening"}：{labelForCandidateStatus(displayStatus)}</p>
-                        </div>
-                    </div>
                 </div>
-                <div className="mt-3 flex min-w-0 flex-wrap items-center justify-between gap-3 border-t border-slate-100 pb-2 pt-2.5 dark:border-slate-800">
+                <div className="mt-auto flex min-w-0 flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-2.5 dark:border-slate-800">
                     <div className="flex min-w-0 flex-wrap items-center gap-1.5 text-xs text-slate-500">
-                        <Badge variant="outline" className="h-6 rounded px-2">
-                            {tr.matchBadge} {formatPercent(matchPercent)}
-                        </Badge>
-                        <Badge className={cn("h-6 rounded border px-2", statusBadgeClass("candidate", displayStatus))}>
-                            {labelForCandidateStatus(displayStatus)}
-                        </Badge>
                         <span className="hidden max-w-[320px] truncate md:inline">
-                            {positionLabel} · {candidate.source || "-"} · {formatDateTime(candidate.updated_at)}
+                            {isZh ? "来源" : "Source"}：{candidate.source || "-"} · {formatDateTime(candidate.updated_at)}
                         </span>
                     </div>
                     <div className="flex shrink-0 flex-wrap justify-end gap-2" onClick={(event) => event.stopPropagation()}>
@@ -937,8 +993,8 @@ const CandidateApplicantCard = React.memo(function CandidateApplicantCard({
 }, (prev, next) => (
     prev.isSelected === next.isSelected
     && prev.isChecked === next.isChecked
+    && prev.rowIndex === next.rowIndex
     && prev.rowStart === next.rowStart
-    && prev.rowHeight === next.rowHeight
     && prev.candidate.status === next.candidate.status
     && prev.candidate.display_status === next.candidate.display_status
     && prev.candidate.display_status_reason === next.candidate.display_status_reason
@@ -947,6 +1003,7 @@ const CandidateApplicantCard = React.memo(function CandidateApplicantCard({
     && prev.candidate.name === next.candidate.name
     && prev.candidate.phone === next.candidate.phone
     && prev.candidate.email === next.candidate.email
+    && prev.candidate.source_detail === next.candidate.source_detail
     && prev.candidate.position_title === next.candidate.position_title
     && prev.candidate.screened_position_title === next.candidate.screened_position_title
     && prev.candidate.ai_match_position_title === next.candidate.ai_match_position_title
@@ -959,6 +1016,7 @@ const CandidateApplicantCard = React.memo(function CandidateApplicantCard({
     && prev.candidate.city === next.candidate.city
     && prev.candidate.expected_city === next.candidate.expected_city
     && prev.candidate.tags === next.candidate.tags
+    && prev.candidate.latest_parse_result_id === next.candidate.latest_parse_result_id
     && prev.language === next.language
     && prev.getResumeMailSummary(prev.candidate.id) === next.getResumeMailSummary(next.candidate.id)
 ));
@@ -4023,8 +4081,9 @@ export function CandidatesPage({
                                                         candidate={candidate}
                                                         isSelected={selectedCandidateId === candidate.id}
                                                         isChecked={selectedCandidateIdSet.has(candidate.id)}
+                                                        rowIndex={virtualRow.index}
                                                         rowStart={virtualRow.start}
-                                                        rowHeight={virtualRow.size}
+                                                        measureElement={rowVirtualizer.measureElement}
                                                         setSelectedCandidateId={setSelectedCandidateId}
                                                         toggleCandidateSelection={toggleCandidateSelection}
                                                         getResumeMailSummary={getVisibleCandidateResumeMailSummary}
