@@ -53,13 +53,13 @@ function labelForReviewAssignmentStatus(status?: string | null, isZh = true) {
 function reviewBadgeClass(status?: string | null) {
     switch (status) {
         case "passed":
-            return "border-emerald-200 bg-emerald-50 text-emerald-700";
+            return "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/70 dark:bg-emerald-950/40 dark:text-emerald-200";
         case "rejected":
-            return "border-rose-200 bg-rose-50 text-rose-700";
+            return "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900/70 dark:bg-rose-950/40 dark:text-rose-200";
         case "deferred":
-            return "border-amber-200 bg-amber-50 text-amber-700";
+            return "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/70 dark:bg-amber-950/40 dark:text-amber-200";
         default:
-            return "border-neutral-200 bg-neutral-100 text-neutral-700";
+            return "border-neutral-200 bg-neutral-100 text-neutral-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200";
     }
 }
 
@@ -132,8 +132,8 @@ function FilterMenu({
                     className={cn(
                         "inline-flex h-8 max-w-[220px] items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs transition",
                         active
-                            ? "border border-[#171717]/20 bg-neutral-100 text-[#171717]"
-                            : "border border-gray-200 bg-gray-50 text-gray-500 hover:border-gray-300 hover:text-gray-700",
+                            ? "border border-[#171717]/20 bg-neutral-100 text-[#171717] dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                            : "border border-gray-200 bg-gray-50 text-gray-500 hover:border-gray-300 hover:text-gray-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400 dark:hover:border-slate-600 dark:hover:text-slate-200",
                         disabled && "cursor-not-allowed opacity-45",
                         className,
                     )}
@@ -145,7 +145,7 @@ function FilterMenu({
                     <ChevronDown className="h-3.5 w-3.5 shrink-0 text-current opacity-60"/>
                 </button>
             </PopoverTrigger>
-            <PopoverContent align="start" className="w-52 rounded-xl border-gray-100 p-1.5 shadow-lg">
+            <PopoverContent align="start" className="w-52 rounded-xl border-gray-100 p-1.5 shadow-lg dark:border-slate-800 dark:bg-slate-950">
                 <div className="max-h-72 overflow-auto">
                     {options.map((option) => {
                         const checked = option.value === value;
@@ -159,7 +159,9 @@ function FilterMenu({
                                 }}
                                 className={cn(
                                     "flex h-9 w-full items-center justify-between gap-3 rounded-[6px] px-2.5 text-left text-sm transition",
-                                    checked ? "bg-neutral-100 text-[#171717]" : "text-gray-600 hover:bg-gray-50",
+                                    checked
+                                        ? "bg-neutral-100 text-[#171717] dark:bg-slate-800 dark:text-slate-100"
+                                        : "text-gray-600 hover:bg-gray-50 dark:text-slate-300 dark:hover:bg-slate-900",
                                 )}
                             >
                                 <span className="min-w-0 truncate">{option.label}</span>
@@ -311,10 +313,10 @@ export function ReviewWorkbenchPage({
     };
 
     return (
-        <section className={cn(panelClass, "h-full min-h-0 overflow-hidden !border-0 !bg-gray-50 !p-0 !shadow-none")}>
-            <div className="flex h-full min-h-0 flex-col bg-gray-50 px-5 py-4">
+        <section className={cn(panelClass, "h-full min-h-0 overflow-hidden !border-0 !bg-gray-50 !p-0 !shadow-none dark:!bg-slate-950")}>
+            <div className="flex h-full min-h-0 flex-col bg-gray-50 px-5 py-4 dark:bg-slate-950">
                 <div className="flex min-h-0 flex-1 flex-col">
-                    <div className="shrink-0 rounded-xl rounded-b-none border border-gray-100 bg-white">
+                    <div className="shrink-0 rounded-xl rounded-b-none border border-gray-100 bg-white dark:border-slate-800 dark:bg-slate-950">
                         <div className="flex items-center gap-2 px-3.5">
                             {filters.map((filter) => {
                                 const active = activeFilter === filter.key;
@@ -325,23 +327,23 @@ export function ReviewWorkbenchPage({
                                         onClick={() => changeStatusTab(filter.key)}
                                         className={cn(
                                             "relative inline-flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium transition",
-                                            active ? "text-[#171717]" : "text-gray-400 hover:text-gray-600",
+                                            active ? "text-[#171717] dark:text-slate-100" : "text-gray-400 hover:text-gray-600 dark:text-slate-500 dark:hover:text-slate-300",
                                         )}
                                     >
                                         <span>{filter.label}</span>
                                         <span className={cn(
                                             "rounded-full px-1.5 py-0.5 text-xs leading-none",
-                                            active ? "bg-neutral-100 text-[#171717]" : "bg-gray-100 text-gray-400",
+                                            active ? "bg-neutral-100 text-[#171717] dark:bg-slate-800 dark:text-slate-100" : "bg-gray-100 text-gray-400 dark:bg-slate-900 dark:text-slate-500",
                                         )}>
                                             {filter.count}
                                         </span>
-                                        {active ? <span className="absolute inset-x-4 bottom-0 h-0.5 rounded-full bg-[#171717]"/> : null}
+                                        {active ? <span className="absolute inset-x-4 bottom-0 h-0.5 rounded-full bg-[#171717] dark:bg-slate-100"/> : null}
                                     </button>
                                 );
                             })}
                         </div>
-                        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 px-3.5 py-2.5">
-                            <div className="flex min-w-0 flex-wrap items-center gap-1.5 text-xs text-gray-500">
+                        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 px-3.5 py-2.5 dark:border-slate-800">
+                            <div className="flex min-w-0 flex-wrap items-center gap-1.5 text-xs text-gray-500 dark:text-slate-400">
                                 <FilterMenu
                                     value={creatorFilter}
                                     label={isZh ? "发起人" : "Creator"}
@@ -380,23 +382,23 @@ export function ReviewWorkbenchPage({
                                     className={cn(
                                         "h-8 rounded-lg px-2.5 text-xs font-medium transition",
                                         hasLocalFilters
-                                            ? "cursor-pointer text-[#171717] hover:bg-neutral-100"
-                                            : "cursor-default text-slate-300",
+                                            ? "cursor-pointer text-[#171717] hover:bg-neutral-100 dark:text-slate-100 dark:hover:bg-slate-800"
+                                            : "cursor-default text-slate-300 dark:text-slate-600",
                                     )}
                                 >
                                     {isZh ? "清空筛选" : "Clear"}
                                 </button>
-                                <span className="ml-1 text-xs text-gray-400">
+                                <span className="ml-1 text-xs text-gray-400 dark:text-slate-500">
                                     {isZh ? `显示 ${visibleTasks.length} / ${tasks.length}` : `${visibleTasks.length} / ${tasks.length}`}
                                 </span>
                             </div>
                             <div className="flex items-center gap-2">
                                 <div className="relative w-[300px] max-w-full">
-                                    <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-300"/>
+                                    <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-300 dark:text-slate-500"/>
                                     <Input
                                         value={query}
                                         onChange={(event) => setQuery(event.target.value)}
-                                        className="h-8 rounded-lg border-gray-100 bg-gray-50 pl-8 text-xs text-gray-600 shadow-none placeholder:text-gray-300 focus-visible:ring-1 focus-visible:ring-[#171717]/20"
+                                        className="h-8 rounded-lg border-gray-100 bg-gray-50 pl-8 text-xs text-gray-600 shadow-none placeholder:text-gray-300 focus-visible:ring-1 focus-visible:ring-[#171717]/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:placeholder:text-slate-500 dark:focus-visible:ring-slate-500/30"
                                         placeholder={isZh ? "搜索候选人、岗位、联系方式" : "Search candidate, position, contact"}
                                     />
                                 </div>
@@ -404,7 +406,7 @@ export function ReviewWorkbenchPage({
                                     type="button"
                                     onClick={() => void onRefresh()}
                                     disabled={loading}
-                                    className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-gray-100 bg-white text-[#171717] transition hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-60"
+                                    className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-gray-100 bg-white text-[#171717] transition hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800"
                                     title={isZh ? "刷新" : "Refresh"}
                                 >
                                     {loading ? <Loader2 className="h-4 w-4 animate-spin"/> : <RefreshCw className="h-4 w-4"/>}
@@ -413,17 +415,17 @@ export function ReviewWorkbenchPage({
                         </div>
                     </div>
 
-                    <div className="min-h-0 flex-1 overflow-auto rounded-xl rounded-t-none border border-t-0 border-gray-100 bg-white">
+                    <div className="min-h-0 flex-1 overflow-auto rounded-xl rounded-t-none border border-t-0 border-gray-100 bg-white dark:border-slate-800 dark:bg-slate-950">
                         {loading ? (
-                            <div className="flex h-full min-h-[360px] items-center justify-center text-sm text-gray-500">
+                            <div className="flex h-full min-h-[360px] items-center justify-center text-sm text-gray-500 dark:text-slate-400">
                                 <div className="inline-flex items-center">
-                                    <Loader2 className="mr-2 h-4 w-4 animate-spin text-[#171717]"/>
+                                    <Loader2 className="mr-2 h-4 w-4 animate-spin text-[#171717] dark:text-slate-100"/>
                                     {isZh ? "正在加载评审任务..." : "Loading review tasks..."}
                                 </div>
                             </div>
                         ) : visibleTasks.length ? (
                             <div className="min-w-[980px]">
-                                <div className="grid grid-cols-[minmax(260px,1.2fr)_minmax(240px,1fr)_minmax(210px,0.8fr)_minmax(300px,1fr)] bg-gray-50 px-5 py-2 text-xs font-normal text-gray-400">
+                                <div className="grid grid-cols-[minmax(260px,1.2fr)_minmax(240px,1fr)_minmax(210px,0.8fr)_minmax(300px,1fr)] bg-gray-50 px-5 py-2 text-xs font-normal text-gray-400 dark:bg-slate-900/80 dark:text-slate-500">
                                     <span>{isZh ? "候选人" : "Candidate"}</span>
                                     <span>{isZh ? "评审信息" : "Review"}</span>
                                     <span>{isZh ? "发起信息" : "Created"}</span>
@@ -437,38 +439,38 @@ export function ReviewWorkbenchPage({
                                     return (
                                         <article
                                             key={assignment.id}
-                                            className="grid grid-cols-[minmax(260px,1.2fr)_minmax(240px,1fr)_minmax(210px,0.8fr)_minmax(300px,1fr)] items-start gap-4 border-b border-gray-50 px-5 py-3 transition last:border-b-0 hover:bg-gray-50/50"
+                                            className="grid grid-cols-[minmax(260px,1.2fr)_minmax(240px,1fr)_minmax(210px,0.8fr)_minmax(300px,1fr)] items-start gap-4 border-b border-gray-50 px-5 py-3 transition last:border-b-0 hover:bg-gray-50/50 dark:border-slate-800/70 dark:hover:bg-slate-900/60"
                                         >
                                             <div className="min-w-0">
                                                 <div className="flex flex-wrap items-center gap-2">
-                                                        <button type="button" onClick={() => onOpenCandidate(task)} className="truncate text-left text-sm font-semibold text-gray-900 hover:text-[#171717]">
+                                                        <button type="button" onClick={() => onOpenCandidate(task)} className="truncate text-left text-sm font-semibold text-gray-900 hover:text-[#171717] dark:text-slate-100 dark:hover:text-white">
                                                         {candidate.name}
                                                     </button>
-                                                    <span className="text-xs text-gray-400">{candidate.age ? `${candidate.age}${isZh ? "岁" : ""}` : candidate.candidate_code}</span>
+                                                    <span className="text-xs text-gray-400 dark:text-slate-500">{candidate.age ? `${candidate.age}${isZh ? "岁" : ""}` : candidate.candidate_code}</span>
                                                 </div>
-                                                <p className="mt-1 truncate text-xs text-gray-500">
+                                                <p className="mt-1 truncate text-xs text-gray-500 dark:text-slate-400">
                                                     {candidate.education || "-"} · {candidate.years_of_experience || "-"} · {candidate.city || candidate.expected_city || "-"}
                                                 </p>
-                                                <p className="mt-1 truncate text-xs text-gray-400">{candidate.phone || candidate.email || (isZh ? "未填写联系方式" : "No contact")}</p>
+                                                <p className="mt-1 truncate text-xs text-gray-400 dark:text-slate-500">{candidate.phone || candidate.email || (isZh ? "未填写联系方式" : "No contact")}</p>
                                             </div>
                                             <div className="min-w-0">
                                                 <div className="flex flex-wrap gap-1.5">
                                                     <Badge className={cn("rounded-[4px] border text-xs", reviewBadgeClass(assignment.status))}>
                                                         {labelForReviewAssignmentStatus(assignment.status, isZh)}
                                                     </Badge>
-                                                    <Badge variant="outline" className="rounded-[4px] bg-white text-xs text-gray-500">
+                                                    <Badge variant="outline" className="rounded-[4px] bg-white text-xs text-gray-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
                                                         {labelForCandidateStatus(candidate.display_status || candidate.status)}
                                                     </Badge>
                                                 </div>
-                                                <p className="mt-2 truncate text-xs text-gray-600">{positionTitle}</p>
+                                                <p className="mt-2 truncate text-xs text-gray-600 dark:text-slate-300">{positionTitle}</p>
                                                 {task.batch.message ? (
-                                                    <p className="mt-2 line-clamp-2 text-xs leading-5 text-gray-500">{task.batch.message}</p>
+                                                    <p className="mt-2 line-clamp-2 text-xs leading-5 text-gray-500 dark:text-slate-400">{task.batch.message}</p>
                                                 ) : null}
                                             </div>
-                                            <div className="min-w-0 space-y-1 text-xs text-gray-500">
+                                            <div className="min-w-0 space-y-1 text-xs text-gray-500 dark:text-slate-400">
                                                 <p className="truncate">{isZh ? "发起人" : "Created by"}：{task.batch.created_by || "-"}</p>
                                                 <p className="truncate">{formatDateTime(task.batch.created_at)}</p>
-                                                {task.batch.due_at ? <p className="truncate text-amber-600">{isZh ? "截止" : "Due"}：{formatDateTime(task.batch.due_at)}</p> : null}
+                                                {task.batch.due_at ? <p className="truncate text-amber-600 dark:text-amber-300">{isZh ? "截止" : "Due"}：{formatDateTime(task.batch.due_at)}</p> : null}
                                             </div>
                                             <div className="space-y-2">
                                                 <Textarea
@@ -476,17 +478,17 @@ export function ReviewWorkbenchPage({
                                                     onChange={(event) => setCommentByAssignment((current) => ({...current, [assignment.id]: event.target.value}))}
                                                     rows={2}
                                                     placeholder={isZh ? "填写评审意见" : "Add review comments"}
-                                                    className="min-h-0 resize-none rounded-lg border-gray-100 bg-gray-50 text-xs shadow-none focus-visible:ring-[#171717]/20"
+                                                    className="min-h-0 resize-none rounded-lg border-gray-100 bg-gray-50 text-xs shadow-none focus-visible:ring-[#171717]/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:placeholder:text-slate-500 dark:focus-visible:ring-slate-500/30"
                                                 />
                                                 <div className="flex flex-wrap justify-end gap-1.5">
-                                                    <Button type="button" variant="outline" size="sm" className="h-7 rounded-lg border-gray-100 bg-white px-2 text-xs" onClick={() => onOpenCandidate(task)}>
+                                                    <Button type="button" variant="outline" size="sm" className="h-7 rounded-lg border-gray-100 bg-white px-2 text-xs dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800" onClick={() => onOpenCandidate(task)}>
                                                         {isZh ? "详情" : "Details"}
                                                     </Button>
-                                                    <Button type="button" variant="outline" size="sm" className="h-7 rounded-lg border-rose-100 bg-white px-2 text-xs text-rose-600 hover:bg-rose-50" onClick={() => void submitDecision(assignment.id, "rejected")} disabled={Boolean(submittingKey)}>
+                                                    <Button type="button" variant="outline" size="sm" className="h-7 rounded-lg border-rose-100 bg-white px-2 text-xs text-rose-600 hover:bg-rose-50 dark:border-rose-900/70 dark:bg-slate-900 dark:text-rose-300 dark:hover:bg-rose-950/30" onClick={() => void submitDecision(assignment.id, "rejected")} disabled={Boolean(submittingKey)}>
                                                         {submittingKey === `${assignment.id}:rejected` ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin"/> : <X className="mr-1 h-3.5 w-3.5"/>}
                                                         {decisionLabels.rejected[isZh ? "zh" : "en"]}
                                                     </Button>
-                                                    <Button type="button" size="sm" className="h-7 rounded-lg bg-[#171717] px-2.5 text-xs text-white hover:bg-[#262626]" onClick={() => void submitDecision(assignment.id, "passed")} disabled={Boolean(submittingKey)}>
+                                                    <Button type="button" size="sm" className="h-7 rounded-lg bg-[#171717] px-2.5 text-xs text-white hover:bg-[#262626] dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200" onClick={() => void submitDecision(assignment.id, "passed")} disabled={Boolean(submittingKey)}>
                                                         {submittingKey === `${assignment.id}:passed` ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin"/> : <Check className="mr-1 h-3.5 w-3.5"/>}
                                                         {decisionLabels.passed[isZh ? "zh" : "en"]}
                                                     </Button>
@@ -498,17 +500,17 @@ export function ReviewWorkbenchPage({
                             </div>
                         ) : (
                             <div className="flex h-full min-h-[430px] flex-col items-center justify-center gap-2.5 py-16">
-                                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-neutral-100">
-                                    <ClipboardCheck className="h-5 w-5 text-[#171717]"/>
+                                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-neutral-100 dark:bg-slate-900">
+                                    <ClipboardCheck className="h-5 w-5 text-[#171717] dark:text-slate-200"/>
                                 </div>
-                                <p className="text-sm font-medium text-gray-700">{isZh ? "暂无评审任务" : "No review tasks"}</p>
-                                <p className="text-xs text-gray-400">
+                                <p className="text-sm font-medium text-gray-700 dark:text-slate-200">{isZh ? "暂无评审任务" : "No review tasks"}</p>
+                                <p className="text-xs text-gray-400 dark:text-slate-500">
                                     {isZh ? "当前筛选条件下没有待处理的评审，试试调整筛选条件" : "No tasks match the current filters."}
                                 </p>
                                 <button
                                     type="button"
                                     onClick={resetLocalFilters}
-                                    className="mt-1 rounded-lg border border-[#171717] px-4 py-1.5 text-xs text-[#171717] transition-colors hover:bg-neutral-100"
+                                    className="mt-1 rounded-lg border border-[#171717] px-4 py-1.5 text-xs text-[#171717] transition-colors hover:bg-neutral-100 dark:border-slate-600 dark:text-slate-100 dark:hover:bg-slate-900"
                                 >
                                     {isZh ? "清空筛选，查看全部" : "Clear filters"}
                                 </button>

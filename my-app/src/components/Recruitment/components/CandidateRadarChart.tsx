@@ -131,8 +131,8 @@ function AggregatedRadar({ dimensions, radarScores, isZh, uiText }: { dimensions
   const hasAnyData = chartData.some((d) => d.rawMax > 0);
   if (!hasAnyData) {
     return (
-      <div className="flex flex-col items-center justify-center h-[300px] border border-dashed rounded-xl bg-slate-50/50 text-slate-400 text-sm">
-        <Info className="h-5 w-5 mb-2 opacity-50" />
+      <div className="flex h-[300px] flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50/50 text-sm text-slate-400 dark:border-slate-700 dark:bg-slate-900/45 dark:text-slate-500">
+        <Info className="mb-2 h-5 w-5 opacity-60" />
         {uiText.noData}
       </div>
     );
@@ -152,13 +152,13 @@ function AggregatedRadar({ dimensions, radarScores, isZh, uiText }: { dimensions
                 if (active && payload && payload.length) {
                   const data = payload[0].payload as { fullLabel: string; rawScore: number; rawMax: number; reason: string; evidence: string };
                   return (
-                    <div className="bg-white p-3 shadow-xl border rounded-lg text-xs dark:bg-slate-950 max-w-[280px]">
+                    <div className="max-w-[280px] rounded-lg border border-slate-200 bg-white p-3 text-xs shadow-xl dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200">
                       <p className="font-bold mb-1">{data.fullLabel}</p>
                       <div className="mb-1">
-                        {isZh ? "得分" : "Score"}: <span className="text-neutral-700 font-mono">{data.rawScore}/{data.rawMax}</span>
+                        {isZh ? "得分" : "Score"}: <span className="font-mono text-neutral-700 dark:text-slate-100">{data.rawScore}/{data.rawMax}</span>
                       </div>
-                      {data.reason && <p className="text-slate-600 mt-1">{data.reason}</p>}
-                      {data.evidence && <p className="text-slate-400 mt-1 italic">"{data.evidence}"</p>}
+                      {data.reason && <p className="mt-1 text-slate-600 dark:text-slate-300">{data.reason}</p>}
+                      {data.evidence && <p className="mt-1 text-slate-400 italic dark:text-slate-500">"{data.evidence}"</p>}
                     </div>
                   );
                 }
@@ -214,8 +214,8 @@ function IndividualRadar({ dimensions, isZh, uiText }: { dimensions: CandidateSc
 
   if (validDims.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center h-[300px] border border-dashed rounded-xl bg-slate-50/50 text-slate-400 text-sm">
-        <Info className="h-5 w-5 mb-2 opacity-50" />
+      <div className="flex h-[300px] flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50/50 text-sm text-slate-400 dark:border-slate-700 dark:bg-slate-900/45 dark:text-slate-500">
+        <Info className="mb-2 h-5 w-5 opacity-60" />
         {uiText.noData}
       </div>
     );
@@ -270,10 +270,10 @@ function IndividualRadar({ dimensions, isZh, uiText }: { dimensions: CandidateSc
                 if (active && payload && payload.length) {
                   const data = (payload[0] as { payload: { fullLabel: string; rawScore: number; rawMax: number; isInferred?: boolean | null } }).payload;
                   return (
-                    <div className="bg-white p-3 shadow-xl border rounded-lg text-xs dark:bg-slate-950">
+                    <div className="rounded-lg border border-slate-200 bg-white p-3 text-xs shadow-xl dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200">
                       <p className="font-bold mb-1">{data.fullLabel}</p>
                       <div className="flex items-center gap-2">
-                        <span>{isZh ? "得分" : "Score"}: <span className="text-neutral-700 font-mono">{data.rawScore}/{data.rawMax}</span></span>
+                        <span>{isZh ? "得分" : "Score"}: <span className="font-mono text-neutral-700 dark:text-slate-100">{data.rawScore}/{data.rawMax}</span></span>
                         {data.isInferred && <Badge variant="outline" className="scale-75">{isZh ? "系统推断" : "Inferred"}</Badge>}
                       </div>
                     </div>

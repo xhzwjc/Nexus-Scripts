@@ -246,16 +246,16 @@ function TimeSelect({
                     if (!disabled) setOpen((current) => !current);
                 }}
                 className={cn(
-                    "flex h-9 w-full items-center justify-between rounded-lg border border-gray-100 bg-gray-50 px-2.5 text-left text-sm outline-none transition hover:border-neutral-200 focus:border-[#171717]",
-                    value ? "text-slate-800" : "text-slate-400",
-                    disabled ? "cursor-not-allowed text-slate-300 hover:border-gray-100" : "",
+                    "flex h-9 w-full items-center justify-between rounded-lg border border-gray-100 bg-gray-50 px-2.5 text-left text-sm outline-none transition hover:border-neutral-200 focus:border-[#171717] dark:border-slate-700 dark:bg-slate-900 dark:hover:border-slate-600 dark:focus:border-slate-500",
+                    value ? "text-slate-800 dark:text-slate-100" : "text-slate-400 dark:text-slate-500",
+                    disabled ? "cursor-not-allowed text-slate-300 hover:border-gray-100 dark:text-slate-600 dark:hover:border-slate-700" : "",
                 )}
             >
                 <span>{value || placeholder}</span>
-                <Clock3 className="h-3.5 w-3.5 shrink-0 text-slate-300"/>
+                <Clock3 className="h-3.5 w-3.5 shrink-0 text-slate-300 dark:text-slate-500"/>
             </button>
             {open && !disabled ? (
-                <div className="absolute left-0 top-[calc(100%+4px)] z-30 max-h-56 w-full overflow-y-auto rounded-lg border border-gray-100 bg-white py-1 shadow-xl">
+                <div className="absolute left-0 top-[calc(100%+4px)] z-30 max-h-56 w-full overflow-y-auto rounded-lg border border-gray-100 bg-white py-1 shadow-xl dark:border-slate-700 dark:bg-slate-950">
                     {options.map((time) => (
                         <button
                             key={time}
@@ -267,7 +267,9 @@ function TimeSelect({
                             }}
                             className={cn(
                                 "flex h-8 w-full items-center px-3 text-left text-sm transition",
-                                time === value ? "bg-neutral-100 text-[#171717]" : "text-slate-700 hover:bg-gray-50",
+                                time === value
+                                    ? "bg-neutral-100 text-[#171717] dark:bg-slate-800 dark:text-slate-100"
+                                    : "text-slate-700 hover:bg-gray-50 dark:text-slate-300 dark:hover:bg-slate-900",
                             )}
                         >
                             {formatOption ? formatOption(time) : time}
@@ -349,17 +351,17 @@ function labelForScheduleStatus(status?: string | null, isZh = true) {
 function scheduleBadgeClass(status?: string | null) {
     switch (status) {
         case "needs_scheduling":
-            return "border-neutral-200 bg-neutral-100 text-neutral-700";
+            return "border-neutral-200 bg-neutral-100 text-neutral-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200";
         case "completed":
-            return "border-emerald-200 bg-emerald-50 text-emerald-700";
+            return "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/70 dark:bg-emerald-950/40 dark:text-emerald-200";
         case "cancelled":
-            return "border-slate-200 bg-slate-50 text-slate-500";
+            return "border-slate-200 bg-slate-50 text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400";
         case "no_show":
-            return "border-amber-200 bg-amber-50 text-amber-700";
+            return "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/70 dark:bg-amber-950/40 dark:text-amber-200";
         case "in_progress":
-            return "border-neutral-200 bg-neutral-100 text-neutral-700";
+            return "border-neutral-200 bg-neutral-100 text-neutral-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200";
         default:
-            return "border-amber-200 bg-amber-50 text-amber-700";
+            return "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/70 dark:bg-amber-950/40 dark:text-amber-200";
     }
 }
 
@@ -943,11 +945,11 @@ export function InterviewWorkbenchPage({
         return (
             <div className={cn("flex flex-wrap justify-end gap-1.5", compact && "justify-start")}>
                 {([
-                    ["passed", isZh ? "通过" : "Pass", "border-emerald-200 text-emerald-700 hover:bg-emerald-50"],
-                    ["next_round", isZh ? "下一轮" : "Next", "border-neutral-200 text-neutral-700 hover:bg-neutral-100"],
-                    ["hold", isZh ? "暂缓" : "Hold", "border-amber-200 text-amber-700 hover:bg-amber-50"],
-                    ["no_show", isZh ? "未到场" : "No show", "border-slate-200 text-slate-600 hover:bg-slate-50"],
-                    ["rejected", isZh ? "淘汰" : "Reject", "border-rose-200 text-rose-700 hover:bg-rose-50"],
+                    ["passed", isZh ? "通过" : "Pass", "border-emerald-200 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-900/70 dark:bg-slate-900 dark:text-emerald-300 dark:hover:bg-emerald-950/30"],
+                    ["next_round", isZh ? "下一轮" : "Next", "border-neutral-200 text-neutral-700 hover:bg-neutral-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"],
+                    ["hold", isZh ? "暂缓" : "Hold", "border-amber-200 text-amber-700 hover:bg-amber-50 dark:border-amber-900/70 dark:bg-slate-900 dark:text-amber-300 dark:hover:bg-amber-950/30"],
+                    ["no_show", isZh ? "未到场" : "No show", "border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"],
+                    ["rejected", isZh ? "淘汰" : "Reject", "border-rose-200 text-rose-700 hover:bg-rose-50 dark:border-rose-900/70 dark:bg-slate-900 dark:text-rose-300 dark:hover:bg-rose-950/30"],
                 ] as const).map(([result, label, className]) => {
                     const loadingKey = submittingKey === `${schedule.id}:${result}`;
                     return (
@@ -1015,9 +1017,9 @@ export function InterviewWorkbenchPage({
         : scheduleEndTimeOptions;
 
     return (
-        <div className="flex h-full min-h-0 flex-col bg-gray-50 px-5 py-4 text-slate-800">
+        <div className="flex h-full min-h-0 flex-col bg-gray-50 px-5 py-4 text-slate-800 dark:bg-slate-950 dark:text-slate-300">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-                <div className="inline-flex rounded-xl bg-white p-1 shadow-sm ring-1 ring-gray-100">
+                <div className="inline-flex rounded-xl bg-white p-1 shadow-sm ring-1 ring-gray-100 dark:bg-slate-950 dark:ring-slate-800">
                     {tabs.map((tab) => {
                         const active = activeFilter === tab.key;
                         return (
@@ -1027,28 +1029,30 @@ export function InterviewWorkbenchPage({
                                 onClick={() => setActiveFilter(tab.key)}
                                 className={cn(
                                     "inline-flex h-9 items-center gap-2 rounded-lg px-3 text-sm transition",
-                                    active ? "bg-slate-950 text-white shadow-sm" : "text-slate-500 hover:bg-gray-50 hover:text-slate-800",
+                                    active
+                                        ? "bg-slate-950 text-white shadow-sm dark:bg-slate-100 dark:text-slate-900"
+                                        : "text-slate-500 hover:bg-gray-50 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:text-slate-200",
                                 )}
                             >
                                 {active && tab.key === "todo" ? <CalendarCheck className="h-4 w-4"/> : null}
                                 <span>{tab.label}</span>
-                                <span className={cn("rounded-full px-1.5 py-0.5 text-xs", active ? "bg-white/15 text-white" : "bg-gray-100 text-slate-400")}>
+                                <span className={cn("rounded-full px-1.5 py-0.5 text-xs", active ? "bg-white/15 text-white dark:bg-slate-900/15 dark:text-slate-900" : "bg-gray-100 text-slate-400 dark:bg-slate-900 dark:text-slate-500")}>
                                     {tab.count}
                                 </span>
                             </button>
                         );
                     })}
                 </div>
-                <div className="flex min-w-[320px] items-center gap-2 rounded-xl border border-gray-100 bg-white px-3 py-2 shadow-sm">
-                    <Search className="h-4 w-4 text-slate-300"/>
+                <div className="flex min-w-[320px] items-center gap-2 rounded-xl border border-gray-100 bg-white px-3 py-2 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+                    <Search className="h-4 w-4 text-slate-300 dark:text-slate-500"/>
                     <Input
                         value={query}
                         onChange={(event) => setQuery(event.target.value)}
                         placeholder={isZh ? "搜索候选人、岗位、联系方式" : "Search candidate, position, contact"}
-                        className="h-6 border-0 bg-transparent px-0 text-sm shadow-none focus-visible:ring-0"
+                        className="h-6 border-0 bg-transparent px-0 text-sm shadow-none focus-visible:ring-0 dark:text-slate-200 dark:placeholder:text-slate-500"
                     />
                     {query ? (
-                        <button type="button" onClick={() => setQuery("")} className="text-slate-300 hover:text-slate-500">
+                        <button type="button" onClick={() => setQuery("")} className="text-slate-300 hover:text-slate-500 dark:text-slate-500 dark:hover:text-slate-300">
                             <X className="h-4 w-4"/>
                         </button>
                     ) : null}
@@ -1056,13 +1060,13 @@ export function InterviewWorkbenchPage({
             </div>
 
             <div className={cn("grid min-h-0 flex-1 gap-4", showAvailabilityEditor ? "grid-cols-[minmax(0,1fr)_360px]" : "grid-cols-1")}>
-                <section className="flex min-h-0 flex-col rounded-xl border border-gray-100 bg-white shadow-sm">
-                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 px-4 py-3">
+                <section className="flex min-h-0 flex-col rounded-xl border border-gray-100 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 px-4 py-3 dark:border-slate-800">
                         <div className="flex flex-wrap items-center gap-2">
                             <select
                                 value={positionFilter}
                                 onChange={(event) => setPositionFilter(event.target.value)}
-                                className="h-8 rounded-lg border border-gray-200 bg-gray-50 px-2.5 text-xs text-slate-600 outline-none hover:border-gray-300"
+                                className="h-8 rounded-lg border border-gray-200 bg-gray-50 px-2.5 text-xs text-slate-600 outline-none hover:border-gray-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:border-slate-600"
                             >
                                 <option value="all">{isZh ? "全部岗位" : "All positions"}</option>
                                 {positionOptions.map((position) => (
@@ -1072,7 +1076,7 @@ export function InterviewWorkbenchPage({
                             <select
                                 value={resultFilter}
                                 onChange={(event) => setResultFilter(event.target.value)}
-                                className="h-8 rounded-lg border border-gray-200 bg-gray-50 px-2.5 text-xs text-slate-600 outline-none hover:border-gray-300"
+                                className="h-8 rounded-lg border border-gray-200 bg-gray-50 px-2.5 text-xs text-slate-600 outline-none hover:border-gray-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:border-slate-600"
                             >
                                 <option value="all">{isZh ? "全部结果" : "All results"}</option>
                                 <option value="passed">{isZh ? "已通过" : "Passed"}</option>
@@ -1082,15 +1086,15 @@ export function InterviewWorkbenchPage({
                                 <option value="no_show">{isZh ? "未到场" : "No show"}</option>
                             </select>
                             {(positionFilter !== "all" || resultFilter !== "all" || query) ? (
-                                <Button variant="ghost" size="sm" className="h-8 px-2 text-xs text-[#171717]" onClick={clearFilters}>
+                                <Button variant="ghost" size="sm" className="h-8 px-2 text-xs text-[#171717] dark:text-slate-100 dark:hover:bg-slate-800" onClick={clearFilters}>
                                     {isZh ? "清空筛选" : "Clear"}
                                 </Button>
                             ) : null}
-                            <span className="text-xs text-slate-400">
+                            <span className="text-xs text-slate-400 dark:text-slate-500">
                                 {isZh ? `显示 ${visibleTasks.length} / ${tasks.length}` : `${visibleTasks.length} / ${tasks.length}`}
                             </span>
                         </div>
-                        <Button variant="outline" size="sm" className="h-8 rounded-lg px-2.5 text-xs" onClick={() => void onRefresh()}>
+                        <Button variant="outline" size="sm" className="h-8 rounded-lg px-2.5 text-xs dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800" onClick={() => void onRefresh()}>
                             {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin"/> : <RefreshCw className="h-3.5 w-3.5"/>}
                             {isZh ? "刷新" : "Refresh"}
                         </Button>
@@ -1098,27 +1102,27 @@ export function InterviewWorkbenchPage({
 
                     <div className="min-h-0 flex-1 overflow-auto">
                         {loading ? (
-                            <div className="flex h-full min-h-[360px] items-center justify-center text-sm text-slate-400">
+                            <div className="flex h-full min-h-[360px] items-center justify-center text-sm text-slate-400 dark:text-slate-500">
                                 <Loader2 className="mr-2 h-4 w-4 animate-spin"/>
                                 {isZh ? "正在加载面试任务" : "Loading interviews"}
                             </div>
                         ) : visibleTasks.length === 0 ? (
                             <div className="flex h-full min-h-[420px] flex-col items-center justify-center gap-3 text-center">
-                                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-neutral-100">
-                                    <Check className="h-5 w-5 text-[#171717]"/>
+                                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-neutral-100 dark:bg-slate-900">
+                                    <Check className="h-5 w-5 text-[#171717] dark:text-slate-200"/>
                                 </div>
                                 <div>
-                                    <p className="text-sm font-medium text-slate-800">{isZh ? "暂无面试任务" : "No interview tasks"}</p>
-                                    <p className="mt-1 text-xs text-slate-400">{isZh ? "当前筛选条件下没有需要处理的面试" : "No interviews match the current filters."}</p>
+                                    <p className="text-sm font-medium text-slate-800 dark:text-slate-200">{isZh ? "暂无面试任务" : "No interview tasks"}</p>
+                                    <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">{isZh ? "当前筛选条件下没有需要处理的面试" : "No interviews match the current filters."}</p>
                                 </div>
                                 {(positionFilter !== "all" || resultFilter !== "all" || query) ? (
-                                    <Button variant="outline" size="sm" className="h-8 rounded-lg text-xs text-[#171717]" onClick={clearFilters}>
+                                    <Button variant="outline" size="sm" className="h-8 rounded-lg text-xs text-[#171717] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800" onClick={clearFilters}>
                                         {isZh ? "清空筛选，查看全部" : "Clear filters"}
                                     </Button>
                                 ) : null}
                             </div>
                         ) : (
-                            <div className="divide-y divide-gray-50">
+                            <div className="divide-y divide-gray-50 dark:divide-slate-800/70">
                                 {visibleTasks.map((task) => {
                                     const schedule = task.schedule;
                                     const candidate = task.candidate;
@@ -1130,41 +1134,41 @@ export function InterviewWorkbenchPage({
                                         ? (commentBySchedule[schedule?.id || 0] || "")
                                         : (schedule?.result_comment || "");
                                     return (
-                                        <article key={schedule?.id ? `schedule-${schedule.id}` : `candidate-${candidate.id}`} className="px-4 py-3 transition hover:bg-gray-50/70">
+                                        <article key={schedule?.id ? `schedule-${schedule.id}` : `candidate-${candidate.id}`} className="px-4 py-3 transition hover:bg-gray-50/70 dark:hover:bg-slate-900/60">
                                             <div className="grid grid-cols-[minmax(0,1fr)_280px] gap-4">
                                                 <button type="button" onClick={() => openTaskDetail(task)} className="min-w-0 text-left">
                                                     <div className="flex flex-wrap items-center gap-2">
-                                                        <span className="text-base font-semibold text-slate-950">{candidate.name || (isZh ? "未命名候选人" : "Unnamed")}</span>
-                                                        <span className="text-xs text-slate-400">{candidate.age ? `${candidate.age}${isZh ? "岁" : ""}` : null}</span>
-                                                        <span className="text-xs text-slate-400">{candidate.education || "-"}</span>
+                                                        <span className="text-base font-semibold text-slate-950 dark:text-slate-100">{candidate.name || (isZh ? "未命名候选人" : "Unnamed")}</span>
+                                                        <span className="text-xs text-slate-400 dark:text-slate-500">{candidate.age ? `${candidate.age}${isZh ? "岁" : ""}` : null}</span>
+                                                        <span className="text-xs text-slate-400 dark:text-slate-500">{candidate.education || "-"}</span>
                                                         <Badge variant="outline" className={cn("h-6 rounded-md", scheduleBadgeClass(schedule?.status || "needs_scheduling"))}>
                                                             {labelForScheduleStatus(schedule?.status || "needs_scheduling", isZh)}
                                                         </Badge>
                                                     </div>
-                                                    <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-600">
+                                                    <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
                                                         <span>{positionTitle}</span>
-                                                        <span className="text-slate-300">|</span>
+                                                        <span className="text-slate-300 dark:text-slate-700">|</span>
                                                         <span>{schedule?.round_name || (isZh ? "待安排面试" : "Interview to schedule")}</span>
-                                                        <span className="text-slate-300">|</span>
+                                                        <span className="text-slate-300 dark:text-slate-700">|</span>
                                                         <span>{isZh ? "面试官" : "Interviewer"}：{interviewerName}</span>
-                                                        <span className="text-slate-300">|</span>
-                                                        <Clock3 className="h-3.5 w-3.5 text-slate-300"/>
+                                                        <span className="text-slate-300 dark:text-slate-700">|</span>
+                                                        <Clock3 className="h-3.5 w-3.5 text-slate-300 dark:text-slate-500"/>
                                                         <span>{formatDateTime(schedule?.scheduled_at) || (isZh ? "时间待定" : "Time TBD")}</span>
                                                     </div>
                                                     {schedule?.notes ? (
-                                                        <p className="mt-2 line-clamp-2 text-xs text-slate-500">{schedule.notes}</p>
+                                                        <p className="mt-2 line-clamp-2 text-xs text-slate-500 dark:text-slate-400">{schedule.notes}</p>
                                                     ) : null}
                                                 </button>
                                                 <div className="space-y-2">
                                                     {!schedule ? (
-                                                        <div className="rounded-lg border border-neutral-200 bg-neutral-100/70 px-3 py-3 text-right">
-                                                            <p className="text-left text-xs leading-5 text-neutral-700">
+                                                        <div className="rounded-lg border border-neutral-200 bg-neutral-100/70 px-3 py-3 text-right dark:border-slate-700 dark:bg-slate-900/70">
+                                                            <p className="text-left text-xs leading-5 text-neutral-700 dark:text-slate-300">
                                                                 {isZh ? "该候选人已进入面试阶段，尚未安排面试官和时间。" : "This candidate is ready for interview but has not been scheduled yet."}
                                                             </p>
                                                             {canManageInterview ? (
                                                                 <Button
                                                                     size="sm"
-                                                                    className="mt-3 h-8 rounded-md bg-[#171717] px-3 text-xs text-white hover:bg-[#262626]"
+                                                                    className="mt-3 h-8 rounded-md bg-[#171717] px-3 text-xs text-white hover:bg-[#262626] dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200"
                                                                     onClick={() => openScheduleDrawer(task)}
                                                                 >
                                                                     {isZh ? "安排面试" : "Schedule interview"}
@@ -1180,10 +1184,11 @@ export function InterviewWorkbenchPage({
                                                                 placeholder={lockMessage || (isZh ? "填写面试结论、风险点或下一轮建议" : "Add conclusion, risks, or next-round suggestions")}
                                                                 className={cn(
                                                                     "min-h-[62px] resize-none rounded-lg border-gray-100 bg-gray-50 text-xs shadow-none",
-                                                                    !canSubmitResult && "cursor-default text-slate-500 opacity-100",
+                                                                    "dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:placeholder:text-slate-500",
+                                                                    !canSubmitResult && "cursor-default text-slate-500 opacity-100 dark:text-slate-400",
                                                                 )}
                                                             />
-                                                            {lockMessage ? <p className="text-right text-xs text-slate-400">{lockMessage}</p> : null}
+                                                            {lockMessage ? <p className="text-right text-xs text-slate-400 dark:text-slate-500">{lockMessage}</p> : null}
                                                             {renderResultActions(task)}
                                                         </>
                                                     )}
@@ -1199,25 +1204,25 @@ export function InterviewWorkbenchPage({
 
                 {showAvailabilityEditor ? (
                     <aside className="flex min-h-0 flex-col gap-4 overflow-auto">
-                        <section className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
+                        <section className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950">
                             <div className="flex items-center justify-between">
                                 <div>
-                                    <p className="text-sm font-semibold text-slate-900">{isZh ? "我的可面试时间" : "My availability"}</p>
-                                    <p className="mt-1 text-xs text-slate-400">{isZh ? "招聘人事排期时会优先选择这些时间段" : "HR can schedule interviews in these slots."}</p>
+                                    <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{isZh ? "我的可面试时间" : "My availability"}</p>
+                                    <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">{isZh ? "招聘人事排期时会优先选择这些时间段" : "HR can schedule interviews in these slots."}</p>
                                 </div>
-                                <Button variant="outline" size="sm" className="h-8 rounded-lg px-2.5 text-xs" onClick={() => setDraftSlots((current) => [...current, createDraftSlot()])}>
+                                <Button variant="outline" size="sm" className="h-8 rounded-lg px-2.5 text-xs dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800" onClick={() => setDraftSlots((current) => [...current, createDraftSlot()])}>
                                     <Plus className="h-3.5 w-3.5"/>
                                     {isZh ? "添加" : "Add"}
                                 </Button>
                             </div>
                             <div className="mt-4 space-y-2">
                                 {draftSlots.map((slot, index) => (
-                                    <div key={slot.key} className="rounded-lg border border-gray-100 bg-gray-50 p-2">
+                                    <div key={slot.key} className="rounded-lg border border-gray-100 bg-gray-50 p-2 dark:border-slate-800 dark:bg-slate-900/70">
                                         <div className="mb-1.5 flex items-center justify-between">
-                                            <span className="text-xs font-medium text-slate-600">{formatRange(normalizeInputDate(slot.start_at), normalizeInputDate(slot.end_at))}</span>
+                                            <span className="text-xs font-medium text-slate-600 dark:text-slate-300">{formatRange(normalizeInputDate(slot.start_at), normalizeInputDate(slot.end_at))}</span>
                                             <button
                                                 type="button"
-                                                className="rounded-md p-1 text-slate-300 hover:bg-white hover:text-rose-500"
+                                                className="rounded-md p-1 text-slate-300 hover:bg-white hover:text-rose-500 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-rose-300"
                                                 onClick={() => setDraftSlots((current) => current.length > 1 ? current.filter((item) => item.key !== slot.key) : current)}
                                                 aria-label={isZh ? `删除第 ${index + 1} 个时间段` : `Remove slot ${index + 1}`}
                                             >
@@ -1226,21 +1231,21 @@ export function InterviewWorkbenchPage({
                                         </div>
                                         <div className="grid grid-cols-2 gap-1.5">
                                             <label className="space-y-1">
-                                                <span className="text-[11px] text-slate-400">{isZh ? "开始" : "Start"}</span>
+                                                <span className="text-[11px] text-slate-400 dark:text-slate-500">{isZh ? "开始" : "Start"}</span>
                                                 <Input
                                                     type="datetime-local"
                                                     value={slot.start_at}
                                                     onChange={(event) => setDraftSlots((current) => current.map((item) => item.key === slot.key ? {...item, start_at: event.target.value} : item))}
-                                                    className="h-8 rounded-md border-gray-100 bg-white text-xs"
+                                                    className="h-8 rounded-md border-gray-100 bg-white text-xs dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200"
                                                 />
                                             </label>
                                             <label className="space-y-1">
-                                                <span className="text-[11px] text-slate-400">{isZh ? "结束" : "End"}</span>
+                                                <span className="text-[11px] text-slate-400 dark:text-slate-500">{isZh ? "结束" : "End"}</span>
                                                 <Input
                                                     type="datetime-local"
                                                     value={slot.end_at}
                                                     onChange={(event) => setDraftSlots((current) => current.map((item) => item.key === slot.key ? {...item, end_at: event.target.value} : item))}
-                                                    className="h-8 rounded-md border-gray-100 bg-white text-xs"
+                                                    className="h-8 rounded-md border-gray-100 bg-white text-xs dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200"
                                                 />
                                             </label>
                                         </div>
@@ -1248,30 +1253,30 @@ export function InterviewWorkbenchPage({
                                             value={slot.notes || ""}
                                             onChange={(event) => setDraftSlots((current) => current.map((item) => item.key === slot.key ? {...item, notes: event.target.value} : item))}
                                             placeholder={isZh ? "备注，例如：远程优先" : "Notes, e.g. remote preferred"}
-                                            className="mt-1.5 h-8 rounded-md border-gray-100 bg-white text-xs"
+                                            className="mt-1.5 h-8 rounded-md border-gray-100 bg-white text-xs dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200 dark:placeholder:text-slate-500"
                                         />
                                     </div>
                                 ))}
                             </div>
-                            <Button className="mt-3 h-9 w-full rounded-lg bg-[#171717] text-sm text-white hover:bg-[#262626]" disabled={availabilitySaving} onClick={() => void saveAvailability()}>
+                            <Button className="mt-3 h-9 w-full rounded-lg bg-[#171717] text-sm text-white hover:bg-[#262626] dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200" disabled={availabilitySaving} onClick={() => void saveAvailability()}>
                                 {availabilitySaving ? <Loader2 className="h-4 w-4 animate-spin"/> : null}
                                 {isZh ? "保存可面试时间" : "Save availability"}
                             </Button>
                         </section>
 
-                        <section className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
+                        <section className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950">
                             <div className="flex items-center justify-between">
-                                <p className="text-sm font-semibold text-slate-900">{isZh ? "已占用时间" : "Booked slots"}</p>
-                                {availabilityLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-300"/> : null}
+                                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{isZh ? "已占用时间" : "Booked slots"}</p>
+                                {availabilityLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-300 dark:text-slate-500"/> : null}
                             </div>
                             <div className="mt-3 space-y-2">
                                 {bookedSlots.length ? bookedSlots.map((slot) => (
-                                    <div key={slot.id} className="rounded-lg border border-neutral-200 bg-neutral-100/60 px-3 py-2">
-                                        <p className="text-xs font-medium text-slate-700">{formatRange(slot.start_at, slot.end_at)}</p>
-                                        <p className="mt-1 text-xs text-neutral-700">{isZh ? "已安排面试" : "Interview scheduled"}</p>
+                                    <div key={slot.id} className="rounded-lg border border-neutral-200 bg-neutral-100/60 px-3 py-2 dark:border-slate-700 dark:bg-slate-900/70">
+                                        <p className="text-xs font-medium text-slate-700 dark:text-slate-300">{formatRange(slot.start_at, slot.end_at)}</p>
+                                        <p className="mt-1 text-xs text-neutral-700 dark:text-slate-400">{isZh ? "已安排面试" : "Interview scheduled"}</p>
                                     </div>
                                 )) : (
-                                    <p className="rounded-lg border border-dashed border-gray-200 px-3 py-6 text-center text-xs text-slate-400">
+                                    <p className="rounded-lg border border-dashed border-gray-200 px-3 py-6 text-center text-xs text-slate-400 dark:border-slate-700 dark:text-slate-500">
                                         {isZh ? "暂无已占用时间" : "No booked slots"}
                                     </p>
                                 )}
@@ -1285,33 +1290,33 @@ export function InterviewWorkbenchPage({
                 <div className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/25 px-4 py-5" onMouseDown={(event) => {
                     if (event.target === event.currentTarget) closeTaskDetail();
                 }}>
-                    <div className="grid h-[88vh] w-full max-w-[1440px] grid-cols-[minmax(0,1fr)_360px] overflow-hidden rounded-2xl bg-white shadow-2xl">
-                        <section className="min-w-0 overflow-auto bg-white">
-                            <div className="sticky top-0 z-10 border-b border-gray-100 bg-white/95 px-6 py-4 backdrop-blur">
+                    <div className="grid h-[88vh] w-full max-w-[1440px] grid-cols-[minmax(0,1fr)_360px] overflow-hidden rounded-2xl bg-white shadow-2xl dark:bg-slate-950">
+                        <section className="min-w-0 overflow-auto bg-white dark:bg-slate-950">
+                            <div className="sticky top-0 z-10 border-b border-gray-100 bg-white/95 px-6 py-4 backdrop-blur dark:border-slate-800 dark:bg-slate-950/95">
                                 <div className="flex items-start justify-between gap-4">
                                     <div className="flex min-w-0 gap-4">
-                                        <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-neutral-100 text-2xl font-semibold text-[#171717]">
+                                        <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-neutral-100 text-2xl font-semibold text-[#171717] dark:bg-slate-900 dark:text-slate-100">
                                             {(selectedDetailCandidate?.name || selectedTask.candidate.name || "?").trim().charAt(0) || "?"}
                                         </div>
                                         <div className="min-w-0">
                                             <div className="flex flex-wrap items-center gap-2">
-                                                <h3 className="truncate text-xl font-semibold text-slate-950">
+                                                <h3 className="truncate text-xl font-semibold text-slate-950 dark:text-slate-100">
                                                     {selectedDetailCandidate?.name || selectedTask.candidate.name || (isZh ? "未命名候选人" : "Unnamed")}
                                                 </h3>
-                                                <span className="text-sm text-slate-400">{selectedDetailCandidate?.candidate_code || selectedTask.candidate.candidate_code}</span>
+                                                <span className="text-sm text-slate-400 dark:text-slate-500">{selectedDetailCandidate?.candidate_code || selectedTask.candidate.candidate_code}</span>
                                                 <Badge variant="outline" className={cn("h-6 rounded-md", scheduleBadgeClass(selectedTask.schedule?.status || "needs_scheduling"))}>
                                                     {labelForScheduleStatus(selectedTask.schedule?.status || "needs_scheduling", isZh)}
                                                 </Badge>
                                             </div>
-                                            <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-slate-500">
-                                                <span className="inline-flex items-center gap-1.5"><Briefcase className="h-3.5 w-3.5 text-slate-300"/>{candidateTitle(selectedTask, isZh)}</span>
-                                                <span className="inline-flex items-center gap-1.5"><GraduationCap className="h-3.5 w-3.5 text-slate-300"/>{selectedDetailCandidate?.education || readStructuredText(selectedEducation, ["degree", "education", "学历"]) || "-"}</span>
-                                                <span className="inline-flex items-center gap-1.5"><Phone className="h-3.5 w-3.5 text-slate-300"/>{selectedDetailCandidate?.phone || readStructuredText(selectedBasicInfo, ["phone", "mobile", "电话"]) || "-"}</span>
-                                                <span className="inline-flex items-center gap-1.5"><Mail className="h-3.5 w-3.5 text-slate-300"/>{selectedDetailCandidate?.email || readStructuredText(selectedBasicInfo, ["email", "mail", "邮箱"]) || "-"}</span>
+                                            <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-slate-500 dark:text-slate-400">
+                                                <span className="inline-flex items-center gap-1.5"><Briefcase className="h-3.5 w-3.5 text-slate-300 dark:text-slate-500"/>{candidateTitle(selectedTask, isZh)}</span>
+                                                <span className="inline-flex items-center gap-1.5"><GraduationCap className="h-3.5 w-3.5 text-slate-300 dark:text-slate-500"/>{selectedDetailCandidate?.education || readStructuredText(selectedEducation, ["degree", "education", "学历"]) || "-"}</span>
+                                                <span className="inline-flex items-center gap-1.5"><Phone className="h-3.5 w-3.5 text-slate-300 dark:text-slate-500"/>{selectedDetailCandidate?.phone || readStructuredText(selectedBasicInfo, ["phone", "mobile", "电话"]) || "-"}</span>
+                                                <span className="inline-flex items-center gap-1.5"><Mail className="h-3.5 w-3.5 text-slate-300 dark:text-slate-500"/>{selectedDetailCandidate?.email || readStructuredText(selectedBasicInfo, ["email", "mail", "邮箱"]) || "-"}</span>
                                             </div>
                                         </div>
                                     </div>
-                                    <button type="button" className="rounded-full p-2 text-slate-400 hover:bg-gray-50 hover:text-slate-700" onClick={closeTaskDetail}>
+                                    <button type="button" className="rounded-full p-2 text-slate-400 hover:bg-gray-50 hover:text-slate-700 dark:text-slate-500 dark:hover:bg-slate-900 dark:hover:text-slate-200" onClick={closeTaskDetail}>
                                         <X className="h-5 w-5"/>
                                     </button>
                                 </div>
@@ -1319,54 +1324,54 @@ export function InterviewWorkbenchPage({
 
                             <div className="space-y-4 px-6 py-5">
                                 {selectedCandidateDetailError ? (
-                                    <div className="rounded-xl border border-amber-100 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+                                    <div className="rounded-xl border border-amber-100 bg-amber-50 px-4 py-3 text-sm text-amber-700 dark:border-amber-900/70 dark:bg-amber-950/30 dark:text-amber-200">
                                         {isZh ? `候选人详情加载失败：${selectedCandidateDetailError}` : `Failed to load candidate detail: ${selectedCandidateDetailError}`}
                                     </div>
                                 ) : null}
 
                                 <div className="grid gap-3 md:grid-cols-2">
-                                    <section className="rounded-xl border border-neutral-200 bg-neutral-100/60 p-4">
-                                        <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-neutral-900">
-                                            <Sparkles className="h-4 w-4 text-[#171717]"/>
+                                    <section className="rounded-xl border border-neutral-200 bg-neutral-100/60 p-4 dark:border-slate-800 dark:bg-slate-900/60">
+                                        <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-neutral-900 dark:text-slate-100">
+                                            <Sparkles className="h-4 w-4 text-[#171717] dark:text-slate-300"/>
                                             {isZh ? "候选人亮点" : "Candidate highlights"}
                                         </div>
                                         {selectedCandidateDetailLoading && !selectedCandidateDetail ? (
-                                            <p className="text-sm text-neutral-700">{isZh ? "正在加载候选人资料..." : "Loading profile..."}</p>
+                                            <p className="text-sm text-neutral-700 dark:text-slate-300">{isZh ? "正在加载候选人资料..." : "Loading profile..."}</p>
                                         ) : selectedHighlights.length ? (
-                                            <ul className="space-y-1.5 text-sm leading-6 text-neutral-800">
+                                            <ul className="space-y-1.5 text-sm leading-6 text-neutral-800 dark:text-slate-200">
                                                 {selectedHighlights.map((item, index) => (
                                                     <li key={`${index}-${item}`} className="line-clamp-2">• {item}</li>
                                                 ))}
                                             </ul>
                                         ) : (
-                                            <p className="text-sm text-neutral-700">{isZh ? "暂无结构化亮点，面试时可结合原始简历判断。" : "No structured highlights yet."}</p>
+                                            <p className="text-sm text-neutral-700 dark:text-slate-300">{isZh ? "暂无结构化亮点，面试时可结合原始简历判断。" : "No structured highlights yet."}</p>
                                         )}
                                     </section>
-                                    <section className="rounded-xl border border-gray-100 bg-gray-50 p-4">
-                                        <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-900">
-                                            <UserRound className="h-4 w-4 text-slate-400"/>
+                                    <section className="rounded-xl border border-gray-100 bg-gray-50 p-4 dark:border-slate-800 dark:bg-slate-900/60">
+                                        <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
+                                            <UserRound className="h-4 w-4 text-slate-400 dark:text-slate-500"/>
                                             {isZh ? "基础资料" : "Profile"}
                                         </div>
-                                        <div className="grid gap-x-4 gap-y-2 text-sm text-slate-600 sm:grid-cols-2">
+                                        <div className="grid gap-x-4 gap-y-2 text-sm text-slate-600 sm:grid-cols-2 dark:text-slate-300">
                                             <span>{isZh ? "年龄" : "Age"}：{selectedDetailCandidate?.age || readStructuredText(selectedBasicInfo, ["age", "年龄"]) || "-"}</span>
                                             <span>{isZh ? "城市" : "City"}：{selectedDetailCandidate?.city || selectedDetailCandidate?.expected_city || readStructuredText(selectedBasicInfo, ["city", "location", "城市"]) || "-"}</span>
                                             <span>{isZh ? "经验" : "Experience"}：{selectedDetailCandidate?.years_of_experience || readStructuredText(selectedBasicInfo, ["years_of_experience", "experience", "工作年限"]) || "-"}</span>
                                             <span>{isZh ? "公司" : "Company"}：{selectedDetailCandidate?.current_company || readStructuredText(selectedWork, ["company", "company_name", "公司"]) || "-"}</span>
                                         </div>
                                         {selectedConcerns.length ? (
-                                            <div className="mt-3 rounded-lg border border-amber-100 bg-white px-3 py-2 text-xs leading-5 text-amber-700">
+                                            <div className="mt-3 rounded-lg border border-amber-100 bg-white px-3 py-2 text-xs leading-5 text-amber-700 dark:border-amber-900/70 dark:bg-slate-950 dark:text-amber-200">
                                                 {selectedConcerns.map((item, index) => <p key={`${index}-${item}`}>• {item}</p>)}
                                             </div>
                                         ) : null}
                                     </section>
                                 </div>
 
-                                <section className="rounded-xl border border-gray-100 bg-white">
-                                    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 px-4 py-3">
+                                <section className="rounded-xl border border-gray-100 bg-white dark:border-slate-800 dark:bg-slate-950">
+                                    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 px-4 py-3 dark:border-slate-800">
                                         <div className="flex min-w-0 items-center gap-2">
-                                            <FileText className="h-4 w-4 text-[#171717]"/>
-                                            <p className="text-sm font-semibold text-slate-900">{isZh ? "简历" : "Resume"}</p>
-                                            <Badge variant="outline" className="h-6 rounded-md border-gray-200 bg-gray-50 text-slate-500">
+                                            <FileText className="h-4 w-4 text-[#171717] dark:text-slate-300"/>
+                                            <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{isZh ? "简历" : "Resume"}</p>
+                                            <Badge variant="outline" className="h-6 rounded-md border-gray-200 bg-gray-50 text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
                                                 {selectedResumeFile ? selectedResumeFile.parse_status : (isZh ? "暂无文件" : "No file")}
                                             </Badge>
                                         </div>
@@ -1375,7 +1380,7 @@ export function InterviewWorkbenchPage({
                                                 <select
                                                     value={selectedResumeFile ? String(selectedResumeFile.id) : ""}
                                                     onChange={(event) => setSelectedResumeFileId(Number(event.target.value))}
-                                                    className="h-8 max-w-[360px] rounded-lg border border-gray-100 bg-gray-50 px-2.5 text-xs text-slate-700 outline-none focus:border-[#171717]"
+                                                    className="h-8 max-w-[360px] rounded-lg border border-gray-100 bg-gray-50 px-2.5 text-xs text-slate-700 outline-none focus:border-[#171717] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:border-slate-500"
                                                 >
                                                     {selectedResumeFiles.map((file) => (
                                                         <option key={file.id} value={file.id}>{file.original_name}</option>
@@ -1384,11 +1389,11 @@ export function InterviewWorkbenchPage({
                                             ) : null}
                                             {resumePreviewUrl && selectedResumeFile ? (
                                                 <>
-                                                    <Button variant="outline" size="sm" className="h-8 rounded-lg text-xs" onClick={() => window.open(resumePreviewUrl, "_blank", "noopener,noreferrer")}>
+                                                    <Button variant="outline" size="sm" className="h-8 rounded-lg text-xs dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800" onClick={() => window.open(resumePreviewUrl, "_blank", "noopener,noreferrer")}>
                                                         <ExternalLink className="h-3.5 w-3.5"/>
                                                         {isZh ? "新窗口" : "Open"}
                                                     </Button>
-                                                    <Button variant="outline" size="sm" className="h-8 rounded-lg text-xs" asChild>
+                                                    <Button variant="outline" size="sm" className="h-8 rounded-lg text-xs dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800" asChild>
                                                         <a href={resumePreviewUrl} download={selectedResumeFile.original_name}>
                                                             <Download className="h-3.5 w-3.5"/>
                                                             {isZh ? "下载" : "Download"}
@@ -1398,10 +1403,10 @@ export function InterviewWorkbenchPage({
                                             ) : null}
                                         </div>
                                     </div>
-                                    <div className="relative h-[min(62vh,760px)] min-h-[520px] overflow-hidden bg-white">
+                                    <div className="relative h-[min(62vh,760px)] min-h-[520px] overflow-hidden bg-white dark:bg-slate-950">
                                         {resumePreviewLoading || (resumePreviewBlob && selectedResumeIsPdf && !resumePreviewReady && !resumePreviewError) ? (
-                                            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-white/95 text-slate-500">
-                                                <Loader2 className="h-7 w-7 animate-spin text-[#171717]"/>
+                                            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-white/95 text-slate-500 dark:bg-slate-950/95 dark:text-slate-400">
+                                                <Loader2 className="h-7 w-7 animate-spin text-[#171717] dark:text-slate-100"/>
                                                 <span className="text-sm">{isZh ? "正在加载原始简历..." : "Loading resume..."}</span>
                                             </div>
                                         ) : null}
@@ -1419,15 +1424,15 @@ export function InterviewWorkbenchPage({
                                                 />
                                             </div>
                                         ) : selectedResumeRawText ? (
-                                            <div className="h-full overflow-auto bg-white px-8 py-6">
-                                                <pre className="whitespace-pre-wrap font-sans text-sm leading-7 text-slate-700">{selectedResumeRawText}</pre>
+                                            <div className="h-full overflow-auto bg-white px-8 py-6 dark:bg-slate-950">
+                                                <pre className="whitespace-pre-wrap font-sans text-sm leading-7 text-slate-700 dark:text-slate-200">{selectedResumeRawText}</pre>
                                             </div>
                                         ) : !resumePreviewLoading ? (
                                             <div className="flex h-full items-center justify-center px-6 text-center">
                                                 <div>
-                                                    <FileText className="mx-auto h-10 w-10 text-slate-200"/>
-                                                    <p className="mt-3 text-sm font-medium text-slate-700">{selectedResumeFile ? (isZh ? "简历暂无法内嵌显示" : "Resume preview unavailable") : (isZh ? "暂无简历文件" : "No resume file")}</p>
-                                                    <p className="mt-1 text-xs text-slate-400">
+                                                    <FileText className="mx-auto h-10 w-10 text-slate-200 dark:text-slate-700"/>
+                                                    <p className="mt-3 text-sm font-medium text-slate-700 dark:text-slate-300">{selectedResumeFile ? (isZh ? "简历暂无法内嵌显示" : "Resume preview unavailable") : (isZh ? "暂无简历文件" : "No resume file")}</p>
+                                                    <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
                                                         {resumePreviewError || (selectedResumeFile ? (isZh ? `${selectedResumeFile.file_ext || "文件"} ${formatBytes(selectedResumeFile.file_size)}` : "Use download to view the file.") : (isZh ? "该候选人没有可预览的简历文件。" : "No resume file attached."))}
                                                     </p>
                                                 </div>
@@ -1438,40 +1443,40 @@ export function InterviewWorkbenchPage({
                             </div>
                         </section>
 
-                        <aside className="flex min-h-0 flex-col border-l border-gray-100 bg-gray-50">
-                            <div className="border-b border-gray-100 bg-white px-5 py-4">
-                                <p className="text-base font-semibold text-slate-950">{isZh ? "面试评价" : "Interview evaluation"}</p>
-                                <p className="mt-1 text-xs text-slate-400">{isZh ? "先查看左侧候选人资料，再提交本轮结论。" : "Review the candidate profile, then submit this round."}</p>
+                        <aside className="flex min-h-0 flex-col border-l border-gray-100 bg-gray-50 dark:border-slate-800 dark:bg-slate-900">
+                            <div className="border-b border-gray-100 bg-white px-5 py-4 dark:border-slate-800 dark:bg-slate-950">
+                                <p className="text-base font-semibold text-slate-950 dark:text-slate-100">{isZh ? "面试评价" : "Interview evaluation"}</p>
+                                <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">{isZh ? "先查看左侧候选人资料，再提交本轮结论。" : "Review the candidate profile, then submit this round."}</p>
                             </div>
                             <div className="min-h-0 flex-1 overflow-auto px-5 py-4">
-                                <div className="rounded-xl border border-gray-100 bg-white p-4">
+                                <div className="rounded-xl border border-gray-100 bg-white p-4 dark:border-slate-800 dark:bg-slate-950">
                                     <div className="grid gap-3 text-sm">
                                         <div>
-                                            <p className="text-xs text-slate-400">{isZh ? "流程状态" : "Status"}</p>
-                                            <p className="mt-1 font-medium text-slate-900">{labelForScheduleStatus(selectedTask.schedule?.status || "needs_scheduling", isZh)}</p>
+                                            <p className="text-xs text-slate-400 dark:text-slate-500">{isZh ? "流程状态" : "Status"}</p>
+                                            <p className="mt-1 font-medium text-slate-900 dark:text-slate-100">{labelForScheduleStatus(selectedTask.schedule?.status || "needs_scheduling", isZh)}</p>
                                         </div>
                                         <div>
-                                            <p className="text-xs text-slate-400">{isZh ? "面试轮次" : "Round"}</p>
-                                            <p className="mt-1 font-medium text-slate-900">{selectedTask.schedule?.round_name || (isZh ? "待安排" : "TBD")}</p>
+                                            <p className="text-xs text-slate-400 dark:text-slate-500">{isZh ? "面试轮次" : "Round"}</p>
+                                            <p className="mt-1 font-medium text-slate-900 dark:text-slate-100">{selectedTask.schedule?.round_name || (isZh ? "待安排" : "TBD")}</p>
                                         </div>
                                         <div>
-                                            <p className="text-xs text-slate-400">{isZh ? "面试官" : "Interviewer"}</p>
-                                            <p className="mt-1 font-medium text-slate-900">{selectedTask.schedule?.interviewer_name || selectedTask.schedule?.interviewer_user_code || "-"}</p>
+                                            <p className="text-xs text-slate-400 dark:text-slate-500">{isZh ? "面试官" : "Interviewer"}</p>
+                                            <p className="mt-1 font-medium text-slate-900 dark:text-slate-100">{selectedTask.schedule?.interviewer_name || selectedTask.schedule?.interviewer_user_code || "-"}</p>
                                         </div>
-                                        <div className="space-y-2 border-t border-gray-100 pt-3 text-slate-600">
-                                            <p className="flex items-center gap-2"><Clock3 className="h-4 w-4 text-slate-300"/>{formatDateTime(selectedTask.schedule?.scheduled_at) || (isZh ? "时间待定" : "Time TBD")}</p>
-                                            <p className="flex items-center gap-2"><CalendarClock className="h-4 w-4 text-slate-300"/>{selectedTask.schedule?.duration_minutes ? `${selectedTask.schedule.duration_minutes} 分钟` : "-"}</p>
-                                            <p className="flex items-center gap-2"><MapPin className="h-4 w-4 text-slate-300"/>{selectedTask.schedule?.location || (isZh ? "地点待定" : "Location TBD")}</p>
-                                            <p className="flex items-center gap-2 break-all"><Video className="h-4 w-4 shrink-0 text-slate-300"/>{selectedTask.schedule?.meeting_link || (isZh ? "会议链接待定" : "Meeting link TBD")}</p>
+                                        <div className="space-y-2 border-t border-gray-100 pt-3 text-slate-600 dark:border-slate-800 dark:text-slate-300">
+                                            <p className="flex items-center gap-2"><Clock3 className="h-4 w-4 text-slate-300 dark:text-slate-500"/>{formatDateTime(selectedTask.schedule?.scheduled_at) || (isZh ? "时间待定" : "Time TBD")}</p>
+                                            <p className="flex items-center gap-2"><CalendarClock className="h-4 w-4 text-slate-300 dark:text-slate-500"/>{selectedTask.schedule?.duration_minutes ? `${selectedTask.schedule.duration_minutes} 分钟` : "-"}</p>
+                                            <p className="flex items-center gap-2"><MapPin className="h-4 w-4 text-slate-300 dark:text-slate-500"/>{selectedTask.schedule?.location || (isZh ? "地点待定" : "Location TBD")}</p>
+                                            <p className="flex items-center gap-2 break-all"><Video className="h-4 w-4 shrink-0 text-slate-300 dark:text-slate-500"/>{selectedTask.schedule?.meeting_link || (isZh ? "会议链接待定" : "Meeting link TBD")}</p>
                                         </div>
-                                        {selectedTask.schedule?.notes ? <p className="rounded-lg bg-gray-50 px-3 py-2 text-xs leading-5 text-slate-500">{selectedTask.schedule.notes}</p> : null}
+                                        {selectedTask.schedule?.notes ? <p className="rounded-lg bg-gray-50 px-3 py-2 text-xs leading-5 text-slate-500 dark:bg-slate-900 dark:text-slate-400">{selectedTask.schedule.notes}</p> : null}
                                     </div>
                                 </div>
 
                                 {selectedTask.schedule ? (
-                                    <div className="mt-4 rounded-xl border border-gray-100 bg-white p-4">
+                                    <div className="mt-4 rounded-xl border border-gray-100 bg-white p-4 dark:border-slate-800 dark:bg-slate-950">
                                         <div className="mb-3 flex items-center justify-between">
-                                            <p className="text-sm font-semibold text-slate-900">{isZh ? "本轮结论" : "Conclusion"}</p>
+                                            <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{isZh ? "本轮结论" : "Conclusion"}</p>
                                             <Badge variant="outline" className={cn("h-6 rounded-md", scheduleBadgeClass(selectedTask.schedule.status))}>
                                                 {labelForScheduleStatus(selectedTask.schedule.status, isZh)}
                                             </Badge>
@@ -1481,16 +1486,16 @@ export function InterviewWorkbenchPage({
                                             onChange={(event) => setCommentBySchedule((current) => ({...current, [selectedTask.schedule!.id]: event.target.value}))}
                                             disabled={!canSubmitTaskResult(selectedTask)}
                                             placeholder={resultLockMessage(selectedTask) || (isZh ? "填写面试结论、风险点或下一轮建议" : "Add interview feedback")}
-                                            className="min-h-[160px] resize-none rounded-lg border-gray-100 bg-gray-50 text-sm shadow-none"
+                                            className="min-h-[160px] resize-none rounded-lg border-gray-100 bg-gray-50 text-sm shadow-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:placeholder:text-slate-500"
                                         />
-                                        {resultLockMessage(selectedTask) ? <p className="mt-2 text-xs text-slate-400">{resultLockMessage(selectedTask)}</p> : null}
+                                        {resultLockMessage(selectedTask) ? <p className="mt-2 text-xs text-slate-400 dark:text-slate-500">{resultLockMessage(selectedTask)}</p> : null}
                                         <div className="mt-3">{renderResultActions(selectedTask, true)}</div>
                                     </div>
                                 ) : canManageInterview ? (
-                                    <div className="mt-4 rounded-xl border border-neutral-200 bg-neutral-100/80 p-4">
-                                        <p className="text-sm font-medium text-neutral-900">{isZh ? "待安排面试" : "Needs scheduling"}</p>
-                                        <p className="mt-1 text-xs leading-5 text-neutral-700">{isZh ? "为候选人选择面试官和可面试时间后，面试官会在这里看到完整资料。" : "Schedule interviewer and time first."}</p>
-                                        <Button className="mt-3 w-full rounded-lg bg-[#171717] text-white hover:bg-[#262626]" onClick={() => openScheduleDrawer(selectedTask)}>
+                                    <div className="mt-4 rounded-xl border border-neutral-200 bg-neutral-100/80 p-4 dark:border-slate-700 dark:bg-slate-900">
+                                        <p className="text-sm font-medium text-neutral-900 dark:text-slate-100">{isZh ? "待安排面试" : "Needs scheduling"}</p>
+                                        <p className="mt-1 text-xs leading-5 text-neutral-700 dark:text-slate-300">{isZh ? "为候选人选择面试官和可面试时间后，面试官会在这里看到完整资料。" : "Schedule interviewer and time first."}</p>
+                                        <Button className="mt-3 w-full rounded-lg bg-[#171717] text-white hover:bg-[#262626] dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200" onClick={() => openScheduleDrawer(selectedTask)}>
                                             {isZh ? "安排面试" : "Schedule"}
                                             <ChevronRight className="h-4 w-4"/>
                                         </Button>
@@ -1506,32 +1511,32 @@ export function InterviewWorkbenchPage({
                 <div className="fixed inset-0 z-[95] flex justify-end bg-slate-950/25" onMouseDown={(event) => {
                     if (event.target === event.currentTarget) setScheduleTask(null);
                 }}>
-                    <aside className="h-full w-full max-w-[520px] overflow-auto bg-white shadow-2xl">
-                        <div className="sticky top-0 z-10 border-b border-gray-100 bg-white/95 px-5 py-4 backdrop-blur">
+                    <aside className="h-full w-full max-w-[520px] overflow-auto bg-white shadow-2xl dark:bg-slate-950">
+                        <div className="sticky top-0 z-10 border-b border-gray-100 bg-white/95 px-5 py-4 backdrop-blur dark:border-slate-800 dark:bg-slate-950/95">
                             <div className="flex items-center justify-between">
                                 <div>
-                                    <p className="text-lg font-semibold text-slate-950">{isZh ? "安排面试" : "Schedule interview"}</p>
-                                    <p className="mt-1 text-sm text-slate-500">{scheduleTask.candidate.name} · {candidateTitle(scheduleTask, isZh)}</p>
+                                    <p className="text-lg font-semibold text-slate-950 dark:text-slate-100">{isZh ? "安排面试" : "Schedule interview"}</p>
+                                    <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{scheduleTask.candidate.name} · {candidateTitle(scheduleTask, isZh)}</p>
                                 </div>
-                                <button type="button" className="rounded-full p-2 text-slate-400 hover:bg-gray-50 hover:text-slate-700" onClick={() => setScheduleTask(null)}>
+                                <button type="button" className="rounded-full p-2 text-slate-400 hover:bg-gray-50 hover:text-slate-700 dark:text-slate-500 dark:hover:bg-slate-900 dark:hover:text-slate-200" onClick={() => setScheduleTask(null)}>
                                     <X className="h-5 w-5"/>
                                 </button>
                             </div>
                         </div>
                         <div className="space-y-4 px-5 py-4">
-                            <section className="rounded-xl border border-gray-100 p-4">
-                                <p className="mb-3 text-sm font-semibold text-slate-900">{isZh ? "面试信息" : "Interview info"}</p>
+                            <section className="rounded-xl border border-gray-100 p-4 dark:border-slate-800 dark:bg-slate-950">
+                                <p className="mb-3 text-sm font-semibold text-slate-900 dark:text-slate-100">{isZh ? "面试信息" : "Interview info"}</p>
                                 <div className="grid gap-3 sm:grid-cols-2">
                                     <label className="space-y-1">
-                                        <span className="text-xs text-slate-400">{isZh ? "轮次名称" : "Round"}</span>
-                                        <Input value={scheduleForm.round_name} onChange={(event) => setScheduleForm((current) => ({...current, round_name: event.target.value}))} className="h-9 rounded-lg border-gray-100 bg-gray-50"/>
+                                        <span className="text-xs text-slate-400 dark:text-slate-500">{isZh ? "轮次名称" : "Round"}</span>
+                                        <Input value={scheduleForm.round_name} onChange={(event) => setScheduleForm((current) => ({...current, round_name: event.target.value}))} className="h-9 rounded-lg border-gray-100 bg-gray-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"/>
                                     </label>
                                     <label className="space-y-1">
-                                        <span className="text-xs text-slate-400">{isZh ? "第几轮" : "Round index"}</span>
-                                        <Input type="number" min={1} value={scheduleForm.round_index} onChange={(event) => setScheduleForm((current) => ({...current, round_index: event.target.value}))} className="h-9 rounded-lg border-gray-100 bg-gray-50"/>
+                                        <span className="text-xs text-slate-400 dark:text-slate-500">{isZh ? "第几轮" : "Round index"}</span>
+                                        <Input type="number" min={1} value={scheduleForm.round_index} onChange={(event) => setScheduleForm((current) => ({...current, round_index: event.target.value}))} className="h-9 rounded-lg border-gray-100 bg-gray-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"/>
                                     </label>
                                     <label className="space-y-1 sm:col-span-2">
-                                        <span className="text-xs text-slate-400">{isZh ? "面试官" : "Interviewer"}</span>
+                                        <span className="text-xs text-slate-400 dark:text-slate-500">{isZh ? "面试官" : "Interviewer"}</span>
                                         <select
                                             value={scheduleForm.interviewer_user_code}
                                             onChange={(event) => {
@@ -1544,7 +1549,7 @@ export function InterviewWorkbenchPage({
                                                     scheduled_at: "",
                                                 }));
                                             }}
-                                            className="h-9 w-full rounded-lg border border-gray-100 bg-gray-50 px-3 text-sm text-slate-700 outline-none focus:border-[#171717]"
+                                            className="h-9 w-full rounded-lg border border-gray-100 bg-gray-50 px-3 text-sm text-slate-700 outline-none focus:border-[#171717] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:border-slate-500"
                                         >
                                             <option value="">{interviewerLoading ? (isZh ? "正在加载面试官..." : "Loading...") : (isZh ? "选择面试官" : "Select interviewer")}</option>
                                             {interviewerOptions.map((reviewer) => (
@@ -1557,10 +1562,10 @@ export function InterviewWorkbenchPage({
                                 </div>
                             </section>
 
-                            <section className="rounded-xl border border-gray-100 p-4">
+                            <section className="rounded-xl border border-gray-100 p-4 dark:border-slate-800 dark:bg-slate-950">
                                 <div className="mb-3 flex items-center justify-between">
-                                    <p className="text-sm font-semibold text-slate-900">{isZh ? "选择时间" : "Select time"}</p>
-                                    {scheduleSlotsLoading ? <Loader2 className="h-4 w-4 animate-spin text-slate-300"/> : null}
+                                    <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{isZh ? "选择时间" : "Select time"}</p>
+                                    {scheduleSlotsLoading ? <Loader2 className="h-4 w-4 animate-spin text-slate-300 dark:text-slate-500"/> : null}
                                 </div>
                                 <div className="space-y-2">
                                     {scheduleForm.interviewer_user_code && scheduleSlots.length > 0 ? scheduleSlots.map((slot) => {
@@ -1572,15 +1577,17 @@ export function InterviewWorkbenchPage({
                                                 onClick={() => applyScheduleSlot(String(slot.id))}
                                                 className={cn(
                                                     "flex w-full items-center justify-between rounded-lg border px-3 py-2 text-left text-sm transition",
-                                                    active ? "border-[#171717] bg-neutral-100 text-neutral-800" : "border-gray-100 bg-gray-50 text-slate-600 hover:border-neutral-200",
+                                                    active
+                                                        ? "border-[#171717] bg-neutral-100 text-neutral-800 dark:border-slate-500 dark:bg-slate-800 dark:text-slate-100"
+                                                        : "border-gray-100 bg-gray-50 text-slate-600 hover:border-neutral-200 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-slate-600",
                                                 )}
                                             >
                                                 <span>{formatRange(slot.start_at, slot.end_at)}</span>
-                                                <span className="text-xs text-slate-400">{slot.notes || (isZh ? "可面试" : "Available")}</span>
+                                                <span className="text-xs text-slate-400 dark:text-slate-500">{slot.notes || (isZh ? "可面试" : "Available")}</span>
                                             </button>
                                         );
                                     }) : (
-                                        <p className="rounded-lg border border-dashed border-gray-200 px-3 py-5 text-center text-xs text-slate-400">
+                                        <p className="rounded-lg border border-dashed border-gray-200 px-3 py-5 text-center text-xs text-slate-400 dark:border-slate-700 dark:text-slate-500">
                                             {scheduleForm.interviewer_user_code
                                                 ? (isZh ? "该面试官暂无可选时间，可手动填写时间。" : "No available slots. You can set time manually.")
                                                 : (isZh ? "先选择面试官，再选择可面试时间。" : "Select interviewer first.")}
@@ -1589,18 +1596,18 @@ export function InterviewWorkbenchPage({
                                 </div>
                                 <div className="mt-3 grid gap-3 sm:grid-cols-2">
                                     <label className="relative space-y-1 sm:col-span-2">
-                                        <span className="text-xs text-slate-400">{isZh ? "日期时间" : "Date and time"}</span>
+                                        <span className="text-xs text-slate-400 dark:text-slate-500">{isZh ? "日期时间" : "Date and time"}</span>
                                         <div className="grid grid-cols-[minmax(0,1.35fr)_minmax(96px,0.8fr)_auto_minmax(96px,0.8fr)] items-center gap-2">
                                             <button
                                                 type="button"
                                                 onClick={() => setScheduleDatePickerOpen((open) => !open)}
                                                 className={cn(
-                                                    "flex h-9 min-w-0 items-center justify-between rounded-lg border bg-gray-50 px-3 text-left text-sm outline-none transition hover:border-neutral-200",
-                                                    scheduleDatePart ? "border-gray-100 text-slate-800" : "border-gray-100 text-slate-400",
+                                                    "flex h-9 min-w-0 items-center justify-between rounded-lg border bg-gray-50 px-3 text-left text-sm outline-none transition hover:border-neutral-200 dark:bg-slate-900 dark:hover:border-slate-600",
+                                                    scheduleDatePart ? "border-gray-100 text-slate-800 dark:border-slate-700 dark:text-slate-100" : "border-gray-100 text-slate-400 dark:border-slate-700 dark:text-slate-500",
                                                 )}
                                             >
                                                 <span className="truncate">{formatDateDisplay(scheduleDatePart, isZh)}</span>
-                                                <CalendarClock className="h-3.5 w-3.5 shrink-0 text-slate-300"/>
+                                                <CalendarClock className="h-3.5 w-3.5 shrink-0 text-slate-300 dark:text-slate-500"/>
                                             </button>
                                             <TimeSelect
                                                 value={scheduleStartTimePart}
@@ -1623,7 +1630,7 @@ export function InterviewWorkbenchPage({
                                                     });
                                                 }}
                                             />
-                                            <span className="text-sm text-slate-300">~</span>
+                                            <span className="text-sm text-slate-300 dark:text-slate-600">~</span>
                                             <TimeSelect
                                                 value={scheduleEndTimePart}
                                                 disabled={!scheduleStartTimePart}
@@ -1649,12 +1656,12 @@ export function InterviewWorkbenchPage({
                                             />
                                         </div>
                                         {scheduleDatePickerOpen ? (
-                                            <div className="absolute left-0 top-[64px] z-20 w-[360px] rounded-xl border border-gray-100 bg-white p-3 shadow-xl">
+                                            <div className="absolute left-0 top-[64px] z-20 w-[360px] rounded-xl border border-gray-100 bg-white p-3 shadow-xl dark:border-slate-700 dark:bg-slate-950">
                                                 <div className="mb-2 flex items-center justify-between">
-                                                    <span className="text-xs font-medium text-slate-500">{isZh ? "选择面试日期" : "Select date"}</span>
+                                                    <span className="text-xs font-medium text-slate-500 dark:text-slate-400">{isZh ? "选择面试日期" : "Select date"}</span>
                                                     <button
                                                         type="button"
-                                                        className="text-xs text-[#171717]"
+                                                        className="text-xs text-[#171717] dark:text-slate-100"
                                                         onClick={() => {
                                                             const nextTime = scheduleStartTimePart || "09:00";
                                                             setScheduleForm((current) => ({
@@ -1688,7 +1695,11 @@ export function InterviewWorkbenchPage({
                                                                 }}
                                                                 className={cn(
                                                                     "flex h-10 flex-col items-center justify-center rounded-lg text-xs transition",
-                                                                    active ? "bg-[#171717] text-white shadow-sm" : isToday ? "bg-neutral-100 text-[#171717] ring-1 ring-neutral-200" : "text-slate-600 hover:bg-neutral-100 hover:text-[#171717]",
+                                                                    active
+                                                                        ? "bg-[#171717] text-white shadow-sm dark:bg-slate-100 dark:text-slate-900"
+                                                                        : isToday
+                                                                            ? "bg-neutral-100 text-[#171717] ring-1 ring-neutral-200 dark:bg-slate-800 dark:text-slate-100 dark:ring-slate-700"
+                                                                            : "text-slate-600 hover:bg-neutral-100 hover:text-[#171717] dark:text-slate-300 dark:hover:bg-slate-900 dark:hover:text-slate-100",
                                                                 )}
                                                             >
                                                                 <span>{parsed ? parsed.getDate() : date.slice(-2)}</span>
@@ -1701,28 +1712,28 @@ export function InterviewWorkbenchPage({
                                                 </div>
                                             </div>
                                         ) : null}
-                                        <p className="text-[11px] text-slate-400">
+                                        <p className="text-[11px] text-slate-400 dark:text-slate-500">
                                             {scheduleStartTimePart ? (isZh ? `当前时长 ${formatDurationText(effectiveScheduleDurationMinutes, isZh)}` : `Duration ${formatDurationText(effectiveScheduleDurationMinutes, isZh)}`) : (isZh ? "先选日期和开始时间，再选择结束时间。" : "Select date and start time, then end time.")}
                                         </p>
                                     </label>
                                     <label className="space-y-1">
-                                        <span className="text-xs text-slate-400">{isZh ? "地点" : "Location"}</span>
-                                        <Input value={scheduleForm.location} onChange={(event) => setScheduleForm((current) => ({...current, location: event.target.value}))} placeholder={isZh ? "会议室 / 线上" : "Room / remote"} className="h-9 rounded-lg border-gray-100 bg-gray-50"/>
+                                        <span className="text-xs text-slate-400 dark:text-slate-500">{isZh ? "地点" : "Location"}</span>
+                                        <Input value={scheduleForm.location} onChange={(event) => setScheduleForm((current) => ({...current, location: event.target.value}))} placeholder={isZh ? "会议室 / 线上" : "Room / remote"} className="h-9 rounded-lg border-gray-100 bg-gray-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:placeholder:text-slate-500"/>
                                     </label>
                                     <label className="space-y-1">
-                                        <span className="text-xs text-slate-400">{isZh ? "会议链接" : "Meeting link"}</span>
-                                        <Input value={scheduleForm.meeting_link} onChange={(event) => setScheduleForm((current) => ({...current, meeting_link: event.target.value}))} placeholder="https://" className="h-9 rounded-lg border-gray-100 bg-gray-50"/>
+                                        <span className="text-xs text-slate-400 dark:text-slate-500">{isZh ? "会议链接" : "Meeting link"}</span>
+                                        <Input value={scheduleForm.meeting_link} onChange={(event) => setScheduleForm((current) => ({...current, meeting_link: event.target.value}))} placeholder="https://" className="h-9 rounded-lg border-gray-100 bg-gray-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:placeholder:text-slate-500"/>
                                     </label>
                                     <label className="space-y-1 sm:col-span-2">
-                                        <span className="text-xs text-slate-400">{isZh ? "备注" : "Notes"}</span>
-                                        <Textarea value={scheduleForm.notes} onChange={(event) => setScheduleForm((current) => ({...current, notes: event.target.value}))} className="min-h-[74px] resize-none rounded-lg border-gray-100 bg-gray-50"/>
+                                        <span className="text-xs text-slate-400 dark:text-slate-500">{isZh ? "备注" : "Notes"}</span>
+                                        <Textarea value={scheduleForm.notes} onChange={(event) => setScheduleForm((current) => ({...current, notes: event.target.value}))} className="min-h-[74px] resize-none rounded-lg border-gray-100 bg-gray-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:placeholder:text-slate-500"/>
                                     </label>
                                 </div>
                             </section>
                         </div>
-                        <div className="sticky bottom-0 flex justify-end gap-2 border-t border-gray-100 bg-white/95 px-5 py-4 backdrop-blur">
-                            <Button variant="outline" className="rounded-lg" onClick={() => setScheduleTask(null)}>{isZh ? "取消" : "Cancel"}</Button>
-                            <Button className="rounded-lg bg-[#171717] text-white hover:bg-[#262626]" disabled={scheduleSaving} onClick={() => void submitSchedule()}>
+                        <div className="sticky bottom-0 flex justify-end gap-2 border-t border-gray-100 bg-white/95 px-5 py-4 backdrop-blur dark:border-slate-800 dark:bg-slate-950/95">
+                            <Button variant="outline" className="rounded-lg dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800" onClick={() => setScheduleTask(null)}>{isZh ? "取消" : "Cancel"}</Button>
+                            <Button className="rounded-lg bg-[#171717] text-white hover:bg-[#262626] dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200" disabled={scheduleSaving} onClick={() => void submitSchedule()}>
                                 {scheduleSaving ? <Loader2 className="h-4 w-4 animate-spin"/> : null}
                                 {isZh ? "确认安排" : "Schedule"}
                             </Button>

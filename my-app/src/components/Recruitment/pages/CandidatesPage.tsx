@@ -191,7 +191,7 @@ function firstStructuredRecord(value: unknown): Record<string, unknown> | null {
 function CandidateDetailAvatar({name}: {name: string}) {
     const initial = (name || "?").trim().charAt(0) || "?";
     return (
-        <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-[#F5F5F5] to-[#E5E5E5] text-2xl font-semibold text-[#171717] ring-4 ring-white">
+        <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-[#F5F5F5] to-[#E5E5E5] text-2xl font-semibold text-[#171717] ring-4 ring-white dark:from-slate-800 dark:to-slate-900 dark:text-slate-100 dark:ring-slate-950">
             {initial}
         </div>
     );
@@ -205,8 +205,8 @@ function CandidateMetaItem({
     children: React.ReactNode;
 }) {
     return (
-        <span className="inline-flex min-w-0 items-center gap-1.5 text-[13px] text-slate-500">
-            <Icon className="h-3.5 w-3.5 shrink-0 text-slate-400"/>
+        <span className="inline-flex min-w-0 items-center gap-1.5 text-[13px] text-slate-500 dark:text-slate-400">
+            <Icon className="h-3.5 w-3.5 shrink-0 text-slate-400 dark:text-slate-500"/>
             <span className="truncate">{children}</span>
         </span>
     );
@@ -359,7 +359,7 @@ function InlineResumePdfPreview({
     }, [blob, isZh, onError, onReady]);
 
     return (
-        <div className="h-full overflow-auto bg-white">
+        <div className={cn("h-full overflow-auto bg-white", SMOOTH_VERTICAL_SCROLLBAR_CLASS)}>
             <div
                 ref={hostRef}
                 aria-label={fileName}
@@ -377,10 +377,10 @@ function ResumeSection({
     children: React.ReactNode;
 }) {
     return (
-        <section className="border-t border-dashed border-slate-200 pt-5 first:border-t-0 first:pt-0">
+        <section className="border-t border-dashed border-slate-200 pt-5 first:border-t-0 first:pt-0 dark:border-slate-800">
             <div className="mb-4 flex items-center gap-2">
-                <span className="h-4 w-1 rounded-full bg-[#171717]"/>
-                <h4 className="text-[15px] font-semibold text-slate-800">{title}</h4>
+                <span className="h-4 w-1 rounded-full bg-[#171717] dark:bg-slate-300"/>
+                <h4 className="text-[15px] font-semibold text-slate-800 dark:text-slate-100">{title}</h4>
             </div>
             {children}
         </section>
@@ -410,7 +410,7 @@ function RailActionButton({
                 tone === "primary" && "border-[#171717] bg-[#171717] text-white hover:bg-[#262626]",
                 tone === "success" && "border-emerald-500 bg-emerald-500 text-white hover:bg-emerald-600",
                 tone === "warning" && "border-amber-200 bg-amber-50 text-amber-700 hover:border-amber-300 hover:bg-amber-100",
-                tone === "danger" && "border-rose-200 bg-white text-rose-600 hover:border-rose-400 hover:bg-rose-50 hover:text-rose-700",
+                tone === "danger" && "border-rose-200 bg-white text-rose-600 hover:border-rose-400 hover:bg-rose-50 hover:text-rose-700 dark:border-rose-900/70 dark:bg-slate-950 dark:text-rose-300 dark:hover:border-rose-800 dark:hover:bg-rose-950/30 dark:hover:text-rose-200",
             )}
         >
             {children}
@@ -1004,7 +1004,7 @@ const CandidateApplicantCard = React.memo(function CandidateApplicantCard({
                         </span>
                     </div>
                     <div className="flex shrink-0 flex-wrap justify-end gap-2" onClick={(event) => event.stopPropagation()}>
-                        <Button size="sm" variant="outline" className="h-7 rounded-md border-slate-200 bg-white px-2.5 text-xs text-slate-700 hover:bg-slate-50" onClick={openDetail}>
+                        <Button size="sm" variant="outline" className="h-7 rounded-md border-slate-200 bg-white px-2.5 text-xs text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:border-slate-500 dark:hover:bg-slate-800 dark:hover:text-white" onClick={openDetail}>
                             <Eye className="h-3.5 w-3.5"/>
                             {isZh ? "详情" : "Details"}
                         </Button>
@@ -1012,11 +1012,11 @@ const CandidateApplicantCard = React.memo(function CandidateApplicantCard({
                             <Check className="h-3.5 w-3.5"/>
                             {tr.quickDispositionPass}
                         </Button>
-                        <Button size="sm" variant="outline" className="h-7 rounded-md border-slate-200 bg-white px-2.5 text-xs text-slate-700 hover:bg-slate-50" onClick={() => onDisposition(candidate.id, "talent_pool")}>
+                        <Button size="sm" variant="outline" className="h-7 rounded-md border-slate-200 bg-white px-2.5 text-xs text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:border-slate-500 dark:hover:bg-slate-800 dark:hover:text-white" onClick={() => onDisposition(candidate.id, "talent_pool")}>
                             <Users className="h-3.5 w-3.5"/>
                             {tr.quickDispositionTalentPool}
                         </Button>
-                        <Button size="sm" variant="outline" className="h-7 rounded-md border-rose-200 bg-white px-2.5 text-xs text-rose-600 hover:bg-rose-50 dark:text-rose-300" onClick={() => onDisposition(candidate.id, "reject")}>
+                        <Button size="sm" variant="outline" className="h-7 rounded-md border-rose-200 bg-white px-2.5 text-xs text-rose-600 hover:bg-rose-50 dark:border-rose-900/70 dark:bg-slate-900 dark:text-rose-300 dark:hover:bg-rose-950/30 dark:hover:text-rose-200" onClick={() => onDisposition(candidate.id, "reject")}>
                             <Trash2 className="h-3.5 w-3.5"/>
                             {tr.quickDispositionReject}
                         </Button>
@@ -3890,7 +3890,7 @@ export function CandidatesPage({
                                         <Button
                                             size="sm"
                                             variant="outline"
-                                            className="h-7 shrink-0 rounded-md px-2.5 text-xs"
+                                            className="h-7 shrink-0 rounded-md border-slate-200 px-2.5 text-xs text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:border-slate-500 dark:hover:bg-slate-800 dark:hover:text-white"
                                             onClick={() => void runQuickDisposition("talent_pool")}
                                             disabled={batchStatusSubmitting}
                                         >
@@ -4185,7 +4185,7 @@ export function CandidatesPage({
                             <div className="min-h-0 flex flex-1 flex-col">
                                 <div
                                     ref={setCandidateBoardViewportEl}
-                                    className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable]"
+                                    className={cn("min-h-0 flex-1 overflow-y-auto overflow-x-hidden", SMOOTH_VERTICAL_SCROLLBAR_CLASS)}
                                 >
                                     <div className="grid gap-4 xl:grid-cols-2 2xl:grid-cols-3">
                                         {groupedCandidates.map((group) => (
@@ -4244,7 +4244,7 @@ export function CandidatesPage({
                     }}
                 >
                     <DialogContent
-                        className="h-[min(92vh,920px)] max-h-[92vh] overflow-hidden rounded-[6px] border border-slate-200 bg-[#f4f7fb] p-0 shadow-2xl"
+                        className="h-[min(92vh,920px)] max-h-[92vh] overflow-hidden rounded-[6px] border border-slate-200 bg-[#f4f7fb] p-0 text-slate-900 shadow-2xl dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100"
                         style={{
                             width: "min(1180px, calc(100vw - 32px))",
                             maxWidth: "min(1180px, calc(100vw - 32px))",
@@ -4256,34 +4256,34 @@ export function CandidatesPage({
                                 : (isZh ? "候选人详情" : "Candidate Details")}
                         </DialogTitle>
                     {candidateDetailLoading ? (
-                        <div className="flex h-full items-center justify-center bg-white">
+                        <div className="flex h-full items-center justify-center bg-white dark:bg-slate-950">
                             <LoadingPanel label={tr.loadingCandidateDetail}/>
                         </div>
                     ) : candidateDetail ? (
-                        <div className="grid h-full min-h-0 grid-cols-1 bg-[#f4f7fb] lg:grid-cols-[minmax(0,1fr)_320px]">
+                        <div className="grid h-full min-h-0 grid-cols-1 bg-[#f4f7fb] dark:bg-slate-950 lg:grid-cols-[minmax(0,1fr)_320px]">
                             <section
                                 ref={candidateDetailMainScrollRef}
                                 onScroll={handleCandidateDetailMainScroll}
-                                className={cn("relative min-h-0 min-w-0 overflow-y-auto bg-white", SMOOTH_VERTICAL_SCROLLBAR_CLASS)}
+                                className={cn("relative min-h-0 min-w-0 overflow-y-auto bg-white dark:bg-slate-950", SMOOTH_VERTICAL_SCROLLBAR_CLASS)}
                             >
                                 <div className="sticky top-0 z-30 h-0 overflow-visible">
                                     <div className={cn(
-                                        "border-b border-slate-200 bg-white/95 px-7 py-3 shadow-[0_4px_18px_rgba(15,23,42,0.08)] backdrop-blur transition duration-200",
+                                        "border-b border-slate-200 bg-white/95 px-7 py-3 shadow-[0_4px_18px_rgba(15,23,42,0.08)] backdrop-blur transition duration-200 dark:border-slate-800 dark:bg-slate-950/95 dark:shadow-[0_4px_18px_rgba(0,0,0,0.35)]",
                                         candidateDetailMainScrolled ? "translate-y-0 opacity-100" : "pointer-events-none -translate-y-full opacity-0",
                                     )}>
                                         <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
                                             <div className="min-w-0">
                                                 <div className="flex min-w-0 flex-wrap items-center gap-2">
-                                                    <span className="truncate text-[18px] font-semibold leading-6 text-slate-950">{candidateDetail.candidate.name}</span>
-                                                    <span className="truncate text-[13px] text-slate-500">{candidateDetail.candidate.candidate_code || "-"}</span>
-                                                    <span className="text-[13px] text-slate-400">|</span>
-                                                    <span className="text-[13px] text-slate-600">{candidateDetail.candidate.age ? `${candidateDetail.candidate.age}${isZh ? "岁" : ""}` : "--"}</span>
-                                                    <span className="text-[13px] text-slate-400">|</span>
-                                                    <span className="truncate text-[13px] text-slate-600">
+                                                    <span className="truncate text-[18px] font-semibold leading-6 text-slate-950 dark:text-slate-100">{candidateDetail.candidate.name}</span>
+                                                    <span className="truncate text-[13px] text-slate-500 dark:text-slate-400">{candidateDetail.candidate.candidate_code || "-"}</span>
+                                                    <span className="text-[13px] text-slate-400 dark:text-slate-600">|</span>
+                                                    <span className="text-[13px] text-slate-600 dark:text-slate-300">{candidateDetail.candidate.age ? `${candidateDetail.candidate.age}${isZh ? "岁" : ""}` : "--"}</span>
+                                                    <span className="text-[13px] text-slate-400 dark:text-slate-600">|</span>
+                                                    <span className="truncate text-[13px] text-slate-600 dark:text-slate-300">
                                                         {candidateDetail.candidate.education || readStructuredText(parsedResumeEducation, ["degree", "education", "学历"]) || "-"}
                                                     </span>
                                                 </div>
-                                                <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 text-[13px] text-slate-500">
+                                                <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 text-[13px] text-slate-500 dark:text-slate-400">
                                                     <span className="truncate">
                                                         {candidateDetail.candidate.position_title || candidateDetail.candidate.screened_position_title || candidateDetail.candidate.ai_match_position_title || tr.unassignedPosition}
                                                     </span>
@@ -4301,11 +4301,11 @@ export function CandidatesPage({
                                         </div>
                                     </div>
                                 </div>
-                                <div className="border-b border-slate-200 px-7 pb-0 pt-5">
-                                    <div className="mb-5 flex flex-wrap items-center justify-between gap-3 text-[13px] text-slate-500">
+                                <div className="border-b border-slate-200 px-7 pb-0 pt-5 dark:border-slate-800">
+                                    <div className="mb-5 flex flex-wrap items-center justify-between gap-3 text-[13px] text-slate-500 dark:text-slate-400">
                                         <div className="flex min-w-0 items-center gap-2">
-                                            <span className="rounded-[3px] bg-slate-100 px-3 py-1.5 text-slate-700">{isZh ? "1次应聘" : "1 Application"}</span>
-                                            <span className="max-w-[360px] truncate rounded-[3px] border border-slate-200 px-3 py-1.5 text-slate-700">
+                                            <span className="rounded-[3px] bg-slate-100 px-3 py-1.5 text-slate-700 dark:bg-slate-900 dark:text-slate-300">{isZh ? "1次应聘" : "1 Application"}</span>
+                                            <span className="max-w-[360px] truncate rounded-[3px] border border-slate-200 px-3 py-1.5 text-slate-700 dark:border-slate-800 dark:text-slate-300">
                                                 {candidateDetail.candidate.position_title || candidateDetail.candidate.screened_position_title || tr.unassignedPosition}
                                             </span>
                                         </div>
@@ -4318,12 +4318,12 @@ export function CandidatesPage({
                                         <CandidateDetailAvatar name={candidateDetail.candidate.name}/>
                                         <div className="min-w-0 flex-1 pb-5">
                                             <div className="flex flex-wrap items-center gap-2">
-                                                <h3 data-no-zoom className="truncate text-[22px] font-semibold leading-8 text-slate-950">
+                                                <h3 data-no-zoom className="truncate text-[22px] font-semibold leading-8 text-slate-950 dark:text-slate-100">
                                                     {candidateDetail.candidate.name}
                                                 </h3>
-                                                <span className="text-[14px] text-slate-500">{candidateDetail.candidate.candidate_code}</span>
-                                                <span className="text-[14px] text-slate-500">|</span>
-                                                <span className="text-[14px] text-slate-600">{candidateDetail.candidate.age ? `${candidateDetail.candidate.age}${isZh ? "岁" : ""}` : "--"}</span>
+                                                <span className="text-[14px] text-slate-500 dark:text-slate-400">{candidateDetail.candidate.candidate_code}</span>
+                                                <span className="text-[14px] text-slate-500 dark:text-slate-600">|</span>
+                                                <span className="text-[14px] text-slate-600 dark:text-slate-300">{candidateDetail.candidate.age ? `${candidateDetail.candidate.age}${isZh ? "岁" : ""}` : "--"}</span>
                                             </div>
                                             <div className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-2">
                                                 <CandidateMetaItem icon={GraduationCap}>{candidateDetail.candidate.education || readStructuredText(parsedResumeEducation, ["degree", "education", "学历"]) || "-"}</CandidateMetaItem>
@@ -4352,17 +4352,17 @@ export function CandidatesPage({
                                                 </Button>
                                             </div>
                                             {candidateDetailPositionInsightVisible ? (
-                                                <div className="mt-3 grid gap-2 text-[12px] text-slate-600 lg:grid-cols-2">
-                                                    <div className="min-w-0 rounded-[4px] border border-violet-100 bg-violet-50/70 px-3 py-2">
-                                                        <div className="mb-1 flex items-center gap-1.5 font-medium text-violet-700">
+                                                <div className="mt-3 grid gap-2 text-[12px] text-slate-600 dark:text-slate-300 lg:grid-cols-2">
+                                                    <div className="min-w-0 rounded-[4px] border border-violet-100 bg-violet-50/70 px-3 py-2 dark:border-violet-900/60 dark:bg-violet-950/20">
+                                                        <div className="mb-1 flex items-center gap-1.5 font-medium text-violet-700 dark:text-violet-300">
                                                             <Sparkles className="h-3.5 w-3.5"/>
                                                             {isZh ? "AI 推荐" : "AI Recommendation"}
                                                         </div>
-                                                        <p className="truncate text-slate-800">
+                                                        <p className="truncate text-slate-800 dark:text-slate-100">
                                                             {candidateDetailAiMatchPositionTitle || candidateDetailScreenedPositionTitle || tr.unassignedPosition}
                                                         </p>
                                                         {candidateDetailAiMatchReason ? (
-                                                            <p className="mt-1 line-clamp-2 text-slate-500">
+                                                            <p className="mt-1 line-clamp-2 text-slate-500 dark:text-slate-400">
                                                                 {sanitizeCandidateFacingErrorText(candidateDetailAiMatchReason, {
                                                                     context: resolveCandidateFacingErrorContext("ai_position_match"),
                                                                     language,
@@ -4370,16 +4370,16 @@ export function CandidatesPage({
                                                             </p>
                                                         ) : null}
                                                     </div>
-                                                    <div className="min-w-0 rounded-[4px] border border-violet-100 bg-violet-50/60 px-3 py-2">
-                                                        <div className="mb-1 flex items-center gap-1.5 font-medium text-violet-700">
+                                                    <div className="min-w-0 rounded-[4px] border border-violet-100 bg-violet-50/60 px-3 py-2 dark:border-violet-900/60 dark:bg-violet-950/20">
+                                                        <div className="mb-1 flex items-center gap-1.5 font-medium text-violet-700 dark:text-violet-300">
                                                             <ArrowRightLeft className="h-3.5 w-3.5"/>
                                                             {isZh ? "转岗建议" : "Transfer Suggestion"}
                                                         </div>
-                                                        <p className="truncate text-slate-800">
+                                                        <p className="truncate text-slate-800 dark:text-slate-100">
                                                             {candidateDetailAiPotentialPosition || (isZh ? "暂无转岗建议" : "No suggestion")}
                                                         </p>
                                                         {candidateDetailAiPotentialReason ? (
-                                                            <p className="mt-1 line-clamp-2 text-slate-500">
+                                                            <p className="mt-1 line-clamp-2 text-slate-500 dark:text-slate-400">
                                                                 {sanitizeCandidateFacingErrorText(candidateDetailAiPotentialReason, {
                                                                     context: resolveCandidateFacingErrorContext("ai_position_match"),
                                                                     language,
@@ -4390,7 +4390,7 @@ export function CandidatesPage({
                                                 </div>
                                             ) : null}
                                             {candidateDetailHasRuntimeOverride ? (
-                                                <p className="mt-2 text-[12px] text-slate-400">
+                                                <p className="mt-2 text-[12px] text-slate-400 dark:text-slate-500">
                                                     {tr.originalStatus} {labelForCandidateStatus(candidateDetail.candidate.status)}
                                                 </p>
                                             ) : null}
@@ -4408,26 +4408,26 @@ export function CandidatesPage({
                                         </div>
                                     </div>
 
-                                    <div data-no-zoom className="flex min-w-0 items-center gap-6 overflow-x-auto border-t border-slate-100 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                                    <div data-no-zoom className="flex min-w-0 items-center gap-6 overflow-x-auto border-t border-slate-100 [scrollbar-width:none] dark:border-slate-800 [&::-webkit-scrollbar]:hidden">
                                         {candidateDetailTabs.map((tab) => (
                                             <button
                                                 key={tab.key}
                                                 type="button"
                                                 className={cn(
-                                                    "relative h-12 shrink-0 text-[15px] text-slate-700 transition hover:text-[#171717]",
-                                                    candidateDetailPanel === tab.key && "font-semibold text-[#171717]",
-                                                    tab.disabled && "text-slate-400",
+                                                    "relative h-12 shrink-0 text-[15px] text-slate-700 transition hover:text-[#171717] dark:text-slate-300 dark:hover:text-slate-100",
+                                                    candidateDetailPanel === tab.key && "font-semibold text-[#171717] dark:text-slate-100",
+                                                    tab.disabled && "text-slate-400 dark:text-slate-600",
                                                 )}
                                                 onClick={() => setCandidateDetailPanel(tab.key)}
                                             >
                                                 {tab.label}
-                                                <span className="ml-1 text-[13px] text-slate-500">{tab.count || 0}</span>
-                                                {candidateDetailPanel === tab.key ? <span className="absolute inset-x-0 bottom-0 h-0.5 bg-[#171717]"/> : null}
+                                                <span className="ml-1 text-[13px] text-slate-500 dark:text-slate-400">{tab.count || 0}</span>
+                                                {candidateDetailPanel === tab.key ? <span className="absolute inset-x-0 bottom-0 h-0.5 bg-[#171717] dark:bg-slate-100"/> : null}
                                             </button>
                                         ))}
                                     </div>
 
-                                    <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 py-3">
+                                    <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 py-3 dark:border-slate-800">
                                         <div className="flex flex-wrap items-center gap-2">
                                             <Button
                                                 size="sm"
@@ -4454,7 +4454,7 @@ export function CandidatesPage({
                                                 {isZh ? "历史简历" : "History"}
                                             </Button>
                                         </div>
-                                        <div className="flex min-w-0 flex-1 items-center justify-end gap-2 text-[13px] text-slate-500">
+                                        <div className="flex min-w-0 flex-1 items-center justify-end gap-2 text-[13px] text-slate-500 dark:text-slate-400">
                                             <Button
                                                 size="sm"
                                                 variant="ghost"
@@ -4484,10 +4484,10 @@ export function CandidatesPage({
                                                         {isZh ? "更多" : "More"}
                                                     </Button>
                                                 </PopoverTrigger>
-                                                <PopoverContent className="w-44 p-1" align="end">
+                                                <PopoverContent className="w-44 border-slate-200 bg-white p-1 dark:border-slate-800 dark:bg-slate-950" align="end">
 	                                                    <button
 	                                                        type="button"
-	                                                        className="flex w-full items-center rounded-[4px] px-3 py-2 text-left text-[13px] text-slate-700 hover:bg-slate-100"
+	                                                        className="flex w-full items-center rounded-[4px] px-3 py-2 text-left text-[13px] text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-900"
 	                                                        onClick={(event) => {
 	                                                            event.preventDefault();
 	                                                            event.stopPropagation();
@@ -4498,7 +4498,7 @@ export function CandidatesPage({
 	                                                    </button>
 	                                                    <button
 	                                                        type="button"
-	                                                        className="flex w-full items-center rounded-[4px] px-3 py-2 text-left text-[13px] text-slate-700 hover:bg-slate-100"
+	                                                        className="flex w-full items-center rounded-[4px] px-3 py-2 text-left text-[13px] text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-900"
 	                                                        onClick={(event) => {
 	                                                            event.preventDefault();
 	                                                            event.stopPropagation();
@@ -4509,7 +4509,7 @@ export function CandidatesPage({
 	                                                    </button>
                                                     <button
 	                                                        type="button"
-	                                                        className="flex w-full items-center rounded-[4px] px-3 py-2 text-left text-[13px] text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:text-slate-400"
+	                                                        className="flex w-full items-center rounded-[4px] px-3 py-2 text-left text-[13px] text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:text-slate-400 dark:text-slate-300 dark:hover:bg-slate-900 dark:disabled:text-slate-600"
 	                                                        disabled={!primaryResumeFile}
 	                                                        onClick={(event) => {
 	                                                            event.preventDefault();
@@ -4528,7 +4528,7 @@ export function CandidatesPage({
                                     <div className="flex min-w-0 items-center gap-3 pb-3">
                                         <div className="min-w-0 flex-1">
                                             <NativeSelect
-                                                className="h-8 rounded-[3px] border-slate-200 text-[13px]"
+                                                className="h-8 rounded-[3px] border-slate-200 text-[13px] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
                                                 value={primaryResumeFile ? String(primaryResumeFile.id) : ""}
                                                 onChange={(event) => {
                                                     const nextId = Number(event.target.value);
@@ -4548,7 +4548,7 @@ export function CandidatesPage({
 	                                    </div>
                                 </div>
 
-                                <div className="bg-white">
+                                <div className="bg-white dark:bg-slate-950">
                                     <div className="mx-auto min-w-0 max-w-[820px] space-y-6 px-8 py-7">
                                     {candidateDetailPanel === "resume" ? (
                                         <>
@@ -4575,13 +4575,13 @@ export function CandidatesPage({
 		                                            )}
 
                                             {candidateResumeView === "original" ? (
-                                            <div className="overflow-hidden rounded-[4px] bg-white">
-                                                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3">
+                                            <div className="overflow-hidden rounded-[4px] border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
+                                                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-950">
                                                     <div className="min-w-0">
-                                                        <p className="truncate text-[14px] font-medium text-slate-900">
+                                                        <p className="truncate text-[14px] font-medium text-slate-900 dark:text-slate-100">
                                                             {primaryResumeFile ? primaryResumeFile.original_name : tr.noResumeFile}
                                                         </p>
-                                                        <p className="mt-0.5 text-[12px] text-slate-500">
+                                                        <p className="mt-0.5 text-[12px] text-slate-500 dark:text-slate-400">
                                                             {primaryResumeFile
                                                                 ? tr.resumeFileDesc(primaryResumeFile.file_ext || "-", primaryResumeFile.file_size || 0, primaryResumeFile.parse_status)
                                                                 : tr.resumeFileEmptyDesc}
@@ -4647,14 +4647,14 @@ export function CandidatesPage({
 
                                             {candidateResumeView === "standard" ? (
                                             <>
-                                            <div className="rounded-[4px] border border-slate-100 bg-white px-10 py-8 shadow-[0_1px_8px_rgba(15,23,42,0.04)]">
-                                                <div className="flex items-start gap-5 border-b border-slate-100 pb-6">
+                                            <div className="rounded-[4px] border border-slate-100 bg-white px-10 py-8 shadow-[0_1px_8px_rgba(15,23,42,0.04)] dark:border-slate-800 dark:bg-slate-950 dark:shadow-none">
+                                                <div className="flex items-start gap-5 border-b border-slate-100 pb-6 dark:border-slate-800">
                                                     <CandidateDetailAvatar name={candidateDetail.candidate.name}/>
                                                     <div className="min-w-0 flex-1">
                                                         <div className="flex flex-wrap items-center gap-4">
-                                                            <h4 className="text-[20px] font-semibold text-slate-900">{candidateDetail.candidate.name}</h4>
-                                                            <span className="text-[14px] text-slate-500">{candidateDetail.candidate.age ? `${candidateDetail.candidate.age}${isZh ? "岁" : ""}` : "--"}</span>
-                                                            <span className="text-[14px] text-slate-500">{candidateDetail.candidate.education || readStructuredText(parsedResumeEducation, ["degree", "education", "学历"]) || "-"}</span>
+                                                            <h4 className="text-[20px] font-semibold text-slate-900 dark:text-slate-100">{candidateDetail.candidate.name}</h4>
+                                                            <span className="text-[14px] text-slate-500 dark:text-slate-400">{candidateDetail.candidate.age ? `${candidateDetail.candidate.age}${isZh ? "岁" : ""}` : "--"}</span>
+                                                            <span className="text-[14px] text-slate-500 dark:text-slate-400">{candidateDetail.candidate.education || readStructuredText(parsedResumeEducation, ["degree", "education", "学历"]) || "-"}</span>
                                                         </div>
                                                         <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2">
                                                             <CandidateMetaItem icon={GraduationCap}>{candidateDetail.candidate.education || readStructuredText(parsedResumeEducation, ["school", "school_name", "university", "学校"]) || "-"}</CandidateMetaItem>
@@ -4667,36 +4667,36 @@ export function CandidatesPage({
 
                                                 <div className="mt-7 space-y-7">
                                                     <ResumeSection title={isZh ? "个人信息" : "Personal Info"}>
-                                                        <div className="grid gap-y-4 text-[14px] text-slate-700 sm:grid-cols-2">
-                                                            <div><span className="mr-10 text-slate-400">{isZh ? "姓名" : "Name"}</span>{candidateDetail.candidate.name}</div>
-                                                            <div><span className="mr-10 text-slate-400">{isZh ? "年龄" : "Age"}</span>{candidateDetail.candidate.age || "-"}</div>
-                                                            <div><span className="mr-10 text-slate-400">{isZh ? "手机" : "Phone"}</span>{candidateDetail.candidate.phone || "-"}</div>
-                                                            <div><span className="mr-10 text-slate-400">{isZh ? "邮箱" : "Email"}</span>{candidateDetail.candidate.email || "-"}</div>
+                                                        <div className="grid gap-y-4 text-[14px] text-slate-700 dark:text-slate-300 sm:grid-cols-2">
+                                                            <div><span className="mr-10 text-slate-400 dark:text-slate-500">{isZh ? "姓名" : "Name"}</span>{candidateDetail.candidate.name}</div>
+                                                            <div><span className="mr-10 text-slate-400 dark:text-slate-500">{isZh ? "年龄" : "Age"}</span>{candidateDetail.candidate.age || "-"}</div>
+                                                            <div><span className="mr-10 text-slate-400 dark:text-slate-500">{isZh ? "手机" : "Phone"}</span>{candidateDetail.candidate.phone || "-"}</div>
+                                                            <div><span className="mr-10 text-slate-400 dark:text-slate-500">{isZh ? "邮箱" : "Email"}</span>{candidateDetail.candidate.email || "-"}</div>
                                                         </div>
                                                     </ResumeSection>
 
                                                     <ResumeSection title={isZh ? "求职意向" : "Job Intention"}>
-                                                        <div className="grid gap-y-4 text-[14px] text-slate-700 sm:grid-cols-2">
-                                                            <div><span className="mr-10 text-slate-400">{isZh ? "应聘职位" : "Position"}</span>{candidateDetail.candidate.position_title || candidateDetail.candidate.ai_match_position_title || tr.unassignedPosition}</div>
-                                                            <div><span className="mr-10 text-slate-400">{isZh ? "期望城市" : "Expected City"}</span>{candidateDetail.candidate.expected_city || candidateDetail.candidate.city || "-"}</div>
+                                                        <div className="grid gap-y-4 text-[14px] text-slate-700 dark:text-slate-300 sm:grid-cols-2">
+                                                            <div><span className="mr-10 text-slate-400 dark:text-slate-500">{isZh ? "应聘职位" : "Position"}</span>{candidateDetail.candidate.position_title || candidateDetail.candidate.ai_match_position_title || tr.unassignedPosition}</div>
+                                                            <div><span className="mr-10 text-slate-400 dark:text-slate-500">{isZh ? "期望城市" : "Expected City"}</span>{candidateDetail.candidate.expected_city || candidateDetail.candidate.city || "-"}</div>
                                                         </div>
                                                     </ResumeSection>
 
                                                     <ResumeSection title={isZh ? "教育经历" : "Education"}>
-                                                        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-[14px] text-slate-700">
-                                                            <span className="font-medium text-slate-900">{readStructuredText(parsedResumeEducation, ["school", "school_name", "university", "学校"]) || "-"}</span>
+                                                        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-[14px] text-slate-700 dark:text-slate-300">
+                                                            <span className="font-medium text-slate-900 dark:text-slate-100">{readStructuredText(parsedResumeEducation, ["school", "school_name", "university", "学校"]) || "-"}</span>
                                                             <span>{readStructuredText(parsedResumeEducation, ["major", "专业"]) || "-"}</span>
                                                             <span>{candidateDetail.candidate.education || readStructuredText(parsedResumeEducation, ["degree", "education", "学历"]) || "-"}</span>
-                                                            <span className="text-slate-400">{readStructuredText(parsedResumeEducation, ["start_date", "end_date", "time_range", "时间"]) || ""}</span>
+                                                            <span className="text-slate-400 dark:text-slate-500">{readStructuredText(parsedResumeEducation, ["start_date", "end_date", "time_range", "时间"]) || ""}</span>
                                                         </div>
                                                     </ResumeSection>
 
                                                     <ResumeSection title={isZh ? "工作经历" : "Work Experience"}>
-                                                        <div className="space-y-2 text-[14px] leading-7 text-slate-700">
-                                                            <p className="font-medium text-slate-900">{candidateDetail.candidate.current_company || readStructuredText(parsedResumeWork, ["company", "company_name", "公司"]) || "-"}</p>
+                                                        <div className="space-y-2 text-[14px] leading-7 text-slate-700 dark:text-slate-300">
+                                                            <p className="font-medium text-slate-900 dark:text-slate-100">{candidateDetail.candidate.current_company || readStructuredText(parsedResumeWork, ["company", "company_name", "公司"]) || "-"}</p>
                                                             <p>{readStructuredText(parsedResumeWork, ["position", "job_title", "title", "职位"]) || candidateDetail.candidate.years_of_experience || "-"}</p>
                                                             {readStructuredText(parsedResumeWork, ["description", "职责", "work_content", "summary"]) ? (
-                                                                <p className="whitespace-pre-wrap text-slate-600">{readStructuredText(parsedResumeWork, ["description", "职责", "work_content", "summary"])}</p>
+                                                                <p className="whitespace-pre-wrap text-slate-600 dark:text-slate-300">{readStructuredText(parsedResumeWork, ["description", "职责", "work_content", "summary"])}</p>
                                                             ) : null}
                                                         </div>
                                                     </ResumeSection>
@@ -4705,7 +4705,7 @@ export function CandidatesPage({
                                                         <ResumeSection title={isZh ? "技能标签" : "Skills"}>
                                                             <div className="flex flex-wrap gap-2">
                                                                 {parsedResumeSkills.map((skill) => (
-                                                                    <span key={skill} className="rounded-[3px] bg-slate-100 px-2.5 py-1 text-[13px] text-slate-600">{skill}</span>
+                                                                    <span key={skill} className="rounded-[3px] bg-slate-100 px-2.5 py-1 text-[13px] text-slate-600 dark:bg-slate-900 dark:text-slate-300">{skill}</span>
                                                                 ))}
                                                             </div>
                                                         </ResumeSection>
@@ -4795,7 +4795,7 @@ export function CandidatesPage({
                                             ) : null}
 
                                             {candidateResumeView === "history" ? (
-                                                <div className="rounded-[4px] bg-white px-5 py-4">
+                                                <div className="rounded-[4px] bg-white px-5 py-4 dark:bg-slate-950">
                                                     {resumeFiles.length ? (
                                                         <div className="space-y-3">
                                                             {resumeFiles.map((file) => {
@@ -4805,12 +4805,12 @@ export function CandidatesPage({
                                                                         key={file.id}
                                                                         className={cn(
                                                                             "flex flex-wrap items-center justify-between gap-3 rounded-[4px] border px-4 py-3",
-                                                                            active ? "border-[#171717] bg-[#F5F5F5]/60" : "border-slate-200 bg-white",
+                                                                            active ? "border-[#171717] bg-[#F5F5F5]/60 dark:border-slate-500 dark:bg-slate-900" : "border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950",
                                                                         )}
                                                                     >
                                                                         <div className="min-w-0">
-                                                                            <p className="truncate text-[14px] font-medium text-slate-900">{file.original_name}</p>
-                                                                            <p className="mt-1 text-[12px] text-slate-500">
+                                                                            <p className="truncate text-[14px] font-medium text-slate-900 dark:text-slate-100">{file.original_name}</p>
+                                                                            <p className="mt-1 text-[12px] text-slate-500 dark:text-slate-400">
                                                                                 {tr.resumeFileDesc(file.file_ext || "-", file.file_size || 0, file.parse_status)}
                                                                             </p>
                                                                         </div>
@@ -5000,11 +5000,11 @@ export function CandidatesPage({
 
                                     {candidateDetailPanel === "review" ? (
                                         <div className="space-y-3">
-                                            <div className="rounded-md border border-slate-200 bg-white px-4 py-4">
+                                            <div className="rounded-md border border-slate-200 bg-white px-4 py-4 dark:border-slate-800 dark:bg-slate-950">
                                                 <div className="flex flex-wrap items-center justify-between gap-3">
                                                     <div>
-                                                        <p className="text-sm font-semibold text-slate-900">{isZh ? "部门评审" : "Department Review"}</p>
-                                                        <p className="mt-1 text-xs text-slate-500">
+                                                        <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{isZh ? "部门评审" : "Department Review"}</p>
+                                                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                                                             {isZh ? "把候选人提交给用人部门，评审结果会回写到当前流程。" : "Send the candidate to hiring reviewers and keep the result in this workflow."}
                                                         </p>
                                                     </div>
@@ -5015,7 +5015,7 @@ export function CandidatesPage({
                                                 </div>
                                             </div>
                                             {departmentReviews.length ? departmentReviews.map((review) => (
-                                                <div key={review.id} className="rounded-md border border-slate-200 bg-white px-4 py-4">
+                                                <div key={review.id} className="rounded-md border border-slate-200 bg-white px-4 py-4 dark:border-slate-800 dark:bg-slate-950">
                                                     <div className="flex flex-wrap items-center justify-between gap-2">
                                                         <div className="flex items-center gap-2">
                                                             <Badge variant="outline" className="rounded-[3px]">
@@ -5025,18 +5025,18 @@ export function CandidatesPage({
                                                                         ? (isZh ? "评审淘汰" : "Rejected")
                                                                         : (isZh ? "评审中" : "Pending")}
                                                             </Badge>
-                                                            <span className="text-sm text-slate-500">{formatDateTime(review.created_at)}</span>
+                                                            <span className="text-sm text-slate-500 dark:text-slate-400">{formatDateTime(review.created_at)}</span>
                                                         </div>
-                                                        <span className="text-sm text-slate-500">{isZh ? "发起人" : "Created by"}：{review.created_by || "-"}</span>
+                                                        <span className="text-sm text-slate-500 dark:text-slate-400">{isZh ? "发起人" : "Created by"}：{review.created_by || "-"}</span>
                                                     </div>
-                                                    {review.message ? <p className="mt-3 rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-600">{review.message}</p> : null}
-                                                    <div className="mt-3 divide-y divide-slate-100">
+                                                    {review.message ? <p className="mt-3 rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-600 dark:bg-slate-900 dark:text-slate-300">{review.message}</p> : null}
+                                                    <div className="mt-3 divide-y divide-slate-100 dark:divide-slate-800">
                                                         {review.assignments.map((assignment) => (
                                                             <div key={assignment.id} className="flex flex-wrap items-start justify-between gap-3 py-3">
                                                                 <div>
-                                                                    <p className="text-sm font-medium text-slate-900">{assignment.reviewer_name || assignment.reviewer_user_code}</p>
-                                                                    <p className="mt-1 text-xs text-slate-500">{assignment.reviewer_user_code}</p>
-                                                                    {assignment.comment ? <p className="mt-2 text-sm text-slate-600">{assignment.comment}</p> : null}
+                                                                    <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{assignment.reviewer_name || assignment.reviewer_user_code}</p>
+                                                                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{assignment.reviewer_user_code}</p>
+                                                                    {assignment.comment ? <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{assignment.comment}</p> : null}
                                                                 </div>
                                                                 <div className="text-right">
                                                                     <Badge className={cn(
@@ -5054,7 +5054,7 @@ export function CandidatesPage({
                                                                                     ? (isZh ? "暂缓" : "Deferred")
                                                                                     : (isZh ? "待评审" : "Pending")}
                                                                     </Badge>
-                                                                    <p className="mt-1 text-xs text-slate-500">{formatDateTime(assignment.decision_at)}</p>
+                                                                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{formatDateTime(assignment.decision_at)}</p>
                                                                 </div>
                                                             </div>
                                                         ))}
@@ -5674,11 +5674,11 @@ export function CandidatesPage({
                                     </div>
                                 </div>
                             </section>
-                            <aside className={cn("hidden min-h-0 overflow-y-auto bg-[#f4f7fb] px-4 py-4 lg:block", SMOOTH_VERTICAL_SCROLLBAR_CLASS)}>
+                            <aside className={cn("hidden min-h-0 overflow-y-auto bg-[#f4f7fb] px-4 py-4 dark:bg-slate-900/60 lg:block", SMOOTH_VERTICAL_SCROLLBAR_CLASS)}>
                                 <div className="space-y-3">
                                     {isDepartmentReviewDecisionMode ? (
                                         <>
-                                            <div className="rounded-[6px] bg-white px-5 py-5">
+                                            <div className="rounded-[6px] bg-white px-5 py-5 dark:border dark:border-slate-800 dark:bg-slate-950">
                                                 <div className="flex items-center justify-between">
                                                     {candidateDetailFlowSteps.map((step, index) => {
                                                         const isActive = index === candidateDetailFlowIndex;
@@ -5687,22 +5687,22 @@ export function CandidatesPage({
                                                             <React.Fragment key={step.status}>
                                                                 <span className={cn(
                                                                     "flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[12px] font-semibold",
-                                                                    isActive || isDone ? "bg-[#171717] text-white" : "bg-slate-300 text-white",
+                                                                    isActive || isDone ? "bg-[#171717] text-white dark:bg-slate-100 dark:text-slate-950" : "bg-slate-300 text-white dark:bg-slate-700 dark:text-slate-300",
                                                                 )}>
                                                                     {index + 1}
                                                                 </span>
                                                                 {index < candidateDetailFlowSteps.length - 1 ? (
-                                                                    <span className={cn("h-px flex-1 border-t border-dashed", index < candidateDetailFlowIndex ? "border-[#171717]" : "border-slate-300")}/>
+                                                                    <span className={cn("h-px flex-1 border-t border-dashed", index < candidateDetailFlowIndex ? "border-[#171717] dark:border-slate-100" : "border-slate-300 dark:border-slate-700")}/>
                                                                 ) : null}
                                                             </React.Fragment>
                                                         );
                                                     })}
                                                 </div>
                                                 <div className="mt-3">
-                                                    <p className="text-[15px] font-medium text-slate-900">
+                                                    <p className="text-[15px] font-medium text-slate-900 dark:text-slate-100">
                                                         {isZh ? "部门评审" : "Department Review"}
                                                     </p>
-                                                    <p className="mt-1 text-[13px] text-slate-500">
+                                                    <p className="mt-1 text-[13px] text-slate-500 dark:text-slate-400">
                                                         {departmentReviewDecisionContext?.reviewerName
                                                             ? (isZh ? `评审人：${departmentReviewDecisionContext.reviewerName}` : `Reviewer: ${departmentReviewDecisionContext.reviewerName}`)
                                                             : labelForCandidateStatus(candidateDetailDisplayStatus)}
@@ -5727,11 +5727,11 @@ export function CandidatesPage({
                                                     </RailActionButton>
                                                 </div>
                                             </div>
-                                            <div className="rounded-[6px] bg-white px-5 py-4">
-                                                <div className="flex items-center gap-5 border-b border-slate-100">
-                                                    <button type="button" className="relative h-9 text-[15px] font-semibold text-[#171717]">
+                                            <div className="rounded-[6px] bg-white px-5 py-4 dark:border dark:border-slate-800 dark:bg-slate-950">
+                                                <div className="flex items-center gap-5 border-b border-slate-100 dark:border-slate-800">
+                                                    <button type="button" className="relative h-9 text-[15px] font-semibold text-[#171717] dark:text-slate-100">
                                                         {isZh ? "备注" : "Notes"}
-                                                        <span className="absolute inset-x-0 bottom-0 h-0.5 bg-[#171717]"/>
+                                                        <span className="absolute inset-x-0 bottom-0 h-0.5 bg-[#171717] dark:bg-slate-100"/>
                                                     </button>
                                                 </div>
                                                 <Textarea
@@ -5739,17 +5739,17 @@ export function CandidatesPage({
                                                     onChange={(event) => setDepartmentReviewDecisionComment(event.target.value)}
                                                     rows={6}
                                                     maxLength={1000}
-                                                    className="mt-4 resize-none rounded-[4px] border-slate-200 text-[14px]"
+                                                    className="mt-4 resize-none rounded-[4px] border-slate-200 text-[14px] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500"
                                                     placeholder={isZh ? "填写评审意见，点击通过或淘汰时会一并提交" : "Add review comments. They will be submitted with Pass or Reject."}
                                                 />
-                                                <div className="mt-3 flex items-center justify-end text-[13px] text-slate-500">
+                                                <div className="mt-3 flex items-center justify-end text-[13px] text-slate-500 dark:text-slate-400">
                                                     <span>{departmentReviewDecisionComment.length}/1000</span>
                                                 </div>
                                             </div>
                                         </>
                                     ) : (
                                         <>
-                                    <div className="rounded-[6px] bg-white px-5 py-5">
+                                    <div className="rounded-[6px] bg-white px-5 py-5 dark:border dark:border-slate-800 dark:bg-slate-950">
                                         <div className="flex items-center justify-between">
                                             {candidateDetailFlowSteps.map((step, index) => {
                                                 const isActive = index === candidateDetailFlowIndex;
@@ -5758,22 +5758,22 @@ export function CandidatesPage({
                                                     <React.Fragment key={step.status}>
                                                         <span className={cn(
                                                             "flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[12px] font-semibold",
-                                                            isActive || isDone ? "bg-[#171717] text-white" : "bg-slate-300 text-white",
+                                                            isActive || isDone ? "bg-[#171717] text-white dark:bg-slate-100 dark:text-slate-950" : "bg-slate-300 text-white dark:bg-slate-700 dark:text-slate-300",
                                                         )}>
                                                             {index + 1}
                                                         </span>
                                                         {index < candidateDetailFlowSteps.length - 1 ? (
-                                                            <span className={cn("h-px flex-1 border-t border-dashed", index < candidateDetailFlowIndex ? "border-[#171717]" : "border-slate-300")}/>
+                                                            <span className={cn("h-px flex-1 border-t border-dashed", index < candidateDetailFlowIndex ? "border-[#171717] dark:border-slate-100" : "border-slate-300 dark:border-slate-700")}/>
                                                         ) : null}
                                                     </React.Fragment>
                                                 );
                                             })}
                                         </div>
                                         <div className="mt-3">
-                                            <p className="text-[15px] font-medium text-slate-900">
+                                            <p className="text-[15px] font-medium text-slate-900 dark:text-slate-100">
                                                 {candidateDetailFlowSteps[candidateDetailFlowIndex]?.label || labelForCandidateStatus(candidateDetailDisplayStatus)}
                                             </p>
-                                            <p className="mt-1 text-[13px] text-slate-500">
+                                            <p className="mt-1 text-[13px] text-slate-500 dark:text-slate-400">
                                                 {labelForCandidateStatus(candidateDetailDisplayStatus)}
                                             </p>
                                         </div>
@@ -5834,14 +5834,14 @@ export function CandidatesPage({
                                                 {isCurrentInterviewTaskCancelling ? tr.stopping : currentCandidateInterviewTaskId ? tr.stopGeneration : tr.interviewQuestions}
                                             </RailActionButton>
                                         </div>
-                                        <button type="button" className="mt-4 w-full text-center text-[13px] font-medium text-[#171717]">
+                                        <button type="button" className="mt-4 w-full text-center text-[13px] font-medium text-[#171717] dark:text-slate-200">
                                             {isZh ? "操作设置" : "Action Settings"}
                                         </button>
                                     </div>
                                     {shouldShowCurrentScreeningTask ? (
-                                        <div className="rounded-[6px] bg-white px-5 py-4">
+                                        <div className="rounded-[6px] bg-white px-5 py-4 dark:border dark:border-slate-800 dark:bg-slate-950">
                                             <div className="flex items-center justify-between gap-2">
-                                                <p className="text-[15px] font-semibold text-slate-900">{tr.currentScreeningTask}</p>
+                                                <p className="text-[15px] font-semibold text-slate-900 dark:text-slate-100">{tr.currentScreeningTask}</p>
                                                 {currentScreeningTaskStatus ? (
                                                     <Badge className={cn("rounded-[3px] border", statusBadgeClass("task", currentScreeningTaskStatus))}>
                                                         {labelForTaskExecutionStatus(currentScreeningTaskStatus)}
@@ -5861,32 +5861,32 @@ export function CandidatesPage({
                                                     autoRetry,
                                                 );
                                                 const primary = displayReason || logMsg || tr.taskRunning;
-                                                return <p className="mt-2 text-[13px] leading-6 text-slate-500">{primary}</p>;
+                                                return <p className="mt-2 text-[13px] leading-6 text-slate-500 dark:text-slate-400">{primary}</p>;
                                             })()}
                                         </div>
                                     ) : null}
-                                    <div className="rounded-[6px] bg-white px-5 py-4">
-                                        <div className="flex items-center gap-5 border-b border-slate-100">
+                                    <div className="rounded-[6px] bg-white px-5 py-4 dark:border dark:border-slate-800 dark:bg-slate-950">
+                                        <div className="flex items-center gap-5 border-b border-slate-100 dark:border-slate-800">
                                             <button
                                                 type="button"
                                                 onClick={() => setCandidateDetailSideRailTab("note")}
                                                 className={cn(
                                                     "relative h-9 text-[15px] transition",
                                                     candidateDetailSideRailTab === "note"
-                                                        ? "font-semibold text-[#171717]"
-                                                        : "text-slate-600 hover:text-slate-900",
+                                                        ? "font-semibold text-[#171717] dark:text-slate-100"
+                                                        : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200",
                                                 )}
                                             >
                                                 {isZh ? "备注" : "Notes"}
-                                                {candidateDetailSideRailTab === "note" ? <span className="absolute inset-x-0 bottom-0 h-0.5 bg-[#171717]"/> : null}
+                                                {candidateDetailSideRailTab === "note" ? <span className="absolute inset-x-0 bottom-0 h-0.5 bg-[#171717] dark:bg-slate-100"/> : null}
                                             </button>
                                             <button
                                                 type="button"
                                                 className={cn(
                                                     "relative h-9 text-[15px] transition",
                                                     candidateDetailSideRailTab === "followups"
-                                                        ? "font-semibold text-[#171717]"
-                                                        : "text-slate-600 hover:text-slate-900",
+                                                        ? "font-semibold text-[#171717] dark:text-slate-100"
+                                                        : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200",
                                                 )}
                                                 onClick={() => {
                                                     setCandidateDetailSideRailTab("followups");
@@ -5894,7 +5894,7 @@ export function CandidatesPage({
                                                 }}
                                             >
                                                 {isZh ? "我的跟进" : "Follow-ups"}
-                                                {candidateDetailSideRailTab === "followups" ? <span className="absolute inset-x-0 bottom-0 h-0.5 bg-[#171717]"/> : null}
+                                                {candidateDetailSideRailTab === "followups" ? <span className="absolute inset-x-0 bottom-0 h-0.5 bg-[#171717] dark:bg-slate-100"/> : null}
                                             </button>
                                         </div>
                                         {candidateDetailSideRailTab === "note" ? (
@@ -5904,10 +5904,10 @@ export function CandidatesPage({
                                                     onChange={(event) => setStatusUpdateReason(event.target.value)}
                                                     rows={5}
                                                     maxLength={1000}
-                                                    className="mt-4 resize-none rounded-[4px] border-slate-200 text-[14px]"
+                                                    className="mt-4 resize-none rounded-[4px] border-slate-200 text-[14px] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500"
                                                     placeholder={isZh ? "填写候选人备注，保存后会进入跟进记录" : "Add a candidate note. It will be saved to follow-ups."}
                                                 />
-                                                <div className="mt-3 flex items-center justify-between gap-2 text-[13px] text-slate-500">
+                                                <div className="mt-3 flex items-center justify-between gap-2 text-[13px] text-slate-500 dark:text-slate-400">
                                                     <span>@ {isZh ? "同事" : "Colleague"}</span>
                                                     <span>{statusUpdateReason.length}/1000</span>
                                                     <Button
@@ -5933,19 +5933,19 @@ export function CandidatesPage({
                                                             other: tr.followUpTypeOther,
                                                         };
                                                         return (
-                                                            <div key={followUp.id} className="rounded-[6px] border border-slate-100 bg-slate-50 px-3 py-2">
+                                                            <div key={followUp.id} className="rounded-[6px] border border-slate-100 bg-slate-50 px-3 py-2 dark:border-slate-800 dark:bg-slate-900">
                                                                 <div className="flex items-center justify-between gap-2">
-                                                                    <span className="text-[12px] font-medium text-[#171717]">
+                                                                    <span className="text-[12px] font-medium text-[#171717] dark:text-slate-100">
                                                                         {typeLabels[followUp.follow_up_type] || followUp.follow_up_type}
                                                                     </span>
-                                                                    {followUp.created_at ? <span className="shrink-0 text-[12px] text-slate-400">{formatDateTime(followUp.created_at)}</span> : null}
+                                                                    {followUp.created_at ? <span className="shrink-0 text-[12px] text-slate-400 dark:text-slate-500">{formatDateTime(followUp.created_at)}</span> : null}
                                                                 </div>
-                                                                <p className="mt-1 line-clamp-3 whitespace-pre-wrap text-[13px] leading-5 text-slate-600">{followUp.content}</p>
+                                                                <p className="mt-1 line-clamp-3 whitespace-pre-wrap text-[13px] leading-5 text-slate-600 dark:text-slate-300">{followUp.content}</p>
                                                             </div>
                                                         );
                                                     })
                                                 ) : (
-                                                    <div className="rounded-[6px] border border-dashed border-slate-200 px-3 py-5 text-center text-[13px] text-slate-400">
+                                                    <div className="rounded-[6px] border border-dashed border-slate-200 px-3 py-5 text-center text-[13px] text-slate-400 dark:border-slate-800 dark:text-slate-500">
                                                         {isZh ? "暂无跟进记录" : "No follow-ups yet"}
                                                     </div>
                                                 )}
@@ -5965,7 +5965,7 @@ export function CandidatesPage({
                                     <p className="text-xs text-slate-500 dark:text-slate-400">{tr.candidateWorkspaceDesc}</p>
                                 </div>
                             </div>
-                            <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
+                            <div className={cn("min-h-0 flex-1 overflow-y-auto", SMOOTH_VERTICAL_SCROLLBAR_CLASS)}>
                                 <div className="space-y-5 px-5 py-5">
                                     <div className="grid gap-3 md:grid-cols-2">
                                         {candidateOverviewStats.map((item) => (
@@ -5983,7 +5983,7 @@ export function CandidatesPage({
                                                 <button
                                                     key={candidate.id}
                                                     type="button"
-                                                    className="flex w-full items-start justify-between rounded-2xl border border-slate-200/80 px-4 py-4 text-left transition hover:border-slate-400 dark:border-slate-800"
+                                                    className="flex w-full items-start justify-between rounded-2xl border border-slate-200/80 px-4 py-4 text-left transition hover:border-slate-400 dark:border-slate-800 dark:bg-slate-950/60 dark:hover:border-slate-700"
                                                     onClick={() => setSelectedCandidateId(candidate.id)}
                                                 >
                                                     <div className="min-w-0">
@@ -6025,50 +6025,50 @@ export function CandidatesPage({
                 </Dialog>
                 </div>
             <Dialog open={departmentReviewDialogOpen} onOpenChange={setDepartmentReviewDialogOpen}>
-                <DialogContent className="sm:max-w-2xl">
+                <DialogContent className="border-slate-200 bg-white text-slate-900 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100 sm:max-w-2xl">
                     <DialogHeader>
                         <DialogTitle>{isZh ? "提交部门评审" : "Submit Department Review"}</DialogTitle>
                     </DialogHeader>
                     <div className="space-y-4 py-2">
-                        <div className="rounded-md border border-slate-200 bg-slate-50 px-4 py-3">
-                            <p className="text-sm font-medium text-slate-900">
+                        <div className="rounded-md border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-900/60">
+                            <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
                                 {candidateDetail?.candidate.name || (isZh ? "当前候选人" : "Current candidate")}
                             </p>
-                            <p className="mt-1 text-xs text-slate-500">
+                            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                                 {candidateDetail?.candidate.position_title || candidateDetail?.candidate.screened_position_title || (isZh ? "未分配岗位" : "Unassigned")}
                             </p>
                         </div>
                         <div className="space-y-1.5">
-                            <p className="text-sm font-medium text-slate-700">{isZh ? "评审人" : "Reviewers"}</p>
+                            <p className="text-sm font-medium text-slate-700 dark:text-slate-300">{isZh ? "评审人" : "Reviewers"}</p>
                             <Popover modal open={departmentReviewReviewerPickerOpen} onOpenChange={setDepartmentReviewReviewerPickerOpen}>
                                 <PopoverTrigger asChild>
                                     <button
                                         type="button"
-                                        className="flex min-h-10 w-full items-center justify-between rounded-md border border-slate-200 bg-white px-3 py-2 text-left text-sm text-slate-700 transition hover:border-[#D4D4D4]"
+                                        className="flex min-h-10 w-full items-center justify-between rounded-md border border-slate-200 bg-white px-3 py-2 text-left text-sm text-slate-700 transition hover:border-[#D4D4D4] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:border-slate-600"
                                     >
-                                        <span className={cn("truncate", selectedDepartmentReviewers.length ? "text-slate-900" : "text-slate-400")}>
+                                        <span className={cn("truncate", selectedDepartmentReviewers.length ? "text-slate-900 dark:text-slate-100" : "text-slate-400 dark:text-slate-500")}>
                                             {selectedDepartmentReviewers.length
                                                 ? (isZh ? `已选择 ${selectedDepartmentReviewers.length} 位评审人` : `${selectedDepartmentReviewers.length} reviewers selected`)
                                                 : (isZh ? "请选择用人部门评审人" : "Select hiring reviewers")}
                                         </span>
-                                        <ChevronDown className="h-4 w-4 shrink-0 text-slate-400"/>
+                                        <ChevronDown className="h-4 w-4 shrink-0 text-slate-400 dark:text-slate-500"/>
                                     </button>
                                 </PopoverTrigger>
-                                <PopoverContent align="start" className="z-[10050] w-[var(--radix-popover-trigger-width)] p-0">
-                                    <div className="border-b border-slate-100 p-2">
+                                <PopoverContent align="start" className="z-[10050] w-[var(--radix-popover-trigger-width)] border-slate-200 bg-white p-0 dark:border-slate-800 dark:bg-slate-950">
+                                    <div className="border-b border-slate-100 p-2 dark:border-slate-800">
                                         <div className="relative">
                                             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"/>
                                             <Input
                                                 value={departmentReviewReviewerQuery}
                                                 onChange={(event) => setDepartmentReviewReviewerQuery(event.target.value)}
-                                                className="h-8 rounded-md pl-8"
+                                                className="h-8 rounded-md pl-8 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500"
                                                 placeholder={isZh ? "搜索姓名或账号" : "Search name or account"}
                                             />
                                         </div>
                                     </div>
-                                    <div className="max-h-64 overflow-y-auto p-1">
+                                    <div className={cn("max-h-64 overflow-y-auto p-1", SMOOTH_VERTICAL_SCROLLBAR_CLASS)}>
                                         {departmentReviewReviewerLoading ? (
-                                            <div className="flex items-center justify-center px-3 py-6 text-sm text-slate-500">
+                                            <div className="flex items-center justify-center px-3 py-6 text-sm text-slate-500 dark:text-slate-400">
                                                 <Loader2 className="mr-2 h-4 w-4 animate-spin"/>
                                                 {isZh ? "正在加载评审人..." : "Loading reviewers..."}
                                             </div>
@@ -6088,24 +6088,24 @@ export function CandidatesPage({
                                                         }}
                                                         className={cn(
                                                             "flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm transition",
-                                                            selected ? "bg-[#F5F5F5] text-[#171717]" : "text-slate-700 hover:bg-slate-50",
+                                                            selected ? "bg-[#F5F5F5] text-[#171717] dark:bg-slate-800 dark:text-slate-100" : "text-slate-700 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-900",
                                                         )}
                                                     >
                                                         <span className={cn(
                                                             "flex h-4 w-4 shrink-0 items-center justify-center rounded border",
-                                                            selected ? "border-[#171717] bg-[#171717] text-white" : "border-slate-300 bg-white",
+                                                            selected ? "border-[#171717] bg-[#171717] text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-950" : "border-slate-300 bg-white dark:border-slate-600 dark:bg-slate-900",
                                                         )}>
                                                             {selected ? <Check className="h-3 w-3"/> : null}
                                                         </span>
                                                         <span className="min-w-0 flex-1">
                                                             <span className="block truncate font-medium">{displayName}</span>
-                                                            <span className="block truncate text-xs text-slate-400">{reviewer.user_code} · {reviewer.primary_org_code || "-"}</span>
+                                                            <span className="block truncate text-xs text-slate-400 dark:text-slate-500">{reviewer.user_code} · {reviewer.primary_org_code || "-"}</span>
                                                         </span>
                                                     </button>
                                                 );
                                             })
                                         ) : (
-                                            <div className="px-3 py-6 text-center text-sm text-slate-500">
+                                            <div className="px-3 py-6 text-center text-sm text-slate-500 dark:text-slate-400">
                                                 {isZh ? "暂无可选评审人，请先给账号分配“用人部门评审”角色。" : "No reviewers. Assign the reviewer role first."}
                                             </div>
                                         )}
@@ -6121,7 +6121,7 @@ export function CandidatesPage({
                                                 key={userCode}
                                                 type="button"
                                                 onClick={() => toggleDepartmentReviewer(userCode)}
-                                                className="rounded-md border border-[#E5E5E5] bg-[#F5F5F5] px-2 py-1 text-xs text-[#171717]"
+                                                className="rounded-md border border-[#E5E5E5] bg-[#F5F5F5] px-2 py-1 text-xs text-[#171717] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
                                                 title={isZh ? "点击移除" : "Click to remove"}
                                             >
                                                 {reviewer?.name || reviewer?.display_name || userCode}
@@ -6130,12 +6130,12 @@ export function CandidatesPage({
                                     })}
                                 </div>
                             ) : null}
-                            <p className="text-xs text-slate-500">
+                            <p className="text-xs text-slate-500 dark:text-slate-400">
                                 {isZh ? "只显示已分配“用人部门评审”角色，或具备部门评审处理权限的账号。" : "Only users with reviewer permission are shown."}
                             </p>
                         </div>
                         <div className="space-y-2">
-                            <p className="text-sm font-medium text-slate-700">{isZh ? "可见内容" : "Visible content"}</p>
+                            <p className="text-sm font-medium text-slate-700 dark:text-slate-300">{isZh ? "可见内容" : "Visible content"}</p>
                             <div className="grid gap-2 sm:grid-cols-2">
                                 {[
                                     ["original_resume", isZh ? "原始简历" : "Original resume"],
@@ -6145,9 +6145,10 @@ export function CandidatesPage({
                                     ["interview_feedback", isZh ? "面试评价" : "Interview feedback"],
                                     ["attachments", isZh ? "附加资料" : "Attachments"],
                                 ].map(([value, label]) => (
-                                    <label key={value} className="flex items-center gap-2 rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-700">
+                                    <label key={value} className="flex items-center gap-2 rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-700 dark:border-slate-800 dark:bg-slate-900/50 dark:text-slate-300">
                                         <input
                                             type="checkbox"
+                                            className="accent-[#171717] dark:accent-slate-100"
                                             checked={departmentReviewVisibleSections.includes(value)}
                                             onChange={() => toggleDepartmentReviewSection(value)}
                                         />
@@ -6157,11 +6158,12 @@ export function CandidatesPage({
                             </div>
                         </div>
                         <div className="space-y-1.5">
-                            <p className="text-sm font-medium text-slate-700">{isZh ? "评审说明" : "Review note"}</p>
+                            <p className="text-sm font-medium text-slate-700 dark:text-slate-300">{isZh ? "评审说明" : "Review note"}</p>
                             <Textarea
                                 value={departmentReviewMessage}
                                 onChange={(event) => setDepartmentReviewMessage(event.target.value)}
                                 rows={3}
+                                className="dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500"
                                 placeholder={isZh ? "例如：请重点评估硬件测试经验、项目复杂度和可面试方向" : "e.g. Please focus on relevant experience and interview direction"}
                             />
                         </div>
