@@ -168,7 +168,7 @@ function firstStructuredRecord(value: unknown): Record<string, unknown> | null {
 function CandidateDetailAvatar({name}: {name: string}) {
     const initial = (name || "?").trim().charAt(0) || "?";
     return (
-        <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-sky-100 to-blue-200 text-2xl font-semibold text-blue-700 ring-4 ring-white">
+        <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-[#F5F5F5] to-[#E5E5E5] text-2xl font-semibold text-[#171717] ring-4 ring-white">
             {initial}
         </div>
     );
@@ -344,7 +344,7 @@ function ResumeSection({
     return (
         <section className="border-t border-dashed border-slate-200 pt-5 first:border-t-0 first:pt-0">
             <div className="mb-4 flex items-center gap-2">
-                <span className="h-4 w-1 rounded-full bg-[#1677ff]"/>
+                <span className="h-4 w-1 rounded-full bg-[#171717]"/>
                 <h4 className="text-[15px] font-semibold text-slate-800">{title}</h4>
             </div>
             {children}
@@ -361,7 +361,7 @@ function RailActionButton({
     children: React.ReactNode;
     onClick?: () => void;
     disabled?: boolean;
-    tone?: "primary" | "default" | "danger";
+    tone?: "primary" | "default" | "success" | "warning" | "danger";
 }) {
     return (
         <Button
@@ -372,8 +372,10 @@ function RailActionButton({
             onClick={onClick}
             className={cn(
                 "h-9 rounded-[4px] px-3 text-[14px] font-medium",
-                tone === "primary" && "border-[#243cff] bg-[#243cff] text-white hover:bg-[#1730e8]",
-                tone === "danger" && "border-[#243cff] bg-white text-[#243cff] hover:border-rose-400 hover:bg-rose-50 hover:text-rose-600",
+                tone === "primary" && "border-[#171717] bg-[#171717] text-white hover:bg-[#262626]",
+                tone === "success" && "border-emerald-500 bg-emerald-500 text-white hover:bg-emerald-600",
+                tone === "warning" && "border-amber-200 bg-amber-50 text-amber-700 hover:border-amber-300 hover:bg-amber-100",
+                tone === "danger" && "border-rose-200 bg-white text-rose-600 hover:border-rose-400 hover:bg-rose-50 hover:text-rose-700",
             )}
         >
             {children}
@@ -488,7 +490,7 @@ const CandidateRow = React.memo(function CandidateRow({
                                 <div className="flex min-w-0 items-center gap-2 overflow-hidden">
                                     <HoverRevealText text={candidate.name + (candidate.age ? ` (${candidate.age}${tr.ageSuffix})` : "")} className="font-medium text-slate-900 dark:text-slate-100"/>
                                     {resumeMailSummary ? (
-                                        <Badge className="shrink-0 rounded-full border border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
+                                        <Badge className="shrink-0 rounded-full border border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-900 dark:bg-violet-950/30 dark:text-violet-200">
                                             {tr.resumeSent}
                                         </Badge>
                                     ) : null}
@@ -507,14 +509,14 @@ const CandidateRow = React.memo(function CandidateRow({
                                 {candidate.ai_potential_position ? (
                                     <HoverRevealText
                                         text={`${isZh ? "转岗潜力" : "Potential Transition"}: ${candidate.ai_potential_position}${candidate.ai_potential_reason ? ` · ${candidate.ai_potential_reason}` : ""}`}
-                                        className="mt-1 text-xs text-sky-600 dark:text-sky-300"
+                                        className="mt-1 text-xs text-violet-600 dark:text-violet-300"
                                         tooltipClassName="max-w-md"
                                     />
                                 ) : null}
                                 {resumeMailSummary ? (
                                     <HoverRevealText
                                         text={resumeMailSummary}
-                                        className="mt-1 text-xs text-sky-600 dark:text-slate-300"
+                                        className="mt-1 text-xs text-violet-600 dark:text-slate-300"
                                         tooltipClassName="max-w-sm"
                                     />
                                 ) : null}
@@ -558,7 +560,7 @@ const CandidateRow = React.memo(function CandidateRow({
                                 {aiPositionLabel ? (
                                     <HoverRevealText
                                         text={`${isZh ? "AI 建议" : "AI Suggestion"}: ${aiPositionLabel}`}
-                                        className="mt-1 text-xs text-sky-600 dark:text-sky-300"
+                                        className="mt-1 text-xs text-violet-600 dark:text-violet-300"
                                         tooltipClassName="max-w-sm"
                                     />
                                 ) : null}
@@ -782,7 +784,7 @@ const CandidateApplicantCard = React.memo(function CandidateApplicantCard({
     const fitClassName = cn(
         "rounded px-2 py-0.5 text-xs font-medium",
         displayStatus === "screening_running"
-            ? "bg-blue-50 text-blue-700 dark:bg-blue-950/30 dark:text-blue-200"
+            ? "bg-[#F5F5F5] text-[#171717] dark:bg-neutral-900/30 dark:text-neutral-200"
             : displayStatus === "pending_screening"
                 ? "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200"
                 : displayStatus === "screening_rejected" || displayStatus === "interview_rejected"
@@ -812,7 +814,7 @@ const CandidateApplicantCard = React.memo(function CandidateApplicantCard({
                 height: rowHeight,
                 transform: `translateY(${rowStart}px)`,
             }}
-            className="px-0 pb-3"
+            className="px-0 pb-3.5"
         >
             <div
                 role="button"
@@ -825,13 +827,13 @@ const CandidateApplicantCard = React.memo(function CandidateApplicantCard({
                     }
                 }}
                 className={cn(
-                    "flex h-full w-full min-w-0 flex-col rounded-md border bg-white px-3.5 pb-3.5 pt-2.5 text-left shadow-none transition dark:bg-slate-950",
-                    "border-[#dfe6f2] hover:border-[#b8c7ff] hover:bg-[#f7f9ff] dark:border-slate-800 dark:hover:border-slate-600 dark:hover:bg-slate-900/70",
-                    isSelected && "border-[#8ea7ff] bg-[#f0f4ff] dark:border-slate-500 dark:bg-slate-900",
+                    "flex h-full w-full min-w-0 flex-col rounded-md border bg-white px-4 pb-4 pt-3 text-left shadow-none transition dark:bg-slate-950",
+                    "border-[#e5e5e5] hover:border-[#d4d4d4] hover:bg-[#fafafa] dark:border-slate-800 dark:hover:border-slate-600 dark:hover:bg-slate-900/70",
+                    isSelected && "border-[#171717] bg-[#f5f5f5] dark:border-slate-500 dark:bg-slate-900",
                 )}
             >
-                <div className="flex min-w-0 items-start gap-3">
-                    <div className="pt-1" onClick={(event) => event.stopPropagation()}>
+                <div className="flex min-w-0 items-start gap-3.5">
+                    <div className="pt-1.5" onClick={(event) => event.stopPropagation()}>
                         <input
                             type="checkbox"
                             checked={isChecked}
@@ -840,17 +842,17 @@ const CandidateApplicantCard = React.memo(function CandidateApplicantCard({
                         />
                     </div>
                     <div className="min-w-0 flex-1">
-                        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5">
                             <span className="h-1.5 w-1.5 rounded-full bg-lime-500"/>
-                            <span className="truncate text-base font-semibold text-slate-950 dark:text-slate-50">{candidate.name}</span>
-                            {profileText ? <span className="truncate text-sm text-slate-500 dark:text-slate-400">{profileText}</span> : null}
+                            <span className="truncate text-[15px] font-semibold leading-5 text-slate-950 dark:text-slate-50">{candidate.name}</span>
+                            {profileText ? <span className="truncate text-sm leading-5 text-slate-500 dark:text-slate-400">{profileText}</span> : null}
                             {resumeMailSummary ? (
-                                <Badge className="rounded border border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
+                                <Badge className="rounded border border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-900 dark:bg-violet-950/30 dark:text-violet-200">
                                     {tr.resumeSent}
                                 </Badge>
                             ) : null}
                         </div>
-                        <div className="mt-1.5 space-y-1 text-xs leading-5 text-slate-600 dark:text-slate-300">
+                        <div className="mt-2 space-y-1 text-xs leading-5 text-slate-600 dark:text-slate-300">
                             {experienceLines.length ? experienceLines.map((line) => (
                                 <p key={line} className="line-clamp-1">
                                     <span className="mr-1 text-slate-400">◆</span>{line}
@@ -859,24 +861,24 @@ const CandidateApplicantCard = React.memo(function CandidateApplicantCard({
                                 <p className="text-slate-400 dark:text-slate-500">{contactText}</p>
                             )}
                         </div>
-                        <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-1.5">
+                        <div className="mt-2 flex min-w-0 flex-wrap items-center gap-1.5">
                             {topTags.map((tag) => (
                                 <span key={tag} className="rounded border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200">
                                     {tag}
                                 </span>
                             ))}
                             {aiPositionLabel ? (
-                                <span className="max-w-[280px] truncate rounded border border-sky-200 bg-sky-50 px-2 py-0.5 text-xs text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
+                                <span className="max-w-[280px] truncate rounded border border-violet-200 bg-violet-50 px-2 py-0.5 text-xs text-violet-700 dark:border-violet-900 dark:bg-violet-950/30 dark:text-violet-200">
                                     AI：{aiPositionLabel}
                                 </span>
                             ) : null}
                             {candidate.ai_potential_position ? (
-                                <span className="rounded border border-sky-200 bg-sky-50 px-2 py-0.5 text-xs text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
+                                <span className="rounded border border-violet-200 bg-violet-50 px-2 py-0.5 text-xs text-violet-700 dark:border-violet-900 dark:bg-violet-950/30 dark:text-violet-200">
                                     {isZh ? "转岗" : "Potential"}：{candidate.ai_potential_position}
                                 </span>
                             ) : null}
                         </div>
-                        <div className="mt-1.5 flex min-w-0 items-center gap-2">
+                        <div className="mt-2 flex min-w-0 items-center gap-2">
                             <span className={fitClassName}>{fitLabel}</span>
                             <p className="line-clamp-1 text-sm text-slate-600 dark:text-slate-300">
                                 {candidate.display_status_reason
@@ -890,15 +892,15 @@ const CandidateApplicantCard = React.memo(function CandidateApplicantCard({
                             </p>
                         </div>
                     </div>
-                    <div className="hidden w-[250px] shrink-0 flex-col items-end gap-1 text-right md:flex">
+                    <div className="hidden w-[250px] shrink-0 flex-col items-end gap-1 pt-1 text-right md:flex">
                         <div className="min-w-0 space-y-0.5 text-xs text-slate-600 dark:text-slate-300">
-                            <p className="truncate font-medium text-blue-700 dark:text-blue-300">{positionLabel}</p>
+                            <p className="truncate font-medium text-[#171717] dark:text-neutral-300">{positionLabel}</p>
                             <p className="truncate">{candidate.source || "-"} · {formatDateTime(candidate.updated_at)}</p>
                             <p className="truncate">{isZh ? "业务筛选" : "Business Screening"}：{labelForCandidateStatus(displayStatus)}</p>
                         </div>
                     </div>
                 </div>
-                <div className="mt-auto flex min-w-0 flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-2.5 dark:border-slate-800">
+                <div className="mt-3 flex min-w-0 flex-wrap items-center justify-between gap-3 border-t border-slate-100 pb-2 pt-2.5 dark:border-slate-800">
                     <div className="flex min-w-0 flex-wrap items-center gap-1.5 text-xs text-slate-500">
                         <Badge variant="outline" className="h-6 rounded px-2">
                             {tr.matchBadge} {formatPercent(matchPercent)}
@@ -910,20 +912,20 @@ const CandidateApplicantCard = React.memo(function CandidateApplicantCard({
                             {positionLabel} · {candidate.source || "-"} · {formatDateTime(candidate.updated_at)}
                         </span>
                     </div>
-                    <div className="flex shrink-0 flex-wrap justify-end gap-1.5" onClick={(event) => event.stopPropagation()}>
-                        <Button size="sm" variant="outline" className="h-7 rounded px-2 text-xs" onClick={openDetail}>
+                    <div className="flex shrink-0 flex-wrap justify-end gap-2" onClick={(event) => event.stopPropagation()}>
+                        <Button size="sm" variant="outline" className="h-7 rounded-md border-slate-200 bg-white px-2.5 text-xs text-slate-700 hover:bg-slate-50" onClick={openDetail}>
                             <Eye className="h-3.5 w-3.5"/>
                             {isZh ? "详情" : "Details"}
                         </Button>
-                        <Button size="sm" variant="outline" className="h-7 rounded px-2 text-xs text-emerald-700 hover:bg-emerald-50 dark:text-emerald-300" onClick={() => onDisposition(candidate.id, "pass")}>
+                        <Button size="sm" className="h-7 rounded-md bg-emerald-600 px-2.5 text-xs text-white shadow-none hover:bg-emerald-700" onClick={() => onDisposition(candidate.id, "pass")}>
                             <Check className="h-3.5 w-3.5"/>
                             {tr.quickDispositionPass}
                         </Button>
-                        <Button size="sm" variant="outline" className="h-7 rounded px-2 text-xs" onClick={() => onDisposition(candidate.id, "talent_pool")}>
+                        <Button size="sm" variant="outline" className="h-7 rounded-md border-slate-200 bg-white px-2.5 text-xs text-slate-700 hover:bg-slate-50" onClick={() => onDisposition(candidate.id, "talent_pool")}>
                             <Users className="h-3.5 w-3.5"/>
                             {tr.quickDispositionTalentPool}
                         </Button>
-                        <Button size="sm" variant="outline" className="h-7 rounded px-2 text-xs text-rose-600 hover:bg-rose-50 dark:text-rose-300" onClick={() => onDisposition(candidate.id, "reject")}>
+                        <Button size="sm" variant="outline" className="h-7 rounded-md border-rose-200 bg-white px-2.5 text-xs text-rose-600 hover:bg-rose-50 dark:text-rose-300" onClick={() => onDisposition(candidate.id, "reject")}>
                             <Trash2 className="h-3.5 w-3.5"/>
                             {tr.quickDispositionReject}
                         </Button>
@@ -1027,7 +1029,7 @@ const CandidateBoardColumn = React.memo(function CandidateBoardColumn({
                                                     {candidate.name}
                                                 </p>
                                                 {mailSummary ? (
-                                                    <Badge className="rounded-full border border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
+                                                    <Badge className="rounded-full border border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-900 dark:bg-violet-950/30 dark:text-violet-200">
                                                         {tr.resumeSent}
                                                     </Badge>
                                                 ) : null}
@@ -1089,7 +1091,7 @@ function CandidatePipelineBar({
                     className={cn(
                         "min-w-0 border-r border-slate-100 px-3 py-2 text-left transition last:border-r-0 dark:border-slate-800",
                         stage.active
-                            ? "bg-white text-blue-700 shadow-[inset_0_-2px_0_#2563eb] dark:bg-slate-950 dark:text-blue-300"
+                            ? "bg-white text-[#171717] shadow-[inset_0_-2px_0_#171717] dark:bg-slate-950 dark:text-neutral-300"
                             : "bg-white text-slate-700 hover:bg-slate-50 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-900",
                     )}
                 >
@@ -1100,7 +1102,7 @@ function CandidatePipelineBar({
                     <p
                         className={cn(
                             "mt-1 truncate text-xs",
-                            stage.active ? "text-blue-600/80 dark:text-blue-200/80" : "text-slate-500 dark:text-slate-400",
+                            stage.active ? "text-[#171717]/80 dark:text-neutral-200/80" : "text-slate-500 dark:text-slate-400",
                         )}
                     >
                         {stage.hint}
@@ -1147,12 +1149,12 @@ function CandidatePositionScopeSidebar({
 
     return (
         <aside className="hidden min-h-0 xl:block">
-            <div className="flex h-full min-h-0 flex-col rounded-md border border-[#e5eaf3] bg-white shadow-none dark:border-slate-800 dark:bg-slate-950">
-                <div className="border-b border-[#e5eaf3] px-4 py-3 dark:border-slate-800">
-                    <p className="text-sm font-semibold text-slate-950 dark:text-slate-50">
+            <div className="flex h-full min-h-0 flex-col rounded-md border border-[#e5e5e5] bg-white shadow-none dark:border-slate-800 dark:bg-slate-950">
+                <div className="border-b border-[#e5e5e5] px-4 py-3.5 dark:border-slate-800">
+                    <p className="text-sm font-semibold leading-5 text-slate-950 dark:text-slate-50">
                         {isZh ? "招聘中职位" : "Open Positions"}
                     </p>
-                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                    <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">
                         {isZh ? `共 ${recruitingCount || positions.length} 个职位` : `${recruitingCount || positions.length} positions`}
                     </p>
                     <SearchField
@@ -1162,24 +1164,24 @@ function CandidatePositionScopeSidebar({
                         inputClassName="mt-3 h-8 text-sm"
                     />
                 </div>
-                <div className="border-b border-[#e5eaf3] p-2 dark:border-slate-800">
+                <div className="border-b border-[#e5e5e5] p-2.5 dark:border-slate-800">
                     <button
                         type="button"
                         onClick={() => onSelectPosition("")}
                         className={cn(
-                            "flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-sm transition",
+                            "flex min-h-10 w-full items-center justify-between rounded-md px-3 py-2.5 text-left text-sm leading-5 transition",
                             !activePositionId
-                                ? "bg-[#2454ff] text-white"
+                                ? "bg-[#F5F5F5] text-[#171717]"
                                 : "text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-900",
                         )}
                     >
                         <span>{isZh ? "全部职位" : "All Positions"}</span>
-                        <span className={cn("text-xs", !activePositionId ? "text-white/80" : "text-slate-400")}>
+                        <span className={cn("text-xs", !activePositionId ? "text-[#171717]/70" : "text-slate-400")}>
                             {allPositionCandidateCount}
                         </span>
                     </button>
                 </div>
-                <div className={cn("min-h-0 flex-1 overflow-y-auto p-2", SMOOTH_VERTICAL_SCROLLBAR_CLASS)}>
+                <div className={cn("min-h-0 flex-1 overflow-y-auto p-2.5", SMOOTH_VERTICAL_SCROLLBAR_CLASS)}>
                     {filteredPositions.length ? filteredPositions.map((position) => {
                         const positionId = String(position.id);
                         const active = activePositionId === positionId;
@@ -1189,19 +1191,19 @@ function CandidatePositionScopeSidebar({
                                 type="button"
                                 onClick={() => onSelectPosition(positionId)}
                                 className={cn(
-                                    "mb-1 flex w-full min-w-0 items-start justify-between gap-3 rounded-md px-3 py-2 text-left text-sm transition",
+                                    "mb-1.5 flex w-full min-w-0 items-start justify-between gap-3 rounded-md px-3 py-2.5 text-left text-sm leading-5 transition",
                                     active
-                                        ? "bg-[#eef3ff] text-[#1d4ed8] dark:bg-slate-900 dark:text-blue-300"
+                                        ? "bg-[#F5F5F5] text-[#171717] dark:bg-slate-900 dark:text-neutral-300"
                                         : "text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-900",
                                 )}
                             >
                                 <span className="min-w-0">
-                                    <span className="block truncate font-medium">{position.title}</span>
-                                    <span className="mt-0.5 block truncate text-xs text-slate-400">
+                                    <span className="block truncate font-medium leading-5">{position.title}</span>
+                                    <span className="mt-1 block truncate text-xs leading-4 text-slate-400">
                                         {[position.department, position.location].filter(Boolean).join(" · ") || tr.unassignedPosition}
                                     </span>
                                 </span>
-                                <span className="shrink-0 text-xs text-slate-400">{position.candidate_count || 0}</span>
+                                <span className="mt-0.5 shrink-0 text-xs leading-5 text-slate-400">{position.candidate_count || 0}</span>
                             </button>
                         );
                     }) : (
@@ -2085,7 +2087,7 @@ function MultiSelect({ options, selected, onChange, placeholder, selectedLabel }
                             type="checkbox"
                             checked={selected.includes(option.value)}
                             onChange={() => toggleValue(option.value)}
-                            className="h-3.5 w-3.5 shrink-0 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                            className="h-3.5 w-3.5 shrink-0 rounded border-slate-300 text-[#171717] focus:ring-[#171717]"
                         />
                         <span className="block min-w-0 flex-1 truncate" title={option.label}>
                             {option.label}
@@ -2096,7 +2098,7 @@ function MultiSelect({ options, selected, onChange, placeholder, selectedLabel }
             <div className="flex justify-end border-t border-slate-100 bg-slate-50/70 px-3 py-2 dark:border-slate-800 dark:bg-slate-900/60">
                 <button
                     type="button"
-                    className="rounded-md bg-blue-600 px-4 py-1.5 text-xs font-medium text-white transition hover:bg-blue-700"
+                    className="rounded-md bg-[#171717] px-4 py-1.5 text-xs font-medium text-white transition hover:bg-[#262626]"
                     onClick={() => setOpen(false)}
                 >
                     {isZh ? "确定" : "OK"}
@@ -2262,7 +2264,7 @@ function CandidateFilterBar({
                             type="button"
                             variant="ghost"
                             size="sm"
-                            className="h-8 px-2 text-xs text-blue-600 hover:bg-blue-50 hover:text-blue-700 disabled:text-slate-300 dark:hover:bg-blue-950/30"
+                            className="h-8 px-2 text-xs text-[#171717] hover:bg-[#F5F5F5] hover:text-[#171717] disabled:text-slate-300 dark:hover:bg-neutral-900/30"
                             onClick={resetFilters}
                             disabled={!hasActiveFilters}
                         >
@@ -2570,12 +2572,6 @@ export function CandidatesPage({
     const {language} = useI18n();
     const isZh = language !== "en-US";
     const tr = React.useMemo(() => getCandidatesLocale(language), [language]);
-    const activeQuickStatus = candidateStatusFilter[0] || "";
-    const activeQuickScreeningStatus = (
-        activeQuickStatus === "screening_passed" || activeQuickStatus === "screening_rejected"
-            ? activeQuickStatus
-            : ""
-    );
     const activeQuickPosition = candidatePositionFilter[0] || "";
     const exportFieldOptions = React.useMemo(() => ([
         { key: "name", label: isZh ? "姓名" : "Name", defaultChecked: true },
@@ -3748,7 +3744,7 @@ export function CandidatesPage({
                         tr={tr}
                         isZh={isZh}
                     />
-                <Card className="h-full !gap-0 overflow-hidden rounded-md border border-[#e5eaf3] bg-white !py-0 shadow-none dark:border-slate-800 dark:bg-slate-950">
+                <Card className="h-full !gap-0 overflow-hidden rounded-md border border-[#e5e5e5] bg-white !py-0 shadow-none dark:border-slate-800 dark:bg-slate-950">
                     <CardHeader className="px-4 pt-2 pb-0 sm:px-5">
                         <CandidatePipelineBar
                             stages={candidatePipelineStages}
@@ -3758,7 +3754,7 @@ export function CandidatesPage({
                             className={cn(
                                 "mt-1.5 flex items-center gap-2 border-t border-slate-100 py-1.5 dark:border-slate-800",
                                 selectedCandidateIds.length > 0
-                                    ? "overflow-hidden rounded-md bg-blue-50/50 px-2 dark:bg-blue-950/20"
+                                    ? "overflow-hidden rounded-md bg-[#F5F5F5]/50 px-2 dark:bg-neutral-900/20"
                                     : "flex-wrap justify-between",
                             )}
                         >
@@ -3774,7 +3770,7 @@ export function CandidatesPage({
                                             <input
                                                 ref={visibleSelectAllCheckboxRef}
                                                 type="checkbox"
-                                                className="h-3.5 w-3.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                                                className="h-3.5 w-3.5 rounded border-slate-300 text-[#171717] focus:ring-[#171717]"
                                                 checked={allVisibleCandidatesSelected}
                                                 disabled={!visibleCandidateIds.length}
                                                 aria-checked={someVisibleCandidatesSelected ? "mixed" : allVisibleCandidatesSelected}
@@ -3785,7 +3781,7 @@ export function CandidatesPage({
                                                 {allVisibleCandidatesSelected ? tr.unselectVisibleCandidates : tr.selectVisibleCandidates}
                                             </span>
                                         </label>
-                                        <span className="inline-flex h-7 shrink-0 items-center rounded-md border border-blue-200 bg-white px-2.5 text-xs font-medium text-blue-700 dark:border-blue-900/70 dark:bg-slate-950 dark:text-blue-300">
+                                        <span className="inline-flex h-7 shrink-0 items-center rounded-md border border-[#D4D4D4] bg-white px-2.5 text-xs font-medium text-[#171717] dark:border-neutral-800/70 dark:bg-slate-950 dark:text-neutral-300">
                                             {tr.selectedCandidates(selectedCandidateIds.length)}
                                         </span>
                                         <Button
@@ -3921,7 +3917,7 @@ export function CandidatesPage({
                                                 <input
                                                     ref={visibleSelectAllCheckboxRef}
                                                     type="checkbox"
-                                                    className="h-3.5 w-3.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                                                    className="h-3.5 w-3.5 rounded border-slate-300 text-[#171717] focus:ring-[#171717]"
                                                     checked={allVisibleCandidatesSelected}
                                                     disabled={!visibleCandidateIds.length}
                                                     aria-checked={someVisibleCandidatesSelected ? "mixed" : allVisibleCandidatesSelected}
@@ -3956,24 +3952,7 @@ export function CandidatesPage({
                                             </Button>
                                         ) : null}
                                     </div>
-                                    <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-3">
-                                        <NativeSelect
-                                            value={activeQuickScreeningStatus || "__all__"}
-                                            title={
-                                                activeQuickScreeningStatus
-                                                    ? (candidateStatusLabels[activeQuickScreeningStatus] || activeQuickScreeningStatus)
-                                                    : (isZh ? "初筛状态" : "Screening Status")
-                                            }
-                                            onChange={(event) => {
-                                                const nextValue = event.target.value;
-                                                setCandidateStatusFilter(nextValue === "__all__" ? [] : [nextValue]);
-                                            }}
-                                            className="h-7 w-[112px] rounded-md border-slate-200 bg-slate-50/60 px-2 py-0 pr-6 text-xs text-slate-700 shadow-none focus-visible:ring-1 dark:border-slate-800 dark:bg-slate-900/50 dark:text-slate-200"
-                                        >
-                                            <option value="__all__">{isZh ? "初筛状态" : "Screening"}</option>
-                                            <option value="screening_passed">{candidateStatusLabels.screening_passed || (isZh ? "初筛通过" : "Screening Passed")}</option>
-                                            <option value="screening_rejected">{candidateStatusLabels.screening_rejected || (isZh ? "初筛淘汰" : "Screening Rejected")}</option>
-                                        </NativeSelect>
+                                    <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2">
                                         <div className="w-[150px] max-w-[150px] min-w-0 shrink-0">
                                             <NativeSelect
                                                 value={activeQuickPosition || "__all__"}
@@ -3986,7 +3965,7 @@ export function CandidatesPage({
                                                     const nextValue = event.target.value;
                                                     setCandidatePositionFilter(nextValue === "__all__" ? [] : [nextValue]);
                                                 }}
-                                                className="h-7 w-full max-w-full truncate rounded-md border-transparent bg-transparent px-0 py-0 pr-5 text-xs text-slate-700 shadow-none hover:text-slate-950 focus-visible:ring-0 dark:bg-transparent dark:text-slate-300 dark:hover:text-slate-100"
+                                                className="h-7 w-full max-w-full truncate rounded-md border-slate-200 bg-white px-2 py-0 pr-6 text-xs text-slate-700 shadow-none hover:border-slate-300 hover:text-slate-950 focus-visible:ring-1 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300 dark:hover:text-slate-100"
                                             >
                                                 <option value="__all__">{tr.allPositions}</option>
                                                 {positions.map((position) => (
@@ -3999,7 +3978,7 @@ export function CandidatesPage({
                                         <Button
                                             size="sm"
                                             variant="ghost"
-                                            className="h-7 rounded-md px-1.5 text-xs font-normal text-slate-700 hover:bg-slate-50 hover:text-slate-950 dark:text-slate-300 dark:hover:bg-slate-900 dark:hover:text-slate-100"
+                                            className="h-7 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-normal text-slate-700 shadow-none hover:bg-slate-50 hover:text-slate-950 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300 dark:hover:bg-slate-900 dark:hover:text-slate-100"
                                             onClick={() => setCandidateFilterBarExpanded((current) => !current)}
                                         >
                                             <SlidersHorizontal className="h-3.5 w-3.5"/>
@@ -4057,17 +4036,17 @@ export function CandidatesPage({
                                             })}
                                         </div>
                                     </div>
-                                    <div className="shrink-0 border-t border-slate-200/80 pt-2 dark:border-slate-800">
-                                        <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-slate-500 dark:text-slate-400">
+                                    <div className="shrink-0 border-t border-slate-200/80 pt-3 dark:border-slate-800">
+                                        <div className="flex flex-wrap items-center justify-between gap-4 text-sm text-slate-500 dark:text-slate-400">
                                             <span>
                                                 {tr.candidatePageRange(candidatePageStart, candidatePageEnd, candidateTotal)}
                                             </span>
-                                            <div className="flex flex-wrap items-center gap-1.5">
+                                            <div className="flex flex-wrap items-center gap-2.5">
                                                 <NativeSelect
                                                     value={String(candidatePageSize)}
                                                     title={tr.rowsPerPage}
                                                     onChange={(event) => setCandidatePageSize(Number(event.target.value))}
-                                                    className="h-8 w-[118px] shrink-0 rounded-md bg-white pr-8 text-sm dark:bg-slate-950"
+                                                    className="h-8 w-[118px] shrink-0 rounded-md border-slate-200 bg-white pr-8 text-sm shadow-none dark:border-slate-800 dark:bg-slate-950"
                                                 >
                                                     {candidatePageSizeOptions.map((option) => (
                                                         <option key={option} value={option}>{option}{tr.rowsPerPage}</option>
@@ -4130,14 +4109,14 @@ export function CandidatesPage({
                                         ))}
                                     </div>
                                 </div>
-                                <div className="mt-2 flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-slate-200/80 pt-2 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
+                                <div className="mt-3 flex shrink-0 flex-wrap items-center justify-between gap-4 border-t border-slate-200/80 pt-3 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
                                     <span>{tr.candidatePageRange(candidatePageStart, candidatePageEnd, candidateTotal)}</span>
-                                    <div className="flex flex-wrap items-center gap-1.5">
+                                    <div className="flex flex-wrap items-center gap-2.5">
                                         <NativeSelect
                                             value={String(candidatePageSize)}
                                             title={tr.rowsPerPage}
                                             onChange={(event) => setCandidatePageSize(Number(event.target.value))}
-                                            className="h-8 w-[118px] shrink-0 rounded-md bg-white pr-8 text-sm dark:bg-slate-950"
+                                            className="h-8 w-[118px] shrink-0 rounded-md border-slate-200 bg-white pr-8 text-sm shadow-none dark:border-slate-800 dark:bg-slate-950"
                                         >
                                             {candidatePageSizeOptions.map((option) => (
                                                 <option key={option} value={option}>{option}{tr.rowsPerPage}</option>
@@ -4269,7 +4248,7 @@ export function CandidatesPage({
                                                     {candidateDetail.candidate.position_title || candidateDetail.candidate.ai_match_position_title || tr.unassignedPosition}
                                                 </Badge>
                                                 {selectedCandidateResumeMailSummary ? (
-                                                    <Badge variant="outline" className="h-6 rounded-[3px] border-sky-200 bg-sky-50 px-2 text-[12px] text-sky-700">
+                                                    <Badge variant="outline" className="h-6 rounded-[3px] border-violet-200 bg-violet-50 px-2 text-[12px] text-violet-700">
                                                         {selectedCandidateResumeMailSummary}
                                                     </Badge>
                                                 ) : null}
@@ -4280,8 +4259,8 @@ export function CandidatesPage({
                                             </div>
                                             {candidateDetailPositionInsightVisible ? (
                                                 <div className="mt-3 grid gap-2 text-[12px] text-slate-600 lg:grid-cols-2">
-                                                    <div className="min-w-0 rounded-[4px] border border-sky-100 bg-sky-50/70 px-3 py-2">
-                                                        <div className="mb-1 flex items-center gap-1.5 font-medium text-sky-700">
+                                                    <div className="min-w-0 rounded-[4px] border border-violet-100 bg-violet-50/70 px-3 py-2">
+                                                        <div className="mb-1 flex items-center gap-1.5 font-medium text-violet-700">
                                                             <Sparkles className="h-3.5 w-3.5"/>
                                                             {isZh ? "AI 推荐" : "AI Recommendation"}
                                                         </div>
@@ -4297,8 +4276,8 @@ export function CandidatesPage({
                                                             </p>
                                                         ) : null}
                                                     </div>
-                                                    <div className="min-w-0 rounded-[4px] border border-indigo-100 bg-indigo-50/60 px-3 py-2">
-                                                        <div className="mb-1 flex items-center gap-1.5 font-medium text-indigo-700">
+                                                    <div className="min-w-0 rounded-[4px] border border-violet-100 bg-violet-50/60 px-3 py-2">
+                                                        <div className="mb-1 flex items-center gap-1.5 font-medium text-violet-700">
                                                             <ArrowRightLeft className="h-3.5 w-3.5"/>
                                                             {isZh ? "转岗建议" : "Transfer Suggestion"}
                                                         </div>
@@ -4341,15 +4320,15 @@ export function CandidatesPage({
                                                 key={tab.key}
                                                 type="button"
                                                 className={cn(
-                                                    "relative h-12 shrink-0 text-[15px] text-slate-700 transition hover:text-[#243cff]",
-                                                    candidateDetailPanel === tab.key && "font-semibold text-[#243cff]",
+                                                    "relative h-12 shrink-0 text-[15px] text-slate-700 transition hover:text-[#171717]",
+                                                    candidateDetailPanel === tab.key && "font-semibold text-[#171717]",
                                                     tab.disabled && "text-slate-400",
                                                 )}
                                                 onClick={() => setCandidateDetailPanel(tab.key)}
                                             >
                                                 {tab.label}
                                                 <span className="ml-1 text-[13px] text-slate-500">{tab.count || 0}</span>
-                                                {candidateDetailPanel === tab.key ? <span className="absolute inset-x-0 bottom-0 h-0.5 bg-[#243cff]"/> : null}
+                                                {candidateDetailPanel === tab.key ? <span className="absolute inset-x-0 bottom-0 h-0.5 bg-[#171717]"/> : null}
                                             </button>
                                         ))}
                                     </div>
@@ -4359,7 +4338,7 @@ export function CandidatesPage({
                                             <Button
                                                 size="sm"
                                                 variant={candidateResumeView === "original" ? "default" : "outline"}
-                                                className={cn("h-8 rounded-[4px] px-3 text-[13px]", candidateResumeView === "original" && "bg-[#243cff] text-white hover:bg-[#1730e8]")}
+                                                className={cn("h-8 rounded-[4px] px-3 text-[13px]", candidateResumeView === "original" && "bg-[#171717] text-white hover:bg-[#262626]")}
                                                 onClick={() => switchCandidateResumeView("original")}
                                             >
                                                 {isZh ? "原始简历" : "Original"}
@@ -4367,7 +4346,7 @@ export function CandidatesPage({
                                             <Button
                                                 size="sm"
                                                 variant={candidateResumeView === "standard" ? "default" : "outline"}
-                                                className={cn("h-8 rounded-[4px] px-3 text-[13px]", candidateResumeView === "standard" && "bg-[#243cff] text-white hover:bg-[#1730e8]")}
+                                                className={cn("h-8 rounded-[4px] px-3 text-[13px]", candidateResumeView === "standard" && "bg-[#171717] text-white hover:bg-[#262626]")}
                                                 onClick={() => switchCandidateResumeView("standard")}
                                             >
                                                 {isZh ? "标准简历" : "Standard"}
@@ -4375,7 +4354,7 @@ export function CandidatesPage({
                                             <Button
                                                 size="sm"
                                                 variant={candidateResumeView === "history" ? "default" : "outline"}
-                                                className={cn("h-8 rounded-[4px] px-3 text-[13px]", candidateResumeView === "history" && "bg-[#243cff] text-white hover:bg-[#1730e8]")}
+                                                className={cn("h-8 rounded-[4px] px-3 text-[13px]", candidateResumeView === "history" && "bg-[#171717] text-white hover:bg-[#262626]")}
                                                 onClick={() => switchCandidateResumeView("history")}
                                             >
                                                 {isZh ? "历史简历" : "History"}
@@ -4530,7 +4509,7 @@ export function CandidatesPage({
                                                 <div className="relative h-[min(70vh,720px)] min-h-[560px] overflow-hidden bg-white">
                                                     {inlineResumePreviewLoading || ((inlineResumePreviewBlob || inlineResumePreviewUrl) && !inlineResumeFrameReady) ? (
                                                         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-white/90 text-slate-500">
-                                                            <Loader2 className="h-8 w-8 animate-spin text-[#243cff]"/>
+                                                            <Loader2 className="h-8 w-8 animate-spin text-[#171717]"/>
                                                             <span className="text-[14px]">{isZh ? "正在加载原始简历..." : "Loading original resume..."}</span>
                                                         </div>
                                                     ) : null}
@@ -4732,7 +4711,7 @@ export function CandidatesPage({
                                                                         key={file.id}
                                                                         className={cn(
                                                                             "flex flex-wrap items-center justify-between gap-3 rounded-[4px] border px-4 py-3",
-                                                                            active ? "border-[#243cff] bg-blue-50/60" : "border-slate-200 bg-white",
+                                                                            active ? "border-[#171717] bg-[#F5F5F5]/60" : "border-slate-200 bg-white",
                                                                         )}
                                                                     >
                                                                         <div className="min-w-0">
@@ -4745,7 +4724,7 @@ export function CandidatesPage({
                                                                             <Button
                                                                                 size="sm"
                                                                                 variant={active ? "default" : "outline"}
-                                                                                className={cn("h-8 rounded-[4px] px-3 text-[13px]", active && "bg-[#243cff] text-white hover:bg-[#1730e8]")}
+                                                                                className={cn("h-8 rounded-[4px] px-3 text-[13px]", active && "bg-[#171717] text-white hover:bg-[#262626]")}
                                                                                 onClick={() => {
                                                                                     setSelectedResumeFileId(file.id);
                                                                                     setCandidateResumeView("original");
@@ -4971,7 +4950,7 @@ export function CandidatesPage({
                                                                         assignment.status === "passed" && "border-emerald-200 bg-emerald-50 text-emerald-700",
                                                                         assignment.status === "rejected" && "border-rose-200 bg-rose-50 text-rose-700",
                                                                         assignment.status === "deferred" && "border-amber-200 bg-amber-50 text-amber-700",
-                                                                        (!assignment.status || assignment.status === "pending") && "border-blue-200 bg-blue-50 text-blue-700",
+                                                                        (!assignment.status || assignment.status === "pending") && "border-[#D4D4D4] bg-[#F5F5F5] text-[#171717]",
                                                                     )}>
                                                                         {assignment.status === "passed"
                                                                             ? (isZh ? "通过" : "Passed")
@@ -5298,7 +5277,7 @@ export function CandidatesPage({
                                                                                 {percent !== null && (
                                                                                     <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
                                                                                         <div
-                                                                                            className={`h-full rounded-full transition-all ${percent >= 80 ? "bg-emerald-500" : percent >= 60 ? "bg-blue-500" : percent >= 40 ? "bg-amber-500" : "bg-rose-500"}`}
+                                                                                            className={`h-full rounded-full transition-all ${percent >= 80 ? "bg-emerald-500" : percent >= 60 ? "bg-[#171717]" : percent >= 40 ? "bg-amber-500" : "bg-rose-500"}`}
                                                                                             style={{width: `${percent}%`}}
                                                                                         />
                                                                                     </div>
@@ -5583,7 +5562,7 @@ export function CandidatesPage({
                                                                         </p>
                                                                     )}
                                                                     {schedule.location && <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{schedule.location}</p>}
-                                                                    {schedule.meeting_link && <p className="mt-0.5 text-xs text-blue-600 dark:text-blue-400 truncate">{schedule.meeting_link}</p>}
+                                                                    {schedule.meeting_link && <p className="mt-0.5 text-xs text-[#171717] dark:text-neutral-400 truncate">{schedule.meeting_link}</p>}
                                                                     {schedule.notes && <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{schedule.notes}</p>}
                                                                 </div>
                                                                 <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-rose-500 hover:text-rose-700" onClick={() => { if (window.confirm(tr.confirmDeleteSchedule)) void deleteInterviewSchedule(schedule.id); }}>
@@ -5614,12 +5593,12 @@ export function CandidatesPage({
                                                             <React.Fragment key={step.status}>
                                                                 <span className={cn(
                                                                     "flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[12px] font-semibold",
-                                                                    isActive || isDone ? "bg-[#243cff] text-white" : "bg-slate-300 text-white",
+                                                                    isActive || isDone ? "bg-[#171717] text-white" : "bg-slate-300 text-white",
                                                                 )}>
                                                                     {index + 1}
                                                                 </span>
                                                                 {index < candidateDetailFlowSteps.length - 1 ? (
-                                                                    <span className={cn("h-px flex-1 border-t border-dashed", index < candidateDetailFlowIndex ? "border-[#243cff]" : "border-slate-300")}/>
+                                                                    <span className={cn("h-px flex-1 border-t border-dashed", index < candidateDetailFlowIndex ? "border-[#171717]" : "border-slate-300")}/>
                                                                 ) : null}
                                                             </React.Fragment>
                                                         );
@@ -5637,7 +5616,7 @@ export function CandidatesPage({
                                                 </div>
                                                 <div className="mt-5 grid gap-2">
                                                     <RailActionButton
-                                                        tone="primary"
+                                                        tone="success"
                                                         onClick={() => void submitCandidateDetailDepartmentReviewDecision("passed")}
                                                         disabled={Boolean(departmentReviewDecisionSubmitting)}
                                                     >
@@ -5645,7 +5624,7 @@ export function CandidatesPage({
                                                         {isZh ? "通过" : "Pass"}
                                                     </RailActionButton>
                                                     <RailActionButton
-                                                        tone="primary"
+                                                        tone="danger"
                                                         onClick={() => void submitCandidateDetailDepartmentReviewDecision("rejected")}
                                                         disabled={Boolean(departmentReviewDecisionSubmitting)}
                                                     >
@@ -5656,9 +5635,9 @@ export function CandidatesPage({
                                             </div>
                                             <div className="rounded-[6px] bg-white px-5 py-4">
                                                 <div className="flex items-center gap-5 border-b border-slate-100">
-                                                    <button type="button" className="relative h-9 text-[15px] font-semibold text-[#243cff]">
+                                                    <button type="button" className="relative h-9 text-[15px] font-semibold text-[#171717]">
                                                         {isZh ? "备注" : "Notes"}
-                                                        <span className="absolute inset-x-0 bottom-0 h-0.5 bg-[#243cff]"/>
+                                                        <span className="absolute inset-x-0 bottom-0 h-0.5 bg-[#171717]"/>
                                                     </button>
                                                 </div>
                                                 <Textarea
@@ -5685,12 +5664,12 @@ export function CandidatesPage({
                                                     <React.Fragment key={step.status}>
                                                         <span className={cn(
                                                             "flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[12px] font-semibold",
-                                                            isActive || isDone ? "bg-[#243cff] text-white" : "bg-slate-300 text-white",
+                                                            isActive || isDone ? "bg-[#171717] text-white" : "bg-slate-300 text-white",
                                                         )}>
                                                             {index + 1}
                                                         </span>
                                                         {index < candidateDetailFlowSteps.length - 1 ? (
-                                                            <span className={cn("h-px flex-1 border-t border-dashed", index < candidateDetailFlowIndex ? "border-[#243cff]" : "border-slate-300")}/>
+                                                            <span className={cn("h-px flex-1 border-t border-dashed", index < candidateDetailFlowIndex ? "border-[#171717]" : "border-slate-300")}/>
                                                         ) : null}
                                                     </React.Fragment>
                                                 );
@@ -5713,13 +5692,13 @@ export function CandidatesPage({
                                                 {screeningSubmitting || candidateDetailScreeningLive ? <Loader2 className="mr-1 h-4 w-4 animate-spin"/> : <Sparkles className="mr-1 h-4 w-4"/>}
                                                 {candidateDetailScreeningActionLabel}
                                             </RailActionButton>
-                                            <RailActionButton tone="primary" onClick={() => void updateCandidateStatus("screening_passed")}>
+                                            <RailActionButton tone="success" onClick={() => void updateCandidateStatus("screening_passed")}>
                                                 {isZh ? "通过" : "Pass"}
                                             </RailActionButton>
-                                            <RailActionButton tone="primary" onClick={() => void updateCandidateStatus("pending_screening")}>
+                                            <RailActionButton tone="warning" onClick={() => void updateCandidateStatus("pending_screening")}>
                                                 {isZh ? "待定" : "Pending"}
                                             </RailActionButton>
-                                            <RailActionButton tone="primary" onClick={() => void updateCandidateStatus("screening_rejected")}>
+                                            <RailActionButton tone="danger" onClick={() => void updateCandidateStatus("screening_rejected")}>
                                                 {isZh ? "淘汰" : "Reject"}
                                             </RailActionButton>
                                         </div>
@@ -5761,7 +5740,7 @@ export function CandidatesPage({
                                                 {isCurrentInterviewTaskCancelling ? tr.stopping : currentCandidateInterviewTaskId ? tr.stopGeneration : tr.interviewQuestions}
                                             </RailActionButton>
                                         </div>
-                                        <button type="button" className="mt-4 w-full text-center text-[13px] font-medium text-[#243cff]">
+                                        <button type="button" className="mt-4 w-full text-center text-[13px] font-medium text-[#171717]">
                                             {isZh ? "操作设置" : "Action Settings"}
                                         </button>
                                     </div>
@@ -5800,19 +5779,19 @@ export function CandidatesPage({
                                                 className={cn(
                                                     "relative h-9 text-[15px] transition",
                                                     candidateDetailSideRailTab === "note"
-                                                        ? "font-semibold text-[#243cff]"
+                                                        ? "font-semibold text-[#171717]"
                                                         : "text-slate-600 hover:text-slate-900",
                                                 )}
                                             >
                                                 {isZh ? "备注" : "Notes"}
-                                                {candidateDetailSideRailTab === "note" ? <span className="absolute inset-x-0 bottom-0 h-0.5 bg-[#243cff]"/> : null}
+                                                {candidateDetailSideRailTab === "note" ? <span className="absolute inset-x-0 bottom-0 h-0.5 bg-[#171717]"/> : null}
                                             </button>
                                             <button
                                                 type="button"
                                                 className={cn(
                                                     "relative h-9 text-[15px] transition",
                                                     candidateDetailSideRailTab === "followups"
-                                                        ? "font-semibold text-[#243cff]"
+                                                        ? "font-semibold text-[#171717]"
                                                         : "text-slate-600 hover:text-slate-900",
                                                 )}
                                                 onClick={() => {
@@ -5821,7 +5800,7 @@ export function CandidatesPage({
                                                 }}
                                             >
                                                 {isZh ? "我的跟进" : "Follow-ups"}
-                                                {candidateDetailSideRailTab === "followups" ? <span className="absolute inset-x-0 bottom-0 h-0.5 bg-[#243cff]"/> : null}
+                                                {candidateDetailSideRailTab === "followups" ? <span className="absolute inset-x-0 bottom-0 h-0.5 bg-[#171717]"/> : null}
                                             </button>
                                         </div>
                                         {candidateDetailSideRailTab === "note" ? (
@@ -5862,7 +5841,7 @@ export function CandidatesPage({
                                                         return (
                                                             <div key={followUp.id} className="rounded-[6px] border border-slate-100 bg-slate-50 px-3 py-2">
                                                                 <div className="flex items-center justify-between gap-2">
-                                                                    <span className="text-[12px] font-medium text-[#243cff]">
+                                                                    <span className="text-[12px] font-medium text-[#171717]">
                                                                         {typeLabels[followUp.follow_up_type] || followUp.follow_up_type}
                                                                     </span>
                                                                     {followUp.created_at ? <span className="shrink-0 text-[12px] text-slate-400">{formatDateTime(followUp.created_at)}</span> : null}
@@ -5919,7 +5898,7 @@ export function CandidatesPage({
                                                             {candidate.position_title || tr.unassignedPosition} · {labelForCandidateStatus(resolveCandidateDisplayStatus(candidate))} · {tr.matchBadge} {formatPercent(resolveCandidateSummaryMatchPercent(candidate))}
                                                         </p>
                                                         {candidate.ai_potential_position ? (
-                                                            <p className="mt-1 text-xs text-sky-600 dark:text-sky-300">
+                                                            <p className="mt-1 text-xs text-violet-600 dark:text-violet-300">
                                                                 {`${isZh ? "转岗潜力" : "Potential Transition"}：${candidate.ai_potential_position}`}
                                                             </p>
                                                         ) : null}
@@ -5971,7 +5950,7 @@ export function CandidatesPage({
                                 <PopoverTrigger asChild>
                                     <button
                                         type="button"
-                                        className="flex min-h-10 w-full items-center justify-between rounded-md border border-slate-200 bg-white px-3 py-2 text-left text-sm text-slate-700 transition hover:border-blue-300"
+                                        className="flex min-h-10 w-full items-center justify-between rounded-md border border-slate-200 bg-white px-3 py-2 text-left text-sm text-slate-700 transition hover:border-[#D4D4D4]"
                                     >
                                         <span className={cn("truncate", selectedDepartmentReviewers.length ? "text-slate-900" : "text-slate-400")}>
                                             {selectedDepartmentReviewers.length
@@ -6015,12 +5994,12 @@ export function CandidatesPage({
                                                         }}
                                                         className={cn(
                                                             "flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm transition",
-                                                            selected ? "bg-blue-50 text-blue-700" : "text-slate-700 hover:bg-slate-50",
+                                                            selected ? "bg-[#F5F5F5] text-[#171717]" : "text-slate-700 hover:bg-slate-50",
                                                         )}
                                                     >
                                                         <span className={cn(
                                                             "flex h-4 w-4 shrink-0 items-center justify-center rounded border",
-                                                            selected ? "border-blue-600 bg-blue-600 text-white" : "border-slate-300 bg-white",
+                                                            selected ? "border-[#171717] bg-[#171717] text-white" : "border-slate-300 bg-white",
                                                         )}>
                                                             {selected ? <Check className="h-3 w-3"/> : null}
                                                         </span>
@@ -6048,7 +6027,7 @@ export function CandidatesPage({
                                                 key={userCode}
                                                 type="button"
                                                 onClick={() => toggleDepartmentReviewer(userCode)}
-                                                className="rounded-md border border-blue-100 bg-blue-50 px-2 py-1 text-xs text-blue-700"
+                                                className="rounded-md border border-[#E5E5E5] bg-[#F5F5F5] px-2 py-1 text-xs text-[#171717]"
                                                 title={isZh ? "点击移除" : "Click to remove"}
                                             >
                                                 {reviewer?.name || reviewer?.display_name || userCode}

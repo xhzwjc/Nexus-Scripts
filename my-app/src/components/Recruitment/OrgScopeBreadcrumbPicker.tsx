@@ -175,7 +175,7 @@ const ORG_TYPE_LABELS: Record<string, string> = {
 const ORG_TYPE_COLORS: Record<string, string> = {
     group: 'text-amber-500',
     sub_group: 'text-orange-400',
-    company: 'text-blue-500',
+    company: 'text-neutral-500',
     department: 'text-slate-400',
 };
 

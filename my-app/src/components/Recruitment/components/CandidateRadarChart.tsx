@@ -155,7 +155,7 @@ function AggregatedRadar({ dimensions, radarScores, isZh, uiText }: { dimensions
                     <div className="bg-white p-3 shadow-xl border rounded-lg text-xs dark:bg-slate-950 max-w-[280px]">
                       <p className="font-bold mb-1">{data.fullLabel}</p>
                       <div className="mb-1">
-                        {isZh ? "得分" : "Score"}: <span className="text-blue-600 font-mono">{data.rawScore}/{data.rawMax}</span>
+                        {isZh ? "得分" : "Score"}: <span className="text-neutral-700 font-mono">{data.rawScore}/{data.rawMax}</span>
                       </div>
                       {data.reason && <p className="text-slate-600 mt-1">{data.reason}</p>}
                       {data.evidence && <p className="text-slate-400 mt-1 italic">"{data.evidence}"</p>}
@@ -181,7 +181,7 @@ function AggregatedRadar({ dimensions, radarScores, isZh, uiText }: { dimensions
               </div>
               <div className="h-1 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
                 <div
-                  className={`h-full rounded-full transition-all ${percent >= 80 ? "bg-emerald-500" : percent >= 60 ? "bg-blue-500" : percent >= 40 ? "bg-amber-500" : "bg-rose-500"}`}
+                  className={`h-full rounded-full transition-all ${percent >= 80 ? "bg-emerald-500" : percent >= 60 ? "bg-[#171717]" : percent >= 40 ? "bg-amber-500" : "bg-rose-500"}`}
                   style={{ width: `${percent}%` }}
                 />
               </div>
@@ -273,7 +273,7 @@ function IndividualRadar({ dimensions, isZh, uiText }: { dimensions: CandidateSc
                     <div className="bg-white p-3 shadow-xl border rounded-lg text-xs dark:bg-slate-950">
                       <p className="font-bold mb-1">{data.fullLabel}</p>
                       <div className="flex items-center gap-2">
-                        <span>{isZh ? "得分" : "Score"}: <span className="text-blue-600 font-mono">{data.rawScore}/{data.rawMax}</span></span>
+                        <span>{isZh ? "得分" : "Score"}: <span className="text-neutral-700 font-mono">{data.rawScore}/{data.rawMax}</span></span>
                         {data.isInferred && <Badge variant="outline" className="scale-75">{isZh ? "系统推断" : "Inferred"}</Badge>}
                       </div>
                     </div>

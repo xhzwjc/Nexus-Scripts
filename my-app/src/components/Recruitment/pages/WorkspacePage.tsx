@@ -101,7 +101,7 @@ type TodoTileProps = {
 function TodoTile({title, value, description, icon: Icon, tone = "default", onClick}: TodoTileProps) {
     const toneClass = {
         default: "text-slate-700 bg-slate-50 border-slate-200",
-        blue: "text-[#2454ff] bg-[#2454ff]/5 border-[#2454ff]/20",
+        blue: "text-[#171717] bg-[#171717]/5 border-[#171717]/20",
         green: "text-emerald-700 bg-emerald-50 border-emerald-200",
         amber: "text-amber-700 bg-amber-50 border-amber-200",
         rose: "text-rose-700 bg-rose-50 border-rose-200",
@@ -139,7 +139,7 @@ function WorkspacePanel({
     action?: React.ReactNode;
 }) {
     return (
-        <Card className="gap-0 rounded-md border border-[#e5eaf3] bg-white py-0 shadow-none dark:border-slate-800 dark:bg-slate-950">
+        <Card className="gap-0 rounded-md border border-[#e5e5e5] bg-white py-0 shadow-none dark:border-slate-800 dark:bg-slate-950">
             <CardHeader className="flex flex-row items-start justify-between gap-3 px-4 py-3">
                 <div className="min-w-0">
                     <CardTitle className="text-base font-semibold text-slate-950 dark:text-slate-50">{title}</CardTitle>
@@ -156,7 +156,7 @@ function ActionButton({title, description, icon: Icon, onClick}: WorkspaceAction
     return (
         <button
             type="button"
-            className="flex min-w-0 items-start gap-3 rounded-md border border-slate-200 bg-white px-3 py-3 text-left transition hover:border-[#2454ff]/40 hover:bg-[#2454ff]/5 dark:border-slate-800 dark:bg-slate-950 dark:hover:bg-slate-900"
+            className="flex min-w-0 items-start gap-3 rounded-md border border-slate-200 bg-white px-3 py-3 text-left transition hover:border-[#171717]/40 hover:bg-[#171717]/5 dark:border-slate-800 dark:bg-slate-950 dark:hover:bg-slate-900"
             onClick={onClick}
         >
             <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-700 dark:bg-slate-900 dark:text-slate-200">
@@ -364,11 +364,11 @@ export function WorkspacePage({
 
     return (
         <div className="min-h-full space-y-3 bg-[#f5f7fb] p-0 text-slate-700 dark:bg-slate-950 dark:text-slate-300">
-            <div className="rounded-md border border-[#e5eaf3] bg-white p-4 shadow-none dark:border-slate-800 dark:bg-slate-950">
+            <div className="rounded-md border border-[#e5e5e5] bg-white p-4 shadow-none dark:border-slate-800 dark:bg-slate-950">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
-                            <Badge variant="outline" className="rounded-md border-[#2454ff]/30 bg-[#2454ff]/5 text-[#2454ff]">
+                            <Badge variant="outline" className="rounded-md border-[#171717]/30 bg-[#171717]/5 text-[#171717]">
                                 {tr.todoCenter}
                             </Badge>
                             <h2 className="text-xl font-semibold text-slate-950 dark:text-slate-50">{tr.workspaceTitle}</h2>
@@ -403,7 +403,7 @@ export function WorkspacePage({
                     </div>
                 </div>
 
-                <div className="mt-4 overflow-hidden rounded-md border border-[#e5eaf3]">
+                <div className="mt-4 overflow-hidden rounded-md border border-[#e5e5e5]">
                     <div className="grid divide-y divide-slate-200 dark:divide-slate-800 sm:grid-cols-2 sm:divide-x sm:divide-y-0 xl:grid-cols-6">
                         {todoTiles.map((item) => (
                             <TodoTile key={item.title} {...item}/>
@@ -424,7 +424,7 @@ export function WorkspacePage({
                                 <button
                                     key={title}
                                     type="button"
-                                    className="flex items-center justify-between gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-3 text-left transition hover:border-[#2454ff]/40 hover:bg-white dark:border-slate-800 dark:bg-slate-900/60 dark:hover:bg-slate-900"
+                                    className="flex items-center justify-between gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-3 text-left transition hover:border-[#171717]/40 hover:bg-white dark:border-slate-800 dark:bg-slate-900/60 dark:hover:bg-slate-900"
                                     onClick={() => page ? setActivePage(page) : openCandidates(statuses)}
                                 >
                                     <span className="flex min-w-0 items-center gap-3">
@@ -445,7 +445,7 @@ export function WorkspacePage({
                                 <button
                                     key={label}
                                     type="button"
-                                    className="rounded-md border border-slate-200 bg-white px-3 py-3 text-left transition hover:border-[#2454ff]/40 hover:bg-[#2454ff]/5 dark:border-slate-800 dark:bg-slate-950 dark:hover:bg-slate-900"
+                                    className="rounded-md border border-slate-200 bg-white px-3 py-3 text-left transition hover:border-[#171717]/40 hover:bg-[#171717]/5 dark:border-slate-800 dark:bg-slate-950 dark:hover:bg-slate-900"
                                     onClick={() => page ? setActivePage(page) : openCandidates(statuses)}
                                 >
                                     <div className="flex items-center justify-between gap-3">
@@ -468,7 +468,7 @@ export function WorkspacePage({
                                 <button
                                     key={candidate.id}
                                     type="button"
-                                    className="flex w-full items-center justify-between gap-3 rounded-md border border-slate-200 px-3 py-2.5 text-left transition hover:border-[#2454ff]/40 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-900"
+                                    className="flex w-full items-center justify-between gap-3 rounded-md border border-slate-200 px-3 py-2.5 text-left transition hover:border-[#171717]/40 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-900"
                                     onClick={() => {
                                         openCandidates();
                                         setSelectedCandidateId(candidate.id);
@@ -528,7 +528,7 @@ export function WorkspacePage({
                                 <button
                                     key={position.id}
                                     type="button"
-                                    className="w-full rounded-md border border-slate-200 px-3 py-2.5 text-left transition hover:border-[#2454ff]/40 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-900"
+                                    className="w-full rounded-md border border-slate-200 px-3 py-2.5 text-left transition hover:border-[#171717]/40 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-900"
                                     onClick={() => setActivePage("positions")}
                                 >
                                     <div className="flex min-w-0 items-center justify-between gap-3">
@@ -566,7 +566,7 @@ export function WorkspacePage({
                                 <button
                                     key={item.label}
                                     type="button"
-                                    className="rounded-md border border-slate-200 px-3 py-2 text-left transition hover:border-[#2454ff]/40 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-900"
+                                    className="rounded-md border border-slate-200 px-3 py-2 text-left transition hover:border-[#171717]/40 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-900"
                                     onClick={() => item.page ? setActivePage(item.page) : openCandidates(item.statuses)}
                                 >
                                     <span className="block truncate text-xs text-slate-500 dark:text-slate-400">{item.label}</span>
@@ -611,7 +611,7 @@ export function WorkspacePage({
                                             <span className="shrink-0 tabular-nums text-slate-500 dark:text-slate-400">{position.candidate_count}/{position.headcount}</span>
                                         </div>
                                         <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
-                                            <div className="h-full rounded-full bg-[#2454ff]" style={{width: `${progress}%`}}/>
+                                            <div className="h-full rounded-full bg-[#171717]" style={{width: `${progress}%`}}/>
                                         </div>
                                     </button>
                                 );
@@ -656,7 +656,7 @@ export function WorkspacePage({
                                                 <span className="font-semibold tabular-nums text-slate-950 dark:text-slate-50">{stage.count}</span>
                                             </div>
                                             <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
-                                                <div className="h-full rounded-full bg-[#2454ff]" style={{width: `${widthPercent}%`}}/>
+                                                <div className="h-full rounded-full bg-[#171717]" style={{width: `${widthPercent}%`}}/>
                                             </div>
                                         </div>
                                     );

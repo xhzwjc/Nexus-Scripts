@@ -277,7 +277,7 @@ const AiGeneratedContentPreview = React.memo(function AiGeneratedContentPreview(
                 <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
                     <span className={cn(
                         "inline-flex h-2 w-2 rounded-full",
-                        aiGenerating ? "animate-pulse bg-sky-500" : "bg-emerald-500",
+                        aiGenerating ? "animate-pulse bg-violet-500" : "bg-emerald-500",
                     )} />
                     <span>
                         {aiGenerating
@@ -288,7 +288,7 @@ const AiGeneratedContentPreview = React.memo(function AiGeneratedContentPreview(
                 {autoFollowPaused ? (
                     <button
                         type="button"
-                        className="rounded-full border border-sky-200 bg-white px-2.5 py-1 text-xs font-medium text-sky-700 transition hover:border-sky-300 hover:bg-sky-50 dark:border-sky-900 dark:bg-slate-900 dark:text-sky-300 dark:hover:border-sky-700"
+                        className="rounded-full border border-violet-200 bg-white px-2.5 py-1 text-xs font-medium text-violet-700 transition hover:border-violet-300 hover:bg-violet-50 dark:border-violet-900 dark:bg-slate-900 dark:text-violet-300 dark:hover:border-violet-700"
                         onClick={scrollToLatest}
                     >
                         {isZh ? "回到最新" : "Jump to latest"}
@@ -816,7 +816,7 @@ export function StructuredSkillEditor({
                                     </p>
                                 </div>
                                 {streamProgressVisible ? (
-                                    <div className="rounded-full bg-white px-3 py-1 text-xs font-medium text-sky-700 shadow-sm dark:bg-slate-900 dark:text-sky-300">
+                                    <div className="rounded-full bg-white px-3 py-1 text-xs font-medium text-violet-700 shadow-sm dark:bg-slate-900 dark:text-violet-300">
                                         {streamProgressPercent}%
                                     </div>
                                 ) : null}
@@ -824,7 +824,7 @@ export function StructuredSkillEditor({
                             {streamProgressVisible ? (
                                 <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-200/80 dark:bg-slate-800/80">
                                     <div
-                                        className="h-full rounded-full bg-gradient-to-r from-sky-500 via-cyan-500 to-emerald-400 transition-all duration-500"
+                                        className="h-full rounded-full bg-gradient-to-r from-violet-500 via-purple-500 to-emerald-400 transition-all duration-500"
                                         style={{ width: `${streamProgressPercent}%` }}
                                     />
                                 </div>
@@ -896,12 +896,12 @@ export function StructuredSkillEditor({
                         ) : null}
                     </div>
                     {showAiWaitingPhase && (
-                        <div className="overflow-hidden rounded-2xl border border-sky-200 bg-[radial-gradient(circle_at_top_left,_rgba(56,189,248,0.18),_transparent_45%),linear-gradient(135deg,rgba(248,250,252,0.98),rgba(239,246,255,0.92))] p-4 dark:border-sky-900 dark:bg-[radial-gradient(circle_at_top_left,_rgba(14,165,233,0.18),_transparent_45%),linear-gradient(135deg,rgba(2,6,23,0.95),rgba(15,23,42,0.92))]">
+                        <div className="overflow-hidden rounded-2xl border border-violet-200 bg-[radial-gradient(circle_at_top_left,_rgba(124,58,237,0.18),_transparent_45%),linear-gradient(135deg,rgba(248,250,252,0.98),rgba(245,245,245,0.92))] p-4 dark:border-violet-900 dark:bg-[radial-gradient(circle_at_top_left,_rgba(124,58,237,0.18),_transparent_45%),linear-gradient(135deg,rgba(2,6,23,0.95),rgba(15,23,42,0.92))]">
                             <div className="flex items-start gap-4">
                                 <div className="relative mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white/85 shadow-sm dark:bg-slate-900/75">
-                                    <span className="absolute inset-0 animate-ping rounded-full bg-sky-400/25 dark:bg-sky-500/20" />
-                                    <span className="absolute inset-1 animate-pulse rounded-full border border-sky-200/80 dark:border-sky-700/70" />
-                                    <Sparkles className="relative h-5 w-5 text-sky-600 dark:text-sky-300" />
+                                    <span className="absolute inset-0 animate-ping rounded-full bg-violet-400/25 dark:bg-violet-500/20" />
+                                    <span className="absolute inset-1 animate-pulse rounded-full border border-violet-200/80 dark:border-violet-700/70" />
+                                    <Sparkles className="relative h-5 w-5 text-violet-600 dark:text-violet-300" />
                                 </div>
                                 <div className="space-y-3">
                                     <div>
@@ -909,8 +909,8 @@ export function StructuredSkillEditor({
                                         <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">{aiLoadingMessages[aiLoadingIndex]}</p>
                                     </div>
                                     <div className="grid gap-2 sm:grid-cols-2">
-                                        <div className="h-2.5 rounded-full bg-sky-200/80 animate-pulse dark:bg-sky-800/70" />
-                                        <div className="h-2.5 rounded-full bg-cyan-100/90 animate-pulse dark:bg-slate-800/80" />
+                                        <div className="h-2.5 rounded-full bg-violet-200/80 animate-pulse dark:bg-violet-800/70" />
+                                        <div className="h-2.5 rounded-full bg-purple-100/90 animate-pulse dark:bg-slate-800/80" />
                                         <div className="h-2.5 rounded-full bg-emerald-100/80 animate-pulse dark:bg-slate-800/80" />
                                         <div className="h-2.5 rounded-full bg-slate-200/80 animate-pulse dark:bg-slate-800/80" />
                                     </div>

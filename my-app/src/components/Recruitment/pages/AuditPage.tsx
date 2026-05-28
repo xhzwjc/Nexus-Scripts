@@ -563,7 +563,7 @@ export function AuditPage({
         : formatAuditStageLabel(selectedDisplayTaskStage);
     const selectedRootNotice = selectedFlowAuditView?.rootNotice || null;
     const selectedRootNoticeClassName = selectedFlowAuditView?.autoRequeueScheduled
-        ? "mt-3 rounded-2xl border border-sky-200 bg-sky-50/80 px-4 py-3 text-sm text-sky-900 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-100"
+        ? "mt-3 rounded-2xl border border-violet-200 bg-violet-50/80 px-4 py-3 text-sm text-violet-900 dark:border-violet-900 dark:bg-violet-950/30 dark:text-violet-100"
         : "mt-3 rounded-2xl border border-amber-200 bg-amber-50/80 px-4 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100";
     const selectedInfraRetryCount = selectedFlowAuditView?.infraRetryCount ?? null;
     const selectedRetryAfterSeconds = selectedFlowAuditView?.retryAfterSeconds ?? null;

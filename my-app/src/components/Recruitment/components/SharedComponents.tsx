@@ -161,7 +161,7 @@ export function QuickActionCard({
         <button
             type="button"
             onClick={onClick}
-            className="rounded-md border border-slate-200 bg-white px-4 py-3 text-left transition hover:border-[#2454ff] hover:bg-[#f7f9ff] dark:border-slate-800 dark:bg-slate-950 dark:hover:border-slate-600 dark:hover:bg-slate-900"
+            className="rounded-md border border-slate-200 bg-white px-4 py-3 text-left transition hover:border-[#171717] hover:bg-[#F5F5F5] dark:border-slate-800 dark:bg-slate-950 dark:hover:border-slate-600 dark:hover:bg-slate-900"
         >
             <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
@@ -209,7 +209,7 @@ export function SectionNavButton({
                     ? "relative mx-auto flex h-10 w-10 items-center justify-center p-0"
                     : "flex min-h-[56px] items-center justify-center px-2 py-2 text-left",
                 active
-                    ? "border-[#2454ff] bg-[#2454ff] text-white shadow-none dark:border-blue-400 dark:bg-blue-500 dark:text-white"
+                    ? "border-[#D4D4D4] bg-[#F5F5F5] text-[#171717] shadow-none dark:border-neutral-800/60 dark:bg-neutral-900/30 dark:text-neutral-200"
                     : "border-transparent bg-transparent text-slate-700 hover:border-slate-200 hover:bg-slate-50 dark:text-slate-200 dark:hover:border-slate-800 dark:hover:bg-slate-900",
             )}
         >
@@ -230,7 +230,7 @@ export function SectionNavButton({
                 <div className="flex w-full items-center justify-between gap-2.5 self-center">
                     <div className="flex min-w-0 items-center gap-2.5">
                         <div
-                            className={cn("rounded-md p-2", active ? "bg-white/10 dark:bg-blue-400/20" : "bg-slate-100 dark:bg-slate-900")}>
+                            className={cn("rounded-md p-2", active ? "bg-white text-[#171717] dark:bg-neutral-400/20 dark:text-neutral-200" : "bg-slate-100 dark:bg-slate-900")}>
                             <Icon className="h-4 w-4"/>
                         </div>
                         <div className="min-w-0 self-center">

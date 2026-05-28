@@ -59,7 +59,7 @@ function reviewBadgeClass(status?: string | null) {
         case "deferred":
             return "border-amber-200 bg-amber-50 text-amber-700";
         default:
-            return "border-blue-200 bg-blue-50 text-blue-700";
+            return "border-neutral-200 bg-neutral-100 text-neutral-700";
     }
 }
 
@@ -132,7 +132,7 @@ function FilterMenu({
                     className={cn(
                         "inline-flex h-8 max-w-[220px] items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs transition",
                         active
-                            ? "border border-[#3B5BDB]/20 bg-blue-50 text-[#3B5BDB]"
+                            ? "border border-[#171717]/20 bg-neutral-100 text-[#171717]"
                             : "border border-gray-200 bg-gray-50 text-gray-500 hover:border-gray-300 hover:text-gray-700",
                         disabled && "cursor-not-allowed opacity-45",
                         className,
@@ -140,7 +140,7 @@ function FilterMenu({
                 >
                     <span className="truncate">{active ? selected?.label : label}</span>
                     {selected?.count !== undefined && active ? (
-                        <span className="text-xs text-blue-500">{selected.count}</span>
+                        <span className="text-xs text-neutral-500">{selected.count}</span>
                     ) : null}
                     <ChevronDown className="h-3.5 w-3.5 shrink-0 text-current opacity-60"/>
                 </button>
@@ -159,7 +159,7 @@ function FilterMenu({
                                 }}
                                 className={cn(
                                     "flex h-9 w-full items-center justify-between gap-3 rounded-[6px] px-2.5 text-left text-sm transition",
-                                    checked ? "bg-blue-50 text-[#3B5BDB]" : "text-gray-600 hover:bg-gray-50",
+                                    checked ? "bg-neutral-100 text-[#171717]" : "text-gray-600 hover:bg-gray-50",
                                 )}
                             >
                                 <span className="min-w-0 truncate">{option.label}</span>
@@ -325,17 +325,17 @@ export function ReviewWorkbenchPage({
                                         onClick={() => changeStatusTab(filter.key)}
                                         className={cn(
                                             "relative inline-flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium transition",
-                                            active ? "text-[#3B5BDB]" : "text-gray-400 hover:text-gray-600",
+                                            active ? "text-[#171717]" : "text-gray-400 hover:text-gray-600",
                                         )}
                                     >
                                         <span>{filter.label}</span>
                                         <span className={cn(
                                             "rounded-full px-1.5 py-0.5 text-xs leading-none",
-                                            active ? "bg-blue-50 text-[#3B5BDB]" : "bg-gray-100 text-gray-400",
+                                            active ? "bg-neutral-100 text-[#171717]" : "bg-gray-100 text-gray-400",
                                         )}>
                                             {filter.count}
                                         </span>
-                                        {active ? <span className="absolute inset-x-4 bottom-0 h-0.5 rounded-full bg-[#3B5BDB]"/> : null}
+                                        {active ? <span className="absolute inset-x-4 bottom-0 h-0.5 rounded-full bg-[#171717]"/> : null}
                                     </button>
                                 );
                             })}
@@ -380,7 +380,7 @@ export function ReviewWorkbenchPage({
                                     className={cn(
                                         "h-8 rounded-lg px-2.5 text-xs font-medium transition",
                                         hasLocalFilters
-                                            ? "cursor-pointer text-[#3B5BDB] hover:bg-blue-50"
+                                            ? "cursor-pointer text-[#171717] hover:bg-neutral-100"
                                             : "cursor-default text-slate-300",
                                     )}
                                 >
@@ -396,7 +396,7 @@ export function ReviewWorkbenchPage({
                                     <Input
                                         value={query}
                                         onChange={(event) => setQuery(event.target.value)}
-                                        className="h-8 rounded-lg border-gray-100 bg-gray-50 pl-8 text-xs text-gray-600 shadow-none placeholder:text-gray-300 focus-visible:ring-1 focus-visible:ring-[#3B5BDB]/20"
+                                        className="h-8 rounded-lg border-gray-100 bg-gray-50 pl-8 text-xs text-gray-600 shadow-none placeholder:text-gray-300 focus-visible:ring-1 focus-visible:ring-[#171717]/20"
                                         placeholder={isZh ? "搜索候选人、岗位、联系方式" : "Search candidate, position, contact"}
                                     />
                                 </div>
@@ -404,7 +404,7 @@ export function ReviewWorkbenchPage({
                                     type="button"
                                     onClick={() => void onRefresh()}
                                     disabled={loading}
-                                    className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-gray-100 bg-white text-[#3B5BDB] transition hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60"
+                                    className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-gray-100 bg-white text-[#171717] transition hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-60"
                                     title={isZh ? "刷新" : "Refresh"}
                                 >
                                     {loading ? <Loader2 className="h-4 w-4 animate-spin"/> : <RefreshCw className="h-4 w-4"/>}
@@ -417,7 +417,7 @@ export function ReviewWorkbenchPage({
                         {loading ? (
                             <div className="flex h-full min-h-[360px] items-center justify-center text-sm text-gray-500">
                                 <div className="inline-flex items-center">
-                                    <Loader2 className="mr-2 h-4 w-4 animate-spin text-[#3B5BDB]"/>
+                                    <Loader2 className="mr-2 h-4 w-4 animate-spin text-[#171717]"/>
                                     {isZh ? "正在加载评审任务..." : "Loading review tasks..."}
                                 </div>
                             </div>
@@ -441,7 +441,7 @@ export function ReviewWorkbenchPage({
                                         >
                                             <div className="min-w-0">
                                                 <div className="flex flex-wrap items-center gap-2">
-                                                        <button type="button" onClick={() => onOpenCandidate(task)} className="truncate text-left text-sm font-semibold text-gray-900 hover:text-[#3B5BDB]">
+                                                        <button type="button" onClick={() => onOpenCandidate(task)} className="truncate text-left text-sm font-semibold text-gray-900 hover:text-[#171717]">
                                                         {candidate.name}
                                                     </button>
                                                     <span className="text-xs text-gray-400">{candidate.age ? `${candidate.age}${isZh ? "岁" : ""}` : candidate.candidate_code}</span>
@@ -476,7 +476,7 @@ export function ReviewWorkbenchPage({
                                                     onChange={(event) => setCommentByAssignment((current) => ({...current, [assignment.id]: event.target.value}))}
                                                     rows={2}
                                                     placeholder={isZh ? "填写评审意见" : "Add review comments"}
-                                                    className="min-h-0 resize-none rounded-lg border-gray-100 bg-gray-50 text-xs shadow-none focus-visible:ring-[#3B5BDB]/20"
+                                                    className="min-h-0 resize-none rounded-lg border-gray-100 bg-gray-50 text-xs shadow-none focus-visible:ring-[#171717]/20"
                                                 />
                                                 <div className="flex flex-wrap justify-end gap-1.5">
                                                     <Button type="button" variant="outline" size="sm" className="h-7 rounded-lg border-gray-100 bg-white px-2 text-xs" onClick={() => onOpenCandidate(task)}>
@@ -486,7 +486,7 @@ export function ReviewWorkbenchPage({
                                                         {submittingKey === `${assignment.id}:rejected` ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin"/> : <X className="mr-1 h-3.5 w-3.5"/>}
                                                         {decisionLabels.rejected[isZh ? "zh" : "en"]}
                                                     </Button>
-                                                    <Button type="button" size="sm" className="h-7 rounded-lg bg-[#3B5BDB] px-2.5 text-xs text-white hover:bg-[#304cc2]" onClick={() => void submitDecision(assignment.id, "passed")} disabled={Boolean(submittingKey)}>
+                                                    <Button type="button" size="sm" className="h-7 rounded-lg bg-[#171717] px-2.5 text-xs text-white hover:bg-[#262626]" onClick={() => void submitDecision(assignment.id, "passed")} disabled={Boolean(submittingKey)}>
                                                         {submittingKey === `${assignment.id}:passed` ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin"/> : <Check className="mr-1 h-3.5 w-3.5"/>}
                                                         {decisionLabels.passed[isZh ? "zh" : "en"]}
                                                     </Button>
@@ -498,8 +498,8 @@ export function ReviewWorkbenchPage({
                             </div>
                         ) : (
                             <div className="flex h-full min-h-[430px] flex-col items-center justify-center gap-2.5 py-16">
-                                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-blue-50">
-                                    <ClipboardCheck className="h-5 w-5 text-[#3B5BDB]"/>
+                                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-neutral-100">
+                                    <ClipboardCheck className="h-5 w-5 text-[#171717]"/>
                                 </div>
                                 <p className="text-sm font-medium text-gray-700">{isZh ? "暂无评审任务" : "No review tasks"}</p>
                                 <p className="text-xs text-gray-400">
@@ -508,7 +508,7 @@ export function ReviewWorkbenchPage({
                                 <button
                                     type="button"
                                     onClick={resetLocalFilters}
-                                    className="mt-1 rounded-lg border border-[#3B5BDB] px-4 py-1.5 text-xs text-[#3B5BDB] transition-colors hover:bg-blue-50"
+                                    className="mt-1 rounded-lg border border-[#171717] px-4 py-1.5 text-xs text-[#171717] transition-colors hover:bg-neutral-100"
                                 >
                                     {isZh ? "清空筛选，查看全部" : "Clear filters"}
                                 </button>

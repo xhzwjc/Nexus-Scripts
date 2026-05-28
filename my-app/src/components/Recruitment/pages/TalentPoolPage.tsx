@@ -180,8 +180,8 @@ type TalentPoolPageProps = {
     panelClass?: string;
 };
 
-/* ── 头像颜色 ── */
-const AVATAR_COLORS = ["av-blue", "av-teal", "av-purple", "av-coral", "av-amber"] as const;
+/* ── 人才库头像统一中性色，避免列表里出现随机彩色噪音 ── */
+const AVATAR_COLORS = ["av-neutral"] as const;
 
 function avatarColorIndex(name: string) {
     let hash = 0;
@@ -197,11 +197,7 @@ function avatarInitial(name: string) {
 }
 
 const AVATAR_BG: Record<string, string> = {
-    "av-blue": "bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-300",
-    "av-teal": "bg-teal-100 text-teal-800 dark:bg-teal-900/40 dark:text-teal-300",
-    "av-purple": "bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-300",
-    "av-coral": "bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-300",
-    "av-amber": "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300",
+    "av-neutral": "bg-neutral-100 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-200",
 };
 
 function sourceLabel(source: string | null | undefined, tr: ReturnType<typeof getTalentPoolLocale>) {
@@ -760,17 +756,17 @@ export function TalentPoolPage({
                             className={cn(
                                 "mb-1 flex w-full min-w-0 items-start justify-between gap-3 rounded-md px-3 py-2.5 text-left text-sm transition",
                                 activeStatFilter === card.filter
-                                    ? "bg-[#2454ff] text-white"
+                                    ? "bg-[#F5F5F5] text-[#171717]"
                                     : "text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-900",
                             )}
                         >
                             <span className="min-w-0">
                                 <span className="block truncate font-medium">{card.label}</span>
-                                <span className={cn("mt-0.5 block truncate text-xs", activeStatFilter === card.filter ? "text-white/75" : "text-slate-400")}>
+                                <span className={cn("mt-0.5 block truncate text-xs", activeStatFilter === card.filter ? "text-[#171717]/70" : "text-slate-400")}>
                                     {card.hint}
                                 </span>
                             </span>
-                            <span className={cn("shrink-0 rounded px-1.5 py-0.5 text-xs tabular-nums", activeStatFilter === card.filter ? "bg-white/15 text-white" : "bg-slate-100 text-slate-500 dark:bg-slate-900 dark:text-slate-300")}>
+                            <span className={cn("shrink-0 rounded px-1.5 py-0.5 text-xs tabular-nums", activeStatFilter === card.filter ? "border border-[#D4D4D4] bg-white text-[#171717]" : "bg-slate-100 text-slate-500 dark:bg-slate-900 dark:text-slate-300")}>
                                 {card.value}
                             </span>
                         </button>
@@ -808,7 +804,7 @@ export function TalentPoolPage({
                     className={cn(
                         "mb-2 flex items-center gap-2 border-b border-slate-100 pb-2 dark:border-slate-800",
                         selectedIds.size > 0
-                            ? "overflow-hidden rounded-md bg-sky-50/60 px-2 dark:bg-sky-950/20"
+                            ? "overflow-hidden rounded-md bg-neutral-100 px-2 dark:bg-neutral-900/40"
                             : "flex-wrap justify-between",
                     )}
                 >
@@ -820,24 +816,24 @@ export function TalentPoolPage({
                                         <input
                                             ref={selectAllVisibleRef}
                                             type="checkbox"
-                                            className="h-3.5 w-3.5 accent-sky-600"
+                                            className="h-3.5 w-3.5 accent-neutral-900"
                                             checked={allVisibleSelected}
                                             onChange={() => selectGroup(filteredCandidates.map(c => c.id))}
                                         />
                                         {tr.selectAllVisible}
                                     </label>
                                 ) : null}
-                                <span className="inline-flex h-8 shrink-0 items-center rounded-md border border-sky-200 bg-white px-2.5 text-xs font-medium text-sky-700 dark:border-sky-900/70 dark:bg-slate-950 dark:text-sky-300">
+                                <span className="inline-flex h-8 shrink-0 items-center rounded-md border border-neutral-200 bg-white px-2.5 text-xs font-medium text-neutral-700 dark:border-neutral-800 dark:bg-slate-950 dark:text-neutral-200">
                                     {tr.selectedCount(selectedIds.size)}
                                 </span>
-                                <Button size="sm" variant="outline" className="h-8 shrink-0 rounded-md border-sky-300 px-3 text-xs text-sky-700 hover:bg-sky-100 dark:border-sky-700 dark:text-sky-300 dark:hover:bg-sky-900/30" onClick={() => setAssignDialogOpen(true)}>
+                                <Button size="sm" variant="outline" className="h-8 shrink-0 rounded-md border-neutral-300 px-3 text-xs text-neutral-700 hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-900/50" onClick={() => setAssignDialogOpen(true)}>
                                     <Briefcase className="mr-1 h-3.5 w-3.5"/>
                                     {tr.batchAssign}
                                 </Button>
                                 <Button
                                     size="sm"
                                     variant="outline"
-                                    className="h-8 shrink-0 rounded-md border-sky-300 px-3 text-xs text-sky-700 hover:bg-sky-100 dark:border-sky-700 dark:text-sky-300 dark:hover:bg-sky-900/30"
+                                    className="h-8 shrink-0 rounded-md border-neutral-300 px-3 text-xs text-neutral-700 hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-900/50"
                                     onClick={() => void handleBatchReIdentify()}
                                     disabled={selectedReidentifiableCount === 0}
                                 >
@@ -909,10 +905,10 @@ export function TalentPoolPage({
                                     <button
                                         type="button"
                                         onClick={() => handleStatFilterClick(activeStatFilter)}
-                                        className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-sky-200 bg-sky-50 px-2.5 text-xs text-sky-700 transition hover:border-sky-300 hover:bg-sky-100 dark:border-sky-800 dark:bg-sky-950/30 dark:text-sky-300"
+                                        className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-neutral-200 bg-neutral-100 px-2.5 text-xs text-neutral-700 transition hover:border-neutral-300 hover:bg-neutral-100 dark:border-neutral-800 dark:bg-neutral-900/40 dark:text-neutral-200"
                                         title={tr.clearStatFilter}
                                     >
-                                        <span className="h-1.5 w-1.5 rounded-full bg-sky-500"/>
+                                        <span className="h-1.5 w-1.5 rounded-full bg-neutral-900"/>
                                         {activeStatCard.label}
                                     </button>
                                 ) : null}
@@ -932,7 +928,7 @@ export function TalentPoolPage({
                                         <input
                                             ref={selectAllVisibleRef}
                                             type="checkbox"
-                                            className="h-3.5 w-3.5 accent-sky-600"
+                                            className="h-3.5 w-3.5 accent-neutral-900"
                                             checked={allVisibleSelected}
                                             onChange={() => selectGroup(filteredCandidates.map(c => c.id))}
                                         />
@@ -965,10 +961,10 @@ export function TalentPoolPage({
 
                 {/* 候选人列表 */}
                 {showInlineUpdating ? (
-                    <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-sky-100 bg-white/80 px-3 py-1.5 text-sm text-sky-600 shadow-sm backdrop-blur-xl dark:border-sky-900 dark:bg-slate-950/75 dark:text-sky-300">
+                    <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-neutral-200 bg-white/80 px-3 py-1.5 text-sm text-neutral-700 shadow-sm backdrop-blur-xl dark:border-neutral-800 dark:bg-slate-950/75 dark:text-neutral-200">
                         <span className="relative flex h-3 w-3">
-                            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-sky-400 opacity-60"/>
-                            <span className="relative inline-flex h-3 w-3 rounded-full bg-sky-500"/>
+                            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-neutral-400 opacity-60"/>
+                            <span className="relative inline-flex h-3 w-3 rounded-full bg-neutral-900"/>
                         </span>
                         {tr.updatingList}
                     </div>
@@ -976,10 +972,10 @@ export function TalentPoolPage({
                 {filteredCandidates.length === 0 ? (
                     <div className="flex flex-1 items-center justify-center">
                         {showInlineUpdating ? (
-                            <div className="flex flex-col items-center rounded-3xl border border-sky-100 bg-white/75 px-8 py-7 text-center shadow-[0_18px_48px_-34px_rgba(14,165,233,0.45)] backdrop-blur-2xl dark:border-sky-900 dark:bg-slate-950/70">
+                            <div className="flex flex-col items-center rounded-3xl border border-neutral-200 bg-white/75 px-8 py-7 text-center shadow-[0_18px_48px_-36px_rgba(15,23,42,0.35)] backdrop-blur-2xl dark:border-neutral-800 dark:bg-slate-950/70">
                                 <span className="relative flex h-8 w-8">
-                                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-sky-400 opacity-35"/>
-                                    <span className="relative inline-flex h-8 w-8 items-center justify-center rounded-full bg-sky-500 text-white shadow-[0_16px_36px_-20px_rgba(14,165,233,0.9)]">
+                                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-neutral-400 opacity-35"/>
+                                    <span className="relative inline-flex h-8 w-8 items-center justify-center rounded-full bg-neutral-900 text-white shadow-[0_16px_36px_-22px_rgba(15,23,42,0.65)]">
                                         <Loader2 className="h-4 w-4 animate-spin"/>
                                     </span>
                                 </span>
@@ -1188,35 +1184,35 @@ function StatCard({
 }) {
     const toneClasses: Record<typeof tone, string> = {
         slate: "from-slate-500/16 via-slate-100/80 to-white dark:from-slate-500/20 dark:via-slate-900/85 dark:to-slate-950",
-        sky: "from-sky-500/18 via-sky-50/90 to-white dark:from-sky-500/20 dark:via-slate-900/85 dark:to-slate-950",
-        amber: "from-amber-500/20 via-amber-50/90 to-white dark:from-amber-500/20 dark:via-slate-900/85 dark:to-slate-950",
-        orange: "from-orange-500/20 via-orange-50/90 to-white dark:from-orange-500/20 dark:via-slate-900/85 dark:to-slate-950",
-        rose: "from-rose-500/18 via-rose-50/90 to-white dark:from-rose-500/20 dark:via-slate-900/85 dark:to-slate-950",
-        emerald: "from-emerald-500/18 via-emerald-50/90 to-white dark:from-emerald-500/20 dark:via-slate-900/85 dark:to-slate-950",
+        sky: "from-neutral-400/14 via-neutral-50/90 to-white dark:from-neutral-400/18 dark:via-slate-900/85 dark:to-slate-950",
+        amber: "from-neutral-400/14 via-neutral-50/90 to-white dark:from-neutral-400/18 dark:via-slate-900/85 dark:to-slate-950",
+        orange: "from-neutral-400/14 via-neutral-50/90 to-white dark:from-neutral-400/18 dark:via-slate-900/85 dark:to-slate-950",
+        rose: "from-neutral-400/14 via-neutral-50/90 to-white dark:from-neutral-400/18 dark:via-slate-900/85 dark:to-slate-950",
+        emerald: "from-neutral-400/14 via-neutral-50/90 to-white dark:from-neutral-400/18 dark:via-slate-900/85 dark:to-slate-950",
     };
     const activeToneClasses: Record<typeof tone, string> = {
         slate: "border-slate-700/80 from-slate-700/24 via-slate-100 to-white ring-2 ring-slate-500/25 shadow-[0_22px_62px_-28px_rgba(15,23,42,0.86)] dark:border-slate-300/80 dark:from-slate-300/16 dark:ring-slate-300/20",
-        sky: "border-sky-500 from-sky-500/30 via-sky-100 to-white ring-2 ring-sky-300/60 shadow-[0_22px_62px_-26px_rgba(2,132,199,0.78)] dark:border-sky-400 dark:from-sky-400/18 dark:ring-sky-400/30",
-        amber: "border-amber-500 from-amber-500/34 via-amber-100 to-white ring-2 ring-amber-300/65 shadow-[0_22px_62px_-26px_rgba(217,119,6,0.76)] dark:border-amber-400 dark:from-amber-400/18 dark:ring-amber-400/30",
-        orange: "border-orange-500 from-orange-500/34 via-orange-100 to-white ring-2 ring-orange-300/65 shadow-[0_22px_62px_-26px_rgba(234,88,12,0.76)] dark:border-orange-400 dark:from-orange-400/18 dark:ring-orange-400/30",
-        rose: "border-rose-500 from-rose-500/30 via-rose-100 to-white ring-2 ring-rose-300/60 shadow-[0_22px_62px_-26px_rgba(225,29,72,0.74)] dark:border-rose-400 dark:from-rose-400/18 dark:ring-rose-400/30",
-        emerald: "border-emerald-500 from-emerald-500/30 via-emerald-100 to-white ring-2 ring-emerald-300/60 shadow-[0_22px_62px_-26px_rgba(5,150,105,0.74)] dark:border-emerald-400 dark:from-emerald-400/18 dark:ring-emerald-400/30",
+        sky: "border-neutral-400 from-neutral-500/20 via-neutral-100 to-white ring-2 ring-neutral-300/40 shadow-[0_18px_42px_-28px_rgba(15,23,42,0.55)] dark:border-neutral-400 dark:from-neutral-400/18 dark:ring-neutral-400/25",
+        amber: "border-neutral-400 from-neutral-500/20 via-neutral-100 to-white ring-2 ring-neutral-300/40 shadow-[0_18px_42px_-28px_rgba(15,23,42,0.55)] dark:border-neutral-400 dark:from-neutral-400/18 dark:ring-neutral-400/25",
+        orange: "border-neutral-400 from-neutral-500/20 via-neutral-100 to-white ring-2 ring-neutral-300/40 shadow-[0_18px_42px_-28px_rgba(15,23,42,0.55)] dark:border-neutral-400 dark:from-neutral-400/18 dark:ring-neutral-400/25",
+        rose: "border-neutral-400 from-neutral-500/20 via-neutral-100 to-white ring-2 ring-neutral-300/40 shadow-[0_18px_42px_-28px_rgba(15,23,42,0.55)] dark:border-neutral-400 dark:from-neutral-400/18 dark:ring-neutral-400/25",
+        emerald: "border-neutral-400 from-neutral-500/20 via-neutral-100 to-white ring-2 ring-neutral-300/40 shadow-[0_18px_42px_-28px_rgba(15,23,42,0.55)] dark:border-neutral-400 dark:from-neutral-400/18 dark:ring-neutral-400/25",
     };
     const accentTextClasses: Record<typeof tone, string> = {
         slate: "text-slate-800 dark:text-slate-100",
-        sky: "text-sky-700 dark:text-sky-200",
-        amber: "text-amber-800 dark:text-amber-200",
-        orange: "text-orange-800 dark:text-orange-200",
-        rose: "text-rose-700 dark:text-rose-200",
-        emerald: "text-emerald-700 dark:text-emerald-200",
+        sky: "text-neutral-700 dark:text-neutral-200",
+        amber: "text-neutral-700 dark:text-neutral-200",
+        orange: "text-neutral-700 dark:text-neutral-200",
+        rose: "text-neutral-700 dark:text-neutral-200",
+        emerald: "text-neutral-700 dark:text-neutral-200",
     };
     const accentFillClasses: Record<typeof tone, string> = {
         slate: "bg-slate-700 text-white dark:bg-slate-200 dark:text-slate-950",
-        sky: "bg-sky-500 text-white dark:bg-sky-400 dark:text-slate-950",
-        amber: "bg-amber-500 text-white dark:bg-amber-300 dark:text-amber-950",
-        orange: "bg-orange-500 text-white dark:bg-orange-300 dark:text-orange-950",
-        rose: "bg-rose-500 text-white dark:bg-rose-400 dark:text-rose-950",
-        emerald: "bg-emerald-500 text-white dark:bg-emerald-300 dark:text-emerald-950",
+        sky: "bg-neutral-900 text-white dark:bg-neutral-400 dark:text-slate-950",
+        amber: "bg-neutral-900 text-white dark:bg-neutral-400 dark:text-slate-950",
+        orange: "bg-neutral-900 text-white dark:bg-neutral-400 dark:text-slate-950",
+        rose: "bg-neutral-900 text-white dark:bg-neutral-400 dark:text-slate-950",
+        emerald: "bg-neutral-900 text-white dark:bg-neutral-400 dark:text-slate-950",
     };
     return (
         <button
@@ -1242,7 +1238,7 @@ function StatCard({
             )}/>
             <span className={cn(
                 "pointer-events-none absolute -right-8 -top-10 h-24 w-24 rounded-full blur-2xl transition-opacity",
-                active ? "bg-sky-300/35 opacity-100 dark:bg-sky-500/20" : "bg-white/55 opacity-0 group-hover:opacity-80 dark:bg-white/10",
+                active ? "bg-neutral-300/30 opacity-100 dark:bg-neutral-900/20" : "bg-white/55 opacity-0 group-hover:opacity-80 dark:bg-white/10",
             )}/>
             {active ? (
                 <span className={cn(
@@ -1254,7 +1250,7 @@ function StatCard({
             ) : null}
             {loading ? (
                 <span className="pointer-events-none absolute inset-x-0 bottom-0 h-0.5 overflow-hidden bg-slate-200/70 dark:bg-slate-700/70">
-                    <span className="block h-full w-1/2 animate-pulse rounded-full bg-sky-400 shadow-[0_0_18px_rgba(56,189,248,0.8)]"/>
+                    <span className="block h-full w-1/2 animate-pulse rounded-full bg-neutral-400 shadow-[0_0_14px_rgba(15,23,42,0.45)]"/>
                 </span>
             ) : null}
             <span className={cn(
@@ -1364,9 +1360,9 @@ function CandidateCard({
     return (
         <div className={cn(
             "flex items-start gap-3.5 rounded-xl border px-4 py-3.5 transition-colors",
-            selected ? "border-sky-500 bg-sky-50 dark:border-sky-600 dark:bg-sky-950/30" : "border-slate-200 bg-white hover:border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:hover:border-slate-600"
+            selected ? "border-neutral-400 bg-neutral-100 dark:border-neutral-700 dark:bg-neutral-900/40" : "border-slate-200 bg-white hover:border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:hover:border-slate-600"
         )}>
-            <input type="checkbox" checked={selected} onChange={onToggleSelect} className="mt-1 h-[15px] w-[15px] flex-shrink-0 accent-sky-600"/>
+            <input type="checkbox" checked={selected} onChange={onToggleSelect} className="mt-1 h-[15px] w-[15px] flex-shrink-0 accent-neutral-900"/>
             <div className={cn("flex h-[38px] w-[38px] flex-shrink-0 items-center justify-center rounded-full text-[13px] font-medium", AVATAR_BG[AVATAR_COLORS[colorIdx]])}>
                 {initial}
             </div>
@@ -1385,7 +1381,7 @@ function CandidateCard({
                     )}
                     <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-500 dark:bg-slate-800 dark:text-slate-400">{sourceLabel(candidate.source, tr)}</span>
                     {!isMatching ? (
-                        <span className="inline-flex items-center rounded-full bg-indigo-50 px-2 py-0.5 text-[15px] font-medium text-indigo-600 dark:bg-indigo-950/40 dark:text-indigo-300">
+                        <span className="inline-flex items-center rounded-full bg-neutral-100 px-2 py-0.5 text-[15px] font-medium text-neutral-700 dark:bg-neutral-900/40 dark:text-neutral-200">
                             {`${tr.sourceStage}：${sourceStageLabel}`}
                         </span>
                     ) : null}
@@ -1405,7 +1401,7 @@ function CandidateCard({
                         </div>
                     </div>
                 ) : (screeningPositionTitle || aiRecommendedTitle || candidate.ai_potential_position) ? (
-                    <div className="mt-2 rounded-lg border border-sky-100 bg-sky-50/70 px-3 py-2 text-xs text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
+                    <div className="mt-2 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 text-xs text-neutral-700 dark:border-neutral-800 dark:bg-neutral-900/40 dark:text-neutral-200">
                         {screeningPositionTitle ? <div className="font-medium">{`${tr.screeningPosition}：${screeningPositionTitle}`}</div> : null}
                         {aiRecommendedTitle ? (
                             <div className={screeningPositionTitle ? "mt-1" : "font-medium"}>
@@ -1413,7 +1409,7 @@ function CandidateCard({
                             </div>
                         ) : null}
                         {aiRecommendedTitle && candidate.ai_match_reason ? (
-                            <div className="mt-1 text-sky-600/90 dark:text-sky-200/80">
+                            <div className="mt-1 text-neutral-700/90 dark:text-neutral-200/80">
                                 {sanitizeCandidateFacingErrorText(candidate.ai_match_reason, {
                                     context: "position_match",
                                     language,
@@ -1421,12 +1417,12 @@ function CandidateCard({
                             </div>
                         ) : null}
                         {candidate.ai_potential_position ? (
-                            <div className={screeningPositionTitle || aiRecommendedTitle ? "mt-1 border-t border-sky-200/70 pt-2 dark:border-sky-900/70" : ""}>
+                            <div className={screeningPositionTitle || aiRecommendedTitle ? "mt-1 border-t border-neutral-200/70 pt-2 dark:border-neutral-800" : ""}>
                                 <div className="font-medium">
                                     {`${tr.potentialDirection}：${candidate.ai_potential_position}`}
                                 </div>
                                 {candidate.ai_potential_reason ? (
-                                    <div className="mt-1 text-sky-600/90 dark:text-sky-200/80">{candidate.ai_potential_reason}</div>
+                                    <div className="mt-1 text-neutral-700/90 dark:text-neutral-200/80">{candidate.ai_potential_reason}</div>
                                 ) : null}
                             </div>
                         ) : null}
@@ -1436,7 +1432,7 @@ function CandidateCard({
             <div className="flex flex-shrink-0 self-stretch flex-col items-end justify-between gap-2">
                 <div className="flex flex-wrap items-center justify-end gap-1.5">
                     {hasAIMatch && onConfirmMatch && (
-                        <Button size="sm" variant="outline" className="h-8 rounded-md border-sky-300 px-3 text-xs text-sky-700 hover:bg-sky-50 dark:border-sky-700 dark:text-sky-300 dark:hover:bg-sky-900/30" onClick={onConfirmMatch}>
+                        <Button size="sm" variant="outline" className="h-8 rounded-md border-neutral-300 px-3 text-xs text-neutral-700 hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-900/50" onClick={onConfirmMatch}>
                             <Check className="mr-1 h-3 w-3"/>{tr.confirmMatch}
                         </Button>
                     )}
@@ -1450,7 +1446,7 @@ function CandidateCard({
                         </Button>
                     )}
                     {onManualAssign && (
-                        <Button size="sm" variant="outline" className="h-8 rounded-md border-sky-300 px-3 text-xs text-sky-700 hover:bg-sky-50 dark:border-sky-700 dark:text-sky-300 dark:hover:bg-sky-900/30" onClick={onManualAssign}>
+                        <Button size="sm" variant="outline" className="h-8 rounded-md border-neutral-300 px-3 text-xs text-neutral-700 hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-900/50" onClick={onManualAssign}>
                             <Briefcase className="mr-1 h-3 w-3"/>{tr.manualAssign}
                         </Button>
                     )}

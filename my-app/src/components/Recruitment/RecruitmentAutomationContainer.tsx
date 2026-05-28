@@ -953,16 +953,16 @@ const JDStreamingPreview = React.memo(function JDStreamingPreview({
     }, [content, scrollToLatest]);
 
     return (
-        <div className="rounded-2xl border border-sky-200 bg-sky-50/80 px-4 py-3.5 dark:border-sky-900 dark:bg-sky-950/30">
+        <div className="rounded-2xl border border-violet-200 bg-violet-50/80 px-4 py-3.5 dark:border-violet-900 dark:bg-violet-950/30">
             <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2 text-xs font-medium text-sky-700 dark:text-sky-200">
+                <div className="flex items-center gap-2 text-xs font-medium text-violet-700 dark:text-violet-200">
                     <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin"/>
                     {jdGenerationStatus === "syncing" ? (isZh ? "正在同步最新 JD 到页面…" : "Syncing the latest JD to page…") : (isZh ? "正在生成 JD…" : "Generating JD…")}
                 </div>
                 {autoFollowPaused ? (
                     <button
                         type="button"
-                        className="rounded-full border border-sky-200 bg-white/80 px-2.5 py-1 text-xs font-medium text-sky-700 transition hover:border-sky-300 hover:bg-white dark:border-sky-900 dark:bg-sky-950/70 dark:text-sky-200 dark:hover:border-sky-700"
+                        className="rounded-full border border-violet-200 bg-white/80 px-2.5 py-1 text-xs font-medium text-violet-700 transition hover:border-violet-300 hover:bg-white dark:border-violet-900 dark:bg-violet-950/70 dark:text-violet-200 dark:hover:border-violet-700"
                         onClick={scrollToLatest}
                     >
                         {isZh ? "回到最新" : "Jump to latest"}
@@ -1060,7 +1060,7 @@ const PositionCandidateRow = React.memo(function PositionCandidateRow({
                             </Badge>
                         </div>
                         <p className="line-clamp-1 text-xs font-medium leading-5 text-slate-600 dark:text-slate-200">{truncateText(aiSummary, 44)}</p>
-                        <p className="truncate text-xs text-sky-600 dark:text-sky-300">
+                        <p className="truncate text-xs text-violet-600 dark:text-violet-300">
                             {potentialPosition ? `${isZh ? "转岗潜力" : "Potential"}：${potentialPosition}` : (isZh ? "暂无转岗潜力" : "No potential role")}
                         </p>
                     </div>
@@ -1563,7 +1563,7 @@ function TalentPoolSearch({
                                 key={candidate.id}
                                 className={cn(
                                     "flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-900",
-                                    selectedIds.has(candidate.id) && "bg-sky-50 dark:bg-sky-950/30"
+                                    selectedIds.has(candidate.id) && "bg-violet-50 dark:bg-violet-950/30"
                                 )}
                                 onClick={() => toggleSelect(candidate.id)}
                             >
@@ -1578,7 +1578,7 @@ function TalentPoolSearch({
                                     <div className="flex items-center gap-2">
                                         <span className="font-medium text-slate-900 dark:text-slate-100">{candidate.name}</span>
                                         {candidate.ai_match_position_title && (
-                                            <span className="text-xs text-sky-600 dark:text-sky-400">
+                                            <span className="text-xs text-violet-600 dark:text-violet-400">
                                                 <Sparkles className="inline h-3 w-3 mr-0.5"/>
                                                 {candidate.ai_match_position_title}
                                             </span>
@@ -7205,7 +7205,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                         ))}
                     </div>
                     {(c.screened_position_title || c.ai_match_position_title || c.ai_potential_position) ? (
-                        <div className="rounded-xl border border-sky-100 bg-sky-50/70 px-3 py-2 text-xs text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
+                        <div className="rounded-xl border border-violet-100 bg-violet-50/70 px-3 py-2 text-xs text-violet-700 dark:border-violet-900 dark:bg-violet-950/30 dark:text-violet-200">
                             {c.screened_position_title ? (
                                 <div className="font-medium">{`${isZh ? "初筛岗位" : "Screening Position"}：${c.screened_position_title}`}</div>
                             ) : null}
@@ -7213,7 +7213,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                 <div className={c.screened_position_title ? "mt-1" : "font-medium"}>{`${isZh ? "AI 主匹配岗位" : "AI Primary Match"}：${c.ai_match_position_title}`}</div>
                             ) : null}
                             {c.ai_match_position_title && c.ai_match_reason ? (
-                                <div className="mt-1 text-sky-600 dark:text-sky-200/80">
+                                <div className="mt-1 text-violet-600 dark:text-violet-200/80">
                                     {sanitizeCandidateFacingErrorText(c.ai_match_reason, {
                                         context: resolveCandidateFacingErrorContext("ai_position_match"),
                                         language,
@@ -7221,10 +7221,10 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                 </div>
                             ) : null}
                             {c.ai_potential_position ? (
-                                <div className={c.screened_position_title || c.ai_match_position_title ? "mt-2 border-t border-sky-200/70 pt-2 dark:border-sky-900/70" : ""}>
+                                <div className={c.screened_position_title || c.ai_match_position_title ? "mt-2 border-t border-violet-200/70 pt-2 dark:border-violet-900/70" : ""}>
                                     <div className="font-medium">{`${isZh ? "转岗潜力方向" : "Potential Transition"}：${c.ai_potential_position}`}</div>
                                     {c.ai_potential_reason ? (
-                                        <div className="mt-1 text-sky-600 dark:text-sky-200/80">{c.ai_potential_reason}</div>
+                                        <div className="mt-1 text-violet-600 dark:text-violet-200/80">{c.ai_potential_reason}</div>
                                     ) : null}
                                 </div>
                             ) : null}
@@ -7326,7 +7326,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                 <div
                                     key={resumeFile.id}
                                     onClick={() => void openResumeFile(resumeFile, false)}
-                                    className="group flex cursor-pointer items-center gap-2 rounded-lg border border-slate-100 px-3 py-2 text-xs transition-colors hover:border-blue-300 hover:bg-blue-50 dark:border-slate-800 dark:hover:border-blue-700 dark:hover:bg-blue-900/20"
+                                    className="group flex cursor-pointer items-center gap-2 rounded-lg border border-slate-100 px-3 py-2 text-xs transition-colors hover:border-[#D4D4D4] hover:bg-[#F5F5F5] dark:border-slate-800 dark:hover:border-neutral-700 dark:hover:bg-neutral-900/20"
                                 >
                                     <FileText className="h-4 w-4 shrink-0 text-red-500" />
                                     <span className="min-w-0 flex-1 truncate text-slate-700 dark:text-slate-300">{resumeFile.original_name}</span>
@@ -8553,7 +8553,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
 
                 {/* 智能匹配模式：显示说明 */}
                 {resumeUploadMode === "smart" ? (
-                    <div className="rounded-xl border border-sky-200 bg-sky-50 px-3 py-2.5 text-xs text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
+                    <div className="rounded-xl border border-violet-200 bg-violet-50 px-3 py-2.5 text-xs text-violet-700 dark:border-violet-900 dark:bg-violet-950/30 dark:text-violet-200">
                         {isZh
                             ? "系统将分析每份简历内容，自动匹配到最合适的岗位。无法匹配的简历将归入人才库，您可稍后手动分配。"
                             : "The system will analyze each resume and match it to the best-fitting position. Unmatched resumes will be added to the talent pool for manual assignment later."}
@@ -11149,7 +11149,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         const visibleQuickActionPrompts = assistantQuickActionsExpanded ? quickActionPrompts : collapsedQuickActionPrompts;
         const hasMoreQuickActions = quickActionPrompts.length > collapsedQuickActionPrompts.length;
         const summaryChips = [
-            {key: "position", label: shortText(chatContext.position_title || recruitmentUiText.unspecifiedPosition, 18), dotClassName: "bg-sky-500"},
+            {key: "position", label: shortText(chatContext.position_title || recruitmentUiText.unspecifiedPosition, 18), dotClassName: "bg-violet-500"},
             {key: "candidate", label: shortText(chatContextCandidateLabel, 18), dotClassName: "bg-amber-500"},
             {key: "skills", label: `${chatContext.skills?.length || 0} ${isZh ? "评估方案" : "Plans"}`, dotClassName: "bg-emerald-500"},
             {key: "model", label: shortText(assistantActiveLLMConfig?.resolved_model_name || assistantActiveLLMConfig?.model_name || recruitmentUiText.modelUnrecognized, 18), dotClassName: "bg-violet-500"},
@@ -11264,7 +11264,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                         <div className="flex items-start justify-between gap-3">
                             <div>
                                 <div className="flex items-center gap-2">
-                                    <Bot className="h-4 w-4 text-sky-600"/>
+                                    <Bot className="h-4 w-4 text-violet-600"/>
                                     <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{recruitmentUiText.assistantLabel}</p>
                                 </div>
                                 <p className="mt-1 hidden text-xs text-slate-500 dark:text-slate-400 2xl:block">
@@ -11343,7 +11343,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 <div className="border-b border-slate-200/80 px-4 py-2.5 dark:border-slate-800 sm:px-5">
                         <div className="flex items-center gap-3 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                             <div className="flex shrink-0 items-center gap-2">
-                                <Bot className="h-4 w-4 text-sky-600"/>
+                                <Bot className="h-4 w-4 text-violet-600"/>
                                 <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{recruitmentUiText.assistantLabel}</p>
                             </div>
                             <div className="flex shrink-0 items-center gap-1">
@@ -11479,7 +11479,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                                                 </div>
                                                             ) : null}
                                                             {assistantMailActionState[message.id]?.editing ? (
-                                                                <div className="rounded-2xl border border-sky-200 bg-sky-50 px-3 py-3 text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
+                                                                <div className="rounded-2xl border border-violet-200 bg-violet-50 px-3 py-3 text-violet-700 dark:border-violet-900 dark:bg-violet-950/30 dark:text-violet-200">
                                                                     {isZh ? "已进入编辑。你可以在弹窗里修改收件人、标题和正文后再发送。" : "Editing mode is open. You can adjust recipients, subject, and body in the dialog before sending."}
                                                                 </div>
                                                             ) : null}
@@ -12390,7 +12390,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                                             </Badge>
                                                         </div>
                                                         {task.published_url ? (
-                                                            <a className="mt-3 inline-flex items-center gap-1 text-sm text-sky-600 hover:underline" href={task.published_url} target="_blank" rel="noreferrer">
+                                                            <a className="mt-3 inline-flex items-center gap-1 text-sm text-violet-600 hover:underline" href={task.published_url} target="_blank" rel="noreferrer">
                                                                 {isZh ? "查看发布链接" : "Open Published Link"}
                                                                 <ExternalLink className="h-4 w-4"/>
                                                             </a>
@@ -12956,7 +12956,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     if (bootstrapping) {
         return (
             <div
-                className="flex h-full items-center justify-center bg-[radial-gradient(circle_at_top,_rgba(56,189,248,0.12),_transparent_42%),linear-gradient(180deg,#f8fafc_0%,#eef2ff_100%)] dark:bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.12),_transparent_42%),linear-gradient(180deg,#020617_0%,#0f172a_100%)]">
+                className="flex h-full items-center justify-center bg-[radial-gradient(circle_at_top,_rgba(124,58,237,0.12),_transparent_42%),linear-gradient(180deg,#f8fafc_0%,#eef2ff_100%)] dark:bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.12),_transparent_42%),linear-gradient(180deg,#020617_0%,#0f172a_100%)]">
                 <div
                     className="flex items-center gap-3 rounded-full border border-slate-200 bg-white px-5 py-3 text-sm text-slate-600 shadow-sm dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300">
                     <Loader2 className="h-4 w-4 animate-spin"/>
@@ -13179,7 +13179,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                             <div className="space-y-6">
                                 <div id="position-form-request" className="scroll-mt-4 space-y-4">
                                     <div className="flex items-center gap-2">
-                                        <span className="h-4 w-0.5 rounded-full bg-[#2454ff]"/>
+                                        <span className="h-4 w-0.5 rounded-full bg-[#171717]"/>
                                         <p className="text-base font-semibold text-slate-950 dark:text-slate-50">{isZh ? "基本信息" : "Basic Info"}</p>
                                     </div>
                                     <div className="grid gap-4 md:grid-cols-2">
@@ -13241,7 +13241,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                                            maxLength={240}
                                                            onChange={(event) => updatePositionFormField("tagsText", event.target.value.slice(0, 240))} placeholder={recruitmentUiText.tagsPlaceholder}/></Field>
 	                                <div id="position-form-position" className="scroll-mt-4 md:col-span-2 flex items-center gap-2 border-t border-slate-100 pt-5 dark:border-slate-800">
-                                    <span className="h-4 w-0.5 rounded-full bg-[#2454ff]"/>
+                                    <span className="h-4 w-0.5 rounded-full bg-[#171717]"/>
                                     <p className="text-base font-semibold text-slate-950 dark:text-slate-50">{isZh ? "职责要求" : "Requirements"}</p>
                                 </div>
                                 <Field label={recruitmentUiText.keyRequirements}><Textarea value={positionForm.keyRequirements}
@@ -13254,7 +13254,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
 	                                {positionDialogMode === "create" && (
                                         <>
 	                                            <div id="position-form-talent" className="scroll-mt-4 md:col-span-2 flex items-center gap-2 border-t border-slate-100 pt-5 dark:border-slate-800">
-                                                <span className="h-4 w-0.5 rounded-full bg-[#2454ff]"/>
+                                                <span className="h-4 w-0.5 rounded-full bg-[#171717]"/>
                                                 <p className="text-base font-semibold text-slate-950 dark:text-slate-50">{isZh ? "候选人匹配" : "Candidate Matching"}</p>
                                             </div>
                                             <Field
@@ -13276,7 +13276,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                         </>
 	                                )}
 	                                <div id="position-form-screening" className="scroll-mt-4 md:col-span-2 flex items-center gap-2 border-t border-slate-100 pt-5 dark:border-slate-800">
-                                    <span className="h-4 w-0.5 rounded-full bg-[#2454ff]"/>
+                                    <span className="h-4 w-0.5 rounded-full bg-[#171717]"/>
                                     <p className="text-base font-semibold text-slate-950 dark:text-slate-50">{isZh ? "筛选与评估" : "Screening"}</p>
                                 </div>
                                 <Field label={recruitmentUiText.screeningConfig} className="md:col-span-2">
@@ -14662,7 +14662,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                                 <div className="flex flex-wrap gap-2">
                                                     {getCandidateResumeMailSummary(candidate.id) ? (
                                                         <Badge
-                                                            className="rounded-full border border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
+                                                            className="rounded-full border border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-900 dark:bg-violet-950/30 dark:text-violet-200">
                                                             {recruitmentUiText.alreadySent}
                                                         </Badge>
                                                     ) : (
@@ -14672,7 +14672,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                                 </div>
                                             </div>
                                             {getCandidateResumeMailSummary(candidate.id) ? (
-                                                <p className="mt-2 text-xs text-sky-600 dark:text-sky-300">{getCandidateResumeMailSummary(candidate.id)}</p>
+                                                <p className="mt-2 text-xs text-violet-600 dark:text-violet-300">{getCandidateResumeMailSummary(candidate.id)}</p>
                                             ) : (
                                                 <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">{recruitmentUiText.noSendHistory}</p>
                                             )}
