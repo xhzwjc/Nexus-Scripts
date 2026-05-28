@@ -141,8 +141,6 @@ type CandidateResumeViewKey = "original" | "standard" | "history";
 type DetailIcon = React.ComponentType<{className?: string}>;
 type PdfJsModule = typeof import("pdfjs-dist");
 type PdfLoadingTask = ReturnType<PdfJsModule["getDocument"]>;
-type PdfWorkerMode = "bundled-worker" | "main-thread";
-type PdfWorkerModule = { WorkerMessageHandler?: unknown };
 
 const PDF_RENDER_FIRST_PAGE_TIMEOUT_MS = 10000;
 
@@ -165,22 +163,6 @@ function withPdfRenderTimeout<T>(promise: Promise<T>, message: string): Promise<
             window.clearTimeout(timeoutId);
         }
     });
-}
-
-async function createPdfWorkerForPreview(pdfjsLib: PdfJsModule, mode: PdfWorkerMode) {
-    if (mode === "bundled-worker" && typeof Worker !== "undefined") {
-        const worker = new Worker(new URL("pdfjs-dist/build/pdf.worker.mjs", import.meta.url), {type: "module"});
-        return pdfjsLib.PDFWorker.create({port: worker, verbosity: 0});
-    }
-
-    const workerModule = await import("pdfjs-dist/build/pdf.worker.mjs") as PdfWorkerModule;
-    if (!workerModule.WorkerMessageHandler) {
-        throw new Error("PDF worker module is unavailable");
-    }
-    (globalThis as typeof globalThis & {pdfjsWorker?: PdfWorkerModule}).pdfjsWorker = {
-        WorkerMessageHandler: workerModule.WorkerMessageHandler,
-    };
-    return undefined;
 }
 
 function readStructuredText(source: unknown, keys: string[]): string | null {
@@ -244,31 +226,10 @@ function InlineResumePdfPreview({
     onError: (message: string) => void;
 }) {
     const hostRef = React.useRef<HTMLDivElement | null>(null);
-    const [hostWidth, setHostWidth] = React.useState(0);
-
-    React.useEffect(() => {
-        const node = hostRef.current;
-        if (!node) return;
-
-        const updateWidth = () => {
-            const nextWidth = Math.floor(node.clientWidth);
-            setHostWidth((current) => Math.abs(current - nextWidth) > 2 ? nextWidth : current);
-        };
-        updateWidth();
-
-        if (typeof ResizeObserver === "undefined") {
-            window.addEventListener("resize", updateWidth);
-            return () => window.removeEventListener("resize", updateWidth);
-        }
-
-        const observer = new ResizeObserver(updateWidth);
-        observer.observe(node);
-        return () => observer.disconnect();
-    }, []);
 
     React.useEffect(() => {
         const host = hostRef.current;
-        if (!host || !blob || hostWidth <= 0) return;
+        if (!host || !blob) return;
 
         let cancelled = false;
         let loadingTask: PdfLoadingTask | null = null;
@@ -284,16 +245,34 @@ function InlineResumePdfPreview({
                 onReady();
             }
         };
+        const measureHostWidth = () => Math.floor(host.clientWidth || host.parentElement?.clientWidth || 0);
+        const waitForHostWidth = async () => {
+            for (let attempt = 0; attempt < 10; attempt += 1) {
+                const width = measureHostWidth();
+                if (width > 0 || cancelled) {
+                    return width;
+                }
+                await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+            }
+            return measureHostWidth();
+        };
 
         clearHost();
 
-        const renderPdfWithMode = async (pdfjsLib: PdfJsModule, sourceBytes: Uint8Array, mode: PdfWorkerMode) => {
-            const worker = await createPdfWorkerForPreview(pdfjsLib, mode);
+        const renderPdf = async () => {
+            const pdfjsLib = await import("pdfjs-dist/build/pdf.mjs") as PdfJsModule;
+            const arrayBuffer = await blob.arrayBuffer();
             if (cancelled) return;
+            const measuredHostWidth = await waitForHostWidth();
+            if (cancelled) return;
+            if (measuredHostWidth <= 0) {
+                throw new Error(isZh ? "简历预览区域尚未准备好" : "Resume preview area is not ready");
+            }
 
+            const sourceBytes = new Uint8Array(arrayBuffer);
+            pdfjsLib.GlobalWorkerOptions.workerSrc = "/vendor/pdfjs/pdf.worker.min.mjs";
             loadingTask = pdfjsLib.getDocument({
-                data: sourceBytes.slice(),
-                worker,
+                data: sourceBytes,
                 verbosity: 0,
                 useWorkerFetch: false,
             });
@@ -306,7 +285,7 @@ function InlineResumePdfPreview({
                 return;
             }
 
-            const pageHostWidth = Math.max(320, Math.min(hostWidth - 8, 760));
+            const pageHostWidth = Math.max(320, Math.min(measuredHostWidth - 8, 760));
             const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
 
             for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
@@ -362,38 +341,6 @@ function InlineResumePdfPreview({
             signalReady();
         };
 
-        const renderPdf = async () => {
-            const pdfjsLib = await import("pdfjs-dist/build/pdf.mjs") as PdfJsModule;
-            const arrayBuffer = await blob.arrayBuffer();
-            if (cancelled) return;
-            const sourceBytes = new Uint8Array(arrayBuffer);
-            const modes: PdfWorkerMode[] = ["bundled-worker", "main-thread"];
-            let lastError: unknown = null;
-
-            for (const mode of modes) {
-                try {
-                    clearHost();
-                    loadingTask = null;
-                    await renderPdfWithMode(pdfjsLib, sourceBytes, mode);
-                    return;
-                } catch (error) {
-                    if (cancelled) return;
-                    lastError = error;
-                    await loadingTask?.destroy().catch(() => undefined);
-                    loadingTask = null;
-                    clearHost();
-                    console.warn("[recruitment-resume-preview] PDF.js render failed", {
-                        mode,
-                        fileName,
-                        error: error instanceof Error ? error.message : String(error),
-                    });
-                }
-            }
-            throw lastError instanceof Error
-                ? lastError
-                : new Error(isZh ? "原始简历加载失败" : "Failed to load original resume");
-        };
-
         void renderPdf().catch((error) => {
             if (cancelled) return;
             const message = error instanceof Error && error.message
@@ -409,7 +356,7 @@ function InlineResumePdfPreview({
                 void loadingTask.destroy().catch(() => undefined);
             }
         };
-    }, [blob, hostWidth, isZh, onError, onReady]);
+    }, [blob, isZh, onError, onReady]);
 
     return (
         <div className="h-full overflow-auto bg-white">
