@@ -650,6 +650,8 @@ export interface Translations {
     landingPageHome: string;
     landingPageWelcome: string;
     landingPageHint: string;
+    recruitmentMenuGroupedLabel: string;
+    recruitmentMenuGroupedHint: string;
     systemRole: string;
     customRole: string;
     assignedUsers: string;

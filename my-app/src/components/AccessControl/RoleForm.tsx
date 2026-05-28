@@ -174,6 +174,18 @@ export function RoleForm({
                                     </Select>
                                     <p className="text-xs text-muted-foreground">{labels.landingPageHint}</p>
                                 </div>
+                                <label className="flex items-start gap-3 rounded-md border bg-background p-3">
+                                    <Checkbox
+                                        className="mt-0.5"
+                                        checked={form.recruitmentMenuGrouped}
+                                        onCheckedChange={(checked) => onChange({ ...form, recruitmentMenuGrouped: checked === true })}
+                                        disabled={saving}
+                                    />
+                                    <span className="space-y-1">
+                                        <span className="block text-sm font-medium">{labels.recruitmentMenuGroupedLabel}</span>
+                                        <span className="block text-xs text-muted-foreground">{labels.recruitmentMenuGroupedHint}</span>
+                                    </span>
+                                </label>
                             </div>
 
                             {role && (

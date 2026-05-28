@@ -143,6 +143,7 @@ def serialize_user_session(db: Session, user: ScriptHubUser) -> Dict[str, Any]:
     # 根据角色配置决定默认首页（从数据库读取，而非硬编码 catalog）
     primary_role_record = next((r for r in roles if r.role_code == primary_role), None)
     landing_page = getattr(primary_role_record, "landing_page", None) or "home"
+    recruitment_menu_grouped = getattr(primary_role_record, "recruitment_menu_grouped", True)
     return {
         "id": user.user_code,
         "role": primary_role,
@@ -157,6 +158,7 @@ def serialize_user_session(db: Session, user: ScriptHubUser) -> Dict[str, Any]:
         "permissionVersion": int(user.permission_version or 1),
         "teamResourcesLoginKeyEnabled": bool(user.team_resources_access_enabled),
         "landingPage": landing_page,
+        "recruitmentMenuGrouped": bool(recruitment_menu_grouped),
     }
 
 

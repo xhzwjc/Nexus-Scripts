@@ -457,6 +457,8 @@ export const enUS: Translations = {
         landingPageHome: 'Home Dashboard',
         landingPageWelcome: 'Welcome Page',
         landingPageHint: 'Select the default landing page for users with this role.',
+        recruitmentMenuGroupedLabel: 'Group AI Recruiting under parent menu',
+        recruitmentMenuGroupedHint: 'When enabled, show the AI Recruiting parent menu. When disabled, show accessible recruiting pages as top-level menus.',
         rolePermissionOnlyHint: 'Select functional permission points by category. Organization and sharing policies are not stored on roles.',
         selectAll: 'Select All',
         deselectAll: 'Deselect All',

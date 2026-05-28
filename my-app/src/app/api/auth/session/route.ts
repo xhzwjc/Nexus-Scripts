@@ -53,6 +53,7 @@ function createLocalSessionResponse(token: string) {
             permissions: session.permissions,
             teamResourcesLoginKeyEnabled: session.teamResourcesLoginKeyEnabled,
             landingPage: session.landingPage || 'home',
+            recruitmentMenuGrouped: session.recruitmentMenuGrouped !== false,
         },
         expiresAt: session.exp,
     };

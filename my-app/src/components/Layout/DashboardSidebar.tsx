@@ -75,6 +75,7 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
 
     // AI 招聘模块权限
     const canAccessRecruitment = Boolean(currentUser?.permissions?.['ai-recruitment']);
+    const useGroupedRecruitmentMenu = currentUser?.recruitmentMenuGrouped !== false;
     const canManagePosition = Boolean(currentUser?.permissions?.['recruitment-position-manage']);
     const canManageCandidate = Boolean(currentUser?.permissions?.['recruitment-candidate-manage']);
     const canManageReview = Boolean(currentUser?.permissions?.['recruitment-review-manage']);
@@ -138,6 +139,13 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
         ...(canViewLog ? [{ key: 'audit', label: t.nav.aiRecruitmentAudit, icon: <History className="h-4 w-4" /> }] : []),
         ...(canUseRecruitmentWorkspace ? [{ key: 'assistant', label: t.nav.aiRecruitmentAssistant, icon: <Bot className="h-4 w-4" /> }] : []),
     ];
+
+    const openRecruitmentPage = (page: string) => {
+        setRecruitmentInitialPage?.(page);
+        setCurrentView('ai-recruitment');
+        setActiveRecruitmentPage(page);
+        navigateToRecruitmentPage(page);
+    };
 
     const navItemClass = (active: boolean, disabled = false) =>
         cn(
@@ -279,7 +287,7 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
                                             onClick: () => setCurrentView('agent-chat'),
                                         })
                                         : null}
-                                    {canAccessRecruitment ? (
+                                    {canAccessRecruitment && useGroupedRecruitmentMenu ? (
                                         <div className="space-y-1">
                                             <div
                                                 className={navItemClass(inRecruitmentView || Boolean(activeRecruitmentPage) || aiRecruitmentExpanded)}
@@ -307,12 +315,7 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
                                                                     ? 'bg-slate-100 font-medium text-slate-900 dark:bg-slate-800 dark:text-slate-100'
                                                                     : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200',
                                                             )}
-                                                            onClick={() => {
-                                                                setRecruitmentInitialPage?.(item.key);
-                                                                setCurrentView('ai-recruitment');
-                                                                setActiveRecruitmentPage(item.key);
-                                                                navigateToRecruitmentPage(item.key);
-                                                            }}
+                                                            onClick={() => openRecruitmentPage(item.key)}
                                                         >
                                                             <span className="h-[18px] w-[18px]">{item.icon}</span>
                                                             <span>{item.label}</span>
@@ -322,6 +325,18 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
                                             )}
                                         </div>
                                     ) : null}
+                                    {canAccessRecruitment && !useGroupedRecruitmentMenu
+                                        ? recruitmentSubItems.map((item) => (
+                                            <React.Fragment key={item.key}>
+                                                {renderNavItem({
+                                                    active: inRecruitmentView && activeRecruitmentPage === item.key,
+                                                    label: item.label,
+                                                    icon: item.icon,
+                                                    onClick: () => openRecruitmentPage(item.key),
+                                                })}
+                                            </React.Fragment>
+                                        ))
+                                        : null}
                                     {currentUser?.permissions['rbac-manage']
                                         ? renderNavItem({
                                             active: currentView === 'access-control',

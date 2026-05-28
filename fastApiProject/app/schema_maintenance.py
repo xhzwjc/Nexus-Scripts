@@ -437,6 +437,11 @@ def ensure_script_hub_schema() -> None:
                 logger.info("Added script_hub_organizations.deleted_at column")
 
             role_columns = {column["name"] for column in inspector.get_columns("script_hub_roles")}
+            if "recruitment_menu_grouped" not in role_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE script_hub_roles ADD COLUMN recruitment_menu_grouped BOOLEAN NOT NULL DEFAULT TRUE"))
+                logger.info("Added script_hub_roles.recruitment_menu_grouped column")
+
             if "is_deleted" not in role_columns:
                 with engine.begin() as connection:
                     connection.execute(text("ALTER TABLE script_hub_roles ADD COLUMN is_deleted BOOLEAN NOT NULL DEFAULT FALSE"))

@@ -38,6 +38,7 @@ export interface RoleFormState {
     permissionKeys: string[];
     isActive: boolean;
     landingPage: 'home' | 'welcome';
+    recruitmentMenuGrouped: boolean;
 }
 
 export interface RoleFormErrors {

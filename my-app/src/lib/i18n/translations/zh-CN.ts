@@ -456,6 +456,8 @@ export const zhCN: Translations = {
         landingPageHome: '首页（控制台）',
         landingPageWelcome: '欢迎页',
         landingPageHint: '设置该角色的用户登录后默认进入的页面。',
+        recruitmentMenuGroupedLabel: 'AI 招聘收纳到父菜单',
+        recruitmentMenuGroupedHint: '勾选后显示 AI 招聘父菜单；取消勾选后，将该角色可访问的 AI 招聘子菜单作为一级菜单显示。',
         rolePermissionOnlyHint: '按权限分类选择功能点，组织与共享策略不写入角色定义。',
         selectAll: '全选',
         deselectAll: '取消全选',

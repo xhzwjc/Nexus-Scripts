@@ -50,6 +50,7 @@ class ScriptHubAdminRoleSchema(BaseModel):
     is_active: bool
     assigned_user_count: int
     landing_page: str
+    recruitment_menu_grouped: bool
 
 
 class ScriptHubOrganizationSchema(BaseModel):
@@ -340,6 +341,7 @@ class ScriptHubRoleCreateRequest(BaseModel):
     description: Optional[str] = Field(default=None, max_length=2000)
     permission_keys: List[str] = Field(default_factory=list, min_length=1)
     landing_page: str = Field(default="home", max_length=20)
+    recruitment_menu_grouped: bool = True
 
     @field_validator("code")
     @classmethod
@@ -374,6 +376,7 @@ class ScriptHubRoleUpdateRequest(BaseModel):
     permission_keys: Optional[List[str]] = None
     is_active: Optional[bool] = None
     landing_page: Optional[str] = Field(default=None, max_length=20)
+    recruitment_menu_grouped: Optional[bool] = None
 
     @field_validator("name")
     @classmethod

@@ -141,6 +141,7 @@ export function AccessControlRolesPage({
                     permission_keys: normalized.permissionKeys,
                     is_active: mode === 'edit' ? normalized.isActive : undefined,
                     landing_page: normalized.landingPage,
+                    recruitment_menu_grouped: normalized.recruitmentMenuGrouped,
                 }),
             });
             const payload = await response.json().catch(() => ({ error: labels.roleSaveFailed })) as RoleMutationResponse;

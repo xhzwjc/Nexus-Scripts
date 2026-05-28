@@ -144,6 +144,7 @@ export function createEmptyRoleForm(): RoleFormState {
         permissionKeys: [],
         isActive: true,
         landingPage: 'welcome',
+        recruitmentMenuGrouped: true,
     };
 }
 
@@ -155,6 +156,7 @@ export function mapRoleToForm(role: ScriptHubRoleDefinition): RoleFormState {
         permissionKeys: [...role.permission_keys],
         isActive: role.is_active,
         landingPage: role.landing_page || 'home',
+        recruitmentMenuGrouped: role.recruitment_menu_grouped !== false,
     };
 }
 

@@ -29,6 +29,7 @@ class ScriptHubRole(Base):
     is_system = Column(Boolean, default=True, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
     landing_page = Column(String(20), default="home", nullable=False)
+    recruitment_menu_grouped = Column(Boolean, default=True, nullable=False)
     is_deleted = Column(Boolean, default=False, nullable=False)
     deleted_at = Column(DateTime)
     created_at = Column(DateTime, server_default=func.now())

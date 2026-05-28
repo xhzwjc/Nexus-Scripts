@@ -21,6 +21,7 @@ export interface User {
     permissionVersion?: number;
     teamResourcesLoginKeyEnabled?: boolean;
     landingPage?: 'home' | 'welcome';
+    recruitmentMenuGrouped?: boolean;
 }
 
 export type AccessControlView = 'overview' | 'organizations' | 'users' | 'roles' | 'resources' | 'audit';
@@ -94,6 +95,7 @@ export interface ScriptHubRoleDefinition {
     is_active: boolean;
     assigned_user_count: number;
     landing_page: 'home' | 'welcome';
+    recruitment_menu_grouped: boolean;
 }
 
 export interface ScriptHubOrganizationDefinition {

@@ -364,6 +364,7 @@ def serialize_admin_role(db: Session, role: ScriptHubRole) -> Dict[str, object]:
         "is_active": bool(role.is_active),
         "assigned_user_count": _get_assigned_user_count(db, role.id),
         "landing_page": getattr(role, "landing_page", None) or "home",
+        "recruitment_menu_grouped": bool(getattr(role, "recruitment_menu_grouped", True)),
     }
 
 
@@ -741,6 +742,7 @@ def create_rbac_role(
     description: Optional[str],
     permission_keys: Iterable[str],
     landing_page: Optional[str] = None,
+    recruitment_menu_grouped: bool = True,
 ) -> Dict[str, object]:
     normalized_code = _normalize_role_code(code)
     if db.query(ScriptHubRole).filter(
@@ -768,6 +770,7 @@ def create_rbac_role(
         is_system=False,
         is_active=True,
         landing_page=landing_page if landing_page in ("home", "welcome") else "home",
+        recruitment_menu_grouped=bool(recruitment_menu_grouped),
     )
     db.add(role)
     db.flush()
@@ -786,6 +789,7 @@ def update_rbac_role(
     permission_keys: Optional[Iterable[str]] = None,
     is_active: Optional[bool] = None,
     landing_page: Optional[str] = None,
+    recruitment_menu_grouped: Optional[bool] = None,
 ) -> Dict[str, object]:
     normalized_role_code = _normalize_role_code(role_code)
     role = db.query(ScriptHubRole).filter(
@@ -821,6 +825,9 @@ def update_rbac_role(
 
     if landing_page is not None:
         role.landing_page = landing_page if landing_page in ("home", "welcome") else "home"
+
+    if recruitment_menu_grouped is not None:
+        role.recruitment_menu_grouped = bool(recruitment_menu_grouped)
 
     role.is_active = next_is_active
     _set_role_permissions(db, role.id, normalized_permission_keys, permission_rows)
