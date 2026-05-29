@@ -3493,12 +3493,13 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         setSettingsPopoverOpen(false);
     }, [activePage]);
 
-    // 进入人才库页面时加载数据
+    // 进入人才库页面时加载数据（保留用户之前的分页设置）
     useEffect(() => {
         if (activePage === "talent-pool") {
-            const nextQuery = {
+            const nextQuery: TalentPoolQueryState = {
                 ...DEFAULT_TALENT_POOL_QUERY,
-                statFilter: talentPoolPreferredStatFilter || DEFAULT_TALENT_POOL_QUERY.statFilter,
+                ...talentPoolQueryRef.current,
+                statFilter: talentPoolPreferredStatFilter || talentPoolQueryRef.current.statFilter || DEFAULT_TALENT_POOL_QUERY.statFilter,
             };
             talentPoolQueryRef.current = nextQuery;
             loadTalentPoolCandidates({ query: nextQuery });
