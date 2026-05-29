@@ -349,6 +349,8 @@ type TalentPoolQueryState = {
     tagFilter: string;
     sortBy: "time" | "name" | "name_desc";
     offset: number;
+    pageIndex: number;
+    pageSize: number;
 };
 type TalentPoolStats = {
     total: number;
@@ -370,7 +372,8 @@ const DEFAULT_POSITION_SKILL_SECTION_EXPANDED_STATE: PositionSkillSectionExpande
     screeningSkillIds: false,
     interviewSkillIds: false,
 };
-const TALENT_POOL_PAGE_SIZE = 25;
+const TALENT_POOL_PAGE_SIZE = 15;
+const TALENT_POOL_PAGE_SIZE_OPTIONS = [15, 30, 50, 100, 200, 500];
 const DEFAULT_TALENT_POOL_QUERY: TalentPoolQueryState = {
     statFilter: "pending",
     searchQuery: "",
@@ -378,6 +381,8 @@ const DEFAULT_TALENT_POOL_QUERY: TalentPoolQueryState = {
     tagFilter: "all",
     sortBy: "time",
     offset: 0,
+    pageIndex: 0,
+    pageSize: TALENT_POOL_PAGE_SIZE,
 };
 
 type OrganizationSelectOption = {
@@ -2246,6 +2251,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const [talentPoolTotal, setTalentPoolTotal] = useState(0);
     const [talentPoolStats, setTalentPoolStats] = useState<TalentPoolStats | null>(null);
     const [talentPoolAvailableTags, setTalentPoolAvailableTags] = useState<string[]>([]);
+    const [talentPoolPageIndex, setTalentPoolPageIndex] = useState(0);
+    const [talentPoolPageSize, setTalentPoolPageSize] = useState(TALENT_POOL_PAGE_SIZE);
     const [allSkills, setAllSkills] = useState<RecruitmentSkill[]>([]);
     const [skills, setSkills] = useState<RecruitmentSkill[]>([]);
     const [allAiLogs, setAllAiLogs] = useState<AITaskLog[]>([]);
@@ -2263,6 +2270,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const allCandidatesRef = useRef<CandidateSummary[]>(allCandidates);
     const allTalentPoolCandidatesRef = useRef<CandidateSummary[]>(allTalentPoolCandidates);
     const talentPoolQueryRef = useRef<TalentPoolQueryState>({ ...DEFAULT_TALENT_POOL_QUERY });
+    const talentPoolPageIndexRef = useRef(talentPoolPageIndex);
+    const talentPoolPageSizeRef = useRef(talentPoolPageSize);
     const candidateTotalRef = useRef(candidateTotal);
     const candidatePageIndexRef = useRef(candidatePageIndex);
     const candidatePageSizeRef = useRef(candidatePageSize);
@@ -2278,6 +2287,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const llmConfigsLoadedOnceRef = useRef(false);
     allCandidatesRef.current = allCandidates;
     allTalentPoolCandidatesRef.current = allTalentPoolCandidates;
+    talentPoolPageIndexRef.current = talentPoolPageIndex;
+    talentPoolPageSizeRef.current = talentPoolPageSize;
     candidateTotalRef.current = candidateTotal;
     candidatePageIndexRef.current = candidatePageIndex;
     candidatePageSizeRef.current = candidatePageSize;
@@ -5586,15 +5597,20 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         try {
             const scopedOrgCode = resolveScopedOrgCode(options?.departmentScope ?? selectedDepartmentScope, options?.orgScope ?? selectedOrgScope);
             const resolvedQuery: TalentPoolQueryState = {
+                ...DEFAULT_TALENT_POOL_QUERY,
                 ...talentPoolQueryRef.current,
                 ...(options?.query || {}),
             };
-            resolvedQuery.offset = Math.max(0, Number(resolvedQuery.offset || 0));
+            resolvedQuery.pageIndex = Math.max(0, Number(resolvedQuery.pageIndex || 0));
+            resolvedQuery.pageSize = TALENT_POOL_PAGE_SIZE_OPTIONS.includes(resolvedQuery.pageSize)
+                ? resolvedQuery.pageSize
+                : TALENT_POOL_PAGE_SIZE;
+            resolvedQuery.offset = resolvedQuery.pageIndex * resolvedQuery.pageSize;
             talentPoolQueryRef.current = resolvedQuery;
             const params = new URLSearchParams();
             if (scopedOrgCode) params.set("org_code", scopedOrgCode);
             params.set("paginated", "true");
-            params.set("limit", String(TALENT_POOL_PAGE_SIZE));
+            params.set("limit", String(resolvedQuery.pageSize));
             params.set("offset", String(resolvedQuery.offset));
             params.set("stat_filter", resolvedQuery.statFilter);
             if (resolvedQuery.searchQuery.trim()) params.set("query", resolvedQuery.searchQuery.trim());
@@ -8483,7 +8499,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 navigateToRecruitmentPage("talent-pool");
                 if (activePage === "talent-pool") {
                     void loadTalentPoolCandidates(shouldFocusMatchingTalentPool
-                        ? { silent: true, query: { ...talentPoolQueryRef.current, statFilter: "matching", offset: 0 } }
+                        ? { silent: true, query: { ...talentPoolQueryRef.current, statFilter: "matching", pageIndex: 0 } }
                         : { silent: true });
                 }
             } else {
@@ -12699,30 +12715,42 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                     onUploadResume={openResumeUploadDialog}
                     onDeleteCandidates={deleteTalentPoolCandidates}
                     onRefresh={async () => {
-                        await loadTalentPoolCandidates({ query: { ...talentPoolQueryRef.current, offset: 0 } });
+                        setTalentPoolPageIndex(0);
+                        talentPoolPageIndexRef.current = 0;
+                        await loadTalentPoolCandidates({ query: { ...talentPoolQueryRef.current, pageIndex: 0 } });
                         toast.success(recruitmentToast.refreshed(recruitmentToastEntities.talentPool));
                     }}
                     total={effectiveTalentPoolTotal}
                     stats={shouldUseLocalScopedStats ? null : talentPoolStats}
                     availableTags={talentPoolAvailableTags}
-                    loadingMore={talentPoolLoadingMore}
+                    pageIndex={talentPoolPageIndex}
+                    pageSize={talentPoolPageSize}
+                    pageSizeOptions={TALENT_POOL_PAGE_SIZE_OPTIONS}
+                    setPageIndex={(nextPageIndex) => {
+                        const normalized = Math.max(0, nextPageIndex);
+                        setTalentPoolPageIndex(normalized);
+                        talentPoolPageIndexRef.current = normalized;
+                        void loadTalentPoolCandidates({ query: { ...talentPoolQueryRef.current, pageIndex: normalized } });
+                    }}
+                    setPageSize={(nextPageSize) => {
+                        const normalized = TALENT_POOL_PAGE_SIZE_OPTIONS.includes(nextPageSize)
+                            ? nextPageSize
+                            : TALENT_POOL_PAGE_SIZE;
+                        setTalentPoolPageIndex(0);
+                        setTalentPoolPageSize(normalized);
+                        talentPoolPageIndexRef.current = 0;
+                        talentPoolPageSizeRef.current = normalized;
+                        void loadTalentPoolCandidates({ query: { ...talentPoolQueryRef.current, pageIndex: 0, pageSize: normalized } });
+                    }}
                     onQueryChange={async (query) => {
                         const nextQuery = {
                             ...talentPoolQueryRef.current,
                             ...query,
-                            offset: 0,
+                            pageIndex: 0,
                         };
+                        setTalentPoolPageIndex(0);
+                        talentPoolPageIndexRef.current = 0;
                         await loadTalentPoolCandidates({ query: nextQuery });
-                    }}
-                    onLoadMore={async () => {
-                        await loadTalentPoolCandidates({
-                            query: {
-                                ...talentPoolQueryRef.current,
-                                offset: allTalentPoolCandidatesRef.current.length,
-                            },
-                            append: true,
-                            silent: true,
-                        });
                     }}
                     onReIdentify={async (candidateId) => {
                         const result = await triggerAIPositionMatch([candidateId]);
@@ -12730,7 +12758,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                             setAllTalentPoolCandidates(prev => prev.map(c =>
                                 c.id === candidateId ? { ...c, status: "matching" } : c
                             ));
-                            void loadTalentPoolCandidates({ silent: true, query: { ...talentPoolQueryRef.current, offset: 0 } });
+                            void loadTalentPoolCandidates({ silent: true });
                         }
                     }}
                     onBatchReIdentify={async (candidateIds) => {
@@ -12740,7 +12768,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                             setAllTalentPoolCandidates(prev => prev.map((candidate) => (
                                 idSet.has(candidate.id) ? { ...candidate, status: "matching" } : candidate
                             )));
-                            void loadTalentPoolCandidates({ silent: true, query: { ...talentPoolQueryRef.current, offset: 0 } });
+                            void loadTalentPoolCandidates({ silent: true });
                         }
                     }}
                     onCancelMatch={async (candidateId) => {
@@ -12758,7 +12786,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                             setAllTalentPoolCandidates(prev => prev.map(c =>
                                 c.id === candidateId ? { ...c, status: result?.status || "unmatched" } : c
                             ));
-                            void loadTalentPoolCandidates({ silent: true, query: { ...talentPoolQueryRef.current, offset: 0 } });
+                            void loadTalentPoolCandidates({ silent: true });
                         } catch (error) {
                             console.warn("Failed to cancel match, refreshing talent pool state:", error);
                             await loadTalentPoolCandidates({ silent: true });

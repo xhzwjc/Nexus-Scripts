@@ -126,8 +126,12 @@ function getTalentPoolLocale(language = getCurrentLanguage()) {
         currentView: isZh ? "当前工作列表" : "Current Worklist",
         visibleResultCount: (shown: number, total: number) => isZh ? `已显示 ${shown} / ${total} 人` : `${shown} / ${total} shown`,
         selectAllVisible: isZh ? "全选当前列表" : "Select visible",
-        loadMore: isZh ? "加载更多" : "Load more",
-        loadingMore: isZh ? "加载中…" : "Loading...",
+        pageRange: (start: number, end: number, total: number) => (
+            isZh ? `${start}-${end} / 共 ${total} 条` : `${start}-${end} of ${total}`
+        ),
+        rowsPerPage: isZh ? "条/页" : "Rows/Page",
+        previousPage: isZh ? "上一页" : "Previous",
+        nextPage: isZh ? "下一页" : "Next",
         manualUpload: isZh ? "手动上传" : "Manual",
         bossZhipin: isZh ? "Boss直聘" : "Boss",
         liepin: isZh ? "猎聘" : "Liepin",
@@ -175,8 +179,11 @@ type TalentPoolPageProps = {
     stats?: TalentPoolStats | null;
     availableTags?: string[];
     onQueryChange?: (query: TalentPoolQuery) => void | Promise<void>;
-    onLoadMore?: () => void | Promise<void>;
-    loadingMore?: boolean;
+    pageIndex: number;
+    pageSize: number;
+    pageSizeOptions: number[];
+    setPageIndex: (pageIndex: number) => void;
+    setPageSize: (pageSize: number) => void;
     panelClass?: string;
     preferredStatFilter?: TalentPoolStatFilter | null;
     onPreferredStatFilterApplied?: () => void;
@@ -229,7 +236,6 @@ type TalentPoolQuery = {
     sourceFilter: string;
     tagFilter: string;
     sortBy: "time" | "name" | "name_desc";
-    offset?: number;
 };
 
 function isTalentPoolMatching(candidate: CandidateSummary) {
@@ -356,8 +362,11 @@ export function TalentPoolPage({
     stats: serverStats,
     availableTags: serverAvailableTags,
     onQueryChange,
-    onLoadMore,
-    loadingMore,
+    pageIndex,
+    pageSize,
+    pageSizeOptions,
+    setPageIndex,
+    setPageSize,
     preferredStatFilter,
     onPreferredStatFilterApplied,
 }: TalentPoolPageProps) {
@@ -509,7 +518,6 @@ export function TalentPoolPage({
                 sourceFilter,
                 tagFilter,
                 sortBy,
-                offset: 0,
             });
         }, searchQuery.trim() ? 220 : 0);
         return () => window.clearTimeout(timer);
@@ -541,6 +549,14 @@ export function TalentPoolPage({
         else if (sortBy === "name_desc") result.sort((a, b) => b.name.localeCompare(a.name, "zh-CN"));
         return result;
     }, [activeStatFilter, candidates, recentCutoffMs, searchQuery, sourceFilter, tagFilter, sortBy]);
+
+    const totalForPagination = total ?? filteredCandidates.length;
+    const totalPages = Math.max(1, Math.ceil(Math.max(0, totalForPagination) / Math.max(1, pageSize)));
+    React.useEffect(() => {
+        if (totalForPagination > 0 && pageIndex >= totalPages) {
+            setPageIndex(totalPages - 1);
+        }
+    }, [pageIndex, totalForPagination, totalPages, setPageIndex]);
 
     const selectedCandidates = React.useMemo(() => (
         Array.from(selectedIds)
@@ -795,9 +811,9 @@ export function TalentPoolPage({
                 </div>
             </aside>
             {/* ── 主内容区 ── */}
-            <div className="flex min-h-0 flex-1 flex-col overflow-y-auto rounded-md border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-950">
+            <div className="flex min-h-0 flex-1 flex-col rounded-md border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-950">
                 {/* 统计卡片 */}
-                <div className="mb-4 grid grid-cols-2 gap-2.5 md:grid-cols-3 xl:hidden">
+                <div className="mb-4 shrink-0 grid grid-cols-2 gap-2.5 md:grid-cols-3 xl:hidden">
                     {statCards.map((card) => (
                         <StatCard
                             key={card.filter}
@@ -973,80 +989,82 @@ export function TalentPoolPage({
                 </div>
 
                 {/* 候选人列表 */}
-                {showInlineUpdating ? (
-                    <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-neutral-200 bg-white/80 px-3 py-1.5 text-sm text-neutral-700 shadow-sm backdrop-blur-xl dark:border-neutral-800 dark:bg-slate-950/75 dark:text-neutral-200">
-                        <span className="relative flex h-3 w-3">
-                            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-neutral-400 opacity-60"/>
-                            <span className="relative inline-flex h-3 w-3 rounded-full bg-neutral-900"/>
-                        </span>
-                        {tr.updatingList}
-                    </div>
-                ) : null}
-                {filteredCandidates.length === 0 ? (
-                    <div className="flex flex-1 items-center justify-center">
+                <div className="flex min-h-0 flex-1 flex-col">
+                    <div className="min-h-0 flex-1 overflow-y-auto">
                         {showInlineUpdating ? (
-                            <div className="flex flex-col items-center rounded-3xl border border-neutral-200 bg-white/75 px-8 py-7 text-center shadow-[0_18px_48px_-36px_rgba(15,23,42,0.35)] backdrop-blur-2xl dark:border-neutral-800 dark:bg-slate-950/70">
-                                <span className="relative flex h-8 w-8">
-                                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-neutral-400 opacity-35"/>
-                                    <span className="relative inline-flex h-8 w-8 items-center justify-center rounded-full bg-neutral-900 text-white shadow-[0_16px_36px_-22px_rgba(15,23,42,0.65)]">
-                                        <Loader2 className="h-4 w-4 animate-spin"/>
-                                    </span>
+                            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-neutral-200 bg-white/80 px-3 py-1.5 text-sm text-neutral-700 shadow-sm backdrop-blur-xl dark:border-neutral-800 dark:bg-slate-950/75 dark:text-neutral-200">
+                                <span className="relative flex h-3 w-3">
+                                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-neutral-400 opacity-60"/>
+                                    <span className="relative inline-flex h-3 w-3 rounded-full bg-neutral-900"/>
                                 </span>
-                                <span className="mt-3 text-base font-medium text-slate-700 dark:text-slate-200">{tr.updatingList}</span>
+                                {tr.updatingList}
+                            </div>
+                        ) : null}
+                        {filteredCandidates.length === 0 ? (
+                            <div className="flex h-full items-center justify-center">
+                                {showInlineUpdating ? (
+                                    <div className="flex flex-col items-center rounded-3xl border border-neutral-200 bg-white/75 px-8 py-7 text-center shadow-[0_18px_48px_-36px_rgba(15,23,42,0.35)] backdrop-blur-2xl dark:border-neutral-800 dark:bg-slate-950/70">
+                                        <span className="relative flex h-8 w-8">
+                                            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-neutral-400 opacity-35"/>
+                                            <span className="relative inline-flex h-8 w-8 items-center justify-center rounded-full bg-neutral-900 text-white shadow-[0_16px_36px_-22px_rgba(15,23,42,0.65)]">
+                                                <Loader2 className="h-4 w-4 animate-spin"/>
+                                            </span>
+                                        </span>
+                                        <span className="mt-3 text-base font-medium text-slate-700 dark:text-slate-200">{tr.updatingList}</span>
+                                    </div>
+                                ) : (
+                                    <div className="text-center">
+                                        <Users className="mx-auto h-12 w-12 text-slate-300 dark:text-slate-600"/>
+                                        <h3 className="mt-2 text-base font-medium text-slate-900 dark:text-slate-100">
+                                            {activeStatFilter === "all" ? tr.noCandidates : tr.noFilteredCandidates}
+                                        </h3>
+                                        <p className="mt-1 text-base text-slate-500 dark:text-slate-400">
+                                            {activeStatFilter === "all" ? tr.noCandidatesDesc : tr.noFilteredCandidatesDesc}
+                                        </p>
+                                    </div>
+                                )}
                             </div>
                         ) : (
-                            <div className="text-center">
-                                <Users className="mx-auto h-12 w-12 text-slate-300 dark:text-slate-600"/>
-                                <h3 className="mt-2 text-base font-medium text-slate-900 dark:text-slate-100">
-                                    {activeStatFilter === "all" ? tr.noCandidates : tr.noFilteredCandidates}
-                                </h3>
-                                <p className="mt-1 text-base text-slate-500 dark:text-slate-400">
-                                    {activeStatFilter === "all" ? tr.noCandidatesDesc : tr.noFilteredCandidatesDesc}
-                                </p>
+                            <div className={cn("transition duration-200 ease-out", statFilterPending && "scale-[0.998] opacity-70")}>
+                                <div className="flex flex-col gap-2">
+                                    {filteredCandidates.map(candidate => {
+                                        const matching = isTalentPoolMatching(candidate);
+                                        const archived = !matching && !isPendingActionCandidate(candidate);
+                                        return (
+                                            <CandidateCard
+                                                key={candidate.id}
+                                                candidate={candidate}
+                                                selected={selectedIds.has(candidate.id)}
+                                                reIdentifying={reIdentifyingIds.has(candidate.id)}
+                                                reIdentifyFailed={reIdentifyFailedIds.has(candidate.id)}
+                                                onToggleSelect={() => toggleSelect(candidate.id)}
+                                                onCancelMatch={matching && onCancelMatch ? () => onCancelMatch(candidate.id) : undefined}
+                                                onReIdentify={!matching ? () => requestReIdentify([candidate], "single") : undefined}
+                                                onManualAssign={!matching ? () => openSingleAssign(candidate.id) : undefined}
+                                                onView={() => onViewCandidate(candidate.id)}
+                                                tr={tr}
+                                                language={language}
+                                                isMatching={matching}
+                                                isArchived={archived}
+                                            />
+                                        );
+                                    })}
+                                </div>
                             </div>
                         )}
                     </div>
-                ) : (
-                    <div className={cn("flex-1 transition duration-200 ease-out", statFilterPending && "scale-[0.998] opacity-70")}>
-                        <div className="flex flex-col gap-2">
-                            {filteredCandidates.map(candidate => {
-                                const matching = isTalentPoolMatching(candidate);
-                                const archived = !matching && !isPendingActionCandidate(candidate);
-                                return (
-                                    <CandidateCard
-                                        key={candidate.id}
-                                        candidate={candidate}
-                                        selected={selectedIds.has(candidate.id)}
-                                        reIdentifying={reIdentifyingIds.has(candidate.id)}
-                                        reIdentifyFailed={reIdentifyFailedIds.has(candidate.id)}
-                                        onToggleSelect={() => toggleSelect(candidate.id)}
-                                        onCancelMatch={matching && onCancelMatch ? () => onCancelMatch(candidate.id) : undefined}
-                                        onReIdentify={!matching ? () => requestReIdentify([candidate], "single") : undefined}
-                                        onManualAssign={!matching ? () => openSingleAssign(candidate.id) : undefined}
-                                        onView={() => onViewCandidate(candidate.id)}
-                                        tr={tr}
-                                        language={language}
-                                        isMatching={matching}
-                                        isArchived={archived}
-                                    />
-                                );
-                            })}
-                        </div>
-                        {onLoadMore && filteredCandidates.length < (total ?? filteredCandidates.length) ? (
-                            <div className="flex justify-center pt-5">
-                                <Button
-                                    variant="outline"
-                                    className="rounded-full px-5"
-                                    disabled={loadingMore}
-                                    onClick={() => void onLoadMore()}
-                                >
-                                    {loadingMore ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin"/> : null}
-                                    {loadingMore ? tr.loadingMore : tr.loadMore}
-                                </Button>
-                            </div>
-                        ) : null}
-                    </div>
-                )}
+                    <PaginationBar
+                        total={total ?? filteredCandidates.length}
+                        pageIndex={pageIndex}
+                        pageSize={pageSize}
+                        pageSizeOptions={pageSizeOptions}
+                        loading={loading}
+                        visibleCount={filteredCandidates.length}
+                        setPageIndex={setPageIndex}
+                        setPageSize={setPageSize}
+                        tr={tr}
+                    />
+                </div>
             </div>
 
             {/* ── 批量分配弹窗 ── */}
@@ -1174,6 +1192,91 @@ function DialogOverlay({children, onClose}: {children: React.ReactNode; onClose:
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
             <div onClick={e => e.stopPropagation()}>{children}</div>
+        </div>
+    );
+}
+
+/* ── 分页控件 ── */
+function PaginationBar({
+    total,
+    pageIndex,
+    pageSize,
+    pageSizeOptions,
+    loading,
+    visibleCount,
+    setPageIndex,
+    setPageSize,
+    tr,
+}: {
+    total: number;
+    pageIndex: number;
+    pageSize: number;
+    pageSizeOptions: number[];
+    loading: boolean;
+    visibleCount: number;
+    setPageIndex: (pageIndex: number) => void;
+    setPageSize: (pageSize: number) => void;
+    tr: ReturnType<typeof getTalentPoolLocale>;
+}) {
+    const totalPages = React.useMemo(() => (
+        Math.max(1, Math.ceil(Math.max(0, total) / Math.max(1, pageSize)))
+    ), [pageSize, total]);
+    const paginationPages = React.useMemo(() => {
+        const currentPage = Math.min(Math.max(0, pageIndex), totalPages - 1);
+        const first = Math.max(0, Math.min(currentPage - 2, totalPages - 5));
+        const last = Math.min(totalPages - 1, first + 4);
+        const pages: number[] = [];
+        for (let i = first; i <= last; i += 1) pages.push(i);
+        return pages;
+    }, [pageIndex, totalPages]);
+    const pageStart = total > 0 ? pageIndex * pageSize + 1 : 0;
+    const pageEnd = total > 0 ? Math.min(total, pageIndex * pageSize + visibleCount) : 0;
+
+    return (
+        <div className="mt-3 flex shrink-0 flex-wrap items-center justify-between gap-4 border-t border-slate-200/80 pt-3 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
+            <span>{tr.pageRange(pageStart, pageEnd, total)}</span>
+            <div className="flex flex-wrap items-center gap-2.5">
+                <select
+                    value={String(pageSize)}
+                    title={tr.rowsPerPage}
+                    onChange={(event) => setPageSize(Number(event.target.value))}
+                    className="h-8 w-[118px] shrink-0 rounded-md border border-slate-200 bg-white px-2.5 pr-8 text-sm text-slate-700 shadow-none dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300"
+                >
+                    {pageSizeOptions.map((option) => (
+                        <option key={option} value={option}>{option}{tr.rowsPerPage}</option>
+                    ))}
+                </select>
+                <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 rounded-md px-2.5 text-xs"
+                    disabled={pageIndex <= 0 || loading}
+                    onClick={() => setPageIndex(pageIndex - 1)}
+                >
+                    {tr.previousPage}
+                </Button>
+                {paginationPages.map((p) => (
+                    <Button
+                        key={p}
+                        size="sm"
+                        variant={p === pageIndex ? "default" : "outline"}
+                        className="h-7 min-w-7 rounded-md px-2 text-sm"
+                        disabled={loading}
+                        onClick={() => setPageIndex(p)}
+                    >
+                        {p + 1}
+                    </Button>
+                ))}
+                <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 rounded-md px-2.5 text-xs"
+                    disabled={pageIndex >= totalPages - 1 || loading}
+                    onClick={() => setPageIndex(pageIndex + 1)}
+                >
+                    {tr.nextPage}
+                </Button>
+            </div>
         </div>
     );
 }
