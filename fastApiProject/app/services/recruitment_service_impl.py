@@ -13458,7 +13458,7 @@ class RecruitmentService:
         else:
             filtered_query = filtered_query.order_by(talent_pool_entered_at.desc(), RecruitmentCandidate.id.desc())
 
-        safe_limit = min(max(int(limit or 25), 1), 100)
+        safe_limit = min(max(int(limit or 15), 1), 500)
         safe_offset = max(int(offset or 0), 0)
         candidates = filtered_query.limit(safe_limit).offset(safe_offset).all()
 
