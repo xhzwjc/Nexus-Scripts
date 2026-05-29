@@ -4216,10 +4216,10 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 }
                 return {
                     ...update,
-                    snapshot: { ...update.snapshot, id: candidateId } as CandidateSummary,
+                    snapshot: { ...update.snapshot, id: candidateId } as Partial<CandidateSummary> & { id: number },
                 };
             })
-            .filter((item): item is CandidateSnapshotBatchUpdate & { snapshot: CandidateSummary } => Boolean(item));
+            .filter((item): item is CandidateSnapshotBatchUpdate & { snapshot: Partial<CandidateSummary> & { id: number } } => Boolean(item));
         if (!normalizedUpdates.length) {
             return;
         }
@@ -4277,10 +4277,19 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
 
         normalizedUpdates.forEach(({ snapshot, insertIntoCandidateList }) => {
             const candidateId = Number(snapshot.id);
-            const nextItem = snapshot as CandidateSummary;
-            const shouldShowInCandidateList = shouldShowCandidateInPipelineList(nextItem);
-            const shouldShowInTalentPoolList = shouldShowCandidateInTalentPoolList(nextItem);
             const candidateIndex = nextCandidates.findIndex((candidate) => candidate.id === candidateId);
+            const talentPoolIndex = nextTalentPoolCandidates.findIndex((candidate) => candidate.id === candidateId);
+            const currentItem = candidateIndex !== -1
+                ? nextCandidates[candidateIndex]
+                : talentPoolIndex !== -1
+                    ? nextTalentPoolCandidates[talentPoolIndex]
+                    : null;
+            const nextItem = currentItem
+                ? mergeCandidatePatch(currentItem, snapshot)
+                : snapshot as CandidateSummary;
+            const hasCandidateStatus = Boolean(String(nextItem.status || "").trim());
+            const shouldShowInCandidateList = hasCandidateStatus && shouldShowCandidateInPipelineList(nextItem);
+            const shouldShowInTalentPoolList = hasCandidateStatus && shouldShowCandidateInTalentPoolList(nextItem);
             const matchesCurrentCandidateList = matchesActiveCandidateListFilters(nextItem);
 
             if (shouldShowInCandidateList && !matchesCurrentCandidateList) {
@@ -4329,6 +4338,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         if (candidatesChanged) {
             allCandidatesRef.current = nextCandidates;
             setAllCandidates(nextCandidates);
+            setCandidates(filterBusinessRowsByOrgCodes(nextCandidates, activeBusinessOrgCodes, businessRowFilterOptions));
         }
         if (talentPoolChanged) {
             allTalentPoolCandidatesRef.current = nextTalentPoolCandidates;
@@ -4339,7 +4349,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             candidateTotalRef.current = nextTotal;
             setCandidateTotal(nextTotal);
         }
-    }, [matchesActiveCandidateListFilters]);
+    }, [activeBusinessOrgCodes, businessRowFilterOptions, matchesActiveCandidateListFilters]);
 
     const syncRealtimeCandidateLists = useCallback((
         snapshot?: Partial<CandidateSummary> | null,
@@ -4650,6 +4660,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                         syncRealtimeCandidateLists(sanitizedCandidateSnapshot, {insertIntoCandidateList: true});
                         scheduleCandidateStatsRefresh();
                     }
+                } else if (event.related_candidate_id && isTerminalScreeningTask) {
+                    void refreshActiveCandidateListAndStats({ silent: true }).catch(() => {});
                 }
                 if (event.related_candidate_id && event.task_type === "screening_flow") {
                     const failedLike = new Set(["failed", "invalid_result", "json_parse_failed", "timeout", "retry_exhausted", "quota_exceeded", "rate_limited", "upstream_timeout", "request_failed"]);
@@ -4737,7 +4749,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 }
             },
             onBatchSummary: () => {
-                void refreshCandidateStats();
+                void refreshActiveCandidateListAndStats({ silent: true }).catch(() => {});
             },
             onVersionMismatch: () => {
                 if (versionMismatchShownRef.current) {
@@ -5591,6 +5603,21 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         );
     }
 
+    async function refreshActiveCandidateListAndStats(options?: { silent?: boolean }) {
+        await Promise.all([
+            activePageRef.current === "candidates"
+                ? loadCandidates({
+                    silent: options?.silent ?? true,
+                    force: true,
+                    useVisibleFilters: true,
+                    pageIndex: candidatePageIndexRef.current,
+                    pageSize: candidatePageSizeRef.current,
+                })
+                : Promise.resolve([]),
+            refreshCandidateStats(),
+        ]);
+    }
+
     async function loadTalentPoolCandidates(options?: { departmentScope?: string; orgScope?: string; silent?: boolean; query?: Partial<TalentPoolQueryState>; append?: boolean }) {
         if (options?.append) {
             setTalentPoolLoadingMore(true);
@@ -6296,12 +6323,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             display_status_reason: "",
         };
         // Optimistic update: immediately set active_screening_task_status on the candidate
-        // so the left list shows "screening_running" without waiting for server refresh
-        setAllCandidates((current) => current.map((candidate) => (
-            candidate.id === candidateId
-                ? { ...candidate, ...queuedScreeningSnapshot }
-                : candidate
-        )));
+        // and let the list sync logic move it out of stale status tabs.
+        syncRealtimeCandidateLists(queuedScreeningSnapshot, { insertIntoCandidateList: true });
         applyCandidateDetailSnapshot(queuedScreeningSnapshot);
         if (options?.batch) {
             // Batch tasks: skip startTaskMonitor polling, rely on SSE events
@@ -9113,6 +9136,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                             response.failed_count || 0,
                         ),
                     );
+                    void refreshActiveCandidateListAndStats({ silent: true }).catch(() => {});
                 } else {
                     toast.error(recruitmentUiText.noScreeningQueued);
                 }
@@ -9132,9 +9156,11 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                         suppressFinishToast: false,
                     });
                     toast.success(task.reused_existing_task ? recruitmentToast.screeningTaskReused : recruitmentUiText.queueJoined);
+                    void refreshActiveCandidateListAndStats({ silent: true }).catch(() => {});
                 } else {
                     // 已完成的复用任务：不挂载 monitor，直接提示已完成
                     toast.success(recruitmentToast.screeningCompleted(false));
+                    void refreshActiveCandidateListAndStats({ silent: true }).catch(() => {});
                 }
             }
         } catch (error) {
@@ -9184,6 +9210,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                         : `Queued fresh screening for ${response.queued_count || 0} candidate(s).`,
                 );
                 setSelectedCandidateIds((current) => current.filter((candidateId) => !candidateIds.includes(candidateId)));
+                void refreshActiveCandidateListAndStats({ silent: true }).catch(() => {});
                 return;
             }
 
@@ -9206,6 +9233,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             }
             toast.success(isZh ? "已按当前岗位最新规则重新初筛" : "Fresh screening queued.");
             setSelectedCandidateIds((current) => current.filter((item) => item !== candidateId));
+            void refreshActiveCandidateListAndStats({ silent: true }).catch(() => {});
         } catch (error) {
             toast.error(recruitmentToast.screeningStartFailed(formatActionError(error)));
         } finally {
@@ -12527,6 +12555,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 candidatePageSizeOptions={CANDIDATE_LIST_PAGE_SIZE_OPTIONS}
                 candidatePipelineStatusCounts={scopedPipelineStats?.status_counts}
                 candidatePipelineTotal={scopedPipelineStats?.total}
+                candidatePipelineStatsLoading={!scopedPipelineStats}
                 setCandidatePageIndex={setCandidatePageIndexWithTransition}
                 setCandidatePageSize={setCandidatePageSizeWithTransition}
                 candidateListScrollRef={candidateListScrollRef}

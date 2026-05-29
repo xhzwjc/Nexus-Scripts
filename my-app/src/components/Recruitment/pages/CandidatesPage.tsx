@@ -1169,9 +1169,11 @@ type CandidatePipelineStageSummary = CandidatePipelineStageConfig & {
 function CandidatePipelineBar({
     stages,
     onSelect,
+    loading,
 }: {
     stages: CandidatePipelineStageSummary[];
     onSelect: (stage: CandidatePipelineStageSummary) => void;
+    loading?: boolean;
 }) {
     return (
         <div className="grid overflow-hidden rounded-md border border-slate-200 bg-white [grid-template-columns:repeat(auto-fit,minmax(118px,1fr))] dark:border-slate-800 dark:bg-slate-950">
@@ -1190,7 +1192,13 @@ function CandidatePipelineBar({
                 >
                     <div className="flex items-center justify-between gap-2">
                         <span className="truncate text-sm font-medium">{stage.label}</span>
-                        <span className="shrink-0 text-lg font-semibold tabular-nums">{stage.count.toLocaleString()}</span>
+                        <span className="shrink-0 text-lg font-semibold tabular-nums">
+                            {loading ? (
+                                <span className="inline-block h-5 w-8 animate-pulse rounded bg-slate-200 align-middle dark:bg-slate-800" />
+                            ) : (
+                                stage.count.toLocaleString()
+                            )}
+                        </span>
                     </div>
                     <p
                         className={cn(
@@ -2465,6 +2473,7 @@ type CandidatesPageProps = {
     candidatePageSizeOptions: number[];
     candidatePipelineStatusCounts?: Record<string, number>;
     candidatePipelineTotal?: number;
+    candidatePipelineStatsLoading?: boolean;
     setCandidatePageIndex: (pageIndex: number) => void;
     setCandidatePageSize: (pageSize: number) => void;
     candidateListScrollRef: (node: HTMLDivElement | null) => void;
@@ -2601,6 +2610,7 @@ export function CandidatesPage({
     candidatePageSizeOptions,
     candidatePipelineStatusCounts,
     candidatePipelineTotal,
+    candidatePipelineStatsLoading,
     setCandidatePageIndex,
     setCandidatePageSize,
     candidateListScrollRef,
@@ -3880,6 +3890,7 @@ export function CandidatesPage({
                         <CandidatePipelineBar
                             stages={candidatePipelineStages}
                             onSelect={selectCandidatePipelineStage}
+                            loading={candidatePipelineStatsLoading}
                         />
                         <div
                             className={cn(
