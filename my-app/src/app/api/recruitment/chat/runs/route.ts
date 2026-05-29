@@ -1670,7 +1670,7 @@ async function streamTextWithDelay(
 }
 
 export async function POST(request: NextRequest) {
-    const auth = requireScriptHubPermission(request, "ai-recruitment");
+    const auth = requireScriptHubPermission(request, "recruitment-assistant-view");
     if ("response" in auth) {
         return auth.response;
     }

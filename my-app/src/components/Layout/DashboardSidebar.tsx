@@ -78,6 +78,8 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
     const useGroupedRecruitmentMenu = currentUser?.recruitmentMenuGrouped !== false;
     const canManagePosition = Boolean(currentUser?.permissions?.['recruitment-position-manage']);
     const canManageCandidate = Boolean(currentUser?.permissions?.['recruitment-candidate-manage']);
+    const canViewTalentPool = Boolean(currentUser?.permissions?.['recruitment-talent-pool-view']);
+    const canViewRecruitmentAssistant = Boolean(currentUser?.permissions?.['recruitment-assistant-view']);
     const canManageReview = Boolean(currentUser?.permissions?.['recruitment-review-manage']);
     const canManageInterview = Boolean(currentUser?.permissions?.['recruitment-interview-manage']);
     const canUseRecruitmentWorkspace = Boolean(
@@ -135,9 +137,9 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
         ...(canManageCandidate ? [{ key: 'candidates', label: t.nav.aiRecruitmentCandidates, icon: <Users className="h-4 w-4" /> }] : []),
         ...(canUseReviewWorkbench ? [{ key: 'review-workbench', label: reviewWorkbenchLabel, icon: <ClipboardCheck className="h-4 w-4" /> }] : []),
         ...(canUseInterviewWorkbench ? [{ key: 'interviews', label: interviewWorkbenchLabel, icon: <CalendarCheck className="h-4 w-4" /> }] : []),
-        ...(canManageCandidate ? [{ key: 'talent-pool', label: t.nav.aiRecruitmentTalentPool, icon: <Users className="h-4 w-4" /> }] : []),
+        ...(canViewTalentPool ? [{ key: 'talent-pool', label: t.nav.aiRecruitmentTalentPool, icon: <Users className="h-4 w-4" /> }] : []),
         ...(canViewLog ? [{ key: 'audit', label: t.nav.aiRecruitmentAudit, icon: <History className="h-4 w-4" /> }] : []),
-        ...(canUseRecruitmentWorkspace ? [{ key: 'assistant', label: t.nav.aiRecruitmentAssistant, icon: <Bot className="h-4 w-4" /> }] : []),
+        ...(canViewRecruitmentAssistant ? [{ key: 'assistant', label: t.nav.aiRecruitmentAssistant, icon: <Bot className="h-4 w-4" /> }] : []),
     ];
 
     const openRecruitmentPage = (page: string) => {

@@ -20,6 +20,8 @@ const LEGACY_RECRUITMENT_VIEW_PERMISSIONS = [
     'recruitment-position-manage',
     'recruitment-candidate-manage',
     'recruitment-process-execute',
+    'recruitment-talent-pool-view',
+    'recruitment-assistant-view',
     'recruitment-log-view',
     'recruitment-review-view',
     'recruitment-interview-view',
@@ -44,21 +46,25 @@ const LEGACY_RECRUITMENT_MANAGE_PERMISSIONS = [
 
 function expandPermissionAliases(permissions: User['permissions'] = {}) {
     const expanded: User['permissions'] = { ...permissions };
+    const fineGrainedRecruitmentPermissions = [...LEGACY_RECRUITMENT_VIEW_PERMISSIONS, ...LEGACY_RECRUITMENT_MANAGE_PERMISSIONS];
+    const hasFineGrainedRecruitmentPermission = fineGrainedRecruitmentPermissions.some((key) => expanded[key]);
+    const hasExplicitLegacyViewAlias = Boolean(expanded['ai-recruitment'] && !hasFineGrainedRecruitmentPermission);
+    const hasExplicitLegacyManageAlias = Boolean(expanded['ai-recruitment-manage'] && !hasFineGrainedRecruitmentPermission);
 
-    if (expanded['ai-recruitment']) {
+    if (hasExplicitLegacyViewAlias) {
         LEGACY_RECRUITMENT_VIEW_PERMISSIONS.forEach((key) => {
             expanded[key] = true;
         });
     }
 
-    if (expanded['ai-recruitment-manage']) {
+    if (hasExplicitLegacyManageAlias) {
         expanded['ai-recruitment'] = true;
-        [...LEGACY_RECRUITMENT_VIEW_PERMISSIONS, ...LEGACY_RECRUITMENT_MANAGE_PERMISSIONS].forEach((key) => {
+        fineGrainedRecruitmentPermissions.forEach((key) => {
             expanded[key] = true;
         });
     }
 
-    if ([...LEGACY_RECRUITMENT_VIEW_PERMISSIONS, ...LEGACY_RECRUITMENT_MANAGE_PERMISSIONS].some((key) => expanded[key])) {
+    if (fineGrainedRecruitmentPermissions.some((key) => expanded[key])) {
         expanded['ai-recruitment'] = true;
     }
 

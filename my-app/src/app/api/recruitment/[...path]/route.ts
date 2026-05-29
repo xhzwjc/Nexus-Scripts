@@ -6,8 +6,47 @@ import { requireScriptHubAnyPermission, requireScriptHubPermission } from "@/lib
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
+const RECRUITMENT_COMMON_VIEW_PERMISSIONS = [
+  "recruitment-dashboard-view",
+  "recruitment-position-manage",
+  "recruitment-candidate-manage",
+  "recruitment-process-execute",
+  "recruitment-log-view",
+  "recruitment-review-view",
+  "recruitment-review-act",
+  "recruitment-review-manage",
+  "recruitment-interview-view",
+  "recruitment-interview-act",
+  "recruitment-interview-manage",
+  "recruitment-talent-pool-view",
+  "recruitment-assistant-view",
+  "recruitment-skill-view",
+  "recruitment-skill-bind",
+  "recruitment-skill-manage",
+  "recruitment-mail-view",
+  "recruitment-mail-send",
+  "recruitment-mail-config-manage",
+  "recruitment-mail-sender-manage",
+  "recruitment-llm-config-view",
+  "recruitment-llm-config-manage",
+];
+
 function resolveRecruitmentPermission(path: string, method: string): string | string[] {
   const normalizedMethod = method.toUpperCase();
+
+  if (path === "metadata" || path === "organization-scope") {
+    return RECRUITMENT_COMMON_VIEW_PERMISSIONS;
+  }
+
+  if (path === "chat/context") {
+    return "recruitment-assistant-view";
+  }
+
+  if (path === "candidates/talent-pool") {
+    return normalizedMethod === "GET" || normalizedMethod === "HEAD"
+      ? "recruitment-talent-pool-view"
+      : "recruitment-candidate-manage";
+  }
 
   if (path === "llm-configs" || path.startsWith("llm-configs/")) {
     return normalizedMethod === "GET" || normalizedMethod === "HEAD"

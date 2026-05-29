@@ -78,6 +78,31 @@ POSITION_SKILL_BIND_FIELDS = {"jd_skill_ids", "screening_skill_ids", "interview_
 
 logger = logging.getLogger(__name__)
 
+RECRUITMENT_COMMON_VIEW_PERMISSIONS = [
+    "recruitment-dashboard-view",
+    "recruitment-position-manage",
+    "recruitment-candidate-manage",
+    "recruitment-process-execute",
+    "recruitment-log-view",
+    "recruitment-review-view",
+    "recruitment-review-act",
+    "recruitment-review-manage",
+    "recruitment-interview-view",
+    "recruitment-interview-act",
+    "recruitment-interview-manage",
+    "recruitment-talent-pool-view",
+    "recruitment-assistant-view",
+    "recruitment-skill-view",
+    "recruitment-skill-bind",
+    "recruitment-skill-manage",
+    "recruitment-mail-view",
+    "recruitment-mail-send",
+    "recruitment-mail-config-manage",
+    "recruitment-mail-sender-manage",
+    "recruitment-llm-config-view",
+    "recruitment-llm-config-manage",
+]
+
 
 def _filter_uploaded_resume_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return [row for row in rows if not row.get("skipped_duplicate")]
@@ -318,12 +343,12 @@ async def _stage_upload_file(item: UploadFile, staging_dir: Path) -> Dict[str, A
 
 
 @recruitment_router.get("/metadata")
-async def get_metadata(_session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-dashboard-view")), service: RecruitmentService = Depends(get_recruitment_service)):
+async def get_metadata(_session: Dict[str, Any] = Depends(require_script_hub_any_permission(RECRUITMENT_COMMON_VIEW_PERMISSIONS)), service: RecruitmentService = Depends(get_recruitment_service)):
     return {"success": True, "data": service.get_metadata(), "request_id": str(uuid.uuid4())}
 
 
 @recruitment_router.get("/organization-scope")
-async def get_organization_scope(_session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-dashboard-view")), service: RecruitmentService = Depends(get_recruitment_service)):
+async def get_organization_scope(_session: Dict[str, Any] = Depends(require_script_hub_any_permission(RECRUITMENT_COMMON_VIEW_PERMISSIONS)), service: RecruitmentService = Depends(get_recruitment_service)):
     return {"success": True, "data": service.get_organization_scope(), "request_id": str(uuid.uuid4())}
 
 
@@ -572,7 +597,7 @@ async def get_talent_pool_candidates(
     source: Optional[str] = Query(None),
     tag: Optional[str] = Query(None),
     sort_by: Optional[str] = Query(None),
-    _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-candidate-manage")),
+    _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-talent-pool-view")),
     service: RecruitmentService = Depends(get_recruitment_service)
 ):
     """获取人才库候选人（无岗位或状态为talent_pool）"""
@@ -2110,12 +2135,12 @@ async def list_publish_tasks(position_id: Optional[int] = Query(None), _session:
 
 
 @recruitment_router.get("/chat/context")
-async def get_chat_context(_session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-dashboard-view")), service: RecruitmentService = Depends(get_recruitment_service)):
+async def get_chat_context(_session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-assistant-view")), service: RecruitmentService = Depends(get_recruitment_service)):
     return {"success": True, "data": service.get_chat_context(_session.get("id") or "unknown"), "request_id": str(uuid.uuid4())}
 
 
 @recruitment_router.post("/chat/context")
-async def update_chat_context(payload: RecruitmentChatContextUpdateRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-process-execute")), service: RecruitmentService = Depends(get_recruitment_service)):
+async def update_chat_context(payload: RecruitmentChatContextUpdateRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-assistant-view")), service: RecruitmentService = Depends(get_recruitment_service)):
     data = service.update_chat_context(_session.get("id") or "unknown", payload.position_id, payload.skill_ids, payload.candidate_id)
     return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
 

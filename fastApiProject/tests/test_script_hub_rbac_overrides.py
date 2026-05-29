@@ -3,7 +3,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.database import Base
-from app.rbac_catalog import ALL_PERMISSION_KEYS, PERMISSION_DEFINITIONS, ROLE_DEFINITIONS
+from app.rbac_catalog import ALL_PERMISSION_KEYS, DEPRECATED_PERMISSION_KEYS, PERMISSION_DEFINITIONS, ROLE_DEFINITIONS
 from app.rbac_models import (
     ScriptHubOrganization,
     ScriptHubPermission,
@@ -109,7 +109,8 @@ def test_super_admin_revoked_overrides_still_take_effect():
         assert permission_map["sms-admin-login"] is True
         assert "agent-chat" not in permission_map
         assert "rbac-manage" not in permission_map
-        assert len(permission_map) == len(ALL_PERMISSION_KEYS) - 2
+        assignable_permission_keys = set(permission_map) - set(DEPRECATED_PERMISSION_KEYS)
+        assert len(assignable_permission_keys) == len(ALL_PERMISSION_KEYS) - 2
     finally:
         db.close()
 
@@ -138,6 +139,7 @@ def test_admin_role_revoked_overrides_still_take_effect():
 
         assert permission_map["rbac-manage"] is True
         assert "agent-chat" not in permission_map
-        assert len(permission_map) == len(ALL_PERMISSION_KEYS) - 1
+        assignable_permission_keys = set(permission_map) - set(DEPRECATED_PERMISSION_KEYS)
+        assert len(assignable_permission_keys) == len(ALL_PERMISSION_KEYS) - 1
     finally:
         db.close()

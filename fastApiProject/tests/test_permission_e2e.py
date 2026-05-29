@@ -18,7 +18,7 @@ from app.permission_governance import (
     DATA_SCOPE_ORG_ONLY,
     DATA_SCOPE_SELF,
 )
-from app.rbac_catalog import PERMISSION_DEFINITIONS, ROLE_DEFINITIONS
+from app.rbac_catalog import DEPRECATED_PERMISSION_KEYS, PERMISSION_DEFINITIONS, ROLE_DEFINITIONS
 from app.rbac_models import (
     ScriptHubOrganization,
     ScriptHubPermission,
@@ -39,6 +39,8 @@ ALL_RECRUITMENT_CONFIG_PERMISSIONS = [
     "recruitment-position-manage",
     "recruitment-candidate-manage",
     "recruitment-process-execute",
+    "recruitment-talent-pool-view",
+    "recruitment-assistant-view",
     "recruitment-log-view",
     "recruitment-skill-view",
     "recruitment-skill-bind",
@@ -69,8 +71,8 @@ def permission_app(monkeypatch):
 
     monkeypatch.setattr(database, "SessionLocal", testing_session_local)
     monkeypatch.setattr(recruitment, "SessionLocal", testing_session_local)
-    monkeypatch.setattr(recruitment, "ensure_recruitment_schema", lambda: None)
-    monkeypatch.setattr(auth_rbac, "ensure_script_hub_schema", lambda: None)
+    monkeypatch.setattr(recruitment, "ensure_recruitment_schema", lambda: None, raising=False)
+    monkeypatch.setattr(auth_rbac, "ensure_script_hub_schema", lambda: None, raising=False)
 
     def override_get_db():
         db = testing_session_local()
@@ -114,6 +116,17 @@ def _seed_catalog(db):
         )
         db.add(permission)
         permission_rows[definition.key] = permission
+    for permission_key in DEPRECATED_PERMISSION_KEYS:
+        permission = ScriptHubPermission(
+            permission_key=permission_key,
+            name=permission_key,
+            category="deprecated",
+            description="deprecated legacy permission",
+            sort_order=999,
+            is_active=False,
+        )
+        db.add(permission)
+        permission_rows[permission_key] = permission
     db.flush()
 
     role_rows = {}
@@ -191,6 +204,8 @@ def _seed_test_roles(db):
         "e2e-skill-viewer": ["recruitment-skill-view"],
         "e2e-skill-binder": ["recruitment-dashboard-view", "recruitment-skill-bind"],
         "e2e-skill-manager": ["recruitment-skill-view", "recruitment-skill-bind", "recruitment-skill-manage"],
+        "e2e-talent-pool-viewer": ["recruitment-talent-pool-view"],
+        "e2e-assistant-viewer": ["recruitment-assistant-view"],
         "e2e-mail-viewer": ["recruitment-mail-view"],
         "e2e-mail-sender": ["recruitment-mail-view", "recruitment-mail-send"],
         "e2e-mail-config-manager": ["recruitment-mail-view", "recruitment-mail-config-manage"],
@@ -292,6 +307,8 @@ def _seed_users(db) -> Dict[str, str]:
         "skill_viewer": _create_user(db, "skill-viewer", role="e2e-skill-viewer", org="company-a", data_scope=DATA_SCOPE_ORG_AND_CHILDREN),
         "skill_binder": _create_user(db, "skill-binder", role="e2e-skill-binder", org="company-a", data_scope=DATA_SCOPE_ORG_AND_CHILDREN),
         "skill_manager": _create_user(db, "skill-manager", role="e2e-skill-manager", org="company-a", data_scope=DATA_SCOPE_ORG_AND_CHILDREN),
+        "talent_pool_viewer": _create_user(db, "talent-pool-viewer", role="e2e-talent-pool-viewer", org="company-a", data_scope=DATA_SCOPE_ORG_AND_CHILDREN),
+        "assistant_viewer": _create_user(db, "assistant-viewer", role="e2e-assistant-viewer", org="company-a", data_scope=DATA_SCOPE_ORG_AND_CHILDREN),
         "mail_viewer": _create_user(db, "mail-viewer", role="e2e-mail-viewer", org="company-a", data_scope=DATA_SCOPE_ORG_AND_CHILDREN),
         "mail_sender": _create_user(db, "mail-sender", role="e2e-mail-sender", org="company-a", data_scope=DATA_SCOPE_ORG_AND_CHILDREN),
         "mail_config_manager": _create_user(db, "mail-config-manager", role="e2e-mail-config-manager", org="company-a", data_scope=DATA_SCOPE_ORG_AND_CHILDREN),
@@ -387,7 +404,8 @@ def _orgs(items):
 
 
 def _candidate_names(items):
-    return {item["name"] for item in items}
+    rows = items.get("items", []) if isinstance(items, dict) else items
+    return {item["name"] for item in rows}
 
 
 def _overview_user(response, user_code: str) -> Dict[str, Any]:
@@ -430,6 +448,15 @@ def test_functional_permission_points_gate_direct_api_calls(permission_app, monk
 
     assert client.get("/recruitment/dashboard", headers=_headers(permission_app, "viewer")).status_code == 200
     assert client.get("/recruitment/dashboard", headers=_headers(permission_app, "no_perm_user")).status_code == 403
+
+    assert client.get("/recruitment/candidates/talent-pool", headers=_headers(permission_app, "talent_pool_viewer")).status_code == 200
+    assert client.get("/recruitment/candidates/talent-pool", headers=_headers(permission_app, "viewer")).status_code == 403
+    assert client.get("/recruitment/dashboard", headers=_headers(permission_app, "talent_pool_viewer")).status_code == 403
+
+    assert client.get("/recruitment/metadata", headers=_headers(permission_app, "assistant_viewer")).status_code == 200
+    assert client.get("/recruitment/chat/context", headers=_headers(permission_app, "assistant_viewer")).status_code == 200
+    assert client.post("/recruitment/chat/context", headers=_headers(permission_app, "assistant_viewer"), json={"position_id": None, "candidate_id": None, "skill_ids": []}).status_code == 200
+    assert client.get("/recruitment/dashboard", headers=_headers(permission_app, "assistant_viewer")).status_code == 403
 
     create_position_payload = {"org_code": "company-a", "title": "Created By Position Manager", "headcount": 1}
     assert client.post("/recruitment/positions", headers=_headers(permission_app, "viewer"), json=create_position_payload).status_code == 403
@@ -676,6 +703,8 @@ def test_user_disable_delete_and_role_changes_take_effect_for_existing_tokens(pe
 def test_legacy_aliases_work_only_through_alias_resolver_and_no_route_raw_checks(permission_app):
     client = permission_app["client"]
     assert client.get("/recruitment/dashboard", headers=_headers(permission_app, "legacy_view")).status_code == 200
+    assert client.get("/recruitment/candidates/talent-pool", headers=_headers(permission_app, "legacy_view")).status_code == 200
+    assert client.get("/recruitment/chat/context", headers=_headers(permission_app, "legacy_view")).status_code == 200
     assert client.patch(f"/recruitment/candidates/{permission_app['resources']['candidates']['company-a']}", headers=_headers(permission_app, "legacy_view"), json={"notes": "legacy candidate manage"}).status_code == 200
     assert client.post("/recruitment/positions", headers=_headers(permission_app, "legacy_manage"), json={"org_code": "company-a", "title": "Legacy Manage Position", "headcount": 1}).status_code == 200
 

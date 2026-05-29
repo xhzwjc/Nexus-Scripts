@@ -1683,6 +1683,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const canManageCandidate = Boolean(perms["recruitment-candidate-manage"]);
     const canExecuteProcess = Boolean(perms["recruitment-process-execute"]);
     const canViewRecruitmentDashboard = Boolean(perms["recruitment-dashboard-view"]);
+    const canViewTalentPool = Boolean(perms["recruitment-talent-pool-view"]);
+    const canViewRecruitmentAssistant = Boolean(perms["recruitment-assistant-view"]);
     const canViewLog = Boolean(perms["recruitment-log-view"]);
     const canViewReview = Boolean(perms["recruitment-review-view"]);
     const canActReview = Boolean(perms["recruitment-review-act"]);
@@ -2135,14 +2137,18 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         if (canUseRecruitmentWorkspace) return "workspace";
         if (canViewReview || canActReview) return "review-workbench";
         if (canViewInterview || canActInterview || canManageInterview) return "interviews";
+        if (canViewTalentPool) return "talent-pool";
+        if (canViewRecruitmentAssistant) return "assistant";
         return "workspace";
     }, [
         canActInterview,
         canActReview,
         canManageInterview,
         canUseRecruitmentWorkspace,
+        canViewRecruitmentAssistant,
         canViewInterview,
         canViewReview,
+        canViewTalentPool,
     ]);
 
     const handleSmartBack = useCallback(() => {
@@ -3426,11 +3432,13 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         const fallbackPage = resolveFallbackRecruitmentPage();
         if (activePage === "workspace" && !canUseRecruitmentWorkspace) {
             applyRecruitmentPageChange(fallbackPage, "replace");
-        } else if (activePage === "assistant" && !canUseRecruitmentWorkspace) {
+        } else if (activePage === "assistant" && !canViewRecruitmentAssistant) {
             applyRecruitmentPageChange(fallbackPage, "replace");
         } else if (activePage === "positions" && !canManagePosition) {
             applyRecruitmentPageChange(fallbackPage, "replace");
         } else if (activePage === "candidates" && !canManageCandidate) {
+            applyRecruitmentPageChange(fallbackPage, "replace");
+        } else if (activePage === "talent-pool" && !canViewTalentPool) {
             applyRecruitmentPageChange(fallbackPage, "replace");
         } else if (activePage === "review-workbench" && !canViewReview && !canActReview) {
             applyRecruitmentPageChange(fallbackPage, "replace");
@@ -3450,8 +3458,10 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         applyRecruitmentPageChange,
         resolveFallbackRecruitmentPage,
         canUseRecruitmentWorkspace,
+        canViewRecruitmentAssistant,
         canManagePosition,
         canManageCandidate,
+        canViewTalentPool,
         canViewReview,
         canActReview,
         canViewInterview,
@@ -3759,6 +3769,12 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 ]);
 
                 if (cancelled) return;
+
+                if (!canUseRecruitmentWorkspace) {
+                    criticalLoaded = true;
+                    setBootstrapping(false);
+                    return;
+                }
 
                 // 阶段 2: 关键首屏列表尽早开始，避免被统计接口阻塞
                 void loadPositionsWithCache();
@@ -6455,6 +6471,9 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     }
 
     function openAssistantMode(mode: AssistantDisplayMode) {
+        if (!canViewRecruitmentAssistant) {
+            return;
+        }
         setAssistantContextExpanded(false);
         setAssistantQuickActionsExpanded(false);
         if (mode === "page") {
@@ -8440,7 +8459,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 }
             }
             // 智能匹配模式跳人才库，指定岗位模式跳候选人列表
-            if (resumeUploadMode === "smart") {
+            if (resumeUploadMode === "smart" && canViewTalentPool) {
                 navigateToRecruitmentPage("talent-pool");
                 if (activePage === "talent-pool") {
                     void loadTalentPoolCandidates({ silent: true });
@@ -13008,7 +13027,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                 {recruitmentUiText.createPosition}
                             </Button>
                         )}
-                        {!hideTopRightAssistantEntry ? (
+                        {!hideTopRightAssistantEntry && canViewRecruitmentAssistant ? (
                             <Button
                                 className="h-8 rounded-lg bg-slate-900 px-3 text-sm text-white hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200"
                                 onClick={() => openAssistantMode("drawer")}>
@@ -13070,12 +13089,12 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                     </div>
 
                     {/* 以下改为条件渲染，切换时重新挂载，无需保持状态 */}
-                    {activePage === "talent-pool" && (
+                    {activePage === "talent-pool" && canViewTalentPool && (
                         <div className="h-full min-h-0 px-2 pb-2 pt-0">
                             {renderTalentPoolPage()}
                         </div>
                     )}
-                    {activePage === "assistant" && (
+                    {activePage === "assistant" && canViewRecruitmentAssistant && (
                         <div className="h-full min-h-0 px-2 pb-2 pt-0">
                             {renderAssistantPage()}
                         </div>
@@ -13120,7 +13139,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                     </div>
                 </div>
             )}
-            {activePage !== "workspace" ? (
+            {activePage !== "workspace" && canViewRecruitmentAssistant ? (
                 <Button
                     className="fixed bottom-8 right-0 z-30 h-14 translate-x-[calc(100%-14px)] rounded-l-2xl rounded-r-none bg-slate-900 pl-4 pr-3 text-white shadow-[0_20px_40px_-18px_rgba(15,23,42,0.5)] transition-[transform,background-color] duration-200 hover:translate-x-0 hover:bg-slate-800 focus-visible:translate-x-0 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200"
                     onClick={() => openAssistantMode("drawer")}

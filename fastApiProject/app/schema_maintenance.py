@@ -3,6 +3,7 @@ import logging
 import os
 import re
 import time
+from collections import defaultdict
 from threading import Lock
 
 from sqlalchemy import inspect, text
@@ -10,7 +11,7 @@ from sqlalchemy import inspect, text
 from .database import Base, SessionLocal, engine
 from .rbac_catalog import DEPRECATED_PERMISSION_KEYS, PERMISSION_DEFINITIONS, ROLE_DEFINITIONS
 from .permission_governance import ROOT_ORG_CODE
-from .rbac_models import ScriptHubOrganization, ScriptHubPermission, ScriptHubRole, ScriptHubRolePermission
+from .rbac_models import ScriptHubOrganization, ScriptHubPermission, ScriptHubRole, ScriptHubRolePermission, ScriptHubUser, ScriptHubUserPermission, ScriptHubUserRole
 from .recruitment_models import (
     RecruitmentFollowUp,
     RecruitmentInterviewAvailabilitySlot,
@@ -272,6 +273,7 @@ def _sync_script_hub_catalog() -> None:
     db = SessionLocal()
     try:
         _sync_default_organization(db)
+        created_permission_keys = set()
         permission_rows = {
             row.permission_key: row
             for row in db.query(ScriptHubPermission).all()
@@ -279,6 +281,7 @@ def _sync_script_hub_catalog() -> None:
         for definition in PERMISSION_DEFINITIONS:
             row = permission_rows.get(definition.key)
             if row is None:
+                created_permission_keys.add(definition.key)
                 row = ScriptHubPermission(
                     permission_key=definition.key,
                     name=definition.name,
@@ -358,6 +361,112 @@ def _sync_script_hub_catalog() -> None:
                     continue
                 db.add(ScriptHubRolePermission(role_id=role.id, permission_id=permission_id))
                 existing_links.add(link_key)
+
+        legacy_visibility_backfill = {
+            "recruitment-talent-pool-view": ("recruitment-candidate-manage",),
+            "recruitment-assistant-view": (
+                "recruitment-dashboard-view",
+                "recruitment-position-manage",
+                "recruitment-candidate-manage",
+                "recruitment-process-execute",
+                "recruitment-log-view",
+            ),
+        }
+        if created_permission_keys:
+            role_ids_by_permission_key = defaultdict(set)
+            for role_id, permission_key in (
+                db.query(ScriptHubRolePermission.role_id, ScriptHubPermission.permission_key)
+                .join(ScriptHubPermission, ScriptHubPermission.id == ScriptHubRolePermission.permission_id)
+                .all()
+            ):
+                role_ids_by_permission_key[permission_key].add(role_id)
+
+            for new_permission_key, legacy_permission_keys in legacy_visibility_backfill.items():
+                if new_permission_key not in created_permission_keys:
+                    continue
+                new_permission_id = permission_id_by_key.get(new_permission_key)
+                if new_permission_id is None:
+                    continue
+                backfill_role_ids = set()
+                for legacy_permission_key in legacy_permission_keys:
+                    backfill_role_ids.update(role_ids_by_permission_key.get(legacy_permission_key, set()))
+                for role_id in backfill_role_ids:
+                    link_key = (role_id, new_permission_id)
+                    if link_key in existing_links:
+                        continue
+                    db.add(ScriptHubRolePermission(role_id=role_id, permission_id=new_permission_id))
+                    existing_links.add(link_key)
+
+            role_ids_by_user_id = defaultdict(set)
+            for user_id, role_id in db.query(ScriptHubUserRole.user_id, ScriptHubUserRole.role_id).all():
+                role_ids_by_user_id[user_id].add(role_id)
+
+            super_admin_user_ids = {
+                user_id
+                for user_id, in db.query(ScriptHubUser.id).filter(
+                    ScriptHubUser.is_super_admin.is_(True),
+                    ScriptHubUser.is_deleted.is_(False),
+                ).all()
+            }
+
+            user_ids_by_granted_permission_key = defaultdict(set)
+            user_ids_by_revoked_permission_key = defaultdict(set)
+            existing_user_permission_links = set()
+            for user_id, permission_id, permission_key, is_granted in (
+                db.query(
+                    ScriptHubUserPermission.user_id,
+                    ScriptHubUserPermission.permission_id,
+                    ScriptHubPermission.permission_key,
+                    ScriptHubUserPermission.is_granted,
+                )
+                .join(ScriptHubPermission, ScriptHubPermission.id == ScriptHubUserPermission.permission_id)
+                .all()
+            ):
+                existing_user_permission_links.add((user_id, permission_id))
+                if is_granted:
+                    user_ids_by_granted_permission_key[permission_key].add(user_id)
+                else:
+                    user_ids_by_revoked_permission_key[permission_key].add(user_id)
+
+            def user_had_legacy_visibility(user_id, legacy_permission_keys):
+                for legacy_permission_key in legacy_permission_keys:
+                    if user_id in user_ids_by_revoked_permission_key.get(legacy_permission_key, set()):
+                        continue
+                    if user_id in user_ids_by_granted_permission_key.get(legacy_permission_key, set()):
+                        return True
+                    if user_id in super_admin_user_ids:
+                        return True
+                    if role_ids_by_user_id.get(user_id, set()) & role_ids_by_permission_key.get(legacy_permission_key, set()):
+                        return True
+                return False
+
+            for new_permission_key, legacy_permission_keys in legacy_visibility_backfill.items():
+                if new_permission_key not in created_permission_keys:
+                    continue
+                new_permission_id = permission_id_by_key.get(new_permission_key)
+                if new_permission_id is None:
+                    continue
+                backfill_user_ids = set()
+                for legacy_permission_key in legacy_permission_keys:
+                    backfill_user_ids.update(user_ids_by_granted_permission_key.get(legacy_permission_key, set()))
+                for user_id in backfill_user_ids:
+                    link_key = (user_id, new_permission_id)
+                    if link_key in existing_user_permission_links:
+                        continue
+                    db.add(ScriptHubUserPermission(user_id=user_id, permission_id=new_permission_id, is_granted=True))
+                    existing_user_permission_links.add(link_key)
+
+                revoked_candidate_user_ids = set()
+                for legacy_permission_key in legacy_permission_keys:
+                    revoked_candidate_user_ids.update(user_ids_by_revoked_permission_key.get(legacy_permission_key, set()))
+                for user_id in revoked_candidate_user_ids:
+                    if user_had_legacy_visibility(user_id, legacy_permission_keys):
+                        continue
+                    link_key = (user_id, new_permission_id)
+                    if link_key in existing_user_permission_links:
+                        continue
+                    db.add(ScriptHubUserPermission(user_id=user_id, permission_id=new_permission_id, is_granted=False))
+                    existing_user_permission_links.add(link_key)
 
         db.commit()
     except Exception:

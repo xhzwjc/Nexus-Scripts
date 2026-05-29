@@ -19,6 +19,18 @@ _session_refresh_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
 _session_refresh_cache_lock = threading.RLock()
 
 
+def invalidate_script_hub_session_refresh_cache(user_code: Optional[str] = None) -> None:
+    normalized_user_code = str(user_code or "").strip()
+    with _session_refresh_cache_lock:
+        if not normalized_user_code:
+            _session_refresh_cache.clear()
+            return
+        prefix = f"{normalized_user_code}:"
+        for cache_key in list(_session_refresh_cache.keys()):
+            if cache_key.startswith(prefix):
+                _session_refresh_cache.pop(cache_key, None)
+
+
 def _get_session_secret() -> bytes:
     configured = (os.getenv("SCRIPT_HUB_SESSION_SECRET") or "").strip()
     if configured:

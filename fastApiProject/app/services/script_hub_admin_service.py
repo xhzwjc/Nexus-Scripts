@@ -27,6 +27,7 @@ from ..rbac_models import (
     ScriptHubUserPermission,
     ScriptHubUserRole,
 )
+from ..script_hub_session import invalidate_script_hub_session_refresh_cache
 from .script_hub_auth_service import (
     build_permission_map,
     create_access_key_material,
@@ -734,6 +735,17 @@ def _set_role_permissions(db: Session, role_id: int, permission_keys: List[str],
         )
 
 
+def _invalidate_users_with_role_session_cache(db: Session, role_id: int) -> None:
+    rows = (
+        db.query(ScriptHubUser.user_code)
+        .join(ScriptHubUserRole, ScriptHubUserRole.user_id == ScriptHubUser.id)
+        .filter(ScriptHubUserRole.role_id == role_id)
+        .all()
+    )
+    for user_code, in rows:
+        invalidate_script_hub_session_refresh_cache(user_code)
+
+
 def create_rbac_role(
     db: Session,
     *,
@@ -832,6 +844,7 @@ def update_rbac_role(
     role.is_active = next_is_active
     _set_role_permissions(db, role.id, normalized_permission_keys, permission_rows)
     db.commit()
+    _invalidate_users_with_role_session_cache(db, role.id)
     db.refresh(role)
     return serialize_admin_role(db, role)
 
@@ -1033,6 +1046,7 @@ def update_rbac_user(
     except StaleDataError as exc:
         db.rollback()
         raise RbacMutationConflictError("User permissions changed. Refresh before saving again") from exc
+    invalidate_script_hub_session_refresh_cache(user.user_code)
     db.refresh(user)
     return serialize_admin_user(db, user)
 
@@ -1065,6 +1079,7 @@ def rotate_user_access_key(db: Session, user_code: str, access_key: Optional[str
     user.access_key_hash = material["hash"]
 
     db.commit()
+    invalidate_script_hub_session_refresh_cache(user.user_code)
     db.refresh(user)
     return serialize_admin_user(db, user), plain_access_key
 
@@ -1087,6 +1102,7 @@ def delete_rbac_user(db: Session, user_code: str) -> Dict[str, object]:
     user.deleted_at = datetime.utcnow()
 
     db.commit()
+    invalidate_script_hub_session_refresh_cache(user.user_code)
     return {
         "user_code": user.user_code,
         "display_name": user.display_name,

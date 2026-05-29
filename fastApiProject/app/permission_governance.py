@@ -38,6 +38,8 @@ LEGACY_RECRUITMENT_VIEW_PERMISSIONS = {
     "recruitment-position-manage",
     "recruitment-candidate-manage",
     "recruitment-process-execute",
+    "recruitment-talent-pool-view",
+    "recruitment-assistant-view",
     "recruitment-log-view",
     "recruitment-review-view",
     "recruitment-interview-view",
@@ -130,11 +132,17 @@ def normalize_org_code_list(values: Any) -> list[str]:
 
 def expand_permission_aliases(permissions: Dict[str, bool]) -> Dict[str, bool]:
     expanded = {key: bool(value) for key, value in (permissions or {}).items() if value}
+    has_fine_grained_recruitment_permission = any(
+        expanded.get(key)
+        for key in LEGACY_RECRUITMENT_VIEW_PERMISSIONS | LEGACY_RECRUITMENT_MANAGE_PERMISSIONS
+    )
+    has_explicit_legacy_view_alias = bool(expanded.get("ai-recruitment")) and not has_fine_grained_recruitment_permission
+    has_explicit_legacy_manage_alias = bool(expanded.get("ai-recruitment-manage")) and not has_fine_grained_recruitment_permission
 
     # Forward: legacy alias → fine-grained permissions
-    if expanded.get("ai-recruitment"):
+    if has_explicit_legacy_view_alias:
         expanded.update({key: True for key in LEGACY_RECRUITMENT_VIEW_PERMISSIONS})
-    if expanded.get("ai-recruitment-manage"):
+    if has_explicit_legacy_manage_alias:
         expanded["ai-recruitment"] = True
         expanded.update({key: True for key in LEGACY_RECRUITMENT_VIEW_PERMISSIONS})
         expanded.update({key: True for key in LEGACY_RECRUITMENT_MANAGE_PERMISSIONS})

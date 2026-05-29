@@ -153,6 +153,7 @@ def _build_effective_permissions_for_seed_user(
 ) -> dict[str, bool]:
     ensure_fastapi_path()
 
+    from app.permission_governance import expand_permission_aliases
     from app.rbac_catalog import ALL_PERMISSION_KEYS
 
     granted = set()
@@ -164,7 +165,7 @@ def _build_effective_permissions_for_seed_user(
 
     granted.update(seed_user["granted_permissions"])
     granted.difference_update(seed_user["revoked_permissions"])
-    return {permission_key: True for permission_key in sorted(granted)}
+    return expand_permission_aliases({permission_key: True for permission_key in sorted(granted)})
 
 
 def _normalize_rbac_seed_role(raw_role: Any) -> dict[str, Any]:
