@@ -13165,6 +13165,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             candidateViewMode, candidatePositionFilter, candidateStatusFilter,
             candidateMatchFilter, candidateSourceFilter, candidateTimeFilter,
             candidateQuery, candidatePageIndex, candidatePageSize, candidateTotal,
+            candidatePipelineStatsData, candidatePipelineStatsScopeKey,
             interviewSchedules, followUps, offers,
             screeningSubmitting, isBatchScreeningRunning, isBatchScreeningCancelling,
             batchStopScreeningTaskIds,
