@@ -16,6 +16,8 @@ from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
+from .llm_concurrency_limiter import shared_llm_limiter
+
 logger = logging.getLogger(__name__)
 
 
@@ -41,6 +43,7 @@ def load_match_key_configs(db: Any) -> List[Dict[str, Any]]:
         {
             "key_id": f"config_{cfg.id}",
             "config_id": cfg.id,
+            "source_key": f"db:{cfg.config_key}",
             "max_concurrent": cfg.max_concurrent or 4,
             "max_qps": cfg.max_qps or 10,
         }
@@ -56,6 +59,7 @@ def load_match_key_configs(db: Any) -> List[Dict[str, Any]]:
 class KeySlot:
     key_id: str
     config_id: int
+    source_key: str
     semaphore: asyncio.Semaphore
     max_concurrent: int
     max_qps: int  # 0 表示不限制
@@ -65,10 +69,18 @@ class KeySlot:
     async def acquire(self):
         """获取并发槽 + QPS 检查，两个条件都满足才放行"""
         await self.semaphore.acquire()
-        if self.max_qps > 0:
-            await self._wait_for_qps()
+        try:
+            await shared_llm_limiter.acquire_async(
+                self.source_key or self.key_id,
+                max_concurrent=self.max_concurrent,
+                max_qps=self.max_qps,
+            )
+        except BaseException:
+            self.semaphore.release()
+            raise
 
     def release(self):
+        shared_llm_limiter.release(self.source_key or self.key_id)
         self.semaphore.release()
 
     async def _wait_for_qps(self):
@@ -120,16 +132,19 @@ class KeyRotator:
                 next_max_concurrent = max(1, int(cfg.get("max_concurrent", slot.max_concurrent) or slot.max_concurrent))
                 next_max_qps = int(cfg.get("max_qps", slot.max_qps) or 0)
                 next_config_id = cfg.get("config_id", slot.config_id)
+                next_source_key = cfg.get("source_key", slot.source_key)
                 if (
                     next_max_concurrent != slot.max_concurrent
                     or next_max_qps != slot.max_qps
                     or next_config_id != slot.config_id
+                    or next_source_key != slot.source_key
                 ):
                     # 配置变更后直接替换为新槽，让后续任务立刻使用新并发/QPS。
                     # 正在执行中的旧任务会自然释放旧槽，不影响新配置生效。
                     new_slots.append(KeySlot(
                         key_id=key_id,
                         config_id=next_config_id,
+                        source_key=next_source_key,
                         semaphore=asyncio.Semaphore(next_max_concurrent),
                         max_concurrent=next_max_concurrent,
                         max_qps=next_max_qps,
@@ -140,6 +155,7 @@ class KeyRotator:
                 new_slots.append(KeySlot(
                     key_id=key_id,
                     config_id=cfg.get("config_id", 0),
+                    source_key=cfg.get("source_key", key_id),
                     semaphore=asyncio.Semaphore(cfg.get("max_concurrent", 4)),
                     max_concurrent=cfg.get("max_concurrent", 4),
                     max_qps=cfg.get("max_qps", 0),

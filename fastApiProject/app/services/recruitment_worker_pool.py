@@ -8,16 +8,25 @@ logger = logging.getLogger(__name__)
 
 class BoundedWorkerPool:
     """
-    固定大小线程池。线程数始终等于 max_workers，
+    有上限的后台线程池。线程数可随模型配置增长，
     任务放入内部队列排队，不会无限创建线程。
     """
     def __init__(self, max_workers: int = 20):
         self._task_queue: queue.Queue = queue.Queue()
-        self._max_workers = max_workers
+        self._max_workers = 0
         self._lock = threading.Lock()
         self._active_count = 0
+        self.ensure_capacity(max_workers)
+
+    def ensure_capacity(self, max_workers: int):
+        target = max(1, int(max_workers or 1))
+        with self._lock:
+            if target <= self._max_workers:
+                return
+            start_index = self._max_workers
+            self._max_workers = target
         # 启动固定数量的 Worker 线程，长驻后台
-        for i in range(max_workers):
+        for i in range(start_index, target):
             t = threading.Thread(
                 target=self._worker_loop,
                 name=f"bounded-worker-{i}",
@@ -63,4 +72,6 @@ def get_worker_pool(max_workers: int) -> BoundedWorkerPool:
         with _pool_lock:
             if _global_pool is None:
                 _global_pool = BoundedWorkerPool(max_workers=max_workers)
+    else:
+        _global_pool.ensure_capacity(max_workers)
     return _global_pool

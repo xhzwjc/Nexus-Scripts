@@ -2986,19 +2986,21 @@ export function CandidatesPage({
         (candidateId: number) => visibleCandidateResumeMailSummaryMap.get(candidateId) ?? null,
         [visibleCandidateResumeMailSummaryMap],
     );
+    const activePositionTotal = React.useMemo(() => {
+        if (!activeQuickPosition) {
+            return allPositionCandidateCount;
+        }
+        const position = positions.find((item) => String(item.id) === activeQuickPosition);
+        return Number(position?.candidate_count || 0);
+    }, [activeQuickPosition, allPositionCandidateCount, positions]);
     const candidatePipelineStages = React.useMemo<CandidatePipelineStageSummary[]>(() => {
-        const statusCounts = new Map<string, number>();
-        visibleCandidates.forEach((candidate) => {
-            const status = resolveCandidateDisplayStatus(candidate);
-            statusCounts.set(status, (statusCounts.get(status) || 0) + 1);
-        });
         const scopedStatusCounts = candidatePipelineStatusCounts || null;
         const scopedTotal = typeof candidatePipelineTotal === "number" ? candidatePipelineTotal : null;
         return CANDIDATE_PIPELINE_STAGES.map((stage) => {
             const stageStatusValues = stage.statusValues || (stage.statusValue ? [stage.statusValue] : []);
             const stageCount = stageStatusValues.length
-                ? stageStatusValues.reduce((sum, value) => sum + (scopedStatusCounts ? Number(scopedStatusCounts[value] || 0) : (statusCounts.get(value) || 0)), 0)
-                : (scopedTotal ?? visibleCandidates.length);
+                ? stageStatusValues.reduce((sum, value) => sum + (scopedStatusCounts ? Number(scopedStatusCounts[value] || 0) : 0), 0)
+                : (scopedTotal ?? activePositionTotal);
             const active = stageStatusValues.length
                 ? candidateStatusFilter.length === stageStatusValues.length && stageStatusValues.every((value) => candidateStatusFilter.includes(value))
                 : candidateStatusFilter.length === 0;
@@ -3010,7 +3012,7 @@ export function CandidatesPage({
                 active,
             };
         });
-    }, [candidatePipelineStatusCounts, candidatePipelineTotal, candidateStatusFilter, isZh, visibleCandidates]);
+    }, [activePositionTotal, candidatePipelineStatusCounts, candidatePipelineTotal, candidateStatusFilter, isZh]);
     const selectCandidatePipelineStage = React.useCallback((stage: CandidatePipelineStageSummary) => {
         setCandidateStatusFilter(stage.statusValues || (stage.statusValue ? [stage.statusValue] : []));
     }, [setCandidateStatusFilter]);

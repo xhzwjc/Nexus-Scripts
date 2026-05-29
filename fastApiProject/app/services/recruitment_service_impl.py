@@ -72,6 +72,7 @@ from .recruitment_prompts import INTERVIEW_QUESTION_STREAM_PREVIEW_SYSTEM_PROMPT
 from .recruitment_publish_adapters import build_publish_adapter
 from .recruitment_task_control import RecruitmentTaskCancelled, RecruitmentTaskControl, recruitment_task_registry
 from .recruitment_utils import CANDIDATE_STATUS_OPTIONS, DEFAULT_RULE_CONFIGS, POSITION_STATUS_OPTIONS, RECRUITMENT_UPLOAD_ROOT, build_jd_structured_fallback, detect_interview_rule_leakage, ensure_interview_html_document, extract_keywords, extract_resume_structured_data, extract_resume_text, extract_screening_dimension_rules, isoformat_or_none, json_dumps_safe, json_loads_safe, markdown_to_html, normalize_resume_fallback_name, normalize_structured_interview, normalize_structured_jd, render_interview_html, render_interview_markdown, render_jd_markdown_source, render_publish_ready_jd, safe_file_stem, score_candidate_fallback, strip_markdown, truncate_text, validate_structured_interview_payload
+from .llm_concurrency_limiter import shared_llm_limiter
 from .script_hub_auth_service import build_permission_map
 
 def _resolve_resume_storage_path(storage_path: str) -> Path:
@@ -271,6 +272,13 @@ def _get_provider_qps_window(source_key: str) -> deque[float]:
         if normalized_source not in _screening_provider_qps_windows:
             _screening_provider_qps_windows[normalized_source] = deque()
         return _screening_provider_qps_windows[normalized_source]
+
+
+def _llm_config_max_concurrent(row: Any, fallback: int = SCREENING_PROVIDER_MAX_CONCURRENCY) -> int:
+    try:
+        return max(1, int(getattr(row, "max_concurrent", fallback) or fallback))
+    except Exception:
+        return max(1, int(fallback or 1))
 
 AI_TASK_LOG_PROMPT_LIMIT = 24000
 AI_TASK_LOG_REQUEST_LIMIT = 120000
@@ -6172,6 +6180,39 @@ class RecruitmentService:
                 result[source] = max_concurrent
         return result
 
+    def _load_effective_llm_config_rows_for_task(self, task_type: str) -> List[RecruitmentLLMConfig]:
+        def _query_rows(target_task_type: str) -> List[RecruitmentLLMConfig]:
+            try:
+                rows = self.db.query(RecruitmentLLMConfig).filter(
+                    RecruitmentLLMConfig.is_active.is_(True),
+                    RecruitmentLLMConfig.task_type == target_task_type,
+                ).order_by(
+                    RecruitmentLLMConfig.priority.asc(),
+                    RecruitmentLLMConfig.id.asc(),
+                ).all()
+            except Exception:
+                return []
+            if not isinstance(rows, list):
+                return []
+            return [row for row in rows if self._can_access_org_resource(row)]
+
+        exact_rows = _query_rows(task_type)
+        if exact_rows:
+            return exact_rows
+        return _query_rows("default")
+
+    def _resolve_screening_queue_max_concurrency(self) -> int:
+        rows_by_id: Dict[int, RecruitmentLLMConfig] = {}
+        for task_type in (SCREENING_ONE_PASS_TASK_TYPE, "resume_score"):
+            for row in self._load_effective_llm_config_rows_for_task(task_type):
+                row_id = getattr(row, "id", None)
+                if row_id is None:
+                    continue
+                rows_by_id[int(row_id)] = row
+        if rows_by_id:
+            return max(1, sum(_llm_config_max_concurrent(row) for row in rows_by_id.values()))
+        return max(1, SCREENING_PROVIDER_MAX_CONCURRENCY)
+
     def _select_screening_queue_rows_fairly(
         self,
         queued_rows: Sequence[RecruitmentAITaskLog],
@@ -6256,28 +6297,16 @@ class RecruitmentService:
     ) -> Iterable[None]:
         normalized_source = _normalize_screening_provider_source(source)
         max_concurrent, max_qps = self._resolve_screening_provider_limits(normalized_source)
-        semaphore = _get_provider_semaphore(normalized_source, max_concurrent)
-        qps_window = _get_provider_qps_window(normalized_source)
-        acquired = False
-        while not acquired:
+        def _check_cancelled() -> None:
             self._raise_if_cancelled(cancel_control)
-            acquired = semaphore.acquire(timeout=0.25)
-        try:
-            while True:
-                self._raise_if_cancelled(cancel_control)
-                wait_seconds = 0.0
-                with _screening_provider_lock:
-                    now = time.monotonic()
-                    while qps_window and (now - qps_window[0]) >= 1.0:
-                        qps_window.popleft()
-                    if max_qps <= 0 or len(qps_window) < max_qps:
-                        qps_window.append(now)
-                        break
-                    wait_seconds = max(0.01, 1.0 - (now - qps_window[0]))
-                time.sleep(min(wait_seconds, 0.25))
+
+        with shared_llm_limiter.sync_slot(
+            normalized_source,
+            max_concurrent=max_concurrent,
+            max_qps=max_qps,
+            cancel_check=_check_cancelled,
+        ):
             yield
-        finally:
-            semaphore.release()
 
     def _record_screening_provider_result(self, *, failure_code: Optional[str] = None) -> None:
         global _screening_provider_cooldown_until
@@ -6417,7 +6446,9 @@ class RecruitmentService:
         return True
 
     def _is_orphaned_live_task(self, row: RecruitmentAITaskLog) -> bool:
-        if row.status not in {"pending", "queued", "running"}:
+        if row.status == "queued":
+            return False
+        if row.status not in {"pending", "running"}:
             return False
         if recruitment_task_registry.get(row.id):
             return False
@@ -6732,7 +6763,13 @@ class RecruitmentService:
         )
         return True
 
-    def _start_background_ai_task(self, task_id: int, runner: Callable[[RecruitmentTaskControl], None]) -> None:
+    def _start_background_ai_task(
+        self,
+        task_id: int,
+        runner: Callable[[RecruitmentTaskControl], None],
+        *,
+        max_workers: Optional[int] = None,
+    ) -> None:
         control = RecruitmentTaskControl(task_id)
         recruitment_task_registry.register(task_id, control)
 
@@ -6743,7 +6780,8 @@ class RecruitmentService:
                 recruitment_task_registry.pop(task_id)
 
         from .recruitment_worker_pool import get_worker_pool
-        get_worker_pool(SCREENING_WORKER_MAX_CONCURRENCY).submit(task_id, _target, name="screening")
+        worker_count = max(1, int(max_workers or self._resolve_screening_queue_max_concurrency()))
+        get_worker_pool(worker_count).submit(task_id, _target, name="screening")
 
     def _screening_root_task_filter(self) -> Any:
         return and_(
@@ -6957,6 +6995,7 @@ class RecruitmentService:
         scheduled_tasks: List[Tuple[int, str]] = []
         queue_was_empty_at_start = False
         next_dispatch_at: Optional[datetime] = None
+        max_concurrency = self._resolve_screening_queue_max_concurrency()
         with _screening_worker_lock:
             global _screening_provider_cooldown_until
             if _screening_provider_cooldown_until and _screening_provider_cooldown_until > datetime.now():
@@ -6964,17 +7003,17 @@ class RecruitmentService:
                 return {
                     "started_count": 0,
                     "active_count": len(_screening_worker_active_task_ids),
-                    "max_concurrency": SCREENING_WORKER_MAX_CONCURRENCY,
+                    "max_concurrency": max_concurrency,
                     "cooldown_until": _screening_provider_cooldown_until.isoformat(),
                 }
             if _screening_provider_cooldown_until and _screening_provider_cooldown_until <= datetime.now():
                 _screening_provider_cooldown_until = None
-            available_slots = max(0, SCREENING_WORKER_MAX_CONCURRENCY - len(_screening_worker_active_task_ids))
+            available_slots = max(0, max_concurrency - len(_screening_worker_active_task_ids))
             if available_slots <= 0:
                 return {
                     "started_count": 0,
                     "active_count": len(_screening_worker_active_task_ids),
-                    "max_concurrency": SCREENING_WORKER_MAX_CONCURRENCY,
+                    "max_concurrency": max_concurrency,
                     "cooldown_until": _screening_provider_cooldown_until.isoformat() if _screening_provider_cooldown_until else None,
                 }
             dispatch_error: Optional[Exception] = None
@@ -7059,13 +7098,17 @@ class RecruitmentService:
                 return {
                     "started_count": 0,
                     "active_count": len(_screening_worker_active_task_ids),
-                    "max_concurrency": SCREENING_WORKER_MAX_CONCURRENCY,
+                    "max_concurrency": max_concurrency,
                     "cooldown_until": _screening_provider_cooldown_until.isoformat() if _screening_provider_cooldown_until else None,
                 }
             for task_id, _actor_id in scheduled_tasks:
                 _screening_worker_active_task_ids.add(task_id)
         for task_id, actor_id in scheduled_tasks:
-            self._start_background_ai_task(task_id, self._build_screening_queue_runner(task_id, actor_id))
+            self._start_background_ai_task(
+                task_id,
+                self._build_screening_queue_runner(task_id, actor_id),
+                max_workers=max_concurrency,
+            )
 
         # 批量全部完成时发送汇总事件（本次无调度、启动时队列为空、且无正在运行的任务）
         if not scheduled_tasks and queue_was_empty_at_start and not _screening_worker_active_task_ids:
@@ -7076,7 +7119,7 @@ class RecruitmentService:
         return {
             "started_count": len(scheduled_tasks),
             "active_count": len(_screening_worker_active_task_ids),
-            "max_concurrency": SCREENING_WORKER_MAX_CONCURRENCY,
+            "max_concurrency": max_concurrency,
             "cooldown_until": _screening_provider_cooldown_until.isoformat() if _screening_provider_cooldown_until else None,
         }
 
@@ -8593,7 +8636,7 @@ class RecruitmentService:
         stale_before = datetime.now() - timedelta(minutes=SCREENING_ORPHAN_STALE_MINUTES)
         rows = self.db.query(RecruitmentAITaskLog).filter(
             self._screening_root_task_filter(),
-            RecruitmentAITaskLog.status.in_(["pending", "queued", "running"]),
+            RecruitmentAITaskLog.status.in_(["pending", "running"]),
         ).order_by(
             RecruitmentAITaskLog.updated_at.asc(),
             RecruitmentAITaskLog.id.asc(),

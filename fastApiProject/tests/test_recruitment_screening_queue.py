@@ -3214,6 +3214,7 @@ def test_dispatch_screening_queue_skips_tasks_before_next_retry_at():
     service._build_screening_queue_runner = Mock(return_value=Mock())
 
     with patch("app.services.recruitment_service_impl.SessionLocal", return_value=dispatch_db), \
+            patch.object(RecruitmentService, "_resolve_screening_queue_max_concurrency", return_value=8), \
             patch("app.services.recruitment_service_impl._screening_provider_cooldown_until", None), \
             patch("app.services.recruitment_service_impl._screening_worker_active_task_ids", set()):
         payload = service._dispatch_screening_queue()
@@ -3227,12 +3228,13 @@ def test_dispatch_screening_queue_respects_provider_cooldown_after_rate_limit():
     service = RecruitmentService(Mock())
     service._start_background_ai_task = Mock()
 
-    with patch("app.services.recruitment_service_impl._screening_provider_cooldown_until", datetime.now() + timedelta(seconds=30)), \
+    with patch.object(RecruitmentService, "_resolve_screening_queue_max_concurrency", return_value=12), \
+            patch("app.services.recruitment_service_impl._screening_provider_cooldown_until", datetime.now() + timedelta(seconds=30)), \
             patch("app.services.recruitment_service_impl._screening_worker_active_task_ids", set()):
         payload = service._dispatch_screening_queue()
 
     assert payload["started_count"] == 0
-    assert payload["max_concurrency"] == SCREENING_WORKER_MAX_CONCURRENCY
+    assert payload["max_concurrency"] == 12
     service._start_background_ai_task.assert_not_called()
 
 
@@ -3256,14 +3258,42 @@ def test_batch_screening_queue_respects_single_concurrency():
     service._build_screening_queue_runner = Mock(return_value=Mock())
 
     with patch("app.services.recruitment_service_impl.SessionLocal", return_value=dispatch_db), \
+            patch.object(RecruitmentService, "_resolve_screening_queue_max_concurrency", return_value=3), \
             patch("app.services.recruitment_service_impl._screening_provider_cooldown_until", None), \
             patch("app.services.recruitment_service_impl._screening_worker_active_task_ids", set()):
         payload = service._dispatch_screening_queue()
 
-    assert payload["started_count"] == SCREENING_WORKER_MAX_CONCURRENCY
-    assert payload["active_count"] == SCREENING_WORKER_MAX_CONCURRENCY
-    assert payload["max_concurrency"] == SCREENING_WORKER_MAX_CONCURRENCY
-    assert service._start_background_ai_task.call_count == SCREENING_WORKER_MAX_CONCURRENCY
+    assert payload["started_count"] == 3
+    assert payload["active_count"] == 3
+    assert payload["max_concurrency"] == 3
+    assert service._start_background_ai_task.call_count == 3
+
+
+def test_queued_screening_task_is_not_orphaned_while_waiting():
+    service = RecruitmentService(Mock())
+    row = SimpleNamespace(
+        id=501,
+        status="queued",
+        updated_at=datetime.now() - timedelta(hours=6),
+        created_at=datetime.now() - timedelta(hours=6),
+    )
+
+    assert service._is_orphaned_live_task(row) is False
+
+
+def test_screening_queue_capacity_sums_effective_model_configs():
+    service = RecruitmentService(Mock())
+    default_model = SimpleNamespace(id=1, max_concurrent=2)
+    one_pass_model = SimpleNamespace(id=2, max_concurrent=3)
+    score_model = SimpleNamespace(id=3, max_concurrent=4)
+
+    service._load_effective_llm_config_rows_for_task = Mock(
+        side_effect=lambda task_type: [one_pass_model, default_model]
+        if task_type == SCREENING_ONE_PASS_TASK_TYPE
+        else [score_model, default_model]
+    )
+
+    assert service._resolve_screening_queue_max_concurrency() == 9
 
 
 def test_infra_failure_does_not_mark_candidate_screening_failed():

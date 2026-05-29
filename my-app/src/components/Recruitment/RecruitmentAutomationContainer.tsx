@@ -2332,6 +2332,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const [candidateMatchSortLoading, setCandidateMatchSortLoading] = useState(false);
     const candidateMatchSortOrderRef = useRef<"" | "asc" | "desc">("");
     const candidateMatchSortRequestTokenRef = useRef(0);
+    const candidatePositionFilterRef = useRef<string[]>(candidatePositionFilter);
+    candidatePositionFilterRef.current = candidatePositionFilter;
     const [candidateViewMode, setCandidateViewMode] = useState<CandidateViewMode>("list");
     const [candidateListColumnWidths, setCandidateListColumnWidths] = useState<Record<CandidateListColumnKey, number>>(
         candidateListColumnDefaultWidths,
@@ -5985,7 +5987,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
 
     function resolveCandidatePipelineStatsScopeKey(departmentScope?: string, orgScope?: string, positionIdOverride?: string) {
         const scopedOrgCode = resolveScopedOrgCode(departmentScope ?? selectedDepartmentScope, orgScope ?? selectedOrgScope);
-        const activePositionId = String(positionIdOverride ?? candidatePositionFilter[0] ?? "").trim();
+        // 使用 ref 获取最新值，避免闭包中 state 是旧值的问题
+        const activePositionId = String(positionIdOverride ?? candidatePositionFilterRef.current[0] ?? "").trim();
         return `${scopedOrgCode || ""}::${activePositionId}`;
     }
 
@@ -5996,7 +5999,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             if (scopedOrgCode) {
                 params.set("org_code", scopedOrgCode);
             }
-            const activePositionId = String(positionIdOverride ?? candidatePositionFilter[0] ?? "").trim();
+            // 使用 ref 获取最新值，避免闭包中 state 是旧值的问题
+            const activePositionId = String(positionIdOverride ?? candidatePositionFilterRef.current[0] ?? "").trim();
             if (activePositionId) {
                 params.set("position_id", activePositionId);
             }
@@ -6015,13 +6019,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             setCandidateStatsData(stats);
             setCandidateScopeTotal(Number(stats?.total || 0));
             if (activePageRef.current === "candidates") {
-                const activePositionId = String(candidatePositionFilter[0] || "").trim();
-                if (activePositionId) {
-                    await refreshCandidatePipelineStats(departmentScope, orgScope, activePositionId);
-                } else {
-                    setCandidatePipelineStatsData(stats);
-                    setCandidatePipelineStatsScopeKey(resolveCandidatePipelineStatsScopeKey(departmentScope, orgScope, ""));
-                }
+                // 始终刷新 pipeline stats，从 ref 取最新岗位（避免闭包中 candidatePositionFilter 是旧值）
+                await refreshCandidatePipelineStats(departmentScope, orgScope);
             }
         } catch {}
         try {
@@ -12486,11 +12485,6 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             ? candidatePipelineStatsData
             : null;
         const allPositionCandidateCount = candidateScopeTotal;
-        const visiblePipelineStatsFallback: CandidateStatsData = {
-            ...localVisibleCandidateStatsData,
-            total: effectiveVisibleCandidateTotal,
-        };
-        const effectivePipelineStats = scopedPipelineStats || visiblePipelineStatsFallback;
         return (
             <CandidatesPage
                 panelClass={panelClass}
@@ -12531,8 +12525,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 candidatePageIndex={candidatePageIndex}
                 candidatePageSize={candidatePageSize}
                 candidatePageSizeOptions={CANDIDATE_LIST_PAGE_SIZE_OPTIONS}
-                candidatePipelineStatusCounts={effectivePipelineStats?.status_counts}
-                candidatePipelineTotal={effectivePipelineStats?.total}
+                candidatePipelineStatusCounts={scopedPipelineStats?.status_counts}
+                candidatePipelineTotal={scopedPipelineStats?.total}
                 setCandidatePageIndex={setCandidatePageIndexWithTransition}
                 setCandidatePageSize={setCandidatePageSizeWithTransition}
                 candidateListScrollRef={candidateListScrollRef}
