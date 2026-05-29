@@ -3870,7 +3870,7 @@ export function CandidatesPage({
                         setCandidateTimeFilter={setCandidateTimeFilter}
                         positions={positions}
                         sourceOptions={sourceOptions}
-                        visibleCandidateCount={visibleCandidates.length}
+                        visibleCandidateCount={candidateTotal}
                         onCollapse={() => setCandidateFilterBarExpanded(false)}
                     />
                 ) : null}

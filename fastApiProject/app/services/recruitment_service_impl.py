@@ -10552,7 +10552,7 @@ class RecruitmentService:
             RecruitmentCandidate,
         )
 
-    def list_candidates(self, query: Optional[str] = None, status: Optional[str] = None, position_id: Optional[int] = None, tag: Optional[str] = None, limit: int = 0, offset: int = 0, org_code: Optional[str] = None, compact: bool = False, sort_by: Optional[str] = None, sort_order: Optional[str] = None) -> Dict[str, Any]:
+    def list_candidates(self, query: Optional[str] = None, status: Optional[str] = None, position_id: Optional[int] = None, tag: Optional[str] = None, limit: int = 0, offset: int = 0, org_code: Optional[str] = None, compact: bool = False, sort_by: Optional[str] = None, sort_order: Optional[str] = None, source: Optional[str] = None, time_filter: Optional[str] = None, match_min: Optional[float] = None) -> Dict[str, Any]:
         builder = self._build_candidate_scoped_query(org_code)
         # 排除待归岗候选人（这些候选人在人才库中显示）
         if not status:
@@ -10574,6 +10574,40 @@ class RecruitmentService:
                 builder = builder.filter(self._candidate_display_status_expr().in_(status_values))
         if tag:
             builder = builder.filter(RecruitmentCandidate.tags_json.like(f"%{tag}%"))
+        if source:
+            source_values = [
+                item.strip()
+                for item in re.split(r"[,，;；]+", str(source or ""))
+                if item.strip()
+            ]
+            if source_values:
+                unknown_values = {"unknown", "未知来源", "__unknown__"}
+                known_sources = [item for item in source_values if item.lower() not in unknown_values]
+                source_clauses = []
+                if known_sources:
+                    source_clauses.append(RecruitmentCandidate.source.in_(known_sources))
+                if len(known_sources) < len(source_values):
+                    source_clauses.append(or_(RecruitmentCandidate.source.is_(None), RecruitmentCandidate.source == ""))
+                if source_clauses:
+                    builder = builder.filter(or_(*source_clauses))
+        if match_min is not None:
+            try:
+                normalized_match_min = max(0.0, min(100.0, float(match_min)))
+                builder = builder.filter(RecruitmentCandidate.match_percent >= normalized_match_min)
+            except (TypeError, ValueError):
+                pass
+        normalized_time_filter = str(time_filter or "").strip().lower()
+        now = datetime.now()
+        if normalized_time_filter == "today":
+            today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            builder = builder.filter(
+                RecruitmentCandidate.created_at >= today_start,
+                RecruitmentCandidate.created_at < today_start + timedelta(days=1),
+            )
+        elif normalized_time_filter == "7d":
+            builder = builder.filter(RecruitmentCandidate.created_at >= now - timedelta(days=7))
+        elif normalized_time_filter == "30d":
+            builder = builder.filter(RecruitmentCandidate.created_at >= now - timedelta(days=30))
         db_engine = self.db.get_bind()
         if db_engine and db_engine.dialect.name == "mysql":
             if position_id:

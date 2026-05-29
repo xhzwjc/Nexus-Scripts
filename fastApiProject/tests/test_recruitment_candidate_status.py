@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -201,3 +203,38 @@ def test_list_candidates_supports_multiple_display_status_filter_values():
 
     assert result["total"] == 2
     assert {item["status"] for item in result["items"]} == {"screening_rejected", "department_review_rejected"}
+
+
+def test_list_candidates_applies_match_source_and_time_filters_before_pagination():
+    db = _build_test_db()
+    now = datetime.now()
+    high_match = _add_candidate(db, code="C-HIGH", name="高匹配候选人", status="screening_passed", position_id=1001)
+    high_match.match_percent = 86
+    high_match.source = "boss"
+    high_match.created_at = now - timedelta(days=1)
+    low_match = _add_candidate(db, code="C-LOW", name="低匹配候选人", status="screening_passed", position_id=1001)
+    low_match.match_percent = 45
+    low_match.source = "boss"
+    low_match.created_at = now - timedelta(days=1)
+    other_source = _add_candidate(db, code="C-SOURCE", name="其他来源候选人", status="screening_passed", position_id=1001)
+    other_source.match_percent = 90
+    other_source.source = "manual_upload"
+    other_source.created_at = now - timedelta(days=1)
+    old_match = _add_candidate(db, code="C-OLD", name="过期候选人", status="screening_passed", position_id=1001)
+    old_match.match_percent = 91
+    old_match.source = "boss"
+    old_match.created_at = now - timedelta(days=10)
+    db.commit()
+    service = RecruitmentService(db)
+
+    result = service.list_candidates(
+        position_id=1001,
+        source="boss",
+        match_min=80,
+        time_filter="7d",
+        limit=1,
+        offset=0,
+    )
+
+    assert result["total"] == 1
+    assert [item["candidate_code"] for item in result["items"]] == ["C-HIGH"]

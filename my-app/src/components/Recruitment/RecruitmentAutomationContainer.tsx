@@ -3059,14 +3059,15 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const isCandidatePageActive = activePage === "candidates";
 
     const sourceOptions = useMemo(() => {
-        return Array.from(
-            new Set(
-                candidates
-                    .map((candidate) => candidate.source)
-                    .filter((item): item is string => Boolean(item)),
-            ),
-        );
-    }, [candidates]);
+        return Array.from(new Set([
+            ...(sourceStatsData?.sources || [])
+                .map((item) => item.source)
+                .filter((item): item is string => Boolean(item)),
+            ...candidates
+                .map((candidate) => candidate.source)
+                .filter((item): item is string => Boolean(item)),
+        ]));
+    }, [candidates, sourceStatsData]);
 
     const visiblePositions = useMemo(() => {
         const normalizedQuery = deferredPositionQuery.trim().toLowerCase();
@@ -3112,8 +3113,12 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             ].some((value) => String(value || "").toLowerCase().includes(normalizedQuery))) {
                 return false;
             }
-            if (candidateSourceFilter.length > 0 && !candidateSourceFilter.includes(candidate.source || "未知来源")) {
-                return false;
+            if (candidateSourceFilter.length > 0) {
+                const source = String(candidate.source || "unknown");
+                const matchesUnknown = !candidate.source && candidateSourceFilter.some((item) => ["unknown", "未知来源", "__unknown__"].includes(String(item).trim().toLowerCase()));
+                if (!matchesUnknown && !candidateSourceFilter.includes(source)) {
+                    return false;
+                }
             }
             if (candidateTimeFilter === "today" && !isToday(candidate.created_at)) {
                 return false;
@@ -4084,6 +4089,27 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         setCandidateStatusFilter(value);
     }, [beginCandidateListTransition]);
 
+    const setCandidateSourceFilterWithTransition = useCallback<React.Dispatch<React.SetStateAction<string[]>>>((value) => {
+        beginCandidateListTransition();
+        candidatePageIndexRef.current = 0;
+        setCandidatePageIndex(0);
+        setCandidateSourceFilter(value);
+    }, [beginCandidateListTransition]);
+
+    const setCandidateMatchFilterWithTransition = useCallback<React.Dispatch<React.SetStateAction<string>>>((value) => {
+        beginCandidateListTransition();
+        candidatePageIndexRef.current = 0;
+        setCandidatePageIndex(0);
+        setCandidateMatchFilter(value);
+    }, [beginCandidateListTransition]);
+
+    const setCandidateTimeFilterWithTransition = useCallback<React.Dispatch<React.SetStateAction<string>>>((value) => {
+        beginCandidateListTransition();
+        candidatePageIndexRef.current = 0;
+        setCandidatePageIndex(0);
+        setCandidateTimeFilter(value);
+    }, [beginCandidateListTransition]);
+
     const setCandidatePageIndexWithTransition = useCallback((nextPageIndex: number) => {
         const normalized = Math.max(0, nextPageIndex);
         beginCandidateListTransition();
@@ -4112,6 +4138,9 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         const contextKey = buildCandidateListContextKey({
             useVisibleFilters: true,
             query: deferredCandidateQuery,
+            sourceFilter: candidateSourceFilter,
+            timeFilter: candidateTimeFilter,
+            matchFilter: candidateMatchFilter,
             matchSortOrder: candidateMatchSortOrderRef.current,
             pageIndex: candidatePageIndex,
             pageSize: candidatePageSize,
@@ -4121,6 +4150,9 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             deferredCandidateQuery.trim()
             || candidatePositionFilter.length
             || candidateStatusFilter.length
+            || candidateSourceFilter.length
+            || candidateTimeFilter !== "all"
+            || candidateMatchFilter !== "all"
             || candidateMatchSortOrderRef.current
         );
         const cachedPage = candidateListPageCacheRef.current;
@@ -4179,6 +4211,9 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 force: true,
                 useVisibleFilters: true,
                 query: deferredCandidateQuery,
+                sourceFilter: candidateSourceFilter,
+                timeFilter: candidateTimeFilter,
+                matchFilter: candidateMatchFilter,
                 matchSortOrder: candidateMatchSortOrderRef.current,
                 pageIndex: candidatePageIndex,
                 pageSize: candidatePageSize,
@@ -4200,6 +4235,9 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         bootstrapping,
         candidatePositionFilter,
         candidateStatusFilter,
+        candidateSourceFilter,
+        candidateTimeFilter,
+        candidateMatchFilter,
         candidatePageIndex,
         candidatePageSize,
         candidatesInitialLoaded,
@@ -4220,6 +4258,33 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         if (activeStatuses.length && !activeStatuses.includes(resolveCandidateDisplayStatus(candidate))) {
             return false;
         }
+        const activeSources = candidateSourceFilter.map((item) => String(item || "").trim()).filter(Boolean);
+        if (activeSources.length) {
+            const source = String(candidate.source || "unknown");
+            const matchesUnknown = !candidate.source && activeSources.some((item) => ["unknown", "未知来源", "__unknown__"].includes(item.toLowerCase()));
+            if (!matchesUnknown && !activeSources.includes(source)) {
+                return false;
+            }
+        }
+        const match = Number(candidate.match_percent ?? 0);
+        if (candidateMatchFilter === "80+" && match < 80) {
+            return false;
+        }
+        if (candidateMatchFilter === "60+" && match < 60) {
+            return false;
+        }
+        if (candidateMatchFilter === "40+" && match < 40) {
+            return false;
+        }
+        if (candidateTimeFilter === "today" && !isToday(candidate.created_at)) {
+            return false;
+        }
+        if (candidateTimeFilter === "7d" && !withinDays(candidate.created_at, 7)) {
+            return false;
+        }
+        if (candidateTimeFilter === "30d" && !withinDays(candidate.created_at, 30)) {
+            return false;
+        }
         const normalizedQuery = candidateQuery.trim().toLowerCase();
         if (!normalizedQuery) {
             return true;
@@ -4230,7 +4295,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             candidate.email,
             candidate.current_company,
         ].some((value) => String(value || "").toLowerCase().includes(normalizedQuery));
-    }, [candidatePositionFilter, candidateQuery, candidateStatusFilter]);
+    }, [candidateMatchFilter, candidatePositionFilter, candidateQuery, candidateSourceFilter, candidateStatusFilter, candidateTimeFilter]);
 
     const syncRealtimeCandidateListsBatch = useCallback((updates: CandidateSnapshotBatchUpdate[]) => {
         const normalizedUpdates = updates
@@ -4934,6 +4999,18 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     }, [auditListScrollEl]);
 
     useEffect(() => {
+        if (activePage !== "audit" || !auditListScrollEl) {
+            return;
+        }
+        const measureAuditListWidth = () => {
+            setAuditListViewportWidth(auditListScrollEl.clientWidth);
+        };
+        measureAuditListWidth();
+        const frameId = window.requestAnimationFrame(measureAuditListWidth);
+        return () => window.cancelAnimationFrame(frameId);
+    }, [activePage, auditListScrollEl]);
+
+    useEffect(() => {
         if (candidateViewMode !== "list") return;
         const targets = [candidateListScrollEl, candidateListHorizontalRailEl]
             .filter((node): node is HTMLDivElement => Boolean(node));
@@ -5450,6 +5527,9 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         query?: string;
         positionFilter?: string[];
         statusFilter?: string[];
+        sourceFilter?: string[];
+        timeFilter?: string;
+        matchFilter?: string;
         useVisibleFilters?: boolean;
         matchSortOrder?: "" | "asc" | "desc";
         pageIndex?: number;
@@ -5462,6 +5542,9 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             query: String(options?.query ?? deferredCandidateQuery).trim(),
             positionFilter: options?.positionFilter ?? candidatePositionFilter,
             statusFilter: options?.statusFilter ?? candidateStatusFilter,
+            sourceFilter: options?.sourceFilter ?? candidateSourceFilter,
+            timeFilter: options?.timeFilter ?? candidateTimeFilter,
+            matchFilter: options?.matchFilter ?? candidateMatchFilter,
             useVisibleFilters: options?.useVisibleFilters ?? activePageRef.current === "candidates",
             matchSortOrder: options?.matchSortOrder ?? candidateMatchSortOrder,
             pageIndex: options?.pageIndex ?? candidatePageIndexRef.current,
@@ -5475,6 +5558,9 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         query?: string;
         positionFilter?: string[];
         statusFilter?: string[];
+        sourceFilter?: string[];
+        timeFilter?: string;
+        matchFilter?: string;
         useVisibleFilters?: boolean;
         matchSortOrder?: "" | "asc" | "desc";
         pageIndex?: number;
@@ -5499,6 +5585,12 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 .map((item) => String(item || "").trim())
                 .filter(Boolean)
                 .join(",");
+            const source = (options?.sourceFilter ?? candidateSourceFilter)
+                .map((item) => String(item || "").trim())
+                .filter(Boolean)
+                .join(",");
+            const timeFilter = String(options?.timeFilter ?? candidateTimeFilter).trim();
+            const matchFilter = String(options?.matchFilter ?? candidateMatchFilter).trim();
             const matchSortOrder = String(options?.matchSortOrder ?? candidateMatchSortOrder).trim().toLowerCase();
             if (normalizedQuery) {
                 params.set("query", normalizedQuery);
@@ -5508,6 +5600,19 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             }
             if (status) {
                 params.set("status", status);
+            }
+            if (source) {
+                params.set("source", source);
+            }
+            if (timeFilter && timeFilter !== "all") {
+                params.set("time_filter", timeFilter);
+            }
+            if (matchFilter === "80+") {
+                params.set("match_min", "80");
+            } else if (matchFilter === "60+") {
+                params.set("match_min", "60");
+            } else if (matchFilter === "40+") {
+                params.set("match_min", "40");
             }
             if (matchSortOrder === "asc" || matchSortOrder === "desc") {
                 params.set("sort_by", "match_percent");
@@ -5525,6 +5630,9 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         query?: string;
         positionFilter?: string[];
         statusFilter?: string[];
+        sourceFilter?: string[];
+        timeFilter?: string;
+        matchFilter?: string;
         useVisibleFilters?: boolean;
         matchSortOrder?: "" | "asc" | "desc";
         pageIndex?: number;
@@ -5540,10 +5648,16 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             const normalizedQueryForScope = String(options?.query ?? deferredCandidateQuery).trim();
             const positionFilterForScope = options?.positionFilter ?? candidatePositionFilter;
             const statusFilterForScope = options?.statusFilter ?? candidateStatusFilter;
+            const sourceFilterForScope = options?.sourceFilter ?? candidateSourceFilter;
+            const timeFilterForScope = options?.timeFilter ?? candidateTimeFilter;
+            const matchFilterForScope = options?.matchFilter ?? candidateMatchFilter;
             const shouldUpdateCandidateScopeTotal = !useVisibleFilters || (
                 !normalizedQueryForScope
                 && positionFilterForScope.length === 0
                 && statusFilterForScope.length === 0
+                && sourceFilterForScope.length === 0
+                && timeFilterForScope === "all"
+                && matchFilterForScope === "all"
             );
             const contextKey = buildCandidateListContextKey({
                 departmentScope: options?.departmentScope,
@@ -5551,6 +5665,9 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 query: options?.query,
                 positionFilter: options?.positionFilter,
                 statusFilter: options?.statusFilter,
+                sourceFilter: options?.sourceFilter,
+                timeFilter: options?.timeFilter,
+                matchFilter: options?.matchFilter,
                 useVisibleFilters,
                 matchSortOrder: options?.matchSortOrder,
                 pageIndex: options?.pageIndex,
@@ -5566,6 +5683,9 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 query: options?.query,
                 positionFilter: options?.positionFilter,
                 statusFilter: options?.statusFilter,
+                sourceFilter: options?.sourceFilter,
+                timeFilter: options?.timeFilter,
+                matchFilter: options?.matchFilter,
                 useVisibleFilters,
                 matchSortOrder: options?.matchSortOrder,
                 pageIndex: options?.pageIndex,
@@ -12571,11 +12691,11 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 candidateStatusFilter={candidateStatusFilter}
                 setCandidateStatusFilter={setCandidateStatusFilterWithTransition}
                 candidateMatchFilter={candidateMatchFilter}
-                setCandidateMatchFilter={setCandidateMatchFilter}
+                setCandidateMatchFilter={setCandidateMatchFilterWithTransition}
                 candidateSourceFilter={candidateSourceFilter}
-                setCandidateSourceFilter={setCandidateSourceFilter}
+                setCandidateSourceFilter={setCandidateSourceFilterWithTransition}
                 candidateTimeFilter={candidateTimeFilter}
-                setCandidateTimeFilter={setCandidateTimeFilter}
+                setCandidateTimeFilter={setCandidateTimeFilterWithTransition}
                 positions={positions}
                 positionsLoading={positionsLoading}
                 sourceOptions={sourceOptions}
@@ -13062,6 +13182,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         [
             visibleAiLogs, selectedLogId, selectedLogDetail, logDetailLoading,
             logsLoading, logTaskTypeFilter, logStatusFilter, auditFiltersCollapsed,
+            activePage, auditListDisplayColumnWidths, auditListTableWidth,
         ]
     );
 
