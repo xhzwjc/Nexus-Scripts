@@ -1252,6 +1252,130 @@ def _normalize_position_match_title(value: Any) -> str:
     return text
 
 
+_POSITION_TITLE_CITY_WORDS = (
+    "北京", "上海", "广州", "深圳", "杭州", "南京", "苏州", "天津", "重庆", "成都",
+    "武汉", "西安", "长沙", "郑州", "青岛", "济南", "厦门", "福州", "南昌", "合肥",
+    "宁波", "无锡", "佛山", "东莞", "珠海", "惠州", "全国", "远程",
+)
+_POSITION_TITLE_NOISE_WORDS = (
+    "招聘", "急招", "直招", "高薪", "双休", "五险一金", "包吃住", "长期", "全职",
+    "兼职", "社招", "校招", "实习", "不限", "经验", "以上", "以下", "左右",
+)
+_POSITION_SENIOR_WORDS = (
+    "高级", "资深", "专家", "总监", "负责人", "主管", "leader", "head",
+)
+_POSITION_FINANCE_MANAGEMENT_WORDS = ("经理", "主管", "总监", "负责人", "leader", "head")
+_POSITION_FAMILY_SPECIFIC_TOKENS: Dict[str, tuple[str, ...]] = {
+    "product": (
+        "ai", "b端", "c端", "saas", "iot", "物联网", "金融", "数据", "资源", "供应链",
+        "电商", "crm", "rpa", "客服", "流程", "物流", "支付", "数字化",
+    ),
+    "test": (
+        "硬件", "软件", "iot", "物联网", "ios", "android", "自动化", "系统", "智能家居",
+        "嵌入式", "接口", "性能",
+    ),
+    "finance": ("税务", "总账", "成本", "财务", "审计", "出纳"),
+    "procurement": ("供应链", "数字化", "工程", "材料"),
+    "project_management": ("装修", "装饰", "施工", "工程", "软件", "研发", "交付"),
+    "hardware_engineer": ("测试", "研发", "嵌入式", "结构", "电气"),
+    "software_engineer": ("前端", "后端", "java", "ios", "android", "测试", "全栈"),
+}
+
+
+def _normalize_position_role_core(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    if not text:
+        return ""
+    text = re.sub(r"（[^）]*）|\([^)]*\)", " ", text)
+    text = re.sub(r"\d+(?:\.\d+)?\s*(?:k|K|千|w|W|万)\s*(?:[-~—－到至]\s*\d+(?:\.\d+)?\s*(?:k|K|千|w|W|万))?", " ", text)
+    text = re.sub(r"\d+\s*[-~—－到至]\s*\d+\s*(?:k|K|千|w|W|万)?", " ", text)
+    text = re.sub(r"\d+\s*(?:年|年以上|年以下|岁|人)", " ", text)
+    text = re.sub(r"\b\d+\b", " ", text)
+    for word in _POSITION_TITLE_CITY_WORDS:
+        text = text.replace(word.lower(), " ")
+    for word in _POSITION_TITLE_NOISE_WORDS:
+        text = text.replace(word.lower(), " ")
+    return _normalize_position_match_title(text)
+
+
+def _position_role_family(value: Any) -> Optional[str]:
+    core = _normalize_position_role_core(value)
+    if not core:
+        return None
+    if "产品" in core:
+        return "product"
+    if "测试" in core or "qa" in core:
+        return "test"
+    if any(token in core for token in ("会计", "财务", "税务", "总账", "出纳", "审计")):
+        return "finance"
+    if "采购" in core:
+        return "procurement"
+    if any(token in core for token in ("装修", "装饰", "家装")):
+        return "decoration"
+    if "施工" in core:
+        return "construction"
+    if "设计" in core:
+        return "design"
+    if "需求分析" in core:
+        return "requirements"
+    if "项目" in core and any(token in core for token in ("经理", "总监", "负责人", "主管")):
+        return "project_management"
+    if "硬件" in core and "工程师" in core:
+        return "hardware_engineer"
+    if any(token in core for token in ("软件开发", "前端开发", "后端开发", "开发工程师", "java工程师")):
+        return "software_engineer"
+    return None
+
+
+def _position_title_has_seniority(value: Any) -> bool:
+    text = str(value or "").strip().lower()
+    return any(word.lower() in text for word in _POSITION_SENIOR_WORDS)
+
+
+def _position_specific_tokens(value: Any, family: Optional[str]) -> set[str]:
+    if not family:
+        return set()
+    core = _normalize_position_role_core(value)
+    return {
+        token
+        for token in _POSITION_FAMILY_SPECIFIC_TOKENS.get(family, ())
+        if token.lower() in core
+    }
+
+
+def _position_finance_role_tokens(value: Any) -> set[str]:
+    core = _normalize_position_role_core(value)
+    roles: set[str] = set()
+    if "会计" in core:
+        roles.add("会计")
+    if "出纳" in core:
+        roles.add("出纳")
+    if "审计" in core:
+        roles.add("审计")
+    if "分析" in core:
+        roles.add("分析")
+    if any(token in core for token in _POSITION_FINANCE_MANAGEMENT_WORDS):
+        roles.add("管理")
+    return roles
+
+
+def _position_family_match_allowed(returned_title: Any, position_title: Any) -> bool:
+    returned_family = _position_role_family(returned_title)
+    position_family = _position_role_family(position_title)
+    if not returned_family or returned_family != position_family:
+        return False
+    if position_family == "finance":
+        position_roles = _position_finance_role_tokens(position_title)
+        returned_roles = _position_finance_role_tokens(returned_title)
+        if position_roles and (not returned_roles or not (position_roles & returned_roles)):
+            return False
+    position_tokens = _position_specific_tokens(position_title, position_family)
+    if not position_tokens:
+        return True
+    returned_tokens = _position_specific_tokens(returned_title, returned_family)
+    return bool(position_tokens & returned_tokens)
+
+
 def _normalize_position_match_display(value: Any) -> str:
     text = str(value or "").strip().lower()
     if not text:
@@ -1271,6 +1395,8 @@ def _position_title_matches(returned_title: Any, position: Dict[str, Any]) -> bo
     if not normalized_returned:
         return False
     normalized_title = _normalize_position_match_title(position.get("title"))
+    returned_core = _normalize_position_role_core(returned_title)
+    position_core = _normalize_position_role_core(position.get("title"))
     normalized_returned_display = _normalize_position_match_display(returned_title)
     normalized_display = _normalize_position_match_display(_position_match_display_title(position))
     return bool(
@@ -1278,9 +1404,37 @@ def _position_title_matches(returned_title: Any, position: Dict[str, Any]) -> bo
         and (
             normalized_returned == normalized_title
             or normalized_returned_display == normalized_display
+            or (returned_core and position_core and returned_core == position_core)
             or (normalized_title and normalized_title in normalized_returned)
+            or (position_core and len(position_core) >= 3 and position_core in returned_core)
+            or _position_family_match_allowed(returned_title, position.get("title"))
         )
     )
+
+
+def _position_title_match_rank(returned_title: Any, position: Dict[str, Any]) -> int:
+    normalized_returned = _normalize_position_match_title(returned_title)
+    normalized_title = _normalize_position_match_title(position.get("title"))
+    if not normalized_returned:
+        return 0
+    if _normalize_position_match_display(returned_title) == _normalize_position_match_display(_position_match_display_title(position)):
+        return 100
+    if normalized_returned == normalized_title:
+        return 95
+    returned_core = _normalize_position_role_core(returned_title)
+    position_core = _normalize_position_role_core(position.get("title"))
+    if returned_core and position_core and returned_core == position_core:
+        return 90
+    if normalized_title and normalized_title in normalized_returned:
+        return 84
+    if position_core and len(position_core) >= 3 and position_core in returned_core:
+        return 82
+    if _position_family_match_allowed(returned_title, position.get("title")):
+        rank = 70
+        if _position_title_has_seniority(returned_title) == _position_title_has_seniority(position.get("title")):
+            rank += 5
+        return rank
+    return 0
 
 
 def _find_position_by_returned_title(returned_title: Any, positions: Sequence[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
@@ -1301,13 +1455,15 @@ def _find_position_by_returned_title(returned_title: Any, positions: Sequence[Di
     ]
     if exact_title_matches:
         return exact_title_matches[0]
-    contains_matches = [
-        position
-        for position in positions
-        if _position_title_matches(returned_title, position)
+    ranked_matches = [
+        (rank, index, position)
+        for index, position in enumerate(positions)
+        for rank in [_position_title_match_rank(returned_title, position)]
+        if rank > 0
     ]
-    if contains_matches:
-        return contains_matches[0]
+    if ranked_matches:
+        ranked_matches.sort(key=lambda item: (-item[0], item[1]))
+        return ranked_matches[0][2]
     return None
 
 
@@ -3352,25 +3508,30 @@ class RecruitmentAIGateway:
 
         system_prompt = '你是资深招聘主管。看完简历后，以招聘主管视角推荐最合适的岗位，并给出转岗建议。只输出一个最终 JSON 对象，不要输出 <think>、分析过程、章节标题或任何 JSON 以外的内容。'
 
-        user_prompt = f'''## 系统现有岗位（供参考，不限于此列表）
+        user_prompt = f'''## 系统现有岗位（优先匹配这些招聘需求）
 {position_list}
 
 ## 候选人简历
 {resume_content}
 
 ## 规则
-1. 你作为招聘主管，看完简历后推荐一个最合适的岗位名称（不限于系统岗位列表，可自行判断）
-2. 如果系统岗位列表中有匹配的，position_id 必须严格使用上方“岗位ID=”后的真实数字，position_title 必须与该岗位名称一致；没有匹配则 position_id 返回 null，position_title 仍要填写你推荐的岗位
-3. confidence 返回 0-100，表示你对推荐岗位的把握程度
-4. 转岗建议（potential_position）：推荐1个该候选人可以转岗的方向，**必须与推荐岗位（position_title）不同**，基于其技能可迁移性判断
-5. 转岗原因（potential_reason）：50字以内，说明为什么具备该转岗潜力
-6. reason：50字以内，说明推荐该岗位的核心依据
-7. **只有简历信息严重缺失（如无工作经历、无技能、内容为空）时，才允许 potential_position 和 potential_reason 返回 null**
-8. 禁止复制示例中的 position_id；示例只说明字段结构，实际 position_id 只能来自本次岗位列表
-9. 不要输出推理过程、Markdown 标题或列表，只输出最终 JSON
+1. 系统岗位是招聘需求桶。必须优先从“系统现有岗位”中选择最合适的 position_id，而不是自由创造岗位。
+2. 判断依据是核心职能一致，不要求岗位名称完全一致。细分行业、业务方向、端类型、职级可归入同一主岗位，例如 AI/B端/SaaS/IoT/金融/资源物联网产品方向可归入系统里的产品类岗位。
+3. 如果简历或文件名体现了投递来源岗位，可作为强参考；但必须结合简历核心职责确认，不可只靠相似词。
+4. 当系统岗位中存在同一大类下的多个细分岗位时，必须根据简历证据或来源岗位选择具体岗位。例如同时存在税务会计/财务会计时，不要只返回“会计”；同时存在 AI产品经理/C端产品经理时，不要只返回“产品经理”。
+5. 如果只能判断大类、无法区分细分岗位，position_id 必须返回 null，position_title 可填写宽泛建议；不要在多个细分岗位中猜一个。
+6. 只有系统岗位中没有核心职能匹配项，或简历核心职责证据不足/冲突明显时，才允许 position_id 返回 null；此时 position_title 填写你建议的新岗位名称。
+7. 如果选择了系统岗位，position_id 必须严格使用上方“岗位ID=”后的真实数字，position_title 必须与该系统岗位名称一致。
+8. confidence 返回 0-100，表示你对系统岗位归属的把握程度。
+9. 转岗建议（potential_position）：推荐1个该候选人可以转岗的方向，**必须与推荐岗位（position_title）不同**，基于其技能可迁移性判断。
+10. 转岗原因（potential_reason）：50字以内，说明为什么具备该转岗潜力。
+11. reason：50字以内，说明推荐该岗位的核心依据，优先说明核心职责/来源岗位与系统岗位的对应关系。
+12. **只有简历信息严重缺失（如无工作经历、无技能、内容为空）时，才允许 potential_position 和 potential_reason 返回 null**
+13. 禁止复制示例中的 position_id；示例只说明字段结构，实际 position_id 只能来自本次岗位列表。
+14. 不要输出推理过程、Markdown 标题或列表，只输出最终 JSON。
 
 ## 输出格式
-{{“position_id”: null, “position_title”: “产品经理”, “confidence”: 65, “reason”: “具备需求分析和跨团队协作经验，适合产品经理方向”, “potential_position”: “售前解决方案”, “potential_reason”: “跨团队沟通和需求分析能力较强，可培养为售前方向”}}'''
+{{"position_id": null, "position_title": "产品经理", "confidence": 65, "reason": "具备需求分析和跨团队协作经验，适合产品经理方向", "potential_position": "售前解决方案", "potential_reason": "跨团队沟通和需求分析能力较强，可培养为售前方向"}}'''
         prompt_snapshot = f"SYSTEM:\n{system_prompt}\n\nUSER:\n{user_prompt}"
         full_request_snapshot = _build_request_snapshot(
             effective_request_config,

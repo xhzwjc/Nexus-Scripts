@@ -1484,8 +1484,313 @@ def test_ai_position_match_corrects_copied_example_id_by_title():
     assert result["position_title"] == "iot测试工程师（研发部）"
     user_prompt = gateway.generate_json.call_args.kwargs["user_prompt"]
     assert "岗位ID=19" in user_prompt
-    assert "税务会计" not in user_prompt
+    assert "岗位名称=税务会计" not in user_prompt
     assert '"position_id": 17' not in user_prompt
+
+
+def test_ai_position_match_maps_product_subtype_to_noisy_product_position():
+    gateway = RecruitmentAIGateway(Mock())
+    config = RecruitmentLLMRuntimeConfig(
+        provider="minimax",
+        runtime_provider="openai-compatible",
+        model_name="MiniMax-M2.7-highspeed",
+        base_url="https://example.test/v1",
+        api_key="secret",
+        source="test",
+        api_key_masked="***",
+        extra_config={"read_timeout_seconds": 45, "use_stream_json": False},
+    )
+    raw_payload = {
+        "position_id": None,
+        "position_title": "AI产品总监",
+        "confidence": 88,
+        "reason": "产品规划与需求分析经验匹配",
+        "potential_position": "售前解决方案专家",
+        "potential_reason": "具备业务抽象和客户沟通能力",
+    }
+    gateway.generate_json = Mock(return_value={
+        "content": raw_payload,
+        "provider": "minimax",
+        "model_name": "MiniMax-M2.7-highspeed",
+        "source": "test",
+        "used_fallback": False,
+        "error_message": None,
+        "prompt_snapshot": "snapshot",
+        "full_request_snapshot": "{}",
+        "input_summary": "summary",
+        "output_summary": "summary",
+        "raw_response_text": json.dumps(raw_payload, ensure_ascii=False),
+    })
+
+    result = gateway.match_position(
+        2410,
+        "SOURCE_FILE_NAME_OR_DELIVERY_POSITION: 产品经理 北京 15 20K\n\n候选人 10年产品规划、需求分析、PRD、跨部门协作经验",
+        [
+            {"id": 31, "title": "产品经理 北京 15 20K", "department": "", "key_requirements": "产品规划 需求分析"},
+            {"id": 32, "title": "装修项目经理", "department": "", "key_requirements": "装修项目管理"},
+        ],
+        runtime_config=config,
+    )
+
+    assert result["position_id"] == 31
+    assert result["position_title"] == "产品经理 北京 15 20K"
+    assert result["parsed_response"]["position_id"] == 31
+    user_prompt = gateway.generate_json.call_args.kwargs["user_prompt"]
+    assert "招聘需求桶" in user_prompt
+    assert "核心职能一致" in user_prompt
+
+
+def test_ai_position_match_does_not_cross_match_project_manager_to_product_position():
+    gateway = RecruitmentAIGateway(Mock())
+    config = RecruitmentLLMRuntimeConfig(
+        provider="minimax",
+        runtime_provider="openai-compatible",
+        model_name="MiniMax-M2.7-highspeed",
+        base_url="https://example.test/v1",
+        api_key="secret",
+        source="test",
+        api_key_masked="***",
+        extra_config={"read_timeout_seconds": 45, "use_stream_json": False},
+    )
+    raw_payload = {
+        "position_id": None,
+        "position_title": "项目经理",
+        "confidence": 78,
+        "reason": "项目计划与交付管理经验突出",
+        "potential_position": "项目总监",
+        "potential_reason": "具备跨团队推进经验",
+    }
+    gateway.generate_json = Mock(return_value={
+        "content": raw_payload,
+        "provider": "minimax",
+        "model_name": "MiniMax-M2.7-highspeed",
+        "source": "test",
+        "used_fallback": False,
+        "error_message": None,
+        "prompt_snapshot": "snapshot",
+        "full_request_snapshot": "{}",
+        "input_summary": "summary",
+        "output_summary": "summary",
+        "raw_response_text": json.dumps(raw_payload, ensure_ascii=False),
+    })
+
+    result = gateway.match_position(
+        2411,
+        "候选人 8年项目计划、现场协调、交付管理经验",
+        [
+            {"id": 31, "title": "产品经理 北京 15 20K", "department": "", "key_requirements": "产品规划 需求分析"},
+            {"id": 33, "title": "税务会计", "department": "", "key_requirements": "税务申报"},
+        ],
+        runtime_config=config,
+    )
+
+    assert result["position_id"] is None
+    assert result["position_title"] == "项目经理"
+
+
+def test_ai_position_match_does_not_force_generic_product_into_specific_product_position():
+    gateway = RecruitmentAIGateway(Mock())
+    config = RecruitmentLLMRuntimeConfig(
+        provider="minimax",
+        runtime_provider="openai-compatible",
+        model_name="MiniMax-M2.7-highspeed",
+        base_url="https://example.test/v1",
+        api_key="secret",
+        source="test",
+        api_key_masked="***",
+        extra_config={"read_timeout_seconds": 45, "use_stream_json": False},
+    )
+    raw_payload = {
+        "position_id": None,
+        "position_title": "产品经理",
+        "confidence": 74,
+        "reason": "具备需求分析和产品规划经验",
+        "potential_position": "售前解决方案专家",
+        "potential_reason": "具备业务沟通能力",
+    }
+    gateway.generate_json = Mock(return_value={
+        "content": raw_payload,
+        "provider": "minimax",
+        "model_name": "MiniMax-M2.7-highspeed",
+        "source": "test",
+        "used_fallback": False,
+        "error_message": None,
+        "prompt_snapshot": "snapshot",
+        "full_request_snapshot": "{}",
+        "input_summary": "summary",
+        "output_summary": "summary",
+        "raw_response_text": json.dumps(raw_payload, ensure_ascii=False),
+    })
+
+    result = gateway.match_position(
+        2412,
+        "候选人 6年通用产品规划、需求分析经验，未体现明显金融业务背景",
+        [
+            {"id": 41, "title": "金融产品经理", "department": "", "key_requirements": "金融支付业务经验"},
+        ],
+        runtime_config=config,
+    )
+
+    assert result["position_id"] is None
+    assert result["position_title"] == "产品经理"
+
+
+def test_ai_position_match_requires_specific_accounting_subtype_when_multiple_exist():
+    gateway = RecruitmentAIGateway(Mock())
+    config = RecruitmentLLMRuntimeConfig(
+        provider="minimax",
+        runtime_provider="openai-compatible",
+        model_name="MiniMax-M2.7-highspeed",
+        base_url="https://example.test/v1",
+        api_key="secret",
+        source="test",
+        api_key_masked="***",
+        extra_config={"read_timeout_seconds": 45, "use_stream_json": False},
+    )
+    raw_payload = {
+        "position_id": None,
+        "position_title": "会计",
+        "confidence": 71,
+        "reason": "具备会计核算经验",
+        "potential_position": "财务分析",
+        "potential_reason": "具备数据核算基础",
+    }
+    gateway.generate_json = Mock(return_value={
+        "content": raw_payload,
+        "provider": "minimax",
+        "model_name": "MiniMax-M2.7-highspeed",
+        "source": "test",
+        "used_fallback": False,
+        "error_message": None,
+        "prompt_snapshot": "snapshot",
+        "full_request_snapshot": "{}",
+        "input_summary": "summary",
+        "output_summary": "summary",
+        "raw_response_text": json.dumps(raw_payload, ensure_ascii=False),
+    })
+
+    result = gateway.match_position(
+        2413,
+        "候选人 5年会计核算经验，未明确税务申报或财务会计方向",
+        [
+            {"id": 51, "title": "税务会计", "department": "", "key_requirements": "税务申报 纳税筹划"},
+            {"id": 52, "title": "财务会计", "department": "", "key_requirements": "财务核算 月结报表"},
+        ],
+        runtime_config=config,
+    )
+
+    assert result["position_id"] is None
+    assert result["position_title"] == "会计"
+    user_prompt = gateway.generate_json.call_args.kwargs["user_prompt"]
+    assert "不要只返回“会计”" in user_prompt
+    assert "不要只返回“产品经理”" in user_prompt
+
+
+def test_ai_position_match_does_not_cross_match_finance_manager_to_accounting_position():
+    gateway = RecruitmentAIGateway(Mock())
+    config = RecruitmentLLMRuntimeConfig(
+        provider="minimax",
+        runtime_provider="openai-compatible",
+        model_name="MiniMax-M2.7-highspeed",
+        base_url="https://example.test/v1",
+        api_key="secret",
+        source="test",
+        api_key_masked="***",
+        extra_config={"read_timeout_seconds": 45, "use_stream_json": False},
+    )
+
+    def run_match(position_title: str, positions: list[dict[str, object]]) -> dict[str, object]:
+        raw_payload = {
+            "position_id": None,
+            "position_title": position_title,
+            "confidence": 80,
+            "reason": "财务管理方向经验突出",
+            "potential_position": "财务分析",
+            "potential_reason": "具备财务数据和业务理解能力",
+        }
+        gateway.generate_json = Mock(return_value={
+            "content": raw_payload,
+            "provider": "minimax",
+            "model_name": "MiniMax-M2.7-highspeed",
+            "source": "test",
+            "used_fallback": False,
+            "error_message": None,
+            "prompt_snapshot": "snapshot",
+            "full_request_snapshot": "{}",
+            "input_summary": "summary",
+            "output_summary": "summary",
+            "raw_response_text": json.dumps(raw_payload, ensure_ascii=False),
+        })
+        return gateway.match_position(2415, "候选人核心经历为财务管理，不是会计核算", positions, runtime_config=config)
+
+    finance_manager_result = run_match("财务经理", [
+        {"id": 52, "title": "财务会计", "department": "", "key_requirements": "财务核算 月结报表"},
+    ])
+    tax_manager_result = run_match("税务经理", [
+        {"id": 51, "title": "税务会计", "department": "", "key_requirements": "税务申报 纳税筹划"},
+    ])
+
+    assert finance_manager_result["position_id"] is None
+    assert finance_manager_result["position_title"] == "财务经理"
+    assert tax_manager_result["position_id"] is None
+    assert tax_manager_result["position_title"] == "税务经理"
+
+
+def test_ai_position_match_keeps_exact_specific_accounting_and_product_matches():
+    gateway = RecruitmentAIGateway(Mock())
+    config = RecruitmentLLMRuntimeConfig(
+        provider="minimax",
+        runtime_provider="openai-compatible",
+        model_name="MiniMax-M2.7-highspeed",
+        base_url="https://example.test/v1",
+        api_key="secret",
+        source="test",
+        api_key_masked="***",
+        extra_config={"read_timeout_seconds": 45, "use_stream_json": False},
+    )
+
+    def run_match(position_title: str, positions: list[dict[str, object]]) -> dict[str, object]:
+        gateway.generate_json = Mock(return_value={
+            "content": {
+                "position_id": None,
+                "position_title": position_title,
+                "confidence": 86,
+                "reason": "核心方向匹配",
+                "potential_position": "业务分析",
+                "potential_reason": "具备跨部门沟通能力",
+            },
+            "provider": "minimax",
+            "model_name": "MiniMax-M2.7-highspeed",
+            "source": "test",
+            "used_fallback": False,
+            "error_message": None,
+            "prompt_snapshot": "snapshot",
+            "full_request_snapshot": "{}",
+            "input_summary": "summary",
+            "output_summary": "summary",
+            "raw_response_text": json.dumps({"position_title": position_title}, ensure_ascii=False),
+        })
+        return gateway.match_position(2414, "候选人核心经历与投递方向一致", positions, runtime_config=config)
+
+    tax_result = run_match("税务会计", [
+        {"id": 51, "title": "税务会计", "department": "", "key_requirements": "税务申报"},
+        {"id": 52, "title": "财务会计", "department": "", "key_requirements": "财务核算"},
+    ])
+    ai_product_result = run_match("AI产品经理", [
+        {"id": 61, "title": "AI产品经理", "department": "", "key_requirements": "AI产品规划"},
+        {"id": 62, "title": "C端产品经理", "department": "", "key_requirements": "C端增长"},
+    ])
+    c_product_result = run_match("C端产品经理", [
+        {"id": 61, "title": "AI产品经理", "department": "", "key_requirements": "AI产品规划"},
+        {"id": 62, "title": "C端产品经理", "department": "", "key_requirements": "C端增长"},
+    ])
+
+    assert tax_result["position_id"] == 51
+    assert tax_result["position_title"] == "税务会计"
+    assert ai_product_result["position_id"] == 61
+    assert ai_product_result["position_title"] == "AI产品经理"
+    assert c_product_result["position_id"] == 62
+    assert c_product_result["position_title"] == "C端产品经理"
 
 
 def test_generate_json_strict_json_retry_is_bounded_to_once():
@@ -3237,7 +3542,7 @@ def test_resume_score_prompt_requests_position_match_once():
 
     assert "岗位推荐和转岗建议" in prompt
     assert "CURRENT_SCREENING_POSITION: 测试工程师" in prompt
-    assert "AVAILABLE_POSITIONS（供 position_match 参考，不限于此列表）:" in prompt
+    assert "AVAILABLE_POSITIONS（position_match 优先匹配这些招聘需求）:" in prompt
     assert "1. 测试工程师：负责测试" in prompt
 
 

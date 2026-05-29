@@ -12293,7 +12293,15 @@ class RecruitmentService:
         if normalized_text and meaningful_chars > 0:
             excerpt_limit = min(len(normalized_text), 18000)
             excerpt_target = min(len(normalized_text), max(len(normalized_text) // 2, 2000))
-            return normalized_text[: min(excerpt_target, excerpt_limit)].strip()
+            excerpt = normalized_text[: min(excerpt_target, excerpt_limit)].strip()
+            source_detail = str(getattr(candidate, "source_detail", "") or "").strip()
+            if source_detail:
+                return "\n\n".join([
+                    f"SOURCE_FILE_NAME_OR_DELIVERY_POSITION: {source_detail[:240]}",
+                    "RESUME_TEXT:",
+                    excerpt,
+                ]).strip()
+            return excerpt
 
         logger.warning(
             "[AI_MATCH] No usable resume text for candidate_id=%s after parse/file extraction; aborting smart match instead of using metadata fallback",
@@ -14150,7 +14158,7 @@ class RecruitmentService:
             "DIMENSION_RULES:",
             json_dumps_safe(dimension_rules),
             f"REQUIRED_DIMENSIONS: 以下 {len(dimension_labels)} 个维度每个都必须在 dimensions 数组中有评分，不得遗漏：{'、'.join(dimension_labels)}",
-            "AVAILABLE_POSITIONS（供 position_match 参考，不限于此列表）:",
+            "AVAILABLE_POSITIONS（position_match 优先匹配这些招聘需求）:",
             position_list_text,
             "RAW_RESUME_TEXT:",
             raw_text[:30000],
@@ -14177,7 +14185,7 @@ class RecruitmentService:
             f"MAX_POSSIBLE_SCORE: {max_possible_score:.1f}",
             "PARSED_RESUME_HELPER:",
             json_dumps_safe(parsed_resume_helper_payload),
-            "AVAILABLE_POSITIONS（供 position_match 参考，不限于此列表）:",
+            "AVAILABLE_POSITIONS（position_match 优先匹配这些招聘需求）:",
             position_list_text,
             "RAW_RESUME_TEXT:",
             raw_resume_text[:30000],

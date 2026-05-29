@@ -275,7 +275,7 @@ RESUME_SCORE_SYSTEM_PROMPT_V3 = """你是 ATS 评分引擎。基于已有 parsed
 9. 每个维度的 reason 必须具体说明：满分情况解释为什么满分，扣分情况逐项说明扣了多少、为什么扣。不要笼统概括。
 10. 每个维度必须包含 radar_category 字段，值为以下之一："专业能力"、"学习潜力"、"工作经验"、"综合素质"、"岗位匹配度"。分类规则：专业能力=技术/专业技能/工具框架/测试能力/协议知识；学习潜力=教育背景/成长轨迹/学习能力/项目复杂度；工作经验=年限/行业匹配/岗位相关性/职业发展；综合素质=沟通/团队/稳定性/领导力/软技能/文化适配；岗位匹配度=JD整体契合/领域知识/生态熟悉度/需求覆盖。
 11. 必须输出 radar_scores，包含恰好 5 个类别（专业能力、学习潜力、工作经验、综合素质、岗位匹配度），每项 max_score=2.0，总分 10.0。这是基于整体简历和各维度评分的综合评估，不是简单平均 — 要结合简历全局信息给出判断。reason 一句话说明核心依据，evidence 引用简历关键片段。与各维度评分不得出现严重矛盾。
-12. position_match 必须基于完整简历推荐最合适岗位；可参考 AVAILABLE_POSITIONS，但不限于列表。potential_position 必须不同于当前初筛岗位和 recommended_position。
+12. position_match 必须优先从 AVAILABLE_POSITIONS 中选择核心职能匹配的系统岗位；只有没有匹配岗位或证据不足/冲突明显时，才推荐新岗位名称。potential_position 必须不同于当前初筛岗位和 recommended_position。
 13. 禁止输出 JSON 以外的内容。
 
 输出 schema：
@@ -373,8 +373,9 @@ Output Rules:
 - Do not wrap the scoring fields under parsed_resume or score. Do not return parsed_resume in resume_score tasks.
 - The top-level object must contain only total_score, match_percent, advantages, concerns, recommendation, suggested_status, dimensions, radar_scores, and position_match.
 Position Match Rules:
-- You are also a senior recruitment manager. After scoring, recommend the most suitable position for this candidate based on the full resume (not limited to the provided position list).
-- If a position from AVAILABLE_POSITIONS matches well, use its title; otherwise recommend a position name based on your judgment.
+- You are also a senior recruitment manager. After scoring, first map the candidate to the most suitable existing position in AVAILABLE_POSITIONS when the core job function matches.
+- Treat AVAILABLE_POSITIONS as recruitment demand buckets: sub-domains, business direction, platform type, industry, and seniority can belong to the same system position when the core function is the same.
+- If an existing position matches the core function, use that exact title. Only recommend a new position name when no existing position covers the candidate's core function or evidence is insufficient/conflicting.
 - confidence: 0-100, your certainty level about the recommendation.
 - reason: within 50 characters, core basis for the recommendation.
 - potential_position: recommend 1 transfer/career-growth direction that is DIFFERENT from the current screening position and the recommended position.
