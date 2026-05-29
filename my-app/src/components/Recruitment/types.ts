@@ -254,7 +254,7 @@ type RecruitmentToastLocale = {
     stopped: (entity: string) => string;
     stopRequested: (entity: string) => string;
     screeningCompleted: (fallback: boolean) => string;
-    screeningQueued: (queued: number, skipped: number, failed: number) => string;
+    screeningQueued: (queued: number, skipped: number, failed: number, reused?: number) => string;
     screeningTaskReused: string;
     copied: (entity: string) => string;
     generated: (entity: string, fallback: boolean) => string;
@@ -471,7 +471,14 @@ const zhRecruitmentLocale: RecruitmentLocaleBundle = {
         stopped: (entity) => `已停止${entity}`,
         stopRequested: (entity) => `${entity}停止请求已发送`,
         screeningCompleted: (fallback) => fallback ? "初筛已完成（兜底完成）" : "初筛已完成",
-        screeningQueued: (queued, skipped, failed) => `已入队 ${queued} 个，已跳过进行中的 ${skipped} 个${failed > 0 ? `，失败 ${failed} 个（请检查候选人是否已关联岗位且岗位已绑定初筛评估方案）` : ""}。`,
+        screeningQueued: (queued, skipped, failed, reused = 0) => {
+            const parts = [];
+            if (queued > 0) parts.push(`已入队 ${queued} 个`);
+            if (reused > 0) parts.push(`已复用已有初筛结果 ${reused} 个`);
+            if (skipped > 0) parts.push(`已跳过进行中的 ${skipped} 个`);
+            if (failed > 0) parts.push(`失败 ${failed} 个（请检查候选人是否已关联岗位且岗位已绑定初筛评估方案）`);
+            return `${parts.join("，")}。`;
+        },
         screeningTaskReused: "已有初筛任务在执行，已为你定位到现有任务",
         copied: (entity) => `${entity}已复制`,
         generated: (entity, fallback) => fallback ? `${entity}已生成（兜底完成）` : `${entity}已生成`,
@@ -680,7 +687,14 @@ const enRecruitmentLocale: RecruitmentLocaleBundle = {
         stopped: (entity) => `${entity} stopped`,
         stopRequested: (entity) => `Stop request sent for ${entity}`,
         screeningCompleted: (fallback) => fallback ? "Screening completed with fallback" : "Screening completed",
-        screeningQueued: (queued, skipped, failed) => `Queued ${queued}, skipped ${skipped} already-running task(s)${failed > 0 ? `, failed ${failed} (please check if candidates are linked to a position and the position has screening assessment plans bound)` : ""}.`,
+        screeningQueued: (queued, skipped, failed, reused = 0) => {
+            const parts = [];
+            if (queued > 0) parts.push(`Queued ${queued}`);
+            if (reused > 0) parts.push(`reused ${reused} existing result(s)`);
+            if (skipped > 0) parts.push(`skipped ${skipped} already-running task(s)`);
+            if (failed > 0) parts.push(`failed ${failed} (please check if candidates are linked to a position and the position has screening assessment plans bound)`);
+            return `${parts.join(", ")}.`;
+        },
         screeningTaskReused: "An existing screening task is already running, so the current view jumped to that task.",
         copied: (entity) => `${entity} copied`,
         generated: (entity, fallback) => fallback ? `${entity} generated with fallback` : `${entity} generated`,

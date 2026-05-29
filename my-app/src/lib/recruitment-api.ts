@@ -638,11 +638,13 @@ export interface RecruitmentTaskStartResponse {
   related_position_id?: number | null;
   related_candidate_id?: number | null;
   reused_existing_task?: boolean;
+  reused_existing_result?: boolean;
 }
 
 export interface RecruitmentTaskBatchStartResponse {
   batch_id?: string | null;
   queued_count: number;
+  duplicated_count?: number;
   skipped_existing_live_task_count: number;
   failed_count?: number;
   task_ids: number[];

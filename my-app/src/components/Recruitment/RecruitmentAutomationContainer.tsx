@@ -478,6 +478,31 @@ function decrementCandidateStatsData(stats: CandidateStatsData | null, deletedCa
     };
 }
 
+function moveCandidateStatsDisplayStatus(
+    stats: CandidateStatsData | null,
+    candidate: CandidateSummary,
+    fromStatus: string,
+    toStatus: string,
+) {
+    if (!stats || !fromStatus || !toStatus || fromStatus === toStatus) {
+        return stats;
+    }
+    const statusCounts = {...(stats.status_counts || {})};
+    const todayStatusCounts = {...(stats.today_status_counts || {})};
+    statusCounts[fromStatus] = Math.max(0, Number(statusCounts[fromStatus] || 0) - 1);
+    statusCounts[toStatus] = Number(statusCounts[toStatus] || 0) + 1;
+    if (isToday(candidate.updated_at || candidate.created_at)) {
+        todayStatusCounts[fromStatus] = Math.max(0, Number(todayStatusCounts[fromStatus] || 0) - 1);
+        todayStatusCounts[toStatus] = Number(todayStatusCounts[toStatus] || 0) + 1;
+    }
+    return {
+        ...stats,
+        pending_screening: Number(statusCounts.pending_screening || 0),
+        status_counts: statusCounts,
+        today_status_counts: todayStatusCounts,
+    };
+}
+
 function countCandidatesByStatuses(candidates: CandidateSummary[], statuses: string[]) {
     const statusSet = new Set(statuses);
     return candidates.reduce((count, candidate) => (
@@ -4229,6 +4254,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         let candidatesChanged = false;
         let talentPoolChanged = false;
         let candidateTotalDelta = 0;
+        const statusTransitions: Array<{from: string; to: string; candidate: CandidateSummary}> = [];
 
         const ensureCandidatesCopy = () => {
             if (!candidatesChanged) {
@@ -4287,6 +4313,13 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             const nextItem = currentItem
                 ? mergeCandidatePatch(currentItem, snapshot)
                 : snapshot as CandidateSummary;
+            if (currentItem) {
+                const fromStatus = resolveCandidateDisplayStatus(currentItem);
+                const toStatus = resolveCandidateDisplayStatus(nextItem);
+                if (fromStatus && toStatus && fromStatus !== toStatus) {
+                    statusTransitions.push({from: fromStatus, to: toStatus, candidate: currentItem});
+                }
+            }
             const hasCandidateStatus = Boolean(String(nextItem.status || "").trim());
             const shouldShowInCandidateList = hasCandidateStatus && shouldShowCandidateInPipelineList(nextItem);
             const shouldShowInTalentPoolList = hasCandidateStatus && shouldShowCandidateInTalentPoolList(nextItem);
@@ -4348,6 +4381,16 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             const nextTotal = Math.max(0, candidateTotalRef.current + candidateTotalDelta);
             candidateTotalRef.current = nextTotal;
             setCandidateTotal(nextTotal);
+        }
+        if (statusTransitions.length) {
+            const applyTransitions = (current: CandidateStatsData | null) => (
+                statusTransitions.reduce(
+                    (stats, transition) => moveCandidateStatsDisplayStatus(stats, transition.candidate, transition.from, transition.to),
+                    current,
+                )
+            );
+            setCandidateStatsData(applyTransitions);
+            setCandidatePipelineStatsData(applyTransitions);
         }
     }, [activeBusinessOrgCodes, businessRowFilterOptions, matchesActiveCandidateListFilters]);
 
@@ -9128,12 +9171,14 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                         });
                     }
                 });
-                if (response.queued_count || response.skipped_existing_live_task_count) {
+                const reusedResultCount = Number(response.duplicated_count || 0);
+                if (response.queued_count || response.skipped_existing_live_task_count || reusedResultCount) {
                     toast.success(
                         recruitmentToast.screeningQueued(
                             response.queued_count,
                             response.skipped_existing_live_task_count,
                             response.failed_count || 0,
+                            reusedResultCount,
                         ),
                     );
                     void refreshActiveCandidateListAndStats({ silent: true }).catch(() => {});
