@@ -815,10 +815,10 @@ export function TalentPoolPage({
                 {/* 工具栏 */}
                 <div
                     className={cn(
-                        "mb-2 flex items-center gap-2 border-b border-slate-100 pb-2 dark:border-slate-800",
+                        "sticky top-0 z-30 mb-3 flex items-center gap-2 border-b border-slate-100 bg-white/95 pb-2 backdrop-blur dark:border-slate-800 dark:bg-slate-950/95",
                         selectedIds.size > 0
-                            ? "overflow-hidden rounded-md bg-neutral-100 px-2 dark:bg-neutral-900/40"
-                            : "flex-wrap justify-between",
+                            ? "min-h-[44px] rounded-md bg-neutral-100/95 px-2 py-1.5 shadow-sm dark:bg-neutral-900/85"
+                            : "flex-wrap justify-between pt-1",
                     )}
                 >
                     {selectedIds.size > 0 ? (

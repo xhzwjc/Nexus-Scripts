@@ -4280,10 +4280,10 @@ export function CandidatesPage({
                     }}
                 >
                     <DialogContent
-                        className="h-[min(92vh,920px)] max-h-[92vh] overflow-hidden rounded-[6px] border border-slate-200 bg-[#f4f7fb] p-0 text-slate-900 shadow-2xl dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100"
+                        className="h-[min(94vh,1040px)] max-h-[94vh] overflow-hidden rounded-[6px] border border-slate-200 bg-[#f4f7fb] p-0 text-slate-900 shadow-2xl dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100"
                         style={{
-                            width: "min(1180px, calc(100vw - 32px))",
-                            maxWidth: "min(1180px, calc(100vw - 32px))",
+                            width: "min(1480px, calc(100vw - 32px))",
+                            maxWidth: "min(1480px, calc(100vw - 32px))",
                         }}
                     >
                         <DialogTitle className="sr-only">
@@ -4296,7 +4296,7 @@ export function CandidatesPage({
                             <LoadingPanel label={tr.loadingCandidateDetail}/>
                         </div>
                     ) : candidateDetail ? (
-                        <div className="grid h-full min-h-0 grid-cols-1 bg-[#f4f7fb] dark:bg-slate-950 lg:grid-cols-[minmax(0,1fr)_320px]">
+                        <div className="grid h-full min-h-0 grid-cols-1 bg-[#f4f7fb] dark:bg-slate-950 lg:grid-cols-[minmax(0,1fr)_340px]">
                             <section
                                 ref={candidateDetailMainScrollRef}
                                 onScroll={handleCandidateDetailMainScroll}
@@ -4585,7 +4585,7 @@ export function CandidatesPage({
                                 </div>
 
                                 <div className="bg-white dark:bg-slate-950">
-                                    <div className="mx-auto min-w-0 max-w-[820px] space-y-6 px-8 py-7">
+                                    <div className="mx-auto min-w-0 max-w-[1040px] space-y-6 px-8 py-7">
                                     {candidateDetailPanel === "resume" ? (
                                         <>
 	                                            {duplicateCandidates.length > 0 && (
