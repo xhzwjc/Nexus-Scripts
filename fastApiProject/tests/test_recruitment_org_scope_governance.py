@@ -491,6 +491,94 @@ def test_smart_match_enqueues_visible_positions_without_auto_screen(monkeypatch)
         db.close()
 
 
+def test_smart_match_uses_visible_positions_and_prefers_primary_org_duplicate_titles(monkeypatch):
+    db = _build_test_db()
+
+    class FakeMatchScheduler:
+        running = False
+
+        def __init__(self):
+            self.enqueued_batches = []
+            self.live_candidate_ids = set()
+
+        def is_candidate_live(self, candidate_id):
+            return int(candidate_id) in self.live_candidate_ids
+
+        def clear_cancelled(self, candidate_id):
+            return None
+
+        def set_callbacks(self, **kwargs):
+            return None
+
+        async def enqueue_batch(self, *, user_id, batch_id, candidates, position_summaries):
+            self.live_candidate_ids.update(candidate.id for candidate in candidates)
+            self.enqueued_batches.append(
+                {
+                    "candidate_ids": [candidate.id for candidate in candidates],
+                    "position_summaries": position_summaries,
+                }
+            )
+
+    try:
+        _seed_org_tree(db)
+        _seed_catalog(db)
+        admin = _session("group-admin", "group", DATA_SCOPE_ALL, super_admin=True)
+        group_product = _service(db, admin).create_position(
+            {
+                "org_code": "group",
+                "title": "产品经理",
+                "headcount": 1,
+                "status": "recruiting",
+            },
+            "group-user",
+        )
+        child_product = _service(db, admin).create_position(
+            {
+                "org_code": "haoshi",
+                "title": "产品经理",
+                "headcount": 1,
+                "status": "recruiting",
+            },
+            "haoshi-user",
+        )
+        child_unique = _service(db, admin).create_position(
+            {
+                "org_code": "haoshi",
+                "title": "门店运营",
+                "headcount": 1,
+                "status": "recruiting",
+            },
+            "haoshi-user",
+        )
+        candidate = _add_candidate(
+            db,
+            org_code="group",
+            position_id=None,
+            name="跨组织可见岗位匹配候选人",
+            created_by="group-user",
+        )
+        candidate.status = "matching"
+        db.add(candidate)
+        db.commit()
+
+        fake_scheduler = FakeMatchScheduler()
+        import app.services.match_scheduler as match_scheduler_module
+
+        monkeypatch.setattr(match_scheduler_module, "scheduler", fake_scheduler)
+
+        service = _service(db, _session("group-user", "group", DATA_SCOPE_ORG_AND_CHILDREN))
+        result = asyncio.run(service.trigger_ai_position_match([candidate.id], "group-user"))
+
+        assert result["total_candidates"] == 1
+        assert len(fake_scheduler.enqueued_batches) == 1
+        position_ids = [item["id"] for item in fake_scheduler.enqueued_batches[0]["position_summaries"]]
+        assert group_product["id"] in position_ids
+        assert child_product["id"] not in position_ids
+        assert child_unique["id"] in position_ids
+    finally:
+        db.close()
+
+
 def test_position_title_is_unique_only_inside_same_org():
     db = _build_test_db()
     try:

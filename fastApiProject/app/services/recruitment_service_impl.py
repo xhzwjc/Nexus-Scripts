@@ -12484,21 +12484,10 @@ class RecruitmentService:
                 "message": "AI匹配已在进行中，请等待结果",
             }
 
-        # 获取当前组织的活跃岗位（只构建一次，所有候选人复用）
-        # 从候选人中提取 org_code，确保只匹配本组织岗位
-        candidate_org_codes = {c.org_code for c in candidates if c.org_code}
-        if len(candidate_org_codes) == 1:
-            match_org_code = candidate_org_codes.pop()
-        elif len(candidate_org_codes) > 1:
-            # 多个组织的候选人混在一起，取第一个候选人的 org_code
-            match_org_code = candidates[0].org_code
-            logger.warning("[AI_MATCH] Multiple org_codes in batch: %s, using %s", candidate_org_codes, match_org_code)
-        else:
-            match_org_code = None
-
+        # AI 智能匹配使用当前用户可见岗位池，避免候选人默认 org 过窄导致目标岗位缺失。
         positions = self._get_position_match_pool(
-            org_code=match_org_code,
             require_auto_screen_ready=require_auto_screen_ready,
+            prefer_primary_org_for_same_title=True,
         )
 
         if require_auto_screen_ready:
@@ -13807,6 +13796,7 @@ class RecruitmentService:
         *,
         org_code: Optional[str] = None,
         require_auto_screen_ready: bool = False,
+        prefer_primary_org_for_same_title: bool = False,
     ) -> List[RecruitmentPosition]:
         # Only active recruiting positions are sent to AI matching. Draft, paused,
         # and closed positions may be incomplete or intentionally unavailable.
@@ -13821,7 +13811,42 @@ class RecruitmentService:
         positions = query.order_by(RecruitmentPosition.updated_at.desc(), RecruitmentPosition.id.desc()).all()
         if require_auto_screen_ready:
             positions = [position for position in positions if self._is_position_auto_screen_ready(position)]
+        if prefer_primary_org_for_same_title:
+            positions = self._prefer_primary_org_positions_for_same_title(positions)
         return positions
+
+    def _prefer_primary_org_positions_for_same_title(self, positions: Sequence[RecruitmentPosition]) -> List[RecruitmentPosition]:
+        if not positions:
+            return []
+        primary_org_code = normalize_org_code(self._current_org_code())
+        grouped: Dict[str, List[Tuple[int, RecruitmentPosition]]] = defaultdict(list)
+        for index, position in enumerate(positions):
+            title_key = self._position_match_pool_title_key(getattr(position, "title", None))
+            grouped[title_key or f"__position_{getattr(position, 'id', index)}"].append((index, position))
+
+        selected_indexes: set[int] = set()
+        for grouped_positions in grouped.values():
+            if len(grouped_positions) == 1:
+                selected_indexes.add(grouped_positions[0][0])
+                continue
+            primary_matches = [
+                item
+                for item in grouped_positions
+                if normalize_org_code(getattr(item[1], "org_code", None)) == primary_org_code
+            ]
+            if primary_matches:
+                selected_indexes.add(primary_matches[0][0])
+            else:
+                selected_indexes.update(index for index, _ in grouped_positions)
+        return [position for index, position in enumerate(positions) if index in selected_indexes]
+
+    @staticmethod
+    def _position_match_pool_title_key(value: Any) -> str:
+        text = str(value or "").strip().lower()
+        if not text:
+            return ""
+        text = re.sub(r"（[^）]*）|\([^)]*\)", "", text)
+        return re.sub(r"[\s\u3000,，。！？!?:：;；、“”\"'‘’（）()【】\[\]<>《》\-—_/|]+", "", text)
 
     def _build_available_positions_text(self, candidate: RecruitmentCandidate) -> str:
         org_code = getattr(candidate, "org_code", None) or self._current_org_code()
