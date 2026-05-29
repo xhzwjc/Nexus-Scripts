@@ -178,6 +178,8 @@ type TalentPoolPageProps = {
     onLoadMore?: () => void | Promise<void>;
     loadingMore?: boolean;
     panelClass?: string;
+    preferredStatFilter?: TalentPoolStatFilter | null;
+    onPreferredStatFilterApplied?: () => void;
 };
 
 /* ── 人才库头像统一中性色，避免列表里出现随机彩色噪音 ── */
@@ -356,6 +358,8 @@ export function TalentPoolPage({
     onQueryChange,
     onLoadMore,
     loadingMore,
+    preferredStatFilter,
+    onPreferredStatFilterApplied,
 }: TalentPoolPageProps) {
     const {language} = useI18n();
     const tr = React.useMemo(() => getTalentPoolLocale(language), [language]);
@@ -366,7 +370,7 @@ export function TalentPoolPage({
     const [sourceFilter, setSourceFilter] = React.useState("all");
     const [tagFilter, setTagFilter] = React.useState("all");
     const [sortBy, setSortBy] = React.useState<"time" | "name" | "name_desc">("time");
-    const [activeStatFilter, setActiveStatFilter] = React.useState<TalentPoolStatFilter>("pending");
+    const [activeStatFilter, setActiveStatFilter] = React.useState<TalentPoolStatFilter>(() => preferredStatFilter || "pending");
     const [statFilterPending, setStatFilterPending] = React.useState(false);
     const [selectedIds, setSelectedIds] = React.useState<Set<number>>(new Set());
     const [initialLoadComplete, setInitialLoadComplete] = React.useState(candidates.length > 0);
@@ -461,6 +465,15 @@ export function TalentPoolPage({
             window.clearTimeout(statFilterTimerRef.current);
         }
     }, []);
+
+    React.useEffect(() => {
+        if (!preferredStatFilter) {
+            return;
+        }
+        setActiveStatFilter(preferredStatFilter);
+        setSelectedIds(new Set());
+        onPreferredStatFilterApplied?.();
+    }, [onPreferredStatFilterApplied, preferredStatFilter]);
 
     React.useEffect(() => {
         onQueryChangeRef.current = onQueryChange;

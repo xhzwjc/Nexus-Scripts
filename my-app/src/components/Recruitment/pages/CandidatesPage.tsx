@@ -1208,6 +1208,7 @@ function CandidatePipelineBar({
 
 function CandidatePositionScopeSidebar({
     positions,
+    loading,
     activePositionId,
     allPositionCandidateCount,
     onSelectPosition,
@@ -1215,6 +1216,7 @@ function CandidatePositionScopeSidebar({
     isZh,
 }: {
     positions: PositionSummary[];
+    loading: boolean;
     activePositionId: string;
     allPositionCandidateCount: number;
     onSelectPosition: (positionId: string) => void;
@@ -1239,6 +1241,7 @@ function CandidatePositionScopeSidebar({
     const recruitingCount = React.useMemo(() => (
         positions.filter((position) => position.status === "recruiting").length
     ), [positions]);
+    const showInitialLoading = loading && positions.length === 0;
 
     return (
         <aside className="hidden min-h-0 xl:block">
@@ -1248,7 +1251,9 @@ function CandidatePositionScopeSidebar({
                         {isZh ? "招聘中职位" : "Open Positions"}
                     </p>
                     <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">
-                        {isZh ? `共 ${recruitingCount || positions.length} 个职位` : `${recruitingCount || positions.length} positions`}
+                        {showInitialLoading
+                            ? (isZh ? "正在加载职位" : "Loading positions")
+                            : (isZh ? `共 ${recruitingCount || positions.length} 个职位` : `${recruitingCount || positions.length} positions`)}
                     </p>
                     <SearchField
                         value={query}
@@ -1270,12 +1275,24 @@ function CandidatePositionScopeSidebar({
                     >
                         <span>{isZh ? "全部职位" : "All Positions"}</span>
                         <span className={cn("text-xs", !activePositionId ? "text-[#171717]/70" : "text-slate-400")}>
-                            {allPositionCandidateCount}
+                            {showInitialLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin"/> : allPositionCandidateCount}
                         </span>
                     </button>
                 </div>
                 <div className={cn("min-h-0 flex-1 overflow-y-auto p-2.5", SMOOTH_VERTICAL_SCROLLBAR_CLASS)}>
-                    {filteredPositions.length ? filteredPositions.map((position) => {
+                    {showInitialLoading ? (
+                        <div className="space-y-2">
+                            {Array.from({ length: 6 }).map((_, index) => (
+                                <div
+                                    key={index}
+                                    className="rounded-md px-3 py-2.5"
+                                >
+                                    <div className="h-4 w-28 animate-pulse rounded bg-slate-200 dark:bg-slate-800"/>
+                                    <div className="mt-2 h-3 w-36 animate-pulse rounded bg-slate-100 dark:bg-slate-900"/>
+                                </div>
+                            ))}
+                        </div>
+                    ) : filteredPositions.length ? filteredPositions.map((position) => {
                         const positionId = String(position.id);
                         const active = activePositionId === positionId;
                         return (
@@ -2425,6 +2442,7 @@ type CandidatesPageProps = {
     candidateTimeFilter: string;
     setCandidateTimeFilter: React.Dispatch<React.SetStateAction<string>>;
     positions: PositionSummary[];
+    positionsLoading: boolean;
     sourceOptions: string[];
     visibleCandidates: CandidateSummary[];
     selectedCandidateIds: number[];
@@ -2560,6 +2578,7 @@ export function CandidatesPage({
     candidateTimeFilter,
     setCandidateTimeFilter,
     positions,
+    positionsLoading,
     sourceOptions,
     visibleCandidates,
     selectedCandidateIds,
@@ -2877,6 +2896,22 @@ export function CandidatesPage({
         estimateSize: () => CANDIDATE_LIST_ESTIMATED_ROW_HEIGHT,
         overscan: CANDIDATE_LIST_OVERSCAN,
     });
+    const rowVirtualizerRef = React.useRef(rowVirtualizer);
+    React.useEffect(() => {
+        rowVirtualizerRef.current = rowVirtualizer;
+    }, [rowVirtualizer]);
+
+    React.useLayoutEffect(() => {
+        const frameId = window.requestAnimationFrame(() => {
+            if (candidateViewMode === "list") {
+                rowVirtualizerRef.current.scrollToOffset(0);
+                candidateListViewportEl?.scrollTo({ top: 0, behavior: "auto" });
+                return;
+            }
+            candidateBoardViewportEl?.scrollTo({ top: 0, behavior: "auto" });
+        });
+        return () => window.cancelAnimationFrame(frameId);
+    }, [candidateBoardViewportEl, candidateListViewportEl, candidatePageIndex, candidatePageSize, candidateViewMode]);
 
     const candidateListVisibleColumns = React.useMemo<CandidateListColumnKey[]>(
         () => (
@@ -3831,6 +3866,7 @@ export function CandidatesPage({
                 <div className="grid min-h-0 grid-cols-1 gap-3 overflow-hidden xl:grid-cols-[248px_minmax(0,1fr)]">
                     <CandidatePositionScopeSidebar
                         positions={positions}
+                        loading={positionsLoading}
                         activePositionId={activeQuickPosition}
                         allPositionCandidateCount={allPositionCandidateCount}
                         onSelectPosition={(positionId) => setCandidatePositionFilter(positionId ? [positionId] : [])}

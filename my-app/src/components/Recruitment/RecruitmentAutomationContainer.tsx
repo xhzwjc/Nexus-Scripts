@@ -2271,6 +2271,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const candidateListPageCacheRef = useRef<CandidateListPageCache | null>(null);
     const candidateListPreloadLoadedAtRef = useRef(0);
     const candidateListLoadAbortControllerRef = useRef<AbortController | null>(null);
+    const [talentPoolPreferredStatFilter, setTalentPoolPreferredStatFilter] = useState<TalentPoolStatFilter | null>(null);
+    const clearTalentPoolPreferredStatFilter = useCallback(() => setTalentPoolPreferredStatFilter(null), []);
     const skillsLoadedOnceRef = useRef(false);
     const mailSettingsLoadedOnceRef = useRef(false);
     const llmConfigsLoadedOnceRef = useRef(false);
@@ -3483,8 +3485,12 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     // 进入人才库页面时加载数据
     useEffect(() => {
         if (activePage === "talent-pool") {
-            talentPoolQueryRef.current = { ...DEFAULT_TALENT_POOL_QUERY };
-            loadTalentPoolCandidates({ query: DEFAULT_TALENT_POOL_QUERY });
+            const nextQuery = {
+                ...DEFAULT_TALENT_POOL_QUERY,
+                statFilter: talentPoolPreferredStatFilter || DEFAULT_TALENT_POOL_QUERY.statFilter,
+            };
+            talentPoolQueryRef.current = nextQuery;
+            loadTalentPoolCandidates({ query: nextQuery });
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activePage]);
@@ -3823,16 +3829,23 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         }
 
         async function loadPositionsWithCache(): Promise<void> {
+            const requestId = positionsLoadRequestIdRef.current + 1;
+            positionsLoadRequestIdRef.current = requestId;
+            setPositionsLoading(true);
             try {
                 const data = await getCachedPositions(
                     `positions:${recruitmentDataCacheKey}`,
                     () => recruitmentApi<PositionSummary[]>("/positions")
                 );
-                if (!cancelled) {
+                if (!cancelled && positionsLoadRequestIdRef.current === requestId) {
                     setAllPositions(data);
                 }
             } catch (error) {
                 toast.error(recruitmentToast.loadFailed(recruitmentToastEntities.positions, formatActionError(error)));
+            } finally {
+                if (!cancelled && positionsLoadRequestIdRef.current === requestId) {
+                    setPositionsLoading(false);
+                }
             }
         }
 
@@ -8458,11 +8471,20 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                     setCandidateTotal((prev) => prev + optimisticItems.length);
                 }
             }
+            const shouldFocusMatchingTalentPool = resumeUploadMode === "smart" && (
+                aiMatchTotal > 0
+                || allItems.some((item) => String(item.status || "").trim().toLowerCase() === "matching")
+            );
             // 智能匹配模式跳人才库，指定岗位模式跳候选人列表
             if (resumeUploadMode === "smart" && canViewTalentPool) {
+                if (shouldFocusMatchingTalentPool) {
+                    setTalentPoolPreferredStatFilter("matching");
+                }
                 navigateToRecruitmentPage("talent-pool");
                 if (activePage === "talent-pool") {
-                    void loadTalentPoolCandidates({ silent: true });
+                    void loadTalentPoolCandidates(shouldFocusMatchingTalentPool
+                        ? { silent: true, query: { ...talentPoolQueryRef.current, statFilter: "matching", offset: 0 } }
+                        : { silent: true });
                 }
             } else {
                 navigateToRecruitmentPage("candidates");
@@ -12471,6 +12493,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 candidateTimeFilter={candidateTimeFilter}
                 setCandidateTimeFilter={setCandidateTimeFilter}
                 positions={positions}
+                positionsLoading={positionsLoading}
                 sourceOptions={sourceOptions}
                 visibleCandidates={visibleCandidates}
                 selectedCandidateIds={selectedCandidateIds}
@@ -12743,6 +12766,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                         }
                     }}
                     panelClass={panelClass}
+                    preferredStatFilter={talentPoolPreferredStatFilter}
+                    onPreferredStatFilterApplied={clearTalentPoolPreferredStatFilter}
                 />
             </div>
         );
