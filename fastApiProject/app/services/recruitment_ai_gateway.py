@@ -3574,7 +3574,7 @@ class RecruitmentAIGateway:
                     f"岗位ID={p.get('id')}",
                     f"岗位名称={p.get('title')}",
                     f"部门={p.get('department') or '未填写'}",
-                    f"要求={(p.get('key_requirements') or p.get('summary') or '未填写')[:150]}",
+                    f"要求={(p.get('key_requirements') or p.get('summary') or '未填写')[:300]}",
                 ]
             )
             for p in positions
@@ -3596,19 +3596,20 @@ class RecruitmentAIGateway:
 
 ## 规则
 1. 系统岗位是招聘需求桶。必须优先从“系统现有岗位”中选择最合适的 position_id，而不是自由创造岗位。
-2. 判断依据是核心职能一致，不要求岗位名称完全一致。细分行业、业务方向、端类型、职级可归入同一主岗位，例如 AI/B端/SaaS/IoT/金融/资源物联网产品方向可归入系统里的产品类岗位。
-3. 如果简历或文件名体现了投递来源岗位，可作为强参考；但必须结合简历核心职责确认，不可只靠相似词。
-4. 当系统岗位中存在同一大类下的多个细分岗位时，必须根据简历证据或来源岗位选择具体岗位。例如同时存在税务会计/财务会计时，不要只返回“会计”；同时存在 AI产品经理/C端产品经理时，不要只返回“产品经理”。
-5. 如果只能判断大类、无法区分细分岗位，position_id 必须返回 null，position_title 可填写宽泛建议；不要在多个细分岗位中猜一个。
-6. 只有系统岗位中没有核心职能匹配项，或简历核心职责证据不足/冲突明显时，才允许 position_id 返回 null；此时 position_title 填写你建议的新岗位名称。
-7. 如果选择了系统岗位，position_id 必须严格使用上方“岗位ID=”后的真实数字，position_title 必须与该系统岗位名称一致。
-8. confidence 返回 0-100，表示你对系统岗位归属的把握程度。
-9. 转岗建议（potential_position）：推荐1个该候选人可以转岗的方向，**必须与推荐岗位（position_title）不同**，基于其技能可迁移性判断。
-10. 转岗原因（potential_reason）：50字以内，说明为什么具备该转岗潜力。
-11. reason：50字以内，说明推荐该岗位的核心依据，优先说明核心职责/来源岗位与系统岗位的对应关系。
-12. **只有简历信息严重缺失（如无工作经历、无技能、内容为空）时，才允许 potential_position 和 potential_reason 返回 null**
-13. 禁止复制示例中的 position_id；示例只说明字段结构，实际 position_id 只能来自本次岗位列表。
-14. 不要输出推理过程、Markdown 标题或列表，只输出最终 JSON。
+2. 候选人简历可能包含 STRUCTURED_RESUME_EVIDENCE 与 RAW_RESUME_KEY_SNIPPETS；优先使用来源详情、结构化工作经历、项目经历、技能和原文片段中的直接证据。
+3. 判断依据是核心职能一致，不要求岗位名称完全一致。细分行业、业务方向、端类型、职级可归入同一主岗位，例如 AI/B端/SaaS/IoT/金融/资源物联网产品方向可归入系统里的产品类岗位。
+4. 如果简历或文件名体现了投递来源岗位，可作为强参考；但必须结合简历核心职责确认，不可只靠相似词。
+5. 当系统岗位中存在同一大类下的多个细分岗位时，必须根据简历证据或来源岗位选择具体岗位。例如同时存在税务会计/财务会计时，不要只返回“会计”；同时存在 AI产品经理/C端产品经理时，不要只返回“产品经理”。
+6. 如果只能判断大类、无法区分细分岗位，position_id 必须返回 null，position_title 可填写宽泛建议；不要在多个细分岗位中猜一个。若 raw_text_truncated_for_prompt=true 且缺少区分细分岗位的证据，也必须按证据不足处理。
+7. 只有系统岗位中没有核心职能匹配项，或简历核心职责证据不足/冲突明显时，才允许 position_id 返回 null；此时 position_title 填写你建议的新岗位名称。
+8. 如果选择了系统岗位，position_id 必须严格使用上方“岗位ID=”后的真实数字，position_title 必须与该系统岗位名称一致。
+9. confidence 返回 0-100，表示你对系统岗位归属的把握程度。
+10. 转岗建议（potential_position）：推荐1个该候选人可以转岗的方向，**必须与推荐岗位（position_title）不同**，基于其技能可迁移性判断。
+11. 转岗原因（potential_reason）：50字以内，说明为什么具备该转岗潜力。
+12. reason：50字以内，说明推荐该岗位的核心依据，优先说明核心职责/来源岗位与系统岗位的对应关系。
+13. **只有简历信息严重缺失（如无工作经历、无技能、内容为空）时，才允许 potential_position 和 potential_reason 返回 null**
+14. 禁止复制示例中的 position_id；示例只说明字段结构，实际 position_id 只能来自本次岗位列表。
+15. 不要输出推理过程、Markdown 标题或列表，只输出最终 JSON。
 
 ## 输出格式
 {{"position_id": null, "position_title": "产品经理", "confidence": 65, "reason": "具备需求分析和跨团队协作经验，适合产品经理方向", "potential_position": "售前解决方案", "potential_reason": "跨团队沟通和需求分析能力较强，可培养为售前方向"}}'''

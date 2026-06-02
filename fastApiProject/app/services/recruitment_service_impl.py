@@ -795,6 +795,9 @@ RESUME_CONTACT_FIELD_RE = re.compile(r"(?:邮箱|email|e-mail|联系电话|联�
 RESUME_EMAIL_RE = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
 RESUME_PHONE_RE = re.compile(r"(?:(?:\+?86[-\s]?)?1[3-9]\d[-\s]?\d{4}[-\s]?\d{4})")
 RESUME_ENTITY_HINT_RE = re.compile(r"(大学|学院|学校|研究生|公司|集团|科技|有限|股份|研究院)")
+AI_MATCH_RAW_SNIPPET_SECTION_RE = re.compile(
+    r"(求职意向|期望岗位|应聘岗位|应聘职位|工作经验|工作经历|项目经历|项目经验|技能特长|专业技能|技能标签|个人优势|自我评价|教育背景|教育经历|荣誉证书|资格证书|证书)"
+)
 
 
 def _normalize_resume_section_heading(value: Any) -> Optional[str]:
@@ -12347,9 +12350,247 @@ class RecruitmentService:
 
         return results
 
+    @staticmethod
+    def _compact_ai_match_evidence_text(value: Any, *, limit: int = 360) -> str:
+        if value is None:
+            return ""
+        if isinstance(value, list):
+            parts: List[str] = []
+            for item in value:
+                text = RecruitmentService._compact_ai_match_evidence_text(item, limit=limit)
+                if text:
+                    parts.append(text)
+            compacted = "；".join(parts)
+        elif isinstance(value, dict):
+            parts = []
+            nested_limit = max(80, limit // 3)
+            for key, item in value.items():
+                text = RecruitmentService._compact_ai_match_evidence_text(item, limit=nested_limit)
+                if text:
+                    parts.append(f"{key}:{text}")
+            compacted = "；".join(parts)
+        else:
+            compacted = str(value or "")
+        compacted = re.sub(r"\s+", " ", strip_markdown(compacted)).strip(" ；;，,")
+        return compacted[:limit].strip()
+
+    @classmethod
+    def _format_ai_match_resume_item(
+        cls,
+        item: Any,
+        *,
+        preferred_fields: Sequence[str],
+        limit: int = 640,
+    ) -> str:
+        if not isinstance(item, dict):
+            return cls._compact_ai_match_evidence_text(item, limit=limit)
+        parts: List[str] = []
+        for field in preferred_fields:
+            value = cls._compact_ai_match_evidence_text(item.get(field), limit=220)
+            if value:
+                parts.append(f"{field}:{value}")
+        if not parts:
+            return cls._compact_ai_match_evidence_text(item, limit=limit)
+        return "；".join(parts)[:limit].strip()
+
+    def _build_ai_match_structured_resume_lines(
+        self,
+        candidate: RecruitmentCandidate,
+        parse_row: Optional[RecruitmentResumeParseResult],
+    ) -> List[str]:
+        lines: List[str] = []
+        candidate_fields = [
+            ("候选人姓名", getattr(candidate, "name", None)),
+            ("当前公司", getattr(candidate, "current_company", None)),
+            ("工作年限", getattr(candidate, "years_of_experience", None)),
+            ("学历", getattr(candidate, "education", None)),
+            ("年龄", getattr(candidate, "age", None)),
+            ("当前城市", getattr(candidate, "city", None)),
+            ("期望城市", getattr(candidate, "expected_city", None)),
+            ("简历来源", getattr(candidate, "source", None)),
+            ("来源详情/投递岗位", getattr(candidate, "source_detail", None)),
+        ]
+        for label, value in candidate_fields:
+            text = self._compact_ai_match_evidence_text(value, limit=240)
+            if text:
+                lines.append(f"- {label}: {text}")
+
+        if not parse_row:
+            return lines
+
+        basic_info = json_loads_safe(parse_row.basic_info_json, {})
+        if isinstance(basic_info, dict):
+            basic_parts: List[str] = []
+            for field in ("years_of_experience", "education", "location", "expected_city"):
+                text = self._compact_ai_match_evidence_text(basic_info.get(field), limit=120)
+                if text:
+                    basic_parts.append(f"{field}:{text}")
+            if basic_parts:
+                lines.append(f"- 解析基础信息: {'；'.join(basic_parts)}")
+
+        summary = self._compact_ai_match_evidence_text(parse_row.summary_text, limit=600)
+        if summary:
+            lines.append(f"- 个人总结: {summary}")
+
+        skills = json_loads_safe(parse_row.skills_json, [])
+        if isinstance(skills, list) and skills:
+            skill_text = self._compact_ai_match_evidence_text(skills[:40], limit=1200)
+            if skill_text:
+                lines.append(f"- 技能关键词: {skill_text}")
+
+        work_experiences = json_loads_safe(parse_row.work_experiences_json, [])
+        if isinstance(work_experiences, list):
+            for index, item in enumerate(work_experiences[:10], start=1):
+                text = self._format_ai_match_resume_item(
+                    item,
+                    preferred_fields=(
+                        "company_name",
+                        "company",
+                        "position",
+                        "title",
+                        "duration",
+                        "start_date",
+                        "end_date",
+                        "description",
+                        "responsibilities",
+                        "achievements",
+                    ),
+                    limit=720,
+                )
+                if text:
+                    lines.append(f"- 工作经历{index}: {text}")
+
+        projects = json_loads_safe(parse_row.projects_json, [])
+        if isinstance(projects, list):
+            for index, item in enumerate(projects[:8], start=1):
+                text = self._format_ai_match_resume_item(
+                    item,
+                    preferred_fields=("project_name", "name", "role", "duration", "description", "highlights", "responsibilities"),
+                    limit=640,
+                )
+                if text:
+                    lines.append(f"- 项目经历{index}: {text}")
+
+        education_experiences = json_loads_safe(parse_row.education_experiences_json, [])
+        if isinstance(education_experiences, list):
+            for index, item in enumerate(education_experiences[:4], start=1):
+                text = self._format_ai_match_resume_item(
+                    item,
+                    preferred_fields=("school", "college", "degree", "major", "start_date", "end_date"),
+                    limit=320,
+                )
+                if text:
+                    lines.append(f"- 教育经历{index}: {text}")
+
+        return lines
+
+    @staticmethod
+    def _clip_ai_match_snippet(text: str, *, max_chars: int) -> str:
+        normalized = str(text or "").strip()
+        if not normalized or max_chars <= 0:
+            return ""
+        if len(normalized) <= max_chars:
+            return normalized
+
+        marker = "\n...\n"
+        if max_chars <= len(marker) + 20:
+            return normalized[:max_chars].rstrip()
+
+        budget = max_chars - len(marker)
+        head_size = max(200, int(budget * 0.55))
+        if head_size >= budget:
+            head_size = max(1, budget // 2)
+        tail_size = max(1, budget - head_size)
+        if tail_size < 160 and budget > 320:
+            tail_size = min(200, budget // 2)
+            head_size = budget - tail_size
+
+        return f"{normalized[:head_size].rstrip()}{marker}{normalized[-tail_size:].lstrip()}".strip()
+
+    @staticmethod
+    def _select_ai_match_raw_resume_snippets(raw_text: str, *, max_chars: int = 16000) -> Tuple[str, bool, List[str]]:
+        cleaned = _deterministic_preclean_resume_text(raw_text)
+        if not cleaned:
+            return "", False, []
+        if len(cleaned) <= max_chars:
+            return cleaned, False, ["全文"]
+
+        spans: List[Tuple[int, int, str]] = [(0, min(len(cleaned), 3600), "开头")]
+        for match in AI_MATCH_RAW_SNIPPET_SECTION_RE.finditer(cleaned):
+            label = match.group(1)
+            start = max(0, match.start() - 220)
+            end = min(len(cleaned), match.start() + 3200)
+            spans.append((start, end, label))
+        spans.append((max(0, len(cleaned) - 3200), len(cleaned), "结尾"))
+
+        merged: List[Tuple[int, int, List[str]]] = []
+        for start, end, label in sorted(spans, key=lambda item: (item[0], item[1])):
+            if not merged or start > merged[-1][1] + 240:
+                merged.append((start, end, [label]))
+                continue
+            prev_start, prev_end, labels = merged[-1]
+            if label not in labels:
+                labels.append(label)
+            merged[-1] = (prev_start, max(prev_end, end), labels)
+
+        chunks: List[str] = []
+        included_labels: List[str] = []
+        join_separator = "\n\n...\n\n"
+        used_chars = 0
+        for index, (start, end, labels) in enumerate(merged):
+            separator_cost = len(join_separator) if chunks else 0
+            available_chars = max_chars - used_chars - separator_cost
+            if available_chars <= 0:
+                break
+            chunk = cleaned[start:end].strip()
+            if not chunk:
+                continue
+            label_text = "/".join(labels)
+            remaining_spans = max(1, len(merged) - index)
+            chunk_budget = min(available_chars, max(1200, available_chars // remaining_spans))
+            body_budget = max(0, chunk_budget - len(label_text) - 2)
+            if body_budget <= 0:
+                continue
+            if len(chunk) > body_budget:
+                chunk = RecruitmentService._clip_ai_match_snippet(chunk, max_chars=body_budget)
+            prefixed = f"[{label_text}]\n{chunk}"
+            if len(prefixed) > chunk_budget:
+                prefixed = prefixed[:chunk_budget].rstrip()
+            chunks.append(prefixed)
+            used_chars += separator_cost + len(prefixed)
+            for label in labels:
+                if label not in included_labels:
+                    included_labels.append(label)
+
+        return join_separator.join(chunks).strip(), True, included_labels
+
+    def _build_ai_match_resume_evidence(
+        self,
+        candidate: RecruitmentCandidate,
+        parse_row: Optional[RecruitmentResumeParseResult],
+        raw_text: str,
+    ) -> str:
+        structured_lines = self._build_ai_match_structured_resume_lines(candidate, parse_row)
+        raw_snippet, raw_truncated, included_sections = self._select_ai_match_raw_resume_snippets(raw_text)
+        raw_chars = len(raw_text or "")
+
+        sections: List[str] = [
+            "RESUME_MATCH_CONTEXT:",
+            f"- raw_text_chars: {raw_chars}",
+            f"- raw_text_truncated_for_prompt: {'true' if raw_truncated else 'false'}",
+            f"- included_raw_sections: {', '.join(included_sections) if included_sections else 'none'}",
+            "- evidence_strategy: structured_resume_fields + section_aware_raw_snippets",
+        ]
+        if structured_lines:
+            sections.extend(["", "STRUCTURED_RESUME_EVIDENCE:", *structured_lines])
+        if raw_snippet:
+            sections.extend(["", "RAW_RESUME_KEY_SNIPPETS:", raw_snippet])
+        return "\n".join(sections).strip()
+
     def _build_ai_match_resume_text(self, candidate: RecruitmentCandidate) -> str:
         # 1. 优先使用已成功的解析结果
         parse_row = self._get_current_parse_result(candidate)
+        evidence_parse_row = parse_row
         raw_text = str(getattr(parse_row, "raw_text", "") or "").strip() if parse_row else ""
 
         # 2. 如果没有成功的解析结果，尝试查找任意状态的解析结果（可能正在处理中或失败但有 raw_text）
@@ -12360,6 +12601,7 @@ class RecruitmentService:
                 ).first()
                 if any_parse_row and any_parse_row.resume_file_id == candidate.latest_resume_file_id:
                     raw_text = str(getattr(any_parse_row, "raw_text", "") or "").strip()
+                    evidence_parse_row = any_parse_row
                     if raw_text:
                         logger.info("[AI_MATCH] Using raw_text from non-success parse result candidate_id=%s parse_status=%s text_len=%d",
                                     candidate.id, any_parse_row.status, len(raw_text))
@@ -12384,17 +12626,7 @@ class RecruitmentService:
         normalized_text = re.sub(r"\n{3,}", "\n\n", normalized_text)
         meaningful_chars = len(re.findall(r"[A-Za-z0-9\u4e00-\u9fff]", normalized_text))
         if normalized_text and meaningful_chars > 0:
-            excerpt_limit = min(len(normalized_text), 18000)
-            excerpt_target = min(len(normalized_text), max(len(normalized_text) // 2, 2000))
-            excerpt = normalized_text[: min(excerpt_target, excerpt_limit)].strip()
-            source_detail = str(getattr(candidate, "source_detail", "") or "").strip()
-            if source_detail:
-                return "\n\n".join([
-                    f"SOURCE_FILE_NAME_OR_DELIVERY_POSITION: {source_detail[:240]}",
-                    "RESUME_TEXT:",
-                    excerpt,
-                ]).strip()
-            return excerpt
+            return self._build_ai_match_resume_evidence(candidate, evidence_parse_row, normalized_text)
 
         logger.warning(
             "[AI_MATCH] No usable resume text for candidate_id=%s after parse/file extraction; aborting smart match instead of using metadata fallback",

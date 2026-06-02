@@ -83,6 +83,32 @@ def _build_screening_rule_skill_snapshots() -> list[dict[str, str]]:
     ]
 
 
+def test_ai_match_raw_snippets_preserve_tail_evidence_in_long_section():
+    head = "".join(f"头部无关{i}\n" for i in range(450))
+    work = "".join(f"职责描述{i}\n" for i in range(350))
+    tail = "".join(f"结尾无关{i}\n" for i in range(2000))
+    raw_text = (
+        "基本信息\n"
+        + head
+        + "工作经历\n"
+        + work
+        + "关键岗位证据：AI产品经理 B端产品规划\n"
+        + tail
+    )
+
+    snippet, truncated, labels = RecruitmentService._select_ai_match_raw_resume_snippets(
+        raw_text,
+        max_chars=6000,
+    )
+
+    assert truncated is True
+    assert len(snippet) <= 6000
+    assert "工作经验" in labels
+    assert "关键岗位证据" in snippet
+    assert "AI产品经理" in snippet
+    assert "B端产品规划" in snippet
+
+
 def _build_variable_max_score_skill_snapshots() -> list[dict[str, str]]:
     return [
         {
