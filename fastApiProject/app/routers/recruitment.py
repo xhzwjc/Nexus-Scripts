@@ -1783,6 +1783,19 @@ async def generate_skill_content_stream(payload: SkillContentGenerateRequest, _s
     def push(event_name: str, data: Dict[str, Any]) -> None:
         event_queue.put(_encode_sse_event(event_name, data))
 
+    def extract_completed_content(value: Any) -> str:
+        if isinstance(value, str):
+            return value.strip()
+        if isinstance(value, dict):
+            for key in ("markdown", "text", "content"):
+                extracted = extract_completed_content(value.get(key))
+                if extracted:
+                    return extracted
+            html = value.get("html")
+            if isinstance(html, str) and html.strip():
+                return html.replace("<br />", "\n").replace("<br/>", "\n").replace("<br>", "\n").strip()
+        return ""
+
     def worker() -> None:
         db = SessionLocal()
         service = RecruitmentService(db).set_permission_context(_session)
@@ -1793,8 +1806,9 @@ async def generate_skill_content_stream(payload: SkillContentGenerateRequest, _s
                 push("delta", {"delta": delta})
             def on_task_created(task_id: int) -> None:
                 push("task_created", {"task_id": task_id})
-            service.generate_skill_content_stream(payload.role_name, payload.extra_requirements or "", payload.position_jd or "", on_delta, actor_id=_session.get("id") or "unknown", on_task_created=on_task_created)
-            push("completed", {"content": "".join(chunks)})
+            result = service.generate_skill_content_stream(payload.role_name, payload.extra_requirements or "", payload.position_jd or "", on_delta, actor_id=_session.get("id") or "unknown", on_task_created=on_task_created)
+            completed_content = extract_completed_content(result.get("content") if isinstance(result, dict) else result)
+            push("completed", {"content": "".join(chunks) or completed_content})
         except RecruitmentTaskCancelled:
             push("cancelled", {"message": "已停止生成"})
         except Exception as exc:

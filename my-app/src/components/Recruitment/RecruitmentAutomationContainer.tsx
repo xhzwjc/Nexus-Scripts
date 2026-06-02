@@ -6588,6 +6588,82 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         return log.output_summary || (isZh ? "已完成" : "Completed");
     }
 
+    function extractSkillGeneratedTextValue(value: unknown): string {
+        if (typeof value === "string") {
+            return value.trim();
+        }
+        if (Array.isArray(value)) {
+            return value.map(extractSkillGeneratedTextValue).filter(Boolean).join("").trim();
+        }
+        if (!value || typeof value !== "object") {
+            return "";
+        }
+        const record = value as Record<string, unknown>;
+        for (const key of ["markdown", "text", "content", "completion"]) {
+            const extracted = extractSkillGeneratedTextValue(record[key]);
+            if (extracted) {
+                return extracted;
+            }
+        }
+        if (typeof record.html === "string" && record.html.trim()) {
+            return record.html
+                .replace(/<br\s*\/?>/gi, "\n")
+                .replace(/<[^>]+>/g, "")
+                .trim();
+        }
+        return "";
+    }
+
+    function extractSkillGeneratedContentFromLog(log: AITaskLog): string {
+        const parsedSnapshot = parseStructuredLogOutput(log.output_snapshot);
+        const snapshotRecord = parsedSnapshot && typeof parsedSnapshot === "object" && !Array.isArray(parsedSnapshot)
+            ? parsedSnapshot as Record<string, unknown>
+            : null;
+        const snapshotContent = snapshotRecord && "content" in snapshotRecord
+            ? snapshotRecord.content
+            : parsedSnapshot;
+        const snapshotText = extractSkillGeneratedTextValue(snapshotContent);
+        if (snapshotText) {
+            return snapshotText;
+        }
+        if (log.status === "success") {
+            return extractSkillGeneratedTextValue(parseStructuredLogOutput(log.output_summary || ""));
+        }
+        return "";
+    }
+
+    async function recoverSkillGeneratedContentFromLog(taskId: number, signal?: AbortSignal): Promise<string | null> {
+        for (let attempt = 0; attempt < 30; attempt += 1) {
+            if (signal?.aborted) {
+                return null;
+            }
+            if (attempt > 0) {
+                await new Promise((resolve) => window.setTimeout(resolve, 2000));
+                if (signal?.aborted) {
+                    return null;
+                }
+            }
+            const log = await recruitmentApi<AITaskLog>(`/ai-task-logs/${taskId}`);
+            mergeAiTaskLog(log);
+            if (selectedLogIdRef.current === taskId) {
+                setSelectedLogDetail(log);
+            }
+            if (log.status === "success") {
+                return extractSkillGeneratedContentFromLog(log) || null;
+            }
+            if (log.status === "failed") {
+                throw new Error(log.error_message || (isZh ? "评估方案生成失败" : "Assessment plan generation failed"));
+            }
+            if (log.status === "cancelled") {
+                return null;
+            }
+            if (isTerminalTaskStatus(log.status)) {
+                return null;
+            }
+        }
+        return null;
+    }
+
     async function cancelTaskGeneration(taskId: number, taskLabel: string, options?: { silent?: boolean }) {
         if (cancellingTaskIds.includes(taskId)) {
             return null;
@@ -11047,7 +11123,21 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             }
         } catch (error) {
             if (!abortController.signal.aborted) {
-                toast.error(formatActionError(error));
+                const taskId = skillActiveTaskIdRef.current;
+                let displayError: unknown = error;
+                if (taskId) {
+                    try {
+                        const recoveredContent = await recoverSkillGeneratedContentFromLog(taskId, abortController.signal);
+                        if (recoveredContent) {
+                            return {content: recoveredContent, completed: true};
+                        }
+                    } catch (recoverError) {
+                        displayError = recoverError;
+                    }
+                }
+                if (!abortController.signal.aborted) {
+                    toast.error(formatActionError(displayError));
+                }
             }
             return {content: fullContent, completed: false};
         } finally {

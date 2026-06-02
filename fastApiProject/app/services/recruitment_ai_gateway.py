@@ -2338,6 +2338,63 @@ class RecruitmentAIGateway:
                 chunks.append(str(delta_content.get("text")))
         return "".join(chunks).strip()
 
+    def _extract_text_from_text_payload(self, value: Any) -> str:
+        if isinstance(value, str):
+            return value.strip()
+        if isinstance(value, list):
+            chunks = [self._extract_text_from_text_payload(item) for item in value]
+            return "".join([chunk for chunk in chunks if chunk]).strip()
+        if not isinstance(value, dict):
+            return ""
+        for key in ("markdown", "text", "reply", "content", "completion"):
+            extracted = self._extract_text_from_text_payload(value.get(key))
+            if extracted:
+                return extracted
+        html = value.get("html")
+        if isinstance(html, str) and html.strip():
+            text = re.sub(r"<br\s*/?>", "\n", html, flags=re.IGNORECASE)
+            text = re.sub(r"<[^>]+>", "", text)
+            return text.strip()
+        return ""
+
+    def _collect_stream_text_value(self, value: Any) -> str:
+        if isinstance(value, str):
+            return value
+        if isinstance(value, list):
+            chunks = [self._collect_stream_text_value(item) for item in value]
+            return "".join([chunk for chunk in chunks if chunk])
+        if not isinstance(value, dict):
+            return ""
+        for key in ("text", "content", "completion", "markdown"):
+            extracted = self._collect_stream_text_value(value.get(key))
+            if extracted:
+                return extracted
+        return ""
+
+    def _extract_text_from_anthropic_stream_event(self, event: Dict[str, Any]) -> str:
+        chunks: list[str] = []
+        delta = event.get("delta")
+        if isinstance(delta, dict):
+            text = self._collect_stream_text_value(delta)
+            if text:
+                chunks.append(text)
+        for choice in event.get("choices") or []:
+            if not isinstance(choice, dict):
+                continue
+            delta_text = self._collect_stream_text_value(choice.get("delta"))
+            if delta_text:
+                chunks.append(delta_text)
+            message_text = self._collect_stream_text_value(choice.get("message"))
+            if message_text:
+                chunks.append(message_text)
+        if not chunks:
+            for key in ("completion", "text", "content"):
+                text = self._collect_stream_text_value(event.get(key))
+                if text:
+                    chunks.append(text)
+                    break
+        return "".join(chunks)
+
     def _extract_text_from_anthropic(self, payload: Dict[str, Any]) -> str:
         chunks = []
         for item in payload.get("content") or []:
@@ -2777,6 +2834,11 @@ class RecruitmentAIGateway:
         # since they may span multiple chunks.
         _think_buffer = ""
         _in_think = False
+        filtered_chunks: list[str] = []
+
+        def _emit_filtered_delta(delta: str) -> None:
+            filtered_chunks.append(delta)
+            on_delta(delta)
 
         def _filtered_on_delta(delta: str) -> None:
             nonlocal _think_buffer, _in_think
@@ -2788,7 +2850,7 @@ class RecruitmentAIGateway:
                     _in_think = False
                     remainder = text[end_match.end():]
                     if remainder:
-                        on_delta(remainder)
+                        _emit_filtered_delta(remainder)
                 return
             start_match = re.search(r"<think\b[^>]*>", text, flags=re.IGNORECASE)
             if start_match:
@@ -2800,15 +2862,15 @@ class RecruitmentAIGateway:
                     _in_think = False
                     remainder = after_tag[end_match.end():]
                     if before:
-                        on_delta(before)
+                        _emit_filtered_delta(before)
                     if remainder:
-                        on_delta(remainder)
+                        _emit_filtered_delta(remainder)
                 else:
                     if before:
-                        on_delta(before)
+                        _emit_filtered_delta(before)
                     _think_buffer = after_tag
                 return
-            on_delta(delta)
+            _emit_filtered_delta(delta)
 
         config = _clone_runtime_config_with_task_overrides(
             runtime_config or self.resolve_config(task_type),
@@ -2823,6 +2885,7 @@ class RecruitmentAIGateway:
         for attempt in range(max_retries + 1):
             _think_buffer = ""
             _in_think = False
+            filtered_chunks = []
             try:
                 if config.runtime_provider == "openai-compatible":
                     response_payload = self._stream_openai_compatible_completion(
@@ -2836,9 +2899,14 @@ class RecruitmentAIGateway:
                 elif config.runtime_provider == "gemini":
                     response_payload = self._stream_gemini_text(config, system_prompt, user_prompt, _filtered_on_delta, cancel_control=cancel_control)
                 else:
-                    response_payload = self._stream_anthropic_text(config, system_prompt, user_prompt, _filtered_on_delta, cancel_control=cancel_control)
+                    response_payload = self._stream_anthropic_text(config, system_prompt, user_prompt, _filtered_on_delta, cancel_control=cancel_control, task_type=task_type)
                 content = response_payload["content"]
-                output_summary = content.get("markdown") if isinstance(content, dict) else content
+                filtered_output = "".join(filtered_chunks).strip()
+                if filtered_output:
+                    content = {"markdown": filtered_output, "html": filtered_output.replace("\n", "<br />")}
+                output_summary = filtered_output or self._extract_text_from_text_payload(content)
+                if not output_summary:
+                    raise RuntimeError("模型返回空内容，未生成有效文本")
                 return {
                     "content": content,
                     "provider": config.provider,
@@ -3053,6 +3121,7 @@ class RecruitmentAIGateway:
         user_prompt: str,
         on_delta: Callable[[str], None],
         cancel_control: Optional[RecruitmentTaskControl] = None,
+        task_type: str = "",
     ) -> Dict[str, Any]:
         if not config.api_key:
             raise RuntimeError("Missing API key for Anthropic")
@@ -3061,19 +3130,24 @@ class RecruitmentAIGateway:
         full_text = ""
         input_tokens = 0
         output_tokens = 0
+        raw_event_count = 0
+        stream_event_types: list[str] = []
+        request_body: Dict[str, Any] = {
+            "model": config.model_name,
+            "max_tokens": 16000,
+            "temperature": 0.3,
+            "system": system_prompt,
+            "messages": [{"role": "user", "content": user_prompt}],
+            "stream": True,
+        }
+        if task_type == "jd_generation" and ("qwen" in (config.model_name or "").lower() or "token-plan" in base_url.lower()):
+            request_body["thinking"] = {"type": "disabled"}
         try:
             with client.stream(
                 "POST",
                 f"{base_url}/v1/messages",
                 headers={"x-api-key": config.api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
-                json={
-                    "model": config.model_name,
-                    "max_tokens": 16000,
-                    "temperature": 0.3,
-                    "system": system_prompt,
-                    "messages": [{"role": "user", "content": user_prompt}],
-                    "stream": True,
-                },
+                json=request_body,
                 timeout=180,
             ) as response:
                 response.raise_for_status()
@@ -3085,23 +3159,24 @@ class RecruitmentAIGateway:
                     while "\n" in buffer:
                         line, buffer = buffer.split("\n", 1)
                         line = line.strip()
-                        if not line.startswith("data: "):
+                        if not line.startswith("data:"):
                             continue
-                        data_str = line[6:]
-                        if not data_str:
+                        data_str = line[len("data:"):].strip()
+                        if not data_str or data_str == "[DONE]":
                             continue
                         try:
                             event = json.loads(data_str)
                         except json.JSONDecodeError:
                             continue
+                        raw_event_count += 1
                         event_type = event.get("type")
-                        if event_type == "content_block_delta":
-                            delta = event.get("delta") or {}
-                            text = delta.get("text", "")
-                            if text:
-                                full_text += text
-                                on_delta(text)
-                        elif event_type == "message_delta":
+                        if isinstance(event_type, str) and len(stream_event_types) < 12 and event_type not in stream_event_types:
+                            stream_event_types.append(event_type)
+                        text = self._extract_text_from_anthropic_stream_event(event)
+                        if text:
+                            full_text += text
+                            on_delta(text)
+                        if event_type == "message_delta":
                             usage = event.get("usage") or {}
                             output_tokens = usage.get("output_tokens") or output_tokens
                         elif event_type == "message_start":
@@ -3121,6 +3196,11 @@ class RecruitmentAIGateway:
         return {
             "content": {"markdown": full_text, "html": full_text.replace("\n", "<br />")},
             "token_usage": {"prompt_tokens": input_tokens, "completion_tokens": output_tokens, "total_tokens": input_tokens + output_tokens},
+            "response_debug": {
+                "stream_raw_event_count": raw_event_count,
+                "stream_event_types": stream_event_types,
+                "raw_response_text_length": len(full_text or ""),
+            },
         }
 
     def _call_anthropic_json(

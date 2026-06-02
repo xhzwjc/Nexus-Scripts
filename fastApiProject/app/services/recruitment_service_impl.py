@@ -9481,6 +9481,19 @@ class RecruitmentService:
         return self._serialize_skill(row)
 
     def generate_skill_content_stream(self, role_name: str, extra_requirements: str, position_jd: str, on_delta: Callable[[str], None], actor_id: str = "unknown", on_task_created: Optional[Callable[[int], None]] = None) -> Dict[str, Any]:
+        def extract_generated_text(value: Any) -> str:
+            if isinstance(value, str):
+                return value.strip()
+            if isinstance(value, dict):
+                for key in ("markdown", "text", "content"):
+                    extracted = extract_generated_text(value.get(key))
+                    if extracted:
+                        return extracted
+                html = value.get("html")
+                if isinstance(html, str) and html.strip():
+                    return strip_markdown(html.replace("<br />", "\n").replace("<br/>", "\n").replace("<br>", "\n")).strip()
+            return ""
+
         user_prompt = f"岗位名称：{role_name}"
         if position_jd:
             user_prompt += f"\n\n岗位 JD 原文如下：\n{position_jd}"
@@ -9507,7 +9520,10 @@ class RecruitmentService:
                 cancel_control=control,
                 runtime_config=resolved_runtime,
             )
-            self._finish_ai_task_log(log_row, status="success", provider=result.get("provider"), model_name=result.get("model_name"), model_source=result.get("source"), prompt_snapshot=result.get("prompt_snapshot"), full_request_snapshot=result.get("full_request_snapshot"), input_summary=result.get("input_summary"), output_summary=truncate_text(result.get("content", ""), 600), output_snapshot={"content": result.get("content")}, token_usage=result.get("token_usage"))
+            generated_text = extract_generated_text(result.get("content"))
+            if not generated_text:
+                raise RuntimeError("模型返回空内容，未生成有效文本")
+            self._finish_ai_task_log(log_row, status="success", provider=result.get("provider"), model_name=result.get("model_name"), model_source=result.get("source"), prompt_snapshot=result.get("prompt_snapshot"), full_request_snapshot=result.get("full_request_snapshot"), input_summary=result.get("input_summary"), output_summary=truncate_text(generated_text, 600), output_snapshot={"content": result.get("content")}, token_usage=result.get("token_usage"))
             return result
         except RecruitmentTaskCancelled:
             self._finish_ai_task_log(log_row, status="cancelled", error_message="用户已停止生成", output_summary="已停止生成")
