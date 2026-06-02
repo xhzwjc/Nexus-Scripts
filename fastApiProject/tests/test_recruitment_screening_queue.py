@@ -3378,7 +3378,7 @@ def test_rate_limited_parse_task_is_requeued_not_failed():
     output_snapshot = json.loads(log_row.output_snapshot)
     assert log_row.status == "queued"
     assert log_row.stage == "queued"
-    assert log_row.output_summary == "上游限流，稍后自动重试"
+    assert log_row.output_summary == "模型接口限流，系统将自动重试，请稍候。"
     assert validation_meta["failure_code"] == "rate_limited"
     assert validation_meta["auto_requeue_scheduled"] is True
     assert validation_meta["infra_retry_count"] == 1
@@ -3423,7 +3423,7 @@ def test_timeout_parse_task_is_requeued_not_failed():
     output_snapshot = json.loads(log_row.output_snapshot)
     assert log_row.status == "queued"
     assert log_row.stage == "queued"
-    assert log_row.output_summary == "上游超时，稍后自动重试"
+    assert log_row.output_summary == "模型接口超时，系统将自动重试，请稍候。"
     assert validation_meta["failure_code"] == "upstream_timeout"
     assert validation_meta["auto_requeue_scheduled"] is True
     assert validation_meta["infra_retry_count"] == 1
@@ -3631,6 +3631,36 @@ def test_infra_failure_does_not_mark_candidate_screening_failed():
 
     mark_failed.assert_not_called()
     assert log_row.status == "queued"
+
+
+def test_screening_queue_runner_continues_dispatch_with_fresh_session():
+    service = RecruitmentService(Mock())
+    task_db = Mock()
+    dispatch_db = Mock()
+    events = []
+
+    def close_task_db():
+        events.append("task_db.close")
+
+    def close_dispatch_db():
+        events.append("dispatch_db.close")
+
+    def dispatch_queue(dispatch_service):
+        events.append("dispatch.start")
+        assert dispatch_service.db is dispatch_db
+        return {"started_count": 0, "active_count": 0, "max_concurrency": 1}
+
+    task_db.close.side_effect = close_task_db
+    dispatch_db.close.side_effect = close_dispatch_db
+
+    with patch("app.services.recruitment_service_impl.SessionLocal", side_effect=[task_db, dispatch_db]), \
+            patch.object(RecruitmentService, "_restore_session_token_from_task", return_value=None), \
+            patch.object(RecruitmentService, "_run_queued_screening_task", return_value=None), \
+            patch.object(RecruitmentService, "_dispatch_screening_queue", dispatch_queue), \
+            patch("app.services.recruitment_service_impl._screening_worker_active_task_ids", {94}):
+        service._build_screening_queue_runner(94, "tester")(object())
+
+    assert events == ["task_db.close", "dispatch.start", "dispatch_db.close"]
 
 
 def test_run_queued_screening_task_defaults_to_one_pass_path():

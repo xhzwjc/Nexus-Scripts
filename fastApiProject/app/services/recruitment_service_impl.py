@@ -7053,10 +7053,18 @@ class RecruitmentService:
                 db.close()
                 with _screening_worker_lock:
                     _screening_worker_active_task_ids.discard(task_id)
+                dispatch_db = SessionLocal()
                 try:
-                    service._dispatch_screening_queue()
+                    dispatch_service = RecruitmentService(dispatch_db)
+                    if captured_permission_context is not None:
+                        dispatch_service.permission_context = captured_permission_context
+                        dispatch_service.ai_gateway.set_permission_context(captured_permission_context)
+                    dispatch_service._session_token = service._session_token
+                    dispatch_service._dispatch_screening_queue()
                 except Exception:
                     logger.exception("Failed to continue screening queue dispatch after task %s", task_id)
+                finally:
+                    dispatch_db.close()
 
         return _runner
 

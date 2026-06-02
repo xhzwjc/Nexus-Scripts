@@ -27,8 +27,8 @@ def _int_env(name: str, default: int, *, minimum: int) -> int:
     return max(minimum, value)
 
 
-DB_POOL_SIZE = _int_env("DB_POOL_SIZE", 20, minimum=1)
-DB_MAX_OVERFLOW = _int_env("DB_MAX_OVERFLOW", 10, minimum=0)
+DB_POOL_SIZE = _int_env("DB_POOL_SIZE", 10, minimum=1)
+DB_MAX_OVERFLOW = _int_env("DB_MAX_OVERFLOW", 5, minimum=0)
 DB_POOL_TIMEOUT = _int_env("DB_POOL_TIMEOUT", 30, minimum=1)
 DB_POOL_RECYCLE = _int_env("DB_POOL_RECYCLE", 600, minimum=60)
 
