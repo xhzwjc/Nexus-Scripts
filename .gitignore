@@ -41,3 +41,7 @@ my-app/public/build-info.json
 
 # AI 招聘 SOP 私人交付物与复用素材（本地保留，不提交）
 /docs/assets/ai-recruitment-sop/
+
+# AI 招聘 SOP v2 截图与渲染产物（本地生成，不提交）
+/docs/assets/sop-v2-screenshots/
+/docs/assets/sop-v2-rendered/
