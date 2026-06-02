@@ -854,6 +854,10 @@ async def upload_resumes(
     staging_dir = Path(tempfile.mkdtemp(prefix="resume-batch-", dir=str(staging_root)))
     uploaded_files: List[Dict[str, Any]] = []
     try:
+        try:
+            service.db.rollback()
+        except Exception:
+            logger.debug("Failed to release recruitment DB session before staging upload", exc_info=True)
         for item in files:
             uploaded_files.append(await _stage_upload_file(item, staging_dir))
 

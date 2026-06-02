@@ -25,5 +25,5 @@ EXPOSE 8091
 
 CMD ["sh", "-c", "python prestart.py && gunicorn run:app -w ${WEB_CONCURRENCY:-1} -k uvicorn.workers.UvicornWorker \
      -b 0.0.0.0:8091 --access-logfile - --error-logfile - \
-     --timeout 120 --graceful-timeout 30 \
+     --timeout ${GUNICORN_TIMEOUT:-600} --graceful-timeout 30 \
      --log-level info --capture-output"]

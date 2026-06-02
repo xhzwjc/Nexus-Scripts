@@ -1,10 +1,13 @@
+import asyncio
 import json
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import httpx
+from sqlalchemy.exc import OperationalError, SQLAlchemyError, TimeoutError as SQLAlchemyTimeoutError
 
+import app.services.recruitment_service_impl as recruitment_impl
 from app.recruitment_models import RecruitmentSkill
 from app.services.recruitment_ai_gateway import RecruitmentAIGateway, RecruitmentAIJSONParseError, RecruitmentLLMRuntimeConfig, _compose_json_user_prompt, _parse_llm_json_response, _parse_strict_json_response
 from app.services.recruitment_ai_gateway import RecruitmentAIScreeningTotalTimeoutError, SCREENING_TOTAL_TIMEOUT_SECONDS
@@ -22,15 +25,18 @@ from app.services.recruitment_service_impl import (
     SCREENING_ONE_PASS_TASK_TYPE,
     SCREENING_PAYLOAD_SCHEMA_CONFIG,
     SCREENING_FLOW_TASK_TYPE,
-    SCREENING_WORKER_MAX_CONCURRENCY,
     _build_screening_schema_config,
     _detect_score_json_variant_conflict,
     _build_score_compat_payload,
     _build_dimension_concern_summary,
     _build_dimension_reason_summary,
+    _classify_ai_match_failure,
+    _classify_infra_failure,
+    _classify_screening_task_failure,
     _classify_screening_score_validity,
     _extract_json_parse_failure_meta,
     _extract_model_score_payload_with_meta,
+    _is_retryable_infra_failure_code,
     _select_one_pass_json_candidate,
     _prepare_resume_text_for_parse_prompt,
     _sanitize_ai_parsed_resume,
@@ -66,6 +72,280 @@ def _build_openai_json_http_response(raw_text: str) -> Mock:
     )
     response.text = json.dumps(response.json.return_value, ensure_ascii=False)
     return response
+
+
+def test_database_connection_exhaustion_is_retryable_infra_failure():
+    cases = [
+        OperationalError("SELECT 1", {}, Exception("(1040, 'Too many connections')")),
+        SQLAlchemyTimeoutError("QueuePool limit reached"),
+        OperationalError("ROLLBACK", {}, Exception("(2013, 'Lost connection to MySQL server during query')")),
+        OperationalError("SELECT 1", {}, Exception("(2006, 'MySQL server has gone away')")),
+        SQLAlchemyError("Can't reconnect until invalid transaction is rolled back."),
+    ]
+
+    for exc in cases:
+        failure_code, failure_message = _classify_infra_failure(exc)
+
+        assert failure_code == "database_connection_exhausted"
+        assert "数据库连接" in failure_message
+        assert _is_retryable_infra_failure_code(failure_code)
+        assert _classify_screening_task_failure(exc)[0] == "database_connection_exhausted"
+        assert _classify_ai_match_failure(exc)[0] == "database_connection_exhausted"
+
+
+def test_screening_queue_concurrency_auto_uses_model_sum_when_db_budget_allows(monkeypatch):
+    monkeypatch.setattr(recruitment_impl, "SCREENING_WORKER_MAX_CONCURRENCY", None)
+    monkeypatch.setattr(recruitment_impl, "SCREENING_DB_CONNECTION_RESERVE", 4)
+    monkeypatch.setattr(recruitment_impl, "DB_POOL_SIZE", 20)
+    monkeypatch.setattr(recruitment_impl, "DB_MAX_OVERFLOW", 10)
+    service = RecruitmentService.__new__(RecruitmentService)
+    rows_by_task = {
+        SCREENING_ONE_PASS_TASK_TYPE: [SimpleNamespace(id=1, max_concurrent=10)],
+        "resume_score": [SimpleNamespace(id=2, max_concurrent=10)],
+    }
+    service._load_effective_llm_config_rows_for_task = lambda task_type: rows_by_task.get(task_type, [])
+
+    assert service._resolve_screening_queue_max_concurrency() == 20
+
+
+def test_screening_queue_concurrency_auto_is_capped_by_db_budget(monkeypatch):
+    monkeypatch.setattr(recruitment_impl, "SCREENING_WORKER_MAX_CONCURRENCY", None)
+    monkeypatch.setattr(recruitment_impl, "SCREENING_DB_CONNECTION_RESERVE", 4)
+    monkeypatch.setattr(recruitment_impl, "DB_POOL_SIZE", 10)
+    monkeypatch.setattr(recruitment_impl, "DB_MAX_OVERFLOW", 5)
+    service = RecruitmentService.__new__(RecruitmentService)
+    rows_by_task = {
+        SCREENING_ONE_PASS_TASK_TYPE: [SimpleNamespace(id=1, max_concurrent=10)],
+        "resume_score": [SimpleNamespace(id=2, max_concurrent=10)],
+    }
+    service._load_effective_llm_config_rows_for_task = lambda task_type: rows_by_task.get(task_type, [])
+
+    assert service._resolve_screening_queue_max_concurrency() == 11
+
+
+def test_screening_queue_concurrency_respects_lower_worker_limit(monkeypatch):
+    monkeypatch.setattr(recruitment_impl, "SCREENING_WORKER_MAX_CONCURRENCY", 8)
+    monkeypatch.setattr(recruitment_impl, "SCREENING_DB_CONNECTION_RESERVE", 4)
+    monkeypatch.setattr(recruitment_impl, "DB_POOL_SIZE", 20)
+    monkeypatch.setattr(recruitment_impl, "DB_MAX_OVERFLOW", 10)
+    service = RecruitmentService.__new__(RecruitmentService)
+    rows_by_task = {
+        SCREENING_ONE_PASS_TASK_TYPE: [SimpleNamespace(id=1, max_concurrent=10)],
+        "resume_score": [SimpleNamespace(id=2, max_concurrent=10)],
+    }
+    service._load_effective_llm_config_rows_for_task = lambda task_type: rows_by_task.get(task_type, [])
+
+    assert service._resolve_screening_queue_max_concurrency() == 8
+
+
+def test_screening_provider_slot_releases_clean_db_connection_before_model_wait():
+    class FakeDb:
+        new = ()
+        dirty = ()
+        deleted = ()
+
+        def __init__(self):
+            self.rollback_count = 0
+
+        def rollback(self):
+            self.rollback_count += 1
+
+    fake_db = FakeDb()
+    service = RecruitmentService.__new__(RecruitmentService)
+    service.db = fake_db
+    service._resolve_screening_provider_limits = lambda _source: (1, 0)
+    service._raise_if_cancelled = lambda _control: None
+
+    with service._acquire_screening_provider_slot(source="db:test"):
+        pass
+
+    assert fake_db.rollback_count == 1
+
+
+def test_ai_match_callback_does_not_hold_db_session_during_model_call(monkeypatch):
+    from app import database
+
+    open_session_count = 0
+    model_call_open_session_count = None
+    candidate = SimpleNamespace(id=123, status="matching", org_code="group")
+    runtime_config = RecruitmentLLMRuntimeConfig(
+        provider="minimax",
+        runtime_provider="openai-compatible",
+        model_name="MiniMax-M2.7-highspeed",
+        base_url="https://example.test/v1",
+        api_key="secret",
+        source="test",
+        api_key_masked="***",
+        extra_config={},
+    )
+
+    class FakeQuery:
+        def __init__(self, row):
+            self.row = row
+
+        def filter(self, *args, **kwargs):
+            return self
+
+        def first(self):
+            return self.row
+
+    class FakeSession:
+        def __init__(self):
+            nonlocal open_session_count
+            open_session_count += 1
+            self.closed = False
+
+        def query(self, model):
+            if getattr(model, "__name__", "") == "RecruitmentCandidate":
+                return FakeQuery(candidate)
+            return FakeQuery(None)
+
+        def add(self, row):
+            self.added = row
+
+        def commit(self):
+            pass
+
+        def flush(self):
+            pass
+
+        def refresh(self, row):
+            if getattr(row, "id", None) is None:
+                row.id = 1
+
+        def rollback(self):
+            pass
+
+        def close(self):
+            nonlocal open_session_count
+            if not self.closed:
+                self.closed = True
+                open_session_count -= 1
+
+    def session_factory():
+        return FakeSession()
+
+    def resolve_config_by_id(self, config_id):
+        return runtime_config
+
+    def match_position(candidate_id, resume_content, positions, *, runtime_config=None, key_id=None):
+        nonlocal model_call_open_session_count
+        model_call_open_session_count = open_session_count
+        return {
+            "position_id": None,
+            "position_title": None,
+            "confidence": None,
+            "reason": "无匹配",
+            "potential_position": None,
+            "potential_reason": None,
+            "provider": runtime_config.provider,
+            "model_name": runtime_config.model_name,
+            "source": runtime_config.source,
+            "prompt_snapshot": "snapshot",
+            "full_request_snapshot": "{}",
+            "raw_response_text": "{}",
+            "parsed_response": {},
+        }
+
+    monkeypatch.setattr(database, "SessionLocal", session_factory)
+    monkeypatch.setattr(RecruitmentAIGateway, "resolve_config_by_id", resolve_config_by_id)
+    monkeypatch.setattr(RecruitmentService, "_serialize_realtime_candidate_item", lambda self, row: {"status": row.status})
+
+    service = RecruitmentService(Mock())
+    service.ai_gateway.match_position = match_position
+    callback = service._create_match_callback(
+        None,
+        "ai_position_match",
+        "actor",
+        [{"id": 1, "title": "产品经理", "department": "", "key_requirements": ""}],
+    )
+
+    task = SimpleNamespace(candidate_id=123, batch_id="batch-1", resume_content="resume text")
+    slot = SimpleNamespace(config_id=7, key_id="config_7")
+    asyncio.run(callback(task, slot))
+
+    assert model_call_open_session_count == 0
+    assert open_session_count == 0
+    assert candidate.status == "unmatched"
+
+
+def test_ai_match_resume_text_db_exhaustion_is_retried_not_marked_unavailable(monkeypatch):
+    from app import database
+
+    open_session_count = 0
+    created_session_count = 0
+    candidate = SimpleNamespace(id=123, status="matching", org_code="group")
+    runtime_config = RecruitmentLLMRuntimeConfig(
+        provider="minimax",
+        runtime_provider="openai-compatible",
+        model_name="MiniMax-M2.7-highspeed",
+        base_url="https://example.test/v1",
+        api_key="secret",
+        source="test",
+        api_key_masked="***",
+        extra_config={},
+    )
+    db_exc = OperationalError("SELECT 1", {}, Exception("(1040, 'Too many connections')"))
+
+    class FakeQuery:
+        def __init__(self, should_raise=False):
+            self.should_raise = should_raise
+
+        def filter(self, *args, **kwargs):
+            return self
+
+        def first(self):
+            if self.should_raise:
+                raise db_exc
+            return candidate
+
+    class FakeSession:
+        def __init__(self):
+            nonlocal open_session_count, created_session_count
+            created_session_count += 1
+            open_session_count += 1
+            self.index = created_session_count
+            self.closed = False
+
+        def query(self, model):
+            return FakeQuery(should_raise=self.index == 2)
+
+        def close(self):
+            nonlocal open_session_count
+            if not self.closed:
+                self.closed = True
+                open_session_count -= 1
+
+    def session_factory():
+        return FakeSession()
+
+    def resolve_config_by_id(self, config_id):
+        return runtime_config
+
+    monkeypatch.setattr(database, "SessionLocal", session_factory)
+    monkeypatch.setattr(RecruitmentAIGateway, "resolve_config_by_id", resolve_config_by_id)
+
+    service = RecruitmentService(Mock())
+    service.ai_gateway.match_position = Mock(side_effect=AssertionError("model call should not run"))
+    callback = service._create_match_callback(
+        None,
+        "ai_position_match",
+        "actor",
+        [{"id": 1, "title": "产品经理", "department": "", "key_requirements": ""}],
+    )
+
+    task = SimpleNamespace(candidate_id=123, batch_id="batch-1", resume_content=None)
+    slot = SimpleNamespace(config_id=7, key_id="config_7")
+
+    try:
+        asyncio.run(callback(task, slot))
+        assert False, "expected database exhaustion to bubble up for scheduler retry"
+    except OperationalError as exc:
+        assert "Too many connections" in str(exc)
+
+    service.ai_gateway.match_position.assert_not_called()
+    assert open_session_count == 0
+    assert candidate.status == "matching"
 
 
 def _build_screening_rule_skill_snapshots() -> list[dict[str, str]]:
@@ -885,7 +1165,7 @@ def test_batch_start_screen_candidates_reports_queued_and_skipped_counts():
         "reused_existing_result": False,
     }
     service.enqueue_screen_candidate = Mock(side_effect=[queued, reused])
-    service._dispatch_screening_queue = Mock(return_value={"started_count": 1, "active_count": 1, "max_concurrency": SCREENING_WORKER_MAX_CONCURRENCY})
+    service._dispatch_screening_queue = Mock(return_value={"started_count": 1, "active_count": 1, "max_concurrency": 8})
 
     payload = service.batch_start_screen_candidates([1, 2], "tester")
 
@@ -3246,7 +3526,7 @@ def test_dispatch_screening_queue_skips_tasks_before_next_retry_at():
         payload = service._dispatch_screening_queue()
 
     assert payload["started_count"] == 1
-    assert payload["max_concurrency"] == SCREENING_WORKER_MAX_CONCURRENCY
+    assert payload["max_concurrency"] == 8
     assert service._start_background_ai_task.call_args.args[0] == 302
 
 

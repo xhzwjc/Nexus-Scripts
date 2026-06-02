@@ -38,23 +38,22 @@ def test_extract_text_from_pdf_uses_pdfkit_fallback_on_macos():
 def test_extract_text_from_pdf_falls_back_when_pypdf_returns_empty():
     page_one = Mock()
     page_one.extract_text.return_value = ""
-    pdfium_mock = Mock()
-    pdfium_document = Mock()
-    pdfium_page = Mock()
-    text_page = Mock()
-    text_page.get_text_range.return_value = "pdfium 提取结果"
-    pdfium_page.get_textpage.return_value = text_page
-    pdfium_document.__len__ = Mock(return_value=1)
-    pdfium_document.__getitem__ = Mock(return_value=pdfium_page)
-    pdfium_mock.PdfDocument.return_value = pdfium_document
 
     with patch("app.services.recruitment_utils.PdfReader", return_value=SimpleNamespace(pages=[page_one])), patch(
-        "app.services.recruitment_utils.pdfium", pdfium_mock
-    ):
+        "app.services.recruitment_utils.pdfium", Mock()
+    ), patch(
+        "app.services.recruitment_utils.sys.platform", "linux"
+    ), patch(
+        "app.services.recruitment_utils._extract_text_from_pdf_with_pdfium",
+        side_effect=AssertionError("PDFium must not run in the main process"),
+    ), patch(
+        "app.services.recruitment_utils._extract_text_from_pdf_with_pdfium_subprocess",
+        return_value="pdfium 提取结果",
+    ) as pdfium_subprocess_mock:
         text = extract_text_from_pdf(Path("/tmp/resume.pdf"))
 
     assert text == "pdfium 提取结果"
-    pdfium_mock.PdfDocument.assert_called_once()
+    pdfium_subprocess_mock.assert_called_once_with(Path("/tmp/resume.pdf"))
 
 
 def test_extract_text_from_pdf_uses_ocr_when_text_mapping_is_garbled():
@@ -107,12 +106,33 @@ def test_extract_text_from_pdf_uses_paddleocr_fallback_off_macos():
     ), patch(
         "app.services.recruitment_utils.sys.platform", "linux"
     ), patch(
-        "app.services.recruitment_utils._extract_text_from_pdf_with_paddleocr",
+        "app.services.recruitment_utils._extract_text_from_pdf_with_paddleocr_subprocess",
         return_value="PaddleOCR 简历正文",
     ) as ocr_mock:
         text = extract_text_from_pdf(Path("/tmp/resume.pdf"))
 
     assert text == "PaddleOCR 简历正文"
+    ocr_mock.assert_called_once_with(Path("/tmp/resume.pdf"))
+
+
+def test_extract_text_from_pdf_survives_pdfium_subprocess_crash_off_macos():
+    page_one = Mock()
+    page_one.extract_text.return_value = ""
+
+    with patch("app.services.recruitment_utils.PdfReader", return_value=SimpleNamespace(pages=[page_one])), patch(
+        "app.services.recruitment_utils.pdfium", Mock()
+    ), patch(
+        "app.services.recruitment_utils.sys.platform", "linux"
+    ), patch(
+        "app.services.recruitment_utils._extract_text_from_pdf_with_pdfium_subprocess",
+        side_effect=RuntimeError("_extract_text_from_pdf_with_pdfium subprocess failed: exit=-6"),
+    ), patch(
+        "app.services.recruitment_utils._extract_text_from_pdf_with_paddleocr_subprocess",
+        return_value="OCR 降级结果",
+    ) as ocr_mock:
+        text = extract_text_from_pdf(Path("/tmp/resume.pdf"))
+
+    assert text == "OCR 降级结果"
     ocr_mock.assert_called_once_with(Path("/tmp/resume.pdf"))
 
 
@@ -129,4 +149,4 @@ def test_extract_text_from_pdf_requires_dependency_or_fallback():
             assert False, "expected RuntimeError"
         except RuntimeError as exc:
             assert "install pypdf" in str(exc)
-            assert "pypdfium2 fallback" in str(exc)
+            assert "isolated pypdfium2 fallback" in str(exc)

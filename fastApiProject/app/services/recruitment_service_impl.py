@@ -21,10 +21,10 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tupl
 
 import httpx
 from sqlalchemy import and_, case, func, literal_column, or_
-from sqlalchemy.exc import DataError, IntegrityError, OperationalError, SQLAlchemyError
+from sqlalchemy.exc import DataError, IntegrityError, OperationalError, SQLAlchemyError, TimeoutError as SQLAlchemyTimeoutError
 from sqlalchemy.orm import Session
 
-from ..database import SessionLocal
+from ..database import DB_MAX_OVERFLOW, DB_POOL_SIZE, SessionLocal
 from ..permission_governance import (
     PermissionContext,
     ROOT_ORG_CODE,
@@ -191,7 +191,30 @@ SYSTEM_BASE_SKILL_CODES = {
 }
 logger = logging.getLogger(__name__)
 PROCESS_BOOTED_AT = datetime.now()
-SCREENING_WORKER_MAX_CONCURRENCY = max(1, int(os.getenv("SCREENING_WORKER_MAX_CONCURRENCY", "8")))
+
+
+def _optional_positive_int_env(name: str) -> Optional[int]:
+    raw = os.getenv(name)
+    if raw in (None, ""):
+        return None
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return None
+    return value if value > 0 else None
+
+
+def _non_negative_int_env(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    try:
+        value = int(raw) if raw not in (None, "") else default
+    except (TypeError, ValueError):
+        value = default
+    return max(0, value)
+
+
+SCREENING_WORKER_MAX_CONCURRENCY = _optional_positive_int_env("SCREENING_WORKER_MAX_CONCURRENCY")
+SCREENING_DB_CONNECTION_RESERVE = _non_negative_int_env("SCREENING_DB_CONNECTION_RESERVE", 4)
 SCREENING_PROVIDER_MAX_CONCURRENCY = max(1, int(os.getenv("SCREENING_PROVIDER_MAX_CONCURRENCY", "4")))
 SCREENING_DISPATCH_SCAN_LIMIT = max(120, int(os.getenv("SCREENING_DISPATCH_SCAN_LIMIT", "240")))
 
@@ -415,7 +438,28 @@ def _is_timeout_error(exc: Exception) -> bool:
     return isinstance(exc, (httpx.TimeoutException, TimeoutError, RecruitmentAITimeoutError))
 
 
+def _is_db_connection_exhausted_error(exc: Exception) -> bool:
+    text = str(exc or "").lower()
+    if isinstance(exc, SQLAlchemyTimeoutError):
+        return True
+    if isinstance(exc, SQLAlchemyError) and "can't reconnect until invalid transaction is rolled back" in text:
+        return True
+    return isinstance(exc, OperationalError) and (
+        "too many connections" in text
+        or "lost connection to mysql server" in text
+        or "mysql server has gone away" in text
+        or "(1040" in text
+        or "1040," in text
+        or "(2013" in text
+        or "2013," in text
+        or "(2006" in text
+        or "2006," in text
+    )
+
+
 def _classify_infra_failure(exc: Exception) -> Tuple[str, str]:
+    if _is_db_connection_exhausted_error(exc):
+        return ("database_connection_exhausted", "数据库连接暂时不可用，任务将稍后自动重试。")
     if _is_quota_exceeded_error(exc):
         return ("quota_exceeded", f"模型额度不足：{exc}")
     if _is_rate_limited_error(exc):
@@ -428,7 +472,7 @@ def _classify_infra_failure(exc: Exception) -> Tuple[str, str]:
 
 
 def _is_retryable_infra_failure_code(failure_code: Optional[str]) -> bool:
-    return str(failure_code or "").strip() in {"rate_limited", "upstream_timeout", "request_failed"}
+    return str(failure_code or "").strip() in {"rate_limited", "upstream_timeout", "request_failed", "database_connection_exhausted"}
 
 
 def _compute_infra_retry_delay_seconds(failure_code: str, retry_count: int) -> int:
@@ -5268,6 +5312,8 @@ def _classify_screening_task_failure(exc: Exception) -> Tuple[str, str]:
         return "upstream_timeout", "模型接口超时，请稍后重试。"
     if failure_code == "request_failed":
         return "request_failed", "模型请求失败，请稍后重试。"
+    if failure_code == "database_connection_exhausted":
+        return "database_connection_exhausted", failure_message
     if isinstance(exc, RecruitmentAIRetryExhaustedError):
         return "retry_exhausted", "模型请求多次重试后仍失败，请稍后重试。"
     return "failed", str(exc) or "AI 任务执行失败。"
@@ -5286,6 +5332,8 @@ def _classify_ai_match_failure(exc: Exception) -> Tuple[str, str]:
         return "upstream_timeout", "模型接口超时，请稍后重试识别。"
     if failure_code == "request_failed":
         return "request_failed", "模型请求失败，请稍后重试识别。"
+    if failure_code == "database_connection_exhausted":
+        return "database_connection_exhausted", "数据库连接繁忙，岗位识别将稍后自动重试。"
     return "failed", "岗位识别失败，请稍后重试。"
 
 
@@ -6157,6 +6205,14 @@ class RecruitmentService:
         max_qps = int(getattr(row, "max_qps", SCREENING_PROVIDER_QPS) or 0)
         return max_concurrent, max(0, max_qps)
 
+    def _release_clean_db_connection_checkpoint(self, reason: str) -> None:
+        try:
+            if self.db.new or self.db.dirty or self.db.deleted:
+                return
+            self.db.rollback()
+        except Exception:
+            logger.debug("Failed to release clean DB connection checkpoint: %s", reason, exc_info=True)
+
     def _load_screening_provider_concurrency_limits(
         self,
         sources: Sequence[str],
@@ -6212,9 +6268,18 @@ class RecruitmentService:
                 if row_id is None:
                     continue
                 rows_by_id[int(row_id)] = row
+        configured_limit = SCREENING_PROVIDER_MAX_CONCURRENCY
         if rows_by_id:
-            return max(1, sum(_llm_config_max_concurrent(row) for row in rows_by_id.values()))
-        return max(1, SCREENING_PROVIDER_MAX_CONCURRENCY)
+            configured_limit = sum(_llm_config_max_concurrent(row) for row in rows_by_id.values())
+        limits = [max(1, int(configured_limit or 1)), self._resolve_screening_queue_db_connection_budget()]
+        if SCREENING_WORKER_MAX_CONCURRENCY is not None:
+            limits.append(max(1, int(SCREENING_WORKER_MAX_CONCURRENCY)))
+        return max(1, min(limits))
+
+    def _resolve_screening_queue_db_connection_budget(self) -> int:
+        pool_capacity = max(1, int(DB_POOL_SIZE) + int(DB_MAX_OVERFLOW))
+        reserve = min(max(0, int(SCREENING_DB_CONNECTION_RESERVE)), max(0, pool_capacity - 1))
+        return max(1, pool_capacity - reserve)
 
     def _select_screening_queue_rows_fairly(
         self,
@@ -6300,6 +6365,7 @@ class RecruitmentService:
     ) -> Iterable[None]:
         normalized_source = _normalize_screening_provider_source(source)
         max_concurrent, max_qps = self._resolve_screening_provider_limits(normalized_source)
+        self._release_clean_db_connection_checkpoint("before_screening_provider_call")
         def _check_cancelled() -> None:
             self._raise_if_cancelled(cancel_control)
 
@@ -12933,6 +12999,19 @@ class RecruitmentService:
         """创建匹配完成回调（供调度器 worker 调用）"""
         ai_gateway = self.ai_gateway
 
+        def _resolve_ai_match_runtime_config(config_id: int):
+            from ..database import SessionLocal
+
+            config_db = SessionLocal()
+            try:
+                config_gateway = RecruitmentAIGateway(config_db)
+                runtime_config = config_gateway.resolve_config_by_id(config_id)
+                if runtime_config is not None:
+                    return runtime_config
+                return config_gateway.resolve_config("ai_position_match")
+            finally:
+                config_db.close()
+
         def _build_ai_match_resume_text_in_thread(candidate_id: int) -> str:
             from ..database import SessionLocal
 
@@ -12955,14 +13034,14 @@ class RecruitmentService:
             from .match_scheduler import scheduler
             from .task_event_bus import TaskEventBus
 
-            # 创建独立的 DB session（请求结束后 self.db 已关闭）
-            db = SessionLocal()
             start_time = _time.time()
 
             logger.info("[AI_MATCH] _on_match_done called: candidate_id=%d, slot_key=%s, batch_id=%s",
                         task.candidate_id, slot.key_id, task.batch_id)
 
+            db = None
             candidate = None
+            callback_service = None
             match_result = None
             candidate_snapshot = None
             final_status = None
@@ -12970,23 +13049,16 @@ class RecruitmentService:
             screening_enqueue_error_message = None
             resume_text_failure_message = None
             try:
-                # 解析调度器分配的 key 的运行时配置
-                runtime_config = ai_gateway.resolve_config_by_id(slot.config_id)
-
-                # 用独立 session 重新查询候选人，确保读取的是最新状态
-                candidate = db.query(RecruitmentCandidate).filter(
-                    RecruitmentCandidate.id == task.candidate_id,
-                ).first()
-                if not candidate:
-                    logger.error("[AI_MATCH] Candidate %d not found in DB, skipping", task.candidate_id)
-                    return
-                callback_service = RecruitmentService(db)
-                callback_service._session_token = callback_service._normalize_task_session_token(session_token)
-
                 if scheduler.is_cancelled(task.candidate_id):
                     scheduler.clear_cancelled(task.candidate_id)
                     logger.info("[AI_MATCH] Candidate %d was cancelled before model call, skipping result persistence", task.candidate_id)
                     return
+
+                # 只短暂打开 DB 解析模型配置，LLM 请求期间不持有 MySQL 连接。
+                runtime_config = await asyncio.to_thread(
+                    _resolve_ai_match_runtime_config,
+                    slot.config_id,
+                )
 
                 if not task.resume_content:
                     try:
@@ -12995,11 +13067,11 @@ class RecruitmentService:
                             task.candidate_id,
                         )
                     except Exception as exc:
+                        failure_code, _failure_message = _classify_infra_failure(exc)
+                        if _is_retryable_infra_failure_code(failure_code):
+                            raise
                         resume_text_failure_message = str(exc or "").strip() or "简历未提取到可识别文本，AI 智能匹配未启动"
                         logger.warning("[AI_MATCH] Candidate %d skipped because resume text is unavailable: %s", task.candidate_id, resume_text_failure_message)
-                    except Exception:
-                        db.rollback()
-                        raise
 
                 if scheduler.is_cancelled(task.candidate_id):
                     scheduler.clear_cancelled(task.candidate_id)
@@ -13038,6 +13110,23 @@ class RecruitmentService:
                     logger.info("[AI_MATCH] Candidate %d was cancelled during model call, discarding match result", task.candidate_id)
                     return
                 duration_ms = int((_time.time() - start_time) * 1000)
+
+                # 模型调用结束后再开 DB session 写入结果，避免长耗时 HTTP 调用占住连接。
+                db = SessionLocal()
+                candidate = db.query(RecruitmentCandidate).filter(
+                    RecruitmentCandidate.id == task.candidate_id,
+                ).first()
+                if not candidate:
+                    logger.error("[AI_MATCH] Candidate %d not found in DB, skipping", task.candidate_id)
+                    return
+                callback_service = RecruitmentService(db)
+                callback_service._session_token = callback_service._normalize_task_session_token(session_token)
+
+                if scheduler.is_cancelled(task.candidate_id):
+                    scheduler.clear_cancelled(task.candidate_id)
+                    logger.info("[AI_MATCH] Candidate %d was cancelled before result persistence, discarding match result", task.candidate_id)
+                    return
+
                 if match_result and match_result.get("position_id"):
                     position = db.query(RecruitmentPosition).filter(
                         RecruitmentPosition.id == match_result["position_id"]
@@ -13107,7 +13196,7 @@ class RecruitmentService:
                     candidate.talent_pool_moved_at = datetime.now()
                     db.commit()
                     db.refresh(candidate)
-                    candidate_snapshot = self._serialize_realtime_candidate_item(candidate)
+                    candidate_snapshot = callback_service._serialize_realtime_candidate_item(candidate)
                     final_status = (
                         str((candidate_snapshot or {}).get("display_status") or "").strip()
                         or str((candidate_snapshot or {}).get("status") or "").strip()
@@ -13157,7 +13246,7 @@ class RecruitmentService:
                         validation_meta_json=_prepare_ai_task_json_text({
                             "failure_code": "resume_text_unavailable",
                         }) if resume_text_failure_message else None,
-                        session_token=self._normalize_task_session_token(session_token),
+                        session_token=callback_service._normalize_task_session_token(session_token),
                         created_by=actor_id,
                         created_at=now,
                         updated_at=now,
@@ -13177,10 +13266,10 @@ class RecruitmentService:
                              task.candidate_id, e, exc_info=True)
                 screening_enqueue_failed = True
                 screening_enqueue_error_message = "自动初筛入队失败，请稍后重试"
-                if candidate is not None:
+                if candidate is not None and db is not None and callback_service is not None:
                     try:
                         db.flush()
-                        candidate_snapshot = self._serialize_realtime_candidate_item(candidate)
+                        candidate_snapshot = callback_service._serialize_realtime_candidate_item(candidate)
                         if isinstance(candidate_snapshot, dict):
                             candidate_snapshot["display_status_reason"] = screening_enqueue_error_message
                         final_status = (
@@ -13214,10 +13303,16 @@ class RecruitmentService:
                 raise
             finally:
                 if final_status is None:
-                    if candidate_snapshot is None and candidate and self._is_business_row_visible(candidate):
+                    if (
+                        candidate_snapshot is None
+                        and candidate
+                        and db is not None
+                        and callback_service is not None
+                        and callback_service._is_business_row_visible(candidate)
+                    ):
                         try:
                             db.flush()
-                            candidate_snapshot = self._serialize_realtime_candidate_item(candidate)
+                            candidate_snapshot = callback_service._serialize_realtime_candidate_item(candidate)
                             if screening_enqueue_failed and isinstance(candidate_snapshot, dict):
                                 candidate_snapshot["display_status_reason"] = screening_enqueue_error_message
                         except Exception:
@@ -13227,7 +13322,8 @@ class RecruitmentService:
                         or str((candidate_snapshot or {}).get("status") or "").strip()
                         or (candidate.status if candidate else "unmatched")
                     )
-                db.close()
+                if db is not None:
+                    db.close()
 
             # 推送 SSE 增量更新
             if session_token:

@@ -17,12 +17,27 @@ SQLALCHEMY_DATABASE_URL = (
 # print(f"--- [DATABASE] Environment: {os.getenv('ENVIRONMENT', 'local')} ---")
 # print(f"--- [DATABASE] Connecting to: {db_config['host']}:{db_config['port']}/{db_config['database']} ---")
 
+
+def _int_env(name: str, default: int, *, minimum: int) -> int:
+    raw = os.getenv(name)
+    try:
+        value = int(raw) if raw not in (None, "") else default
+    except (TypeError, ValueError):
+        value = default
+    return max(minimum, value)
+
+
+DB_POOL_SIZE = _int_env("DB_POOL_SIZE", 20, minimum=1)
+DB_MAX_OVERFLOW = _int_env("DB_MAX_OVERFLOW", 10, minimum=0)
+DB_POOL_TIMEOUT = _int_env("DB_POOL_TIMEOUT", 30, minimum=1)
+DB_POOL_RECYCLE = _int_env("DB_POOL_RECYCLE", 600, minimum=60)
+
 engine = create_engine(
     SQLALCHEMY_DATABASE_URL,
-    pool_size=20,          # 4 workers × 8 screening threads = 32 并发，pool 需覆盖
-    max_overflow=20,       # 总上限 40，留余量给 API 请求
-    pool_timeout=10,       # 快速失败，不长时间等待连接
-    pool_recycle=600,      # 测试/容器环境常有短连接回收，主动换连接避免 MySQL gone away
+    pool_size=DB_POOL_SIZE,
+    max_overflow=DB_MAX_OVERFLOW,
+    pool_timeout=DB_POOL_TIMEOUT,
+    pool_recycle=DB_POOL_RECYCLE,  # 测试/容器环境常有短连接回收，主动换连接避免 MySQL gone away
     pool_pre_ping=True,
     pool_use_lifo=True,    # 配合 pre_ping，优先复用热连接，闲置连接被服务端断开时自动重连
     connect_args={"init_command": "SET SESSION innodb_lock_wait_timeout=5"},

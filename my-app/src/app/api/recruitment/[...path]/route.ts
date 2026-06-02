@@ -207,7 +207,7 @@ async function proxyRecruitmentRequest(
         : timeoutSignal)
     : clientSignal || timeoutSignal;
 
-  const init: RequestInit = {
+  const init: RequestInit & { duplex?: "half" } = {
     method: request.method,
     headers,
     cache: "no-store",
@@ -215,7 +215,12 @@ async function proxyRecruitmentRequest(
   };
 
   if (!["GET", "HEAD"].includes(request.method)) {
-    init.body = Buffer.from(await request.arrayBuffer());
+    if (path === "candidates/upload-resumes" && request.body) {
+      init.body = request.body;
+      init.duplex = "half";
+    } else {
+      init.body = Buffer.from(await request.arrayBuffer());
+    }
   }
 
   const isSafeToRetry = ["GET", "HEAD"].includes(request.method);

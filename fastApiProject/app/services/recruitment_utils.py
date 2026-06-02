@@ -953,6 +953,70 @@ def _extract_text_from_pdf_with_pdfium(file_path: Path) -> str:
     return "\n".join(chunk for chunk in chunks if chunk).strip()
 
 
+def _python_subprocess_env() -> Dict[str, str]:
+    python_path = str(FASTAPI_ROOT)
+    existing_python_path = os.environ.get("PYTHONPATH", "")
+    if existing_python_path:
+        python_path = f"{python_path}{os.pathsep}{existing_python_path}"
+    return {**os.environ, "PYTHONPATH": python_path}
+
+
+def _int_env(name: str, default: int, *, minimum: int) -> int:
+    raw = os.getenv(name)
+    try:
+        value = int(raw) if raw not in (None, "") else default
+    except (TypeError, ValueError):
+        value = default
+    return max(minimum, value)
+
+
+def _run_pdf_extractor_subprocess(extractor_name: str, file_path: Path, *, timeout: int) -> str:
+    script = """
+import contextlib
+import io
+import sys
+from pathlib import Path
+from app.services import recruitment_utils
+
+extractor_name = sys.argv[1]
+file_path = Path(sys.argv[2])
+extractor = getattr(recruitment_utils, extractor_name)
+noise = io.StringIO()
+try:
+    with contextlib.redirect_stdout(noise):
+        output = extractor(file_path)
+except Exception as exc:
+    sys.stderr.write(str(exc))
+    sys.exit(1)
+noise_text = noise.getvalue()
+if noise_text:
+    sys.stderr.write(noise_text)
+sys.stdout.write(output or "")
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script, extractor_name, str(file_path)],
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        check=False,
+        env=_python_subprocess_env(),
+    )
+    if result.returncode != 0:
+        reason = (result.stderr or result.stdout or f"exit={result.returncode}").strip()
+        raise RuntimeError(f"{extractor_name} subprocess failed: {reason}")
+    return result.stdout.strip()
+
+
+def _extract_text_from_pdf_with_pdfium_subprocess(file_path: Path) -> str:
+    if pdfium is None:
+        raise RuntimeError("pypdfium2 is unavailable")
+    return _run_pdf_extractor_subprocess(
+        "_extract_text_from_pdf_with_pdfium",
+        file_path,
+        timeout=_int_env("RECRUITMENT_PDFIUM_TEXT_TIMEOUT_SECONDS", 30, minimum=5),
+    )
+
+
 def _extract_text_from_pdf_with_pdfkit(file_path: Path) -> str:
     swift_path = shutil.which("swift")
     if not swift_path:
@@ -1155,6 +1219,14 @@ def _extract_text_from_pdf_with_paddleocr(file_path: Path) -> str:
     return output
 
 
+def _extract_text_from_pdf_with_paddleocr_subprocess(file_path: Path) -> str:
+    return _run_pdf_extractor_subprocess(
+        "_extract_text_from_pdf_with_paddleocr",
+        file_path,
+        timeout=_int_env("RECRUITMENT_PDF_OCR_TIMEOUT_SECONDS", 120, minimum=30),
+    )
+
+
 def _score_pdf_text_quality(text: str) -> int:
     value = str(text or "")
     cjk_chars = len(re.findall(r"[\u4e00-\u9fff]", value))
@@ -1218,13 +1290,6 @@ def extract_text_from_pdf(file_path: Path) -> str:
                 return text
         except Exception as exc:
             errors.append(f"pypdf: {exc}")
-    if pdfium is not None:
-        try:
-            text = _use_text_or_continue("pypdfium2", _extract_text_from_pdf_with_pdfium(file_path))
-            if text:
-                return text
-        except Exception as exc:
-            errors.append(f"pypdfium2: {exc}")
     if sys.platform == "darwin":
         try:
             text = _use_text_or_continue("pdfkit", _extract_text_from_pdf_with_pdfkit(file_path))
@@ -1239,12 +1304,19 @@ def extract_text_from_pdf(file_path: Path) -> str:
                 return text
         except Exception as exc:
             errors.append(f"pdfkit: {exc}")
+    if pdfium is not None:
+        try:
+            text = _use_text_or_continue("pypdfium2_subprocess", _extract_text_from_pdf_with_pdfium_subprocess(file_path))
+            if text:
+                return text
+        except Exception as exc:
+            errors.append(f"pypdfium2_subprocess: {exc}")
     if _should_try_pdf_ocr(best_text):
         try:
             ocr_text = (
                 _extract_text_from_pdf_with_macos_vision_ocr(file_path)
                 if sys.platform == "darwin"
-                else _extract_text_from_pdf_with_paddleocr(file_path)
+                else _extract_text_from_pdf_with_paddleocr_subprocess(file_path)
             )
             if ocr_text.strip():
                 return ocr_text
@@ -1256,7 +1328,7 @@ def extract_text_from_pdf(file_path: Path) -> str:
     if errors:
         raise RuntimeError("PDF text extraction failed: " + " | ".join(errors))
     raise RuntimeError(
-        "PDF text extraction dependency unavailable: install pypdf, enable pypdfium2 fallback, or use macOS PDFKit fallback."
+        "PDF text extraction dependency unavailable: install pypdf, enable isolated pypdfium2 fallback, or use macOS PDFKit fallback."
     )
 
 
