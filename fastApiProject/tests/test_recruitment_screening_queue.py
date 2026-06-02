@@ -992,6 +992,31 @@ def test_strict_one_pass_repairs_extra_array_closer_after_string_field():
     assert result["content"]["score"]["suggested_status"] == "screening_passed"
 
 
+def test_strict_one_pass_repairs_orphan_evidence_string_values():
+    raw_response = (
+        '{"parsed_resume":{"basic_info":{"name":"高锋","email":"454863113@qq.com","age":"33"},'
+        '"work_experiences":[],"education_experiences":[],"skills":[],"projects":[],"summary":""},'
+        '"score":{"total_score":3.8,"match_percent":38,"advantages":["项目交付经验"],'
+        '"concerns":["协议经验需确认"],"recommendation":"建议进入人才池","suggested_status":"talent_pool",'
+        '"dimensions":[{"label":"基础条件匹配","score":0.5,"max_score":0.5,'
+        '"reason":"年龄和驾照匹配","evidence":"33岁","驾驶证C1","is_inferred":false,'
+        '"radar_category":"岗位匹配度"}],'
+        '"radar_scores":[{"category":"岗位匹配度","score":1.6,"max_score":2.0,'
+        '"reason":"基础条件匹配","evidence":"33岁","驾驶证C1"}]},'
+        '"position_match":{"recommended_position":"智能家居技术工程师","confidence":75,'
+        '"reason":"项目经验匹配","potential_position":"弱电智能化项目经理",'
+        '"potential_reason":"具备项目管控经验"}}'
+    )
+
+    result = _parse_strict_json_response(raw_response, task_type=SCREENING_ONE_PASS_TASK_TYPE)
+
+    dimension_evidence = result["content"]["score"]["dimensions"][0]["evidence"]
+    radar_evidence = result["content"]["score"]["radar_scores"][0]["evidence"]
+    assert dimension_evidence == ["33岁", "驾驶证C1"]
+    assert radar_evidence == ["33岁", "驾驶证C1"]
+    assert result["content"]["score"]["suggested_status"] == "talent_pool"
+
+
 def test_strict_one_pass_recovers_parse_only_fragment_array_for_score_salvage():
     raw_response = json.dumps(
         [

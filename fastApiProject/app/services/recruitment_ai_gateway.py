@@ -220,6 +220,28 @@ def _repair_missing_commas_globally(value: str) -> str:
     return repaired
 
 
+def _repair_orphan_evidence_strings(value: str) -> str:
+    text = str(value or "")
+    if not text or '"evidence"' not in text:
+        return text
+    json_string = r'"(?:\\.|[^"\\])*"'
+    scalar_evidence_pattern = re.compile(
+        rf'("evidence"\s*:\s*)({json_string})(\s*,\s*)({json_string})(?!\s*:)',
+        flags=re.DOTALL,
+    )
+    array_evidence_pattern = re.compile(
+        rf'("evidence"\s*:\s*\[((?:[^\[\]"\\]|\\.|{json_string})*?))\]\s*,\s*({json_string})(?!\s*:)',
+        flags=re.DOTALL,
+    )
+    for _ in range(4):
+        previous = text
+        text = scalar_evidence_pattern.sub(r"\1[\2, \4]", text)
+        text = array_evidence_pattern.sub(r"\1, \3]", text)
+        if text == previous:
+            break
+    return text
+
+
 def _remove_mismatched_json_closers(value: str) -> str:
     text = str(value or "")
     if not text:
@@ -456,6 +478,7 @@ def _repair_json_candidate(value: str) -> str:
     repaired = _normalize_json_candidate_text(_extract_json_candidate(value or "{}").strip() or "{}")
     repaired = _escape_control_chars_in_json_strings(repaired)
     repaired = _escape_unescaped_inner_quotes_in_json_strings(repaired)
+    repaired = _repair_orphan_evidence_strings(repaired)
     repaired = _repair_missing_object_wrappers_in_arrays(repaired)
     repaired = _remove_mismatched_json_closers(repaired)
     repaired = _repair_missing_commas_globally(repaired)
