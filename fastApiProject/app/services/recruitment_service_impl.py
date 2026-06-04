@@ -5877,15 +5877,36 @@ class RecruitmentService:
             scope_level=getattr(row, "scope_level", None),
         )
 
-    def _apply_business_org_filter(self, builder: Any, model: Any) -> Any:
+    def _resolve_business_org_scope_codes(self, org_code: Optional[str] = None) -> Optional[List[str]]:
+        requested_codes: Optional[set[str]] = None
+        normalized_org_code = normalize_org_code(org_code) if org_code else ""
+        if normalized_org_code:
+            requested_codes = {
+                normalize_org_code(code)
+                for code in self._get_org_and_descendant_codes(normalized_org_code)
+                if normalize_org_code(code)
+            }
         if not self.permission_context or self.permission_context.has_all_orgs:
-            return builder
-        org_codes = list(self.permission_context.visible_org_codes or ())
-        if hasattr(model, "org_code"):
+            return sorted(requested_codes) if requested_codes is not None else None
+        visible_codes = {
+            normalize_org_code(code)
+            for code in (self.permission_context.visible_org_codes or ())
+            if normalize_org_code(code)
+        }
+        if requested_codes is not None:
+            return sorted(requested_codes.intersection(visible_codes))
+        return sorted(visible_codes)
+
+    def _apply_business_org_scope_filter(self, builder: Any, model: Any, org_code: Optional[str] = None) -> Any:
+        org_codes = self._resolve_business_org_scope_codes(org_code)
+        if org_codes is not None and hasattr(model, "org_code"):
             builder = builder.filter(model.org_code.in_(org_codes))
-        if self.permission_context.is_self_scope and hasattr(model, "created_by"):
+        if self.permission_context and self.permission_context.is_self_scope and hasattr(model, "created_by"):
             builder = builder.filter(model.created_by == self.permission_context.actor_user_code)
         return builder
+
+    def _apply_business_org_filter(self, builder: Any, model: Any) -> Any:
+        return self._apply_business_org_scope_filter(builder, model)
 
     def _assert_business_row_visible(self, row: Any) -> None:
         if not self.permission_context or self.permission_context.has_all_orgs:
@@ -10531,13 +10552,7 @@ class RecruitmentService:
                 )
                 .filter(RecruitmentCandidate.deleted.is_(False))
             )
-            if org_code:
-                codes = self._get_org_and_descendant_codes(org_code)
-                q = q.filter(RecruitmentCandidate.org_code.in_(codes))
-                if self.permission_context and self.permission_context.is_self_scope:
-                    q = q.filter(RecruitmentCandidate.created_by == self.permission_context.actor_user_code)
-            else:
-                q = self._apply_business_org_filter(q, RecruitmentCandidate)
+            q = self._apply_business_org_scope_filter(q, RecruitmentCandidate, org_code)
             q = q.filter(self._position_pipeline_candidate_filter_expr())
             if position_id:
                 q = q.filter(RecruitmentCandidate.position_id == position_id)
@@ -10578,13 +10593,7 @@ class RecruitmentService:
         from sqlalchemy import func as sa_func
 
         base_q = self.db.query(RecruitmentCandidate).filter(RecruitmentCandidate.deleted.is_(False))
-        if org_code:
-            codes = self._get_org_and_descendant_codes(org_code)
-            base_q = base_q.filter(RecruitmentCandidate.org_code.in_(codes))
-            if self.permission_context and self.permission_context.is_self_scope:
-                base_q = base_q.filter(RecruitmentCandidate.created_by == self.permission_context.actor_user_code)
-        else:
-            base_q = self._apply_business_org_filter(base_q, RecruitmentCandidate)
+        base_q = self._apply_business_org_scope_filter(base_q, RecruitmentCandidate, org_code)
         base_q = base_q.filter(self._position_pipeline_candidate_filter_expr())
         if position_id:
             base_q = base_q.filter(RecruitmentCandidate.position_id == position_id)
@@ -10627,13 +10636,7 @@ class RecruitmentService:
             )
             .filter(RecruitmentCandidate.deleted.is_(False))
         )
-        if org_code:
-            codes = self._get_org_and_descendant_codes(org_code)
-            base_q = base_q.filter(RecruitmentCandidate.org_code.in_(codes))
-            if self.permission_context and self.permission_context.is_self_scope:
-                base_q = base_q.filter(RecruitmentCandidate.created_by == self.permission_context.actor_user_code)
-        else:
-            base_q = self._apply_business_org_filter(base_q, RecruitmentCandidate)
+        base_q = self._apply_business_org_scope_filter(base_q, RecruitmentCandidate, org_code)
         base_q = base_q.filter(self._position_pipeline_candidate_filter_expr())
         if position_id:
             base_q = base_q.filter(RecruitmentCandidate.position_id == position_id)
@@ -10653,18 +10656,10 @@ class RecruitmentService:
         }
 
     def _build_candidate_scoped_query(self, org_code: Optional[str] = None):
-        if org_code:
-            codes = self._get_org_and_descendant_codes(org_code)
-            builder = self.db.query(RecruitmentCandidate).filter(
-                RecruitmentCandidate.deleted.is_(False),
-                RecruitmentCandidate.org_code.in_(codes),
-            )
-            if self.permission_context and self.permission_context.is_self_scope:
-                builder = builder.filter(RecruitmentCandidate.created_by == self.permission_context.actor_user_code)
-            return builder
-        return self._apply_business_org_filter(
+        return self._apply_business_org_scope_filter(
             self.db.query(RecruitmentCandidate).filter(RecruitmentCandidate.deleted.is_(False)),
             RecruitmentCandidate,
+            org_code,
         )
 
     def list_candidates(self, query: Optional[str] = None, status: Optional[str] = None, position_id: Optional[int] = None, tag: Optional[str] = None, limit: int = 0, offset: int = 0, org_code: Optional[str] = None, compact: bool = False, sort_by: Optional[str] = None, sort_order: Optional[str] = None, source: Optional[str] = None, time_filter: Optional[str] = None, match_min: Optional[float] = None) -> Dict[str, Any]:
@@ -18119,11 +18114,11 @@ class RecruitmentService:
             RecruitmentCandidate.deleted.is_(False),
         )
         normalized_org_code = normalize_org_code(org_code) if org_code else ""
-        if normalized_org_code:
-            candidate_query = candidate_query.filter(
-                RecruitmentCandidate.org_code.in_(self._get_org_and_descendant_codes(normalized_org_code)),
-            )
-        candidate_query = self._apply_business_org_filter(candidate_query, RecruitmentCandidate)
+        candidate_query = self._apply_business_org_scope_filter(
+            candidate_query,
+            RecruitmentCandidate,
+            normalized_org_code or None,
+        )
         visible_candidate_ids = candidate_query.subquery()
 
         rows = self.db.query(RecruitmentAITaskLog).join(
@@ -19917,13 +19912,7 @@ class RecruitmentService:
                 sa_func.count(RecruitmentAITaskLog.id).label("cnt"),
             )
         )
-        if org_code:
-            codes = self._get_org_and_descendant_codes(org_code)
-            base_q = base_q.filter(RecruitmentAITaskLog.org_code.in_(codes))
-            if self.permission_context and self.permission_context.is_self_scope:
-                base_q = base_q.filter(RecruitmentAITaskLog.created_by == self.permission_context.actor_user_code)
-        else:
-            base_q = self._apply_business_org_filter(base_q, RecruitmentAITaskLog)
+        base_q = self._apply_business_org_scope_filter(base_q, RecruitmentAITaskLog, org_code)
         if task_type:
             base_q = base_q.filter(RecruitmentAITaskLog.task_type == task_type)
         else:
@@ -19940,13 +19929,7 @@ class RecruitmentService:
         }
 
     def list_ai_task_logs(self, task_type: Optional[str] = None, status: Optional[str] = None, limit: int = 20, offset: int = 0, org_code: Optional[str] = None) -> Dict[str, Any]:
-        if org_code:
-            codes = self._get_org_and_descendant_codes(org_code)
-            builder = self.db.query(RecruitmentAITaskLog).filter(RecruitmentAITaskLog.org_code.in_(codes))
-            if self.permission_context and self.permission_context.is_self_scope:
-                builder = builder.filter(RecruitmentAITaskLog.created_by == self.permission_context.actor_user_code)
-        else:
-            builder = self._apply_business_org_filter(self.db.query(RecruitmentAITaskLog), RecruitmentAITaskLog)
+        builder = self._apply_business_org_scope_filter(self.db.query(RecruitmentAITaskLog), RecruitmentAITaskLog, org_code)
         if task_type:
             builder = builder.filter(RecruitmentAITaskLog.task_type == task_type)
         else:

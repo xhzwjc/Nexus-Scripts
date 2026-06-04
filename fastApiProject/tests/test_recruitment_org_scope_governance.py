@@ -295,6 +295,59 @@ def test_recruitment_positions_and_candidates_follow_group_company_department_sc
         db.close()
 
 
+def test_candidate_and_talent_pool_stats_intersect_requested_org_with_visible_scope():
+    db = _build_test_db()
+    try:
+        _seed_org_tree(db)
+        _seed_catalog(db)
+        _, candidates = _seed_recruitment_dataset(db)
+
+        candidates["chunmiao-rd-other"].status = "unmatched"
+        candidates["chunmiao-rd-other"].talent_pool_reason = "unmatched_by_ai"
+        candidates["haoshi"].status = "unmatched"
+        candidates["haoshi"].talent_pool_reason = "unmatched_by_ai"
+        db.commit()
+
+        rd_user = _service(db, _session("rd-user", "chunmiao-rd", DATA_SCOPE_ORG_ONLY))
+        candidate_page = rd_user.list_candidates(org_code="group", limit=50)
+        assert candidate_page["total"] == 1
+        assert _names(candidate_page) == {"研发候选人"}
+
+        candidate_stats = rd_user.get_candidate_stats(org_code="group")
+        assert candidate_stats["total"] == candidate_page["total"]
+        assert candidate_stats["status_counts"] == {"pending_screening": 1}
+
+        funnel = rd_user.get_recruitment_funnel(org_code="group")
+        assert next(item for item in funnel["stages"] if item["key"] == "total")["count"] == candidate_page["total"]
+
+        source_stats = rd_user.get_source_stats(org_code="group")
+        assert source_stats["total"] == candidate_page["total"]
+
+        talent_pool_page = rd_user.get_talent_pool_candidates(
+            org_code="group",
+            paginated=True,
+            stat_filter="pending",
+            limit=15,
+            offset=0,
+        )
+        assert talent_pool_page["total"] == 1
+        assert talent_pool_page["stats"]["total"] == 1
+        assert talent_pool_page["stats"]["pending_action"] == 1
+        assert _names(talent_pool_page) == {"研发其他候选人"}
+
+        group_all = _service(db, _session("group-admin", "group", DATA_SCOPE_ALL, super_admin=True))
+        admin_talent_pool_page = group_all.get_talent_pool_candidates(
+            org_code="group",
+            paginated=True,
+            stat_filter="pending",
+            limit=15,
+            offset=0,
+        )
+        assert admin_talent_pool_page["total"] == 2
+    finally:
+        db.close()
+
+
 def test_ai_position_match_pool_follows_self_data_scope():
     db = _build_test_db()
     try:
