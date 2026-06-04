@@ -3569,9 +3569,52 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         return () => recruitmentNavBus.removeEventListener('navigate', handler);
     }, [applyRecruitmentPageChange]);
 
+    const candidateSelectionScopeKey = useMemo(() => JSON.stringify({
+        dataScope: recruitmentDataCacheKey,
+        departmentScope: selectedDepartmentScope,
+        orgScope: selectedOrgScope,
+        query: candidateQuery.trim(),
+        positionFilter: candidatePositionFilter,
+        statusFilter: candidateStatusFilter,
+        sourceFilter: candidateSourceFilter,
+        timeFilter: candidateTimeFilter,
+        matchFilter: candidateMatchFilter,
+        matchSortOrder: candidateMatchSortOrder,
+    }), [
+        candidateMatchFilter,
+        candidateMatchSortOrder,
+        candidatePositionFilter,
+        candidateQuery,
+        candidateSourceFilter,
+        candidateStatusFilter,
+        candidateTimeFilter,
+        recruitmentDataCacheKey,
+        selectedDepartmentScope,
+        selectedOrgScope,
+    ]);
+    const candidateSelectionScopeKeyRef = useRef<string | null>(null);
+
     useEffect(() => {
-        setSelectedCandidateIds((current) => current.filter((candidateId) => visibleCandidates.some((candidate) => candidate.id === candidateId)));
-    }, [visibleCandidates]);
+        if (candidateSelectionScopeKeyRef.current === null) {
+            candidateSelectionScopeKeyRef.current = candidateSelectionScopeKey;
+            return;
+        }
+        if (candidateSelectionScopeKeyRef.current === candidateSelectionScopeKey) {
+            return;
+        }
+        candidateSelectionScopeKeyRef.current = candidateSelectionScopeKey;
+        setSelectedCandidateIds((current) => current.length ? [] : current);
+    }, [candidateSelectionScopeKey]);
+
+    const removeCandidateIdsFromSelection = useCallback((candidateIds: number[]) => {
+        const removedIdSet = new Set(candidateIds.filter((candidateId) => Number.isFinite(candidateId)));
+        if (!removedIdSet.size) {
+            return;
+        }
+        setSelectedCandidateIds((current) => (
+            current.length ? current.filter((candidateId) => !removedIdSet.has(candidateId)) : current
+        ));
+    }, []);
 
     useEffect(() => {
         if (candidatePositionFilter.length > 0) {
@@ -9339,6 +9382,11 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 });
                 const reusedResultCount = Number(response.duplicated_count || 0);
                 if (response.queued_count || response.skipped_existing_live_task_count || reusedResultCount) {
+                    removeCandidateIdsFromSelection(
+                        response.tasks
+                            .map((task) => Number(task.related_candidate_id || 0))
+                            .filter((candidateId) => Number.isFinite(candidateId) && candidateId > 0),
+                    );
                     toast.success(
                         recruitmentToast.screeningQueued(
                             response.queued_count,
@@ -9420,7 +9468,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                         ? `已按当前岗位最新规则重新初筛 ${response.queued_count || 0} 位候选人`
                         : `Queued fresh screening for ${response.queued_count || 0} candidate(s).`,
                 );
-                setSelectedCandidateIds((current) => current.filter((candidateId) => !candidateIds.includes(candidateId)));
+                removeCandidateIdsFromSelection(candidateIds);
                 void refreshActiveCandidateListAndStats({ silent: true }).catch(() => {});
                 return;
             }
@@ -9443,7 +9491,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 });
             }
             toast.success(isZh ? "已按当前岗位最新规则重新初筛" : "Fresh screening queued.");
-            setSelectedCandidateIds((current) => current.filter((item) => item !== candidateId));
+            removeCandidateIdsFromSelection([candidateId]);
             void refreshActiveCandidateListAndStats({ silent: true }).catch(() => {});
         } catch (error) {
             toast.error(recruitmentToast.screeningStartFailed(formatActionError(error)));
@@ -10339,6 +10387,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             toast.success(
                 recruitmentToast.positionUpdated(result.updated_count)
             );
+            removeCandidateIdsFromSelection(candidateIds);
             await Promise.all([loadCandidates(), refreshCandidateStats(), loadTalentPoolCandidates()]);
             if (selectedCandidateId && candidateIds.includes(selectedCandidateId)) {
                 await loadCandidateDetail(selectedCandidateId);
@@ -10362,6 +10411,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 body: JSON.stringify({ candidate_ids: candidateIds, status, reason: reason || undefined }),
             });
             toast.success(recruitmentToast.batchStatusUpdated(result.updated_count));
+            removeCandidateIdsFromSelection(candidateIds);
             await Promise.all([
                 loadCandidates(),
                 refreshCandidateStats(),
@@ -12820,6 +12870,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                         method: "POST",
                         body: JSON.stringify({ candidate_ids: candidateIds }),
                     });
+                    removeCandidateIdsFromSelection(candidateIds);
                     await Promise.all([
                         loadCandidates(),
                         loadTalentPoolCandidates(),
