@@ -3529,14 +3529,19 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         setSettingsPopoverOpen(false);
     }, [activePage]);
 
-    // 进入人才库页面时加载数据（保留用户之前的分页设置）
+    // 进入人才库页面时加载默认待处理列表；上传后的识别中入口只生效一次。
     useEffect(() => {
         if (activePage === "talent-pool") {
+            const nextStatFilter = talentPoolPreferredStatFilter || DEFAULT_TALENT_POOL_QUERY.statFilter;
             const nextQuery: TalentPoolQueryState = {
                 ...DEFAULT_TALENT_POOL_QUERY,
                 ...talentPoolQueryRef.current,
-                statFilter: talentPoolPreferredStatFilter || talentPoolQueryRef.current.statFilter || DEFAULT_TALENT_POOL_QUERY.statFilter,
+                statFilter: nextStatFilter,
+                pageIndex: 0,
+                offset: 0,
             };
+            setTalentPoolPageIndex(0);
+            talentPoolPageIndexRef.current = 0;
             talentPoolQueryRef.current = nextQuery;
             loadTalentPoolCandidates({ query: nextQuery });
         }
