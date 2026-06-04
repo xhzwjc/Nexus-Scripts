@@ -900,6 +900,8 @@ const CandidateApplicantCard = React.memo(function CandidateApplicantCard({
         : (aiPositionLabel ? `${isZh ? "AI 推荐" : "AI recommendation"}：${aiPositionLabel}` : positionSourceLabel);
     const actionSummaryText = statusReasonText
         || (isZh ? "该应聘者已进入当前筛选流程，可继续处理。" : "Candidate is in the current screening flow and can be processed.");
+    const showPassAction = displayStatus !== "screening_passed";
+    const showRejectAction = displayStatus !== "screening_rejected";
     const fitBannerClassName = cn(
         "mt-3 flex min-w-0 items-center justify-between gap-3 rounded-md border px-3 py-2 text-xs leading-5",
         displayStatus === "screening_rejected" || displayStatus === "interview_rejected"
@@ -1027,15 +1029,19 @@ const CandidateApplicantCard = React.memo(function CandidateApplicantCard({
                             </div>
                             <p className="text-left text-xs font-medium text-[var(--tr-ink-muted)]">{isZh ? "候选人处理" : "Candidate actions"}</p>
                             <div className="flex min-w-0 flex-nowrap items-center gap-1.5 overflow-visible" onClick={(event) => event.stopPropagation()}>
-                                <Button size="sm" className="h-8 w-auto shrink-0 justify-center rounded-md bg-emerald-600 px-3 text-xs leading-5 text-white shadow-none hover:bg-emerald-700" onClick={() => onDisposition(candidate.id, "pass")}>
-                                    <span className="whitespace-nowrap">{tr.quickDispositionPass}</span>
-                                </Button>
+                                {showPassAction ? (
+                                    <Button size="sm" className="h-8 w-auto shrink-0 justify-center rounded-md bg-emerald-600 px-3 text-xs leading-5 text-white shadow-none hover:bg-emerald-700" onClick={() => onDisposition(candidate.id, "pass")}>
+                                        <span className="whitespace-nowrap">{tr.quickDispositionPass}</span>
+                                    </Button>
+                                ) : null}
                                 <Button size="sm" variant="outline" className="h-8 w-auto shrink-0 justify-center rounded-md px-3 text-xs leading-5" onClick={() => onDisposition(candidate.id, "talent_pool")}>
                                     <span className="whitespace-nowrap">{tr.quickDispositionTalentPool}</span>
                                 </Button>
-                                <Button size="sm" variant="outline" className="h-8 w-auto shrink-0 justify-center rounded-md border-rose-200 px-3 text-xs leading-5 text-rose-600 hover:bg-rose-50 dark:border-rose-900/70 dark:bg-slate-900 dark:text-rose-300 dark:hover:bg-rose-950/30" onClick={() => onDisposition(candidate.id, "reject")}>
-                                    <span className="whitespace-nowrap">{tr.quickDispositionReject}</span>
-                                </Button>
+                                {showRejectAction ? (
+                                    <Button size="sm" variant="outline" className="h-8 w-auto shrink-0 justify-center rounded-md border-rose-200 px-3 text-xs leading-5 text-rose-600 hover:bg-rose-50 dark:border-rose-900/70 dark:bg-slate-900 dark:text-rose-300 dark:hover:bg-rose-950/30" onClick={() => onDisposition(candidate.id, "reject")}>
+                                        <span className="whitespace-nowrap">{tr.quickDispositionReject}</span>
+                                    </Button>
+                                ) : null}
                             </div>
                         </div>
                     </div>
