@@ -791,7 +791,7 @@ interface RecruitmentAutomationContainerProps {
 
 // ---- 岗位内嵌候选人列表：行组件（模块级，稳定引用） ----
 const POSITION_CANDIDATE_PAGE_SIZE = 10;
-const POSITION_CANDIDATE_GRID_COLUMNS = "40px minmax(82px,0.95fr) minmax(96px,1.05fr) minmax(58px,0.56fr) minmax(58px,0.56fr) minmax(96px,0.86fr) minmax(86px,0.72fr) minmax(84px,0.72fr) minmax(76px,0.66fr) minmax(78px,0.66fr) 44px";
+const POSITION_CANDIDATE_GRID_COLUMNS = "28px minmax(82px,0.95fr) minmax(96px,1.05fr) minmax(58px,0.56fr) minmax(58px,0.56fr) minmax(96px,0.86fr) minmax(86px,0.72fr) minmax(84px,0.72fr) minmax(76px,0.66fr) minmax(78px,0.66fr) 44px";
 
 function compactText(value: unknown) {
     return String(value ?? "").trim();
@@ -1044,9 +1044,8 @@ const PositionCandidateRow = React.memo(function PositionCandidateRow({
                     }
                 }}
             >
-                <div className="flex min-w-0 items-center gap-2 text-slate-500 dark:text-slate-400">
-                    <span className="h-3.5 w-3.5 shrink-0 rounded-[3px] border border-slate-300 bg-white dark:border-slate-700 dark:bg-slate-950" aria-hidden="true"/>
-                    <span className="min-w-0 text-[12px] font-medium">{rowIndex}</span>
+                <div className="min-w-0 text-slate-500 dark:text-slate-400">
+                    <span className="block min-w-0 text-[12px] font-medium">{rowIndex}</span>
                 </div>
 
                 <div className="min-w-0">
