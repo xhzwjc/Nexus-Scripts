@@ -45,3 +45,6 @@ my-app/public/build-info.json
 # AI 招聘 SOP v2 截图与渲染产物（本地生成，不提交）
 /docs/assets/sop-v2-screenshots/
 /docs/assets/sop-v2-rendered/
+
+# 本地设计 QA 截图（验证产物，不提交）
+/design-qa-screenshots/

@@ -36,7 +36,7 @@ export const TimeChip: React.FC<TimeChipProps> = ({ name, now }) => {
 
     return (
         <StatusChip className="shrink-0 whitespace-nowrap">
-            <Clock className="w-4 h-4 text-primary" />
+            <Clock className="w-4 h-4 text-slate-500 dark:text-slate-400" />
             <span className="whitespace-nowrap tabular-nums font-mono dark:text-gray-50">
                 {parts.hour.toString().padStart(2, '0')}:{parts.minute}:{parts.second}
             </span>

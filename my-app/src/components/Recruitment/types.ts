@@ -838,7 +838,7 @@ export const mailSenderPresets: MailSenderPreset[] = [
 ];
 
 export const panelClass =
-    "rounded-md border border-slate-200 bg-white shadow-none dark:border-slate-800 dark:bg-slate-950";
+    "rounded-md border border-[var(--tr-border)] bg-white shadow-none dark:border-slate-800 dark:bg-slate-950";
 
 export type CandidateListColumnKey = "candidate" | "organization" | "position" | "status" | "match" | "city" | "expected_city" | "source" | "updated";
 export type AuditListColumnKey = "taskType" | "object" | "status" | "model" | "duration" | "time";

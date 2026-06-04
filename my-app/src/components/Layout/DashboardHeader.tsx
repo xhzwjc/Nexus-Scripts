@@ -78,9 +78,9 @@ export const DashboardHeader: React.FC<HeaderProps> = ({
     }, [showCalendar]);
 
     return (
-        <header className="sticky top-0 z-30 shrink-0 border-b border-[var(--border-subtle)] bg-[var(--glass-bg)] px-4 py-3 backdrop-blur-sm md:px-6 xl:px-8">
+        <header className="sticky top-0 z-30 shrink-0 border-b border-[var(--tr-border)] bg-[var(--glass-bg-solid)] px-4 py-2.5 shadow-[0_1px_2px_rgba(16,32,63,0.04)] dark:border-slate-800 dark:bg-slate-950 md:px-5 xl:px-6">
             <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
-                <div className="search-bar relative w-full min-w-0 xl:max-w-[min(38rem,42vw)] xl:flex-1">
+                <div className="search-bar relative w-full min-w-0 xl:max-w-[min(34rem,34vw)] xl:flex-1">
                     <Search className="w-[18px] h-[18px] text-[var(--text-tertiary)]" />
                     <input
                         type="text"
@@ -202,7 +202,7 @@ export const DashboardHeader: React.FC<HeaderProps> = ({
                 {/* Calendar Popover */}
                     <div className="relative" ref={calendarRef}>
                         <button
-                            className={`flex items-center justify-center rounded-lg p-2 transition-colors ${showCalendar ? 'bg-indigo-50 text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-400' : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]'}`}
+                            className={`flex items-center justify-center rounded-md border border-transparent p-2 transition-colors ${showCalendar ? 'border-[var(--tr-border)] bg-[var(--tr-red-soft)] text-[var(--tr-red)] dark:border-slate-700 dark:bg-indigo-500/20 dark:text-indigo-400' : 'text-[var(--text-secondary)] hover:border-[var(--tr-border)] hover:bg-slate-50 hover:text-[var(--text-primary)] dark:hover:border-slate-700 dark:hover:bg-slate-900 dark:hover:text-slate-100'}`}
                             onClick={() => setShowCalendar(!showCalendar)}
                             title="日程日历"
                         >
@@ -216,14 +216,14 @@ export const DashboardHeader: React.FC<HeaderProps> = ({
                     </div>
 
                     <button
-                        className="p-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+                        className="rounded-md border border-transparent p-2 text-[var(--text-secondary)] transition-colors hover:border-[var(--tr-border)] hover:bg-slate-50 hover:text-[var(--text-primary)] dark:hover:border-slate-700 dark:hover:bg-slate-900 dark:hover:text-slate-100"
                         onClick={() => setCurrentView('help')}
                         title={t.header.helpTitle}
                     >
                         <CircleHelp className="w-5 h-5" />
                     </button>
                     <button
-                        className="p-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+                        className="rounded-md border border-transparent p-2 text-[var(--text-secondary)] transition-colors hover:border-[var(--tr-border)] hover:bg-slate-50 hover:text-[var(--text-primary)] dark:hover:border-slate-700 dark:hover:bg-slate-900 dark:hover:text-slate-100"
                         onClick={handleLock}
                         title={t.header.lockTitle}
                     >

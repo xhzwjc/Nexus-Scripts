@@ -3,13 +3,9 @@
 import React from "react";
 import {
     Briefcase,
-    Building2,
-    Clock3,
     Check,
     Eye,
-    GraduationCap,
     Loader2,
-    Phone,
     Plus,
     RefreshCw,
     RotateCcw,
@@ -35,6 +31,11 @@ import {
     resolveTalentPoolDisplayStatus,
     sanitizeCandidateFacingErrorText,
 } from "../utils";
+import {useColumnResizeDrag} from "../hooks/useColumnResizeDrag";
+
+const TALENT_POOL_SCOPE_DEFAULT_WIDTH = 196;
+const TALENT_POOL_SCOPE_MIN_WIDTH = 18;
+const TALENT_POOL_SCOPE_MAX_WIDTH = 420;
 
 function getTalentPoolLocale(language = getCurrentLanguage()) {
     const isZh = language !== "en-US";
@@ -114,7 +115,7 @@ function getTalentPoolLocale(language = getCurrentLanguage()) {
         sourceStage: isZh ? "来源阶段" : "Source Stage",
         enteredAt: isZh ? "入库时间" : "Added",
         uploadedAt: isZh ? "上传时间" : "Uploaded",
-        sourceAiUnmatched: isZh ? "AI 未识别岗位" : "AI Unmatched",
+        sourceAiUnmatched: isZh ? "未匹配系统岗位" : "No System Position Match",
         sourceAiError: isZh ? "AI 识别异常" : "AI Error",
         sourceScreeningArchived: isZh ? "初筛完成后入库" : "Archived After Screening",
         sourceLegacyArchived: isZh ? "历史人才库数据" : "Legacy Talent Pool Record",
@@ -157,6 +158,8 @@ function getTalentPoolLocale(language = getCurrentLanguage()) {
         aiRecommendedPosition: isZh ? "AI推荐岗位" : "AI Recommended Position",
         potentialDirection: isZh ? "转岗潜力方向" : "Potential Transition Direction",
         potentialReason: isZh ? "潜力原因" : "Potential Reason",
+        potentialSuggested: isZh ? "建议" : "Suggested",
+        noPotentialSuggestion: isZh ? "暂无转岗建议" : "No transfer suggestion",
         expandReason: isZh ? "展开原因" : "Show reason",
         collapseReason: isZh ? "收起原因" : "Hide reason",
     };
@@ -187,26 +190,6 @@ type TalentPoolPageProps = {
     panelClass?: string;
     preferredStatFilter?: TalentPoolStatFilter | null;
     onPreferredStatFilterApplied?: () => void;
-};
-
-/* ── 人才库头像统一中性色，避免列表里出现随机彩色噪音 ── */
-const AVATAR_COLORS = ["av-neutral"] as const;
-
-function avatarColorIndex(name: string) {
-    let hash = 0;
-    for (let i = 0; i < name.length; i++) hash = ((hash << 5) - hash + name.charCodeAt(i)) | 0;
-    return Math.abs(hash) % AVATAR_COLORS.length;
-}
-
-function avatarInitial(name: string) {
-    const clean = name.replace(/[^一-龥a-zA-Z\s]/g, "").trim();
-    if (!clean) return "?";
-    if (/[\u4e00-\u9fff]/.test(clean)) return clean.slice(-1);
-    return clean.split(/\s+/).map(w => w[0]).join("").toUpperCase().slice(0, 2);
-}
-
-const AVATAR_BG: Record<string, string> = {
-    "av-neutral": "bg-neutral-100 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-200",
 };
 
 function sourceLabel(source: string | null | undefined, tr: ReturnType<typeof getTalentPoolLocale>) {
@@ -387,6 +370,49 @@ export function TalentPoolPage({
     const queryChangeInitializedRef = React.useRef(false);
     const onQueryChangeRef = React.useRef(onQueryChange);
     const hasSeenInitialLoadingRef = React.useRef(false);
+    const listScrollRef = React.useRef<HTMLDivElement | null>(null);
+    const [talentPoolScopeWidth, setTalentPoolScopeWidth] = React.useState(TALENT_POOL_SCOPE_DEFAULT_WIDTH);
+    const talentPoolScopeCollapsed = talentPoolScopeWidth <= TALENT_POOL_SCOPE_MIN_WIDTH + 1;
+    const talentPoolScopeGridStyle = React.useMemo(() => ({
+        "--talent-pool-scope-width": `${talentPoolScopeWidth}px`,
+    }) as React.CSSProperties, [talentPoolScopeWidth]);
+
+    const handleTalentPoolScopeResizeStart = useColumnResizeDrag({
+        currentWidth: talentPoolScopeWidth,
+        maxWidth: TALENT_POOL_SCOPE_MAX_WIDTH,
+        minWidth: TALENT_POOL_SCOPE_MIN_WIDTH,
+        setWidth: setTalentPoolScopeWidth,
+    });
+
+    const handleTalentPoolScopeResizeKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLButtonElement>) => {
+        const normalizeWidth = (width: number) => Math.max(
+            TALENT_POOL_SCOPE_MIN_WIDTH,
+            Math.min(TALENT_POOL_SCOPE_MAX_WIDTH, width),
+        );
+
+        if (event.key === "ArrowLeft") {
+            event.preventDefault();
+            setTalentPoolScopeWidth((width) => normalizeWidth(width - 24));
+            return;
+        }
+
+        if (event.key === "ArrowRight") {
+            event.preventDefault();
+            setTalentPoolScopeWidth((width) => normalizeWidth(width + 24));
+            return;
+        }
+
+        if (event.key === "Home") {
+            event.preventDefault();
+            setTalentPoolScopeWidth(TALENT_POOL_SCOPE_MIN_WIDTH);
+            return;
+        }
+
+        if (event.key === "End") {
+            event.preventDefault();
+            setTalentPoolScopeWidth(TALENT_POOL_SCOPE_MAX_WIDTH);
+        }
+    }, []);
 
     /* ── 弹窗状态 ── */
     const [assignDialogOpen, setAssignDialogOpen] = React.useState(false);
@@ -557,6 +583,11 @@ export function TalentPoolPage({
             setPageIndex(totalPages - 1);
         }
     }, [pageIndex, totalForPagination, totalPages, setPageIndex]);
+
+    React.useEffect(() => {
+        listScrollRef.current?.scrollTo({top: 0, behavior: "auto"});
+        setSelectedIds(prev => prev.size === 0 ? prev : new Set());
+    }, [activeStatFilter, pageIndex, pageSize, searchQuery, sourceFilter, tagFilter, sortBy]);
 
     const selectedCandidates = React.useMemo(() => (
         Array.from(selectedIds)
@@ -770,48 +801,81 @@ export function TalentPoolPage({
     }
 
     return (
-        <div className="grid h-full min-h-0 grid-cols-1 gap-3 overflow-hidden bg-slate-50 p-3 dark:bg-slate-950 xl:grid-cols-[248px_minmax(0,1fr)]">
-            <aside className="hidden min-h-0 xl:flex xl:flex-col rounded-md border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
-                <div className="border-b border-slate-200 px-4 py-3 dark:border-slate-800">
-                    <p className="text-base font-semibold text-slate-950 dark:text-slate-50">{tr.title}</p>
-                </div>
-                <div className="min-h-0 flex-1 overflow-y-auto p-2">
-                    {statCards.map((card) => (
-                        <button
-                            key={card.filter}
-                            type="button"
-                            aria-pressed={activeStatFilter === card.filter}
-                            onClick={() => handleStatFilterClick(card.filter)}
-                            className={cn(
-                                "mb-1 flex w-full min-w-0 items-start justify-between gap-3 rounded-md px-3 py-2.5 text-left text-sm transition",
-                                activeStatFilter === card.filter
-                                    ? "bg-[#F5F5F5] text-[#171717]"
-                                    : "text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-900",
-                            )}
-                        >
-                            <span className="min-w-0">
-                                <span className="block truncate font-medium">{card.label}</span>
-                                <span className={cn("mt-0.5 block truncate text-xs", activeStatFilter === card.filter ? "text-[#171717]/70" : "text-slate-400")}>
-                                    {card.hint}
+        <div
+            className="grid h-full min-h-0 grid-cols-1 gap-3 overflow-hidden bg-[var(--tr-page)] dark:bg-slate-950 xl:grid-cols-[var(--talent-pool-scope-width)_minmax(0,1fr)]"
+            style={talentPoolScopeGridStyle}
+        >
+            <div className="relative hidden min-h-0 overflow-visible xl:block">
+                <aside
+                    className={cn(
+                        "flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-md border border-[var(--tr-border)] bg-white transition-opacity duration-150 dark:border-slate-800 dark:bg-slate-950",
+                        talentPoolScopeCollapsed && "pointer-events-none opacity-0",
+                    )}
+                    aria-hidden={talentPoolScopeCollapsed}
+                >
+                    <div className="min-w-0 border-b border-[var(--tr-border-soft)] px-4 py-4 dark:border-slate-800">
+                        <p className="truncate whitespace-nowrap text-base font-semibold text-slate-950 dark:text-slate-50">{tr.title}</p>
+                    </div>
+                    <div className="min-h-0 flex-1 overflow-y-auto p-2">
+                        {statCards.map((card) => (
+                            <button
+                                key={card.filter}
+                                type="button"
+                                aria-pressed={activeStatFilter === card.filter}
+                                onClick={() => handleStatFilterClick(card.filter)}
+                                className={cn(
+                                    "mb-1 flex w-full min-w-0 items-start justify-between gap-2 rounded-md px-3 py-2.5 text-left text-sm transition",
+                                    activeStatFilter === card.filter
+                                        ? "bg-[var(--tr-red-soft)] text-[var(--tr-red)]"
+                                        : "text-slate-700 hover:bg-rose-50/70 hover:text-[var(--tr-red)] dark:text-slate-200 dark:hover:bg-slate-900",
+                                )}
+                            >
+                                <span className="min-w-0">
+                                    <span className="block truncate whitespace-nowrap font-medium">{card.label}</span>
+                                    <span className={cn("mt-0.5 block truncate whitespace-nowrap text-xs", activeStatFilter === card.filter ? "text-[var(--tr-red)]/70" : "text-slate-400")}>
+                                        {card.hint}
+                                    </span>
                                 </span>
-                            </span>
-                            <span className={cn("shrink-0 rounded px-1.5 py-0.5 text-xs tabular-nums", activeStatFilter === card.filter ? "border border-[#D4D4D4] bg-white text-[#171717]" : "bg-slate-100 text-slate-500 dark:bg-slate-900 dark:text-slate-300")}>
-                                {card.value}
-                            </span>
-                        </button>
-                    ))}
-                </div>
-                <div className="border-t border-slate-200 p-3 dark:border-slate-800">
-                    {onUploadResume ? (
-                        <Button size="sm" className="w-full rounded-md" onClick={onUploadResume}>
-                            <Upload className="mr-1.5 h-3.5 w-3.5"/>
-                            {tr.uploadResume}
-                        </Button>
-                    ) : null}
-                </div>
-            </aside>
+                                <span className={cn("shrink-0 rounded px-1.5 py-0.5 text-xs tabular-nums", activeStatFilter === card.filter ? "border border-rose-200 bg-white text-[var(--tr-red)]" : "bg-slate-100 text-slate-500 dark:bg-slate-900 dark:text-slate-300")}>
+                                    {card.value}
+                                </span>
+                            </button>
+                        ))}
+                    </div>
+                    <div className="min-w-0 border-t border-slate-200 p-3 dark:border-slate-800">
+                        {onUploadResume ? (
+                            <Button size="sm" className="w-full min-w-0 rounded-md bg-[#071f45] px-2 text-white shadow-none hover:bg-[#102b58]" onClick={onUploadResume}>
+                                <Upload className="mr-1.5 h-3.5 w-3.5 shrink-0"/>
+                                <span className="min-w-0 truncate whitespace-nowrap">{tr.uploadResume}</span>
+                            </Button>
+                        ) : null}
+                    </div>
+                </aside>
+                <button
+                    type="button"
+                    aria-label={isZh ? "拖拽调整人才库队列宽度" : "Drag to resize talent pool list"}
+                    title={isZh ? "拖拽调整人才库队列宽度，双击恢复默认宽度" : "Drag to resize, double click to reset"}
+                    onPointerDown={handleTalentPoolScopeResizeStart}
+                    onKeyDown={handleTalentPoolScopeResizeKeyDown}
+                    onDoubleClick={() => setTalentPoolScopeWidth(TALENT_POOL_SCOPE_DEFAULT_WIDTH)}
+                    className={cn(
+                        "group absolute -right-2 top-0 z-20 flex h-full w-4 cursor-col-resize touch-none items-center justify-center rounded-full outline-none transition focus-visible:ring-2 focus-visible:ring-[var(--tr-red)] focus-visible:ring-offset-2",
+                        "hover:bg-slate-100/80 dark:hover:bg-slate-900/80",
+                        talentPoolScopeCollapsed && "bg-white/80 dark:bg-slate-950/80",
+                    )}
+                >
+                    <span
+                        className={cn(
+                            "block h-12 w-1 rounded-full bg-slate-300 transition dark:bg-slate-700",
+                            talentPoolScopeCollapsed
+                                ? "bg-[var(--tr-red)] dark:bg-[var(--tr-red)]"
+                                : "group-hover:bg-slate-400",
+                        )}
+                    />
+                </button>
+            </div>
             {/* ── 主内容区 ── */}
-            <div className="flex min-h-0 flex-1 flex-col rounded-md border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-950">
+            <div className="flex min-h-0 flex-1 flex-col rounded-md border border-[var(--tr-border)] bg-white p-0 dark:border-slate-800 dark:bg-slate-950">
                 {/* 统计卡片 */}
                 <div className="mb-4 shrink-0 grid grid-cols-2 gap-2.5 md:grid-cols-3 xl:hidden">
                     {statCards.map((card) => (
@@ -831,10 +895,10 @@ export function TalentPoolPage({
                 {/* 工具栏 */}
                 <div
                     className={cn(
-                        "sticky top-0 z-30 mb-3 flex items-center gap-2 border-b border-slate-100 bg-white/95 pb-2 backdrop-blur dark:border-slate-800 dark:bg-slate-950/95",
+                        "sticky top-0 z-30 flex items-center gap-2 border-b border-[var(--tr-border-soft)] bg-white px-4 py-2 dark:border-slate-800 dark:bg-slate-950/95",
                         selectedIds.size > 0
-                            ? "min-h-[44px] rounded-md bg-neutral-100/95 px-2 py-1.5 shadow-sm dark:bg-neutral-900/85"
-                            : "flex-wrap justify-between pt-1",
+                            ? "min-h-[38px] bg-slate-50 shadow-sm dark:bg-neutral-900/85"
+                            : "flex-wrap justify-between",
                     )}
                 >
                     {selectedIds.size > 0 ? (
@@ -911,21 +975,21 @@ export function TalentPoolPage({
                             <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
                                 <div className="relative w-full max-w-[330px]">
                                     <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400"/>
-                                    <Input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder={tr.searchPlaceholder} className="h-8 rounded-lg pl-8 text-[13px]"/>
+                                    <Input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder={tr.searchPlaceholder} className="h-8 rounded-md border-[var(--tr-border)] pl-8 text-xs shadow-none"/>
                                 </div>
-                                <select value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)} className="h-8 rounded-lg border border-slate-200 bg-white px-2.5 text-[13px] text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
+                                <select value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)} className="h-8 rounded-md border border-[var(--tr-border)] bg-white px-2.5 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
                                     <option value="all">{tr.allSources}</option>
                                     <option value="boss_zhipin">{tr.bossZhipin}</option>
                                     <option value="liepin">{tr.liepin}</option>
                                     <option value="manual_upload">{tr.manualUpload}</option>
                                     <option value="headhunter">{tr.headhunter}</option>
                                 </select>
-                                <select value={tagFilter} onChange={(e) => setTagFilter(e.target.value)} className="h-8 rounded-lg border border-slate-200 bg-white px-2.5 text-[13px] text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
+                                <select value={tagFilter} onChange={(e) => setTagFilter(e.target.value)} className="h-8 rounded-md border border-[var(--tr-border)] bg-white px-2.5 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
                                     <option value="all">{tr.allTags}</option>
                                     {availableTags.map(tag => <option key={tag} value={tag}>{tag}</option>)}
                                     <option value="__none">{tr.unmatchedGroup}</option>
                                 </select>
-                                <select value={sortBy} onChange={(e) => setSortBy(e.target.value as typeof sortBy)} className="h-8 rounded-lg border border-slate-200 bg-white px-2.5 text-[13px] text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
+                                <select value={sortBy} onChange={(e) => setSortBy(e.target.value as typeof sortBy)} className="h-8 rounded-md border border-[var(--tr-border)] bg-white px-2.5 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
                                     <option value="time">{tr.sortByTime}</option>
                                     <option value="name">{tr.sortByName}</option>
                                     <option value="name_desc">{tr.sortByNameDesc}</option>
@@ -934,7 +998,7 @@ export function TalentPoolPage({
                                     <button
                                         type="button"
                                         onClick={() => handleStatFilterClick(activeStatFilter)}
-                                        className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-neutral-200 bg-neutral-100 px-2.5 text-xs text-neutral-700 transition hover:border-neutral-300 hover:bg-neutral-100 dark:border-neutral-800 dark:bg-neutral-900/40 dark:text-neutral-200"
+                                        className="inline-flex h-8 items-center gap-1.5 rounded-md border border-rose-200 bg-rose-50 px-2.5 text-xs text-[var(--tr-red)] transition hover:border-rose-300 dark:border-neutral-800 dark:bg-neutral-900/40 dark:text-neutral-200"
                                         title={tr.clearStatFilter}
                                     >
                                         <span className="h-1.5 w-1.5 rounded-full bg-neutral-900"/>
@@ -990,7 +1054,7 @@ export function TalentPoolPage({
 
                 {/* 候选人列表 */}
                 <div className="flex min-h-0 flex-1 flex-col">
-                    <div className="min-h-0 flex-1 overflow-y-auto">
+                    <div ref={listScrollRef} data-talent-pool-list-scroll="true" className="min-h-0 flex-1 overflow-y-auto bg-[#f8fafc] px-3 py-3 dark:bg-slate-950">
                         {showInlineUpdating ? (
                             <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-neutral-200 bg-white/80 px-3 py-1.5 text-sm text-neutral-700 shadow-sm backdrop-blur-xl dark:border-neutral-800 dark:bg-slate-950/75 dark:text-neutral-200">
                                 <span className="relative flex h-3 w-3">
@@ -1026,7 +1090,7 @@ export function TalentPoolPage({
                             </div>
                         ) : (
                             <div className={cn("transition duration-200 ease-out", statFilterPending && "scale-[0.998] opacity-70")}>
-                                <div className="flex flex-col gap-2">
+                                <div className="flex flex-col gap-2.5">
                                     {filteredCandidates.map(candidate => {
                                         const matching = isTalentPoolMatching(candidate);
                                         const archived = !matching && !isPendingActionCandidate(candidate);
@@ -1233,14 +1297,14 @@ function PaginationBar({
     const pageEnd = total > 0 ? Math.min(total, pageIndex * pageSize + visibleCount) : 0;
 
     return (
-        <div className="mt-3 flex shrink-0 flex-wrap items-center justify-between gap-4 border-t border-slate-200/80 pt-3 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
+        <div className="mt-1.5 flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-slate-200/80 px-4 py-1.5 text-xs leading-5 text-slate-500 dark:border-slate-800 dark:text-slate-400">
             <span>{tr.pageRange(pageStart, pageEnd, total)}</span>
-            <div className="flex flex-wrap items-center gap-2.5">
+            <div className="flex flex-wrap items-center gap-1.5">
                 <select
                     value={String(pageSize)}
                     title={tr.rowsPerPage}
                     onChange={(event) => setPageSize(Number(event.target.value))}
-                    className="h-8 w-[118px] shrink-0 rounded-md border border-slate-200 bg-white px-2.5 pr-8 text-sm text-slate-700 shadow-none dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300"
+                    className="h-7 w-[96px] shrink-0 rounded-md border border-slate-200 bg-white px-2 pr-7 text-xs text-slate-700 shadow-none dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300"
                 >
                     {pageSizeOptions.map((option) => (
                         <option key={option} value={option}>{option}{tr.rowsPerPage}</option>
@@ -1249,7 +1313,7 @@ function PaginationBar({
                 <Button
                     size="sm"
                     variant="outline"
-                    className="h-7 rounded-md px-2.5 text-xs"
+                    className="h-6 rounded-md px-2 text-xs leading-4"
                     disabled={pageIndex <= 0 || loading}
                     onClick={() => setPageIndex(pageIndex - 1)}
                 >
@@ -1260,7 +1324,7 @@ function PaginationBar({
                         key={p}
                         size="sm"
                         variant={p === pageIndex ? "default" : "outline"}
-                        className="h-7 min-w-7 rounded-md px-2 text-sm"
+                        className="h-6 min-w-6 rounded-md px-1.5 text-xs leading-4"
                         disabled={loading}
                         onClick={() => setPageIndex(p)}
                     >
@@ -1270,7 +1334,7 @@ function PaginationBar({
                 <Button
                     size="sm"
                     variant="outline"
-                    className="h-7 rounded-md px-2.5 text-xs"
+                    className="h-6 rounded-md px-2 text-xs leading-4"
                     disabled={pageIndex >= totalPages - 1 || loading}
                     onClick={() => setPageIndex(pageIndex + 1)}
                 >
@@ -1385,6 +1449,115 @@ function StatCard({
     );
 }
 
+function InstantTooltip({
+    label,
+    children,
+    className,
+    tooltipClassName,
+    onlyWhenOverflow = false,
+}: {
+    label?: string | null;
+    children: React.ReactNode;
+    className?: string;
+    tooltipClassName?: string;
+    onlyWhenOverflow?: boolean;
+}) {
+    const text = String(label || "").trim();
+    const triggerRef = React.useRef<HTMLSpanElement | null>(null);
+    const [visible, setVisible] = React.useState(!onlyWhenOverflow);
+    const [placement, setPlacement] = React.useState<"top" | "bottom">("top");
+
+    const updateVisibility = React.useCallback(() => {
+        const trigger = triggerRef.current;
+        if (trigger) {
+            const triggerRect = trigger.getBoundingClientRect();
+            const scrollRoot = trigger.closest("[data-talent-pool-list-scroll='true']");
+            const rootRect = scrollRoot?.getBoundingClientRect();
+            const topBoundary = rootRect?.top ?? 0;
+            setPlacement(triggerRect.top - topBoundary < 52 ? "bottom" : "top");
+        }
+
+        if (!onlyWhenOverflow) {
+            setVisible(true);
+            return;
+        }
+        const content = trigger?.firstElementChild as HTMLElement | null;
+        if (!content) {
+            setVisible(false);
+            return;
+        }
+        const isOverflowing = content.scrollWidth > content.clientWidth + 1
+            || content.scrollHeight > content.clientHeight + 1;
+        setVisible(isOverflowing);
+    }, [onlyWhenOverflow]);
+
+    if (!text) {
+        return <>{children}</>;
+    }
+    return (
+        <span
+            ref={triggerRef}
+            className={cn("group relative inline-flex min-w-0", className)}
+            onPointerEnter={updateVisibility}
+            onFocus={updateVisibility}
+        >
+            {children}
+            {visible ? (
+                <span
+                    role="tooltip"
+                    className={cn(
+                        "pointer-events-none absolute left-1/2 z-[80] max-w-[420px] -translate-x-1/2 whitespace-normal break-words rounded-md bg-slate-950 px-2 py-1 text-left text-[11px] font-medium leading-4 text-white opacity-0 shadow-[0_8px_18px_rgba(15,23,42,0.18)] transition-none group-hover:opacity-100 group-focus-within:opacity-100 dark:bg-slate-100 dark:text-slate-950",
+                        placement === "bottom" ? "top-full mt-1.5" : "bottom-full mb-1.5",
+                        tooltipClassName,
+                    )}
+                >
+                    {text}
+                </span>
+            ) : null}
+        </span>
+    );
+}
+
+function TalentActionIconButton({
+    label,
+    onClick,
+    disabled,
+    danger,
+    children,
+}: {
+    label: string;
+    onClick?: () => void;
+    disabled?: boolean;
+    danger?: boolean;
+    children: React.ReactNode;
+}) {
+    return (
+        <InstantTooltip label={label} className="inline-flex" tooltipClassName="whitespace-nowrap">
+            <Button
+                size="sm"
+                variant="ghost"
+                className={cn(
+                    "h-8 w-8 shrink-0 rounded-md bg-transparent p-0 text-slate-500 shadow-none hover:bg-transparent hover:text-[var(--tr-red)]",
+                    danger && "text-rose-500 hover:text-rose-600 dark:text-rose-400",
+                )}
+                onClick={(event) => {
+                    event.stopPropagation();
+                    onClick?.();
+                }}
+                disabled={disabled}
+                aria-label={label}
+            >
+                <span className={cn(
+                    "flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 shadow-none dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300",
+                    danger && "border-rose-200 text-rose-500 dark:border-rose-900/70 dark:text-rose-400",
+                )}>
+                    {children}
+                </span>
+            </Button>
+        </InstantTooltip>
+    );
+}
+
 /* ── 候选人卡片 ── */
 function CandidateCard({
     candidate, selected, reIdentifying, reIdentifyFailed,
@@ -1412,9 +1585,13 @@ function CandidateCard({
     const screeningPositionTitle = candidate.screened_position_title || candidate.position_title;
     const aiRecommendedTitle = candidate.ai_match_position_title || null;
     const enteredAt = resolveTalentPoolEnteredAt(candidate);
-    const enteredAtLabel = candidate.talent_pool_moved_at ? tr.enteredAt : tr.uploadedAt;
-    const colorIdx = avatarColorIndex(candidate.name);
-    const initial = avatarInitial(candidate.name);
+    const contactLine = candidate.phone || candidate.candidate_code || "";
+    const profileParts = [
+        candidate.years_of_experience,
+        candidate.education,
+        candidate.city,
+        contactLine,
+    ].filter(Boolean);
     const sourceStageLabel = React.useMemo(() => {
         const reason = String(candidate.talent_pool_reason || "").trim().toLowerCase();
         if (reason === "unmatched_by_ai") {
@@ -1433,158 +1610,166 @@ function CandidateCard({
         return tr.sourceLegacyArchived;
     }, [candidate.talent_pool_reason, candidate.talent_pool_source_status, tr]);
 
-    // 根据 talent_pool_reason 决定描述文案
-    const getDescription = () => {
-        if (isMatching) {
-            return (
-                <div className="inline-flex items-center gap-1.5 text-[11px] text-slate-400 dark:text-slate-500">
-                    <Loader2 className="h-3 w-3 animate-spin"/>
-                    {tr.aiMatchingHint}
-                </div>
-            );
-        }
+    const fallbackDescription = (() => {
+        if (isMatching) return tr.aiMatchingHint;
         if (isArchived) {
-            if (candidate.talent_pool_reason === "auto_archived") {
-                return <div className="text-xs text-slate-400 dark:text-slate-500">{tr.autoArchivedDesc}</div>;
-            }
+            if (candidate.talent_pool_reason === "auto_archived") return tr.autoArchivedDesc;
             if (candidate.talent_pool_reason === "moved_by_hr") {
                 const sourceLabel = STATUS_LABEL_MAP[candidate.talent_pool_source_status || ""] || candidate.talent_pool_source_status || "";
                 const moveDate = candidate.talent_pool_moved_at ? formatDateTime(candidate.talent_pool_moved_at) : "";
-                return <div className="text-xs text-slate-400 dark:text-slate-500">{tr.movedByHRDesc(candidate.talent_pool_moved_by || "", moveDate, sourceLabel)}</div>;
+                return tr.movedByHRDesc(candidate.talent_pool_moved_by || "", moveDate, sourceLabel);
             }
-            // 旧数据（status=talent_pool 无 reason）
-            return <div className="text-xs text-slate-400 dark:text-slate-500">{tr.archivedGroupDesc}</div>;
+            return tr.archivedGroupDesc;
         }
-        // 待处理分组
         if (candidate.talent_pool_reason === "ai_error") {
-            return (
-                <div className="text-xs text-amber-500 dark:text-amber-400">
-                    {sanitizeCandidateFacingErrorText(candidate.ai_match_reason || tr.aiErrorDesc, {
-                        context: "position_match",
-                        language,
-                    })}
-                </div>
-            );
+            return sanitizeCandidateFacingErrorText(candidate.ai_match_reason || tr.aiErrorDesc, {
+                context: "position_match",
+                language,
+            });
         }
-        // unmatched_by_ai 或无 reason
-        if (reIdentifyFailed) {
-            return <div className="text-xs text-rose-500 dark:text-rose-400">{tr.aiStillNoMatch}</div>;
+        if (reIdentifyFailed) return tr.aiStillNoMatch;
+        return tr.aiNoMatch;
+    })();
+    const aiRecommendationDescription = isMatching
+        ? tr.aiMatchingHint
+        : sanitizeCandidateFacingErrorText(candidate.ai_match_reason || "", {
+            context: "position_match",
+            language,
+        }) || fallbackDescription;
+    const potentialReasonText = candidate.ai_potential_reason || "";
+    const handleRowKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+        if (event.key !== "Enter" && event.key !== " ") {
+            return;
         }
-        return <div className="text-xs text-slate-400 dark:text-slate-500">{tr.aiNoMatch}</div>;
-    };
+        event.preventDefault();
+        onView();
+    }, [onView]);
 
     return (
         <div className={cn(
-            "flex items-start gap-3.5 rounded-xl border px-4 py-3.5 transition-colors",
-            selected ? "border-neutral-400 bg-neutral-100 dark:border-neutral-700 dark:bg-neutral-900/40" : "border-slate-200 bg-white hover:border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:hover:border-slate-600"
-        )}>
-            <input type="checkbox" checked={selected} onChange={onToggleSelect} className="mt-1 h-[15px] w-[15px] flex-shrink-0 accent-neutral-900"/>
-            <div className={cn("flex h-[38px] w-[38px] flex-shrink-0 items-center justify-center rounded-full text-[13px] font-medium", AVATAR_BG[AVATAR_COLORS[colorIdx]])}>
-                {initial}
-            </div>
-            <div className="min-w-0 flex-1">
-                <div className="mb-1.5 flex flex-wrap items-center gap-2.5">
-                    <span className="text-sm font-medium text-slate-900 dark:text-slate-100">{candidate.name}</span>
+            "grid min-h-[116px] cursor-pointer items-center gap-3 rounded-lg border border-[var(--tr-border-soft)] bg-white px-3 py-3 shadow-[0_1px_2px_rgba(16,32,63,0.03)] transition-colors [grid-template-columns:24px_minmax(0,1fr)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--tr-red)]/30 dark:border-slate-800 dark:bg-slate-950 xl:grid-cols-[24px_minmax(190px,1fr)_minmax(188px,.95fr)_minmax(200px,1.05fr)_112px_104px]",
+            selected ? "border-rose-200 bg-rose-50/50 shadow-[inset_3px_0_0_var(--tr-red)] dark:border-neutral-700 dark:bg-neutral-900/40" : "hover:border-slate-300 hover:bg-[#fbfcfe] dark:hover:bg-slate-900"
+        )}
+             role="button"
+             tabIndex={0}
+             onClick={onView}
+             onKeyDown={handleRowKeyDown}
+        >
+            <input
+                type="checkbox"
+                checked={selected}
+                onClick={(event) => event.stopPropagation()}
+                onChange={onToggleSelect}
+                className="h-[15px] w-[15px] flex-shrink-0 accent-[var(--tr-red)]"
+            />
+
+            <div className="col-start-2 min-w-0 xl:col-start-auto">
+                <InstantTooltip label={candidate.name} className="block min-w-0" onlyWhenOverflow>
+                    <span className="block truncate text-[15px] font-semibold leading-5 text-[var(--tr-ink)] dark:text-slate-100">{candidate.name}</span>
+                </InstantTooltip>
+                {profileParts.length ? (
+                    <InstantTooltip label={profileParts.join("  |  ")} className="mt-1 block min-w-0" onlyWhenOverflow>
+                        <span className="block truncate text-xs leading-5 text-[var(--tr-ink-muted)] dark:text-slate-400">
+                            {profileParts.join("  |  ")}
+                        </span>
+                    </InstantTooltip>
+                ) : null}
+                <div className="mt-2 flex min-w-0 flex-wrap items-center gap-1.5">
+                    <span className="inline-flex items-center rounded-md bg-blue-50 px-2 py-0.5 text-[11px] font-medium leading-4 text-blue-600 dark:bg-slate-800 dark:text-slate-300">{sourceLabel(candidate.source, tr)}</span>
                     {isMatching ? (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                        <span className="inline-flex items-center gap-1 rounded-md bg-blue-50 px-1.5 py-0.5 text-[11px] font-medium leading-4 text-blue-700 dark:bg-slate-800 dark:text-slate-400">
                             <Loader2 className="h-3 w-3 animate-spin"/>
                             {tr.matching}
                         </span>
                     ) : talentPoolDisplayStatus === "talent_pool" ? (
-                        <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">{tr.archived}</span>
+                        <span className="inline-flex items-center rounded-md bg-violet-50 px-1.5 py-0.5 text-[11px] font-medium leading-4 text-violet-600 dark:bg-slate-800 dark:text-slate-400">{tr.archived}</span>
                     ) : (
-                        <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">{tr.pendingIdentify}</span>
+                        <span className="inline-flex items-center rounded-md bg-amber-50 px-1.5 py-0.5 text-[11px] font-medium leading-4 text-amber-600 dark:bg-amber-900/40 dark:text-amber-300">{tr.pendingIdentify}</span>
                     )}
-                    <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-500 dark:bg-slate-800 dark:text-slate-400">{sourceLabel(candidate.source, tr)}</span>
-                    {!isMatching ? (
-                        <span className="inline-flex items-center rounded-full bg-neutral-100 px-2 py-0.5 text-[15px] font-medium text-neutral-700 dark:bg-neutral-900/40 dark:text-neutral-200">
-                            {`${tr.sourceStage}：${sourceStageLabel}`}
-                        </span>
-                    ) : null}
                 </div>
-                <div className="mb-2 flex flex-wrap items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
-                    {candidate.years_of_experience && <span className="inline-flex items-center gap-1"><Briefcase className="h-3 w-3"/>{candidate.years_of_experience}</span>}
-                    {candidate.education && <span className="inline-flex items-center gap-1"><GraduationCap className="h-3 w-3"/>{candidate.education}</span>}
-                    {candidate.city && <span className="inline-flex items-center gap-1"><Building2 className="h-3 w-3"/>{candidate.city}</span>}
-                    {candidate.phone && <span className="inline-flex items-center gap-1"><Phone className="h-3 w-3"/>{candidate.phone}</span>}
-                </div>
-                {getDescription()}
-                {isMatching ? (
-                    <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-900/30 dark:text-slate-400">
-                        <div className="flex items-center gap-1.5">
-                            <Loader2 className="h-3 w-3 animate-spin"/>
-                            <span>AI 正在分析简历，匹配岗位中...</span>
-                        </div>
-                    </div>
-                ) : (screeningPositionTitle || aiRecommendedTitle || candidate.ai_potential_position) ? (
-                    <div className="mt-2 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 text-xs text-neutral-700 dark:border-neutral-800 dark:bg-neutral-900/40 dark:text-neutral-200">
-                        {screeningPositionTitle ? <div className="font-medium">{`${tr.screeningPosition}：${screeningPositionTitle}`}</div> : null}
-                        {aiRecommendedTitle ? (
-                            <div className={screeningPositionTitle ? "mt-1" : "font-medium"}>
-                                {`${tr.aiRecommendedPosition}：${aiRecommendedTitle}`}
-                            </div>
-                        ) : null}
-                        {aiRecommendedTitle && candidate.ai_match_reason ? (
-                            <div className="mt-1 text-neutral-700/90 dark:text-neutral-200/80">
-                                {sanitizeCandidateFacingErrorText(candidate.ai_match_reason, {
-                                    context: "position_match",
-                                    language,
-                                })}
-                            </div>
-                        ) : null}
-                        {candidate.ai_potential_position ? (
-                            <div className={screeningPositionTitle || aiRecommendedTitle ? "mt-1 border-t border-neutral-200/70 pt-2 dark:border-neutral-800" : ""}>
-                                <div className="font-medium">
-                                    {`${tr.potentialDirection}：${candidate.ai_potential_position}`}
-                                </div>
-                                {candidate.ai_potential_reason ? (
-                                    <div className="mt-1 text-neutral-700/90 dark:text-neutral-200/80">{candidate.ai_potential_reason}</div>
-                                ) : null}
-                            </div>
-                        ) : null}
-                    </div>
-                ) : null}
+                <InstantTooltip label={sourceStageLabel} className="mt-2 block min-w-0" onlyWhenOverflow>
+                    <span className="block truncate text-xs leading-5 text-[var(--tr-ink-muted)] dark:text-slate-400">
+                        {tr.sourceStage}：{sourceStageLabel}
+                    </span>
+                </InstantTooltip>
             </div>
-            <div className="flex flex-shrink-0 self-stretch flex-col items-end justify-between gap-2">
-                <div className="flex flex-wrap items-center justify-end gap-1.5">
-                    {hasAIMatch && onConfirmMatch && (
-                        <Button size="sm" variant="outline" className="h-8 rounded-md border-neutral-300 px-3 text-xs text-neutral-700 hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-900/50" onClick={onConfirmMatch}>
-                            <Check className="mr-1 h-3 w-3"/>{tr.confirmMatch}
-                        </Button>
-                    )}
-                    {hasAIMatch && onChangePosition && (
-                        <Button size="sm" variant="outline" className="h-8 rounded-md px-3 text-xs" onClick={onChangePosition}>{tr.changePosition}</Button>
-                    )}
-                    {onReIdentify && !isMatching && (
-                        <Button size="sm" variant="outline" className="h-8 rounded-md px-3 text-xs" onClick={onReIdentify} disabled={reIdentifying}>
-                            {reIdentifying ? <Loader2 className="mr-1 h-3 w-3 animate-spin"/> : <RefreshCw className="mr-1 h-3 w-3"/>}
-                            {reIdentifying ? tr.reIdentifying : tr.reIdentify}
-                        </Button>
-                    )}
-                    {onManualAssign && (
-                        <Button size="sm" variant="outline" className="h-8 rounded-md border-neutral-300 px-3 text-xs text-neutral-700 hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-900/50" onClick={onManualAssign}>
-                            <Briefcase className="mr-1 h-3 w-3"/>{tr.manualAssign}
-                        </Button>
-                    )}
-                    {isMatching && onCancelMatch && (
-                        <Button size="sm" variant="outline" className="h-8 rounded-md border-rose-300 px-3 text-xs text-rose-600 hover:bg-rose-50 dark:border-rose-700 dark:text-rose-400 dark:hover:bg-rose-900/30" onClick={onCancelMatch}>
-                            <Square className="mr-1 h-3 w-3"/>{tr.stopMatch}
-                        </Button>
-                    )}
-                    <Button size="sm" variant="outline" className="h-8 rounded-md px-3 text-xs" onClick={onView}>
-                        <Eye className="mr-1 h-3 w-3"/>{tr.view}
-                    </Button>
-                </div>
+
+            <div className="col-start-2 min-w-0 border-t border-slate-100 pt-3 xl:col-start-auto xl:border-l xl:border-t-0 xl:pl-3 xl:pt-0 dark:border-slate-800">
+                <span className="block text-[11px] leading-4 text-slate-400">{tr.aiRecommendedPosition}</span>
+                <InstantTooltip label={isMatching ? tr.matching : (aiRecommendedTitle || screeningPositionTitle || tr.unmatchedGroup)} className="block min-w-0" onlyWhenOverflow>
+                    <span className="mt-1 block truncate text-[13px] font-semibold leading-5 text-[var(--tr-ink)] dark:text-slate-100">
+                        {isMatching ? tr.matching : (aiRecommendedTitle || screeningPositionTitle || tr.unmatchedGroup)}
+                    </span>
+                </InstantTooltip>
+                <InstantTooltip label={aiRecommendationDescription} className="mt-1.5 block min-w-0" onlyWhenOverflow>
+                    <span className="block line-clamp-2 text-xs leading-5 text-[var(--tr-ink-muted)] dark:text-slate-400">
+                        {aiRecommendationDescription}
+                    </span>
+                </InstantTooltip>
+            </div>
+
+            <div className="col-start-2 min-w-0 border-t border-slate-100 pt-3 xl:col-start-auto xl:border-l xl:border-t-0 xl:pl-3 xl:pt-0 dark:border-slate-800">
+                {candidate.ai_potential_position ? (
+                    <>
+                        <span className="inline-flex rounded-md bg-emerald-50 px-2 py-0.5 text-[11px] font-medium leading-4 text-emerald-600">{tr.potentialSuggested}</span>
+                        <InstantTooltip label={candidate.ai_potential_position} className="mt-2 block min-w-0" onlyWhenOverflow>
+                            <span className="block truncate text-[13px] font-semibold leading-5 text-[var(--tr-ink)] dark:text-slate-100">{candidate.ai_potential_position}</span>
+                        </InstantTooltip>
+                        {potentialReasonText ? (
+                            <InstantTooltip label={potentialReasonText} className="mt-1 block min-w-0" onlyWhenOverflow>
+                                <span className="block line-clamp-2 text-xs leading-5 text-[var(--tr-ink-muted)] dark:text-slate-400">{potentialReasonText}</span>
+                            </InstantTooltip>
+                        ) : null}
+                    </>
+                ) : (
+                    <InstantTooltip label={tr.noPotentialSuggestion} className="block min-w-0" onlyWhenOverflow>
+                        <span className="block text-xs leading-5 text-slate-400">{tr.noPotentialSuggestion}</span>
+                    </InstantTooltip>
+                )}
+            </div>
+
+            <div className="col-start-2 min-w-0 border-t border-slate-100 pt-3 xl:col-start-auto xl:border-l xl:border-t-0 xl:pl-3 xl:pt-0 dark:border-slate-800">
+                <span className="block text-[11px] leading-4 text-slate-400">{tr.enteredAt}</span>
                 {enteredAt ? (
-                    <div
-                        className="inline-flex items-center gap-1 rounded-full bg-slate-50 px-2.5 py-1 text-xs text-slate-500 dark:bg-slate-800/70 dark:text-slate-400"
-                        title={`${enteredAtLabel} ${formatDateTime(enteredAt)}`}
-                    >
-                        <Clock3 className="h-3 w-3"/>
-                        <span>{enteredAtLabel}</span>
-                        <span className="font-medium tabular-nums text-slate-700 dark:text-slate-200">{formatDateTime(enteredAt)}</span>
-                    </div>
-                ) : null}
+                    <InstantTooltip label={formatDateTime(enteredAt)} className="block min-w-0" onlyWhenOverflow>
+                        <span className="mt-1 block truncate text-[13px] font-medium leading-5 tabular-nums text-[var(--tr-ink)]">
+                            {formatDateTime(enteredAt)}
+                        </span>
+                    </InstantTooltip>
+                ) : (
+                    <p className="text-xs text-slate-400">-</p>
+                )}
+            </div>
+
+            <div className="col-start-2 flex flex-nowrap items-center justify-end gap-1.5 border-t border-slate-100 pt-3 xl:col-start-auto xl:border-l xl:border-t-0 xl:pl-3 xl:pt-0 dark:border-slate-800">
+                {hasAIMatch && onConfirmMatch && (
+                    <TalentActionIconButton label={tr.confirmMatch} onClick={onConfirmMatch}>
+                        <Check className="h-3.5 w-3.5"/>
+                    </TalentActionIconButton>
+                )}
+                {hasAIMatch && onChangePosition && (
+                    <TalentActionIconButton label={tr.changePosition} onClick={onChangePosition}>
+                        <Briefcase className="h-3.5 w-3.5"/>
+                    </TalentActionIconButton>
+                )}
+                {onReIdentify && !isMatching && (
+                    <TalentActionIconButton label={reIdentifying ? tr.reIdentifying : tr.reIdentify} onClick={onReIdentify} disabled={reIdentifying}>
+                        {reIdentifying ? <Loader2 className="h-3.5 w-3.5 animate-spin"/> : <RefreshCw className="h-3.5 w-3.5"/>}
+                    </TalentActionIconButton>
+                )}
+                {onManualAssign && (
+                    <TalentActionIconButton label={tr.manualAssign} onClick={onManualAssign}>
+                        <Briefcase className="h-3.5 w-3.5"/>
+                    </TalentActionIconButton>
+                )}
+                {isMatching && onCancelMatch && (
+                    <TalentActionIconButton label={tr.stopMatch} onClick={onCancelMatch} danger>
+                        <Square className="h-3.5 w-3.5"/>
+                    </TalentActionIconButton>
+                )}
+                <TalentActionIconButton label={tr.view} onClick={onView}>
+                    <Eye className="h-3.5 w-3.5"/>
+                </TalentActionIconButton>
             </div>
         </div>
     );

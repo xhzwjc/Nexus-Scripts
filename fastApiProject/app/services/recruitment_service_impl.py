@@ -10367,6 +10367,12 @@ class RecruitmentService:
         )
         screening_state = display_payload["screening_state"]
         ai_match_snapshot = _preloaded_ai_match_snapshot if _preloaded_ai_match_snapshot is not None else self._resolve_candidate_ai_match_snapshot(row)
+        position = _preloaded_position if _preloaded_position is not None else (
+            self.db.query(RecruitmentPosition).filter(
+                RecruitmentPosition.id == row.position_id,
+                RecruitmentPosition.deleted.is_(False),
+            ).first() if row.position_id else None
+        )
         tags = json_loads_safe(row.tags_json, [])
         notes_text = str(row.notes or "").strip()
         note_summary = notes_text[:80].rstrip()
@@ -10375,7 +10381,10 @@ class RecruitmentService:
         return {
             "id": row.id,
             "candidate_code": row.candidate_code,
+            "org_code": normalize_org_code(getattr(row, "org_code", None)),
             "position_id": row.position_id,
+            "position_title": position.title if position else None,
+            "screened_position_title": position.title if position else None,
             "name": row.name,
             "phone": row.phone,
             "email": row.email,
@@ -10384,6 +10393,7 @@ class RecruitmentService:
             "expected_city": getattr(row, "expected_city", None),
             "education": getattr(row, "education", None),
             "years_of_experience": getattr(row, "years_of_experience", None),
+            "age": getattr(row, "age", None),
             "source": row.source,
             "source_detail": row.source_detail,
             "match_percent": display_payload["display_match_percent"],
@@ -10400,6 +10410,9 @@ class RecruitmentService:
             "latest_score_id": row.latest_score_id,
             "latest_total_score": display_payload["display_total_score"],
             "owner_id": row.owner_id,
+            "ai_match_position_id": ai_match_snapshot.get("ai_match_position_id"),
+            "ai_match_position_title": ai_match_snapshot.get("ai_match_position_title"),
+            "ai_match_confidence": ai_match_snapshot.get("ai_match_confidence"),
             "ai_match_reason": ai_match_snapshot.get("ai_match_reason"),
             "ai_potential_position": ai_match_snapshot.get("ai_potential_position"),
             "ai_potential_reason": ai_match_snapshot.get("ai_potential_reason"),
@@ -10738,7 +10751,7 @@ class RecruitmentService:
         # Batch preload positions
         position_ids = {row.position_id for row in rows if row.position_id}
         position_map: Dict[int, RecruitmentPosition] = {}
-        if position_ids and not compact:
+        if position_ids:
             for pos in self.db.query(RecruitmentPosition).filter(
                 RecruitmentPosition.id.in_(position_ids),
                 RecruitmentPosition.deleted.is_(False),
@@ -10812,11 +10825,7 @@ class RecruitmentService:
                     seen_cids_score.add(cid)
                     completed_score_map[cid] = sr
 
-        ai_match_snapshot_map: Dict[int, Dict[str, Any]] = (
-            {row.id: self._build_direct_candidate_ai_match_snapshot(row) for row in rows}
-            if compact
-            else self._build_candidate_ai_match_snapshot_map(rows)
-        )
+        ai_match_snapshot_map: Dict[int, Dict[str, Any]] = self._build_candidate_ai_match_snapshot_map(rows)
 
         serialized_rows = []
         serializer = self._serialize_position_candidate_item if compact else self._serialize_candidate_list_item

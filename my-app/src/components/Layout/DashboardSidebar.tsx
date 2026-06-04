@@ -42,7 +42,7 @@ interface SidebarProps {
 
 const SIDEBAR_PINNED_STORAGE_KEY = 'scripts.dashboard.sidebarPinned';
 const SIDEBAR_COMPACT_WIDTH = 72;
-const SIDEBAR_EXPANDED_WIDTH = 210;
+const SIDEBAR_EXPANDED_WIDTH = 216;
 
 export const DashboardSidebar: React.FC<SidebarProps> = ({
     currentView,
@@ -56,7 +56,8 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
     const { t, language } = useI18n();
     const [sidebarPinned, setSidebarPinned] = React.useState<boolean>(() => {
         if (typeof window === 'undefined') return false;
-        return window.localStorage.getItem(SIDEBAR_PINNED_STORAGE_KEY) === 'true';
+        const stored = window.localStorage.getItem(SIDEBAR_PINNED_STORAGE_KEY);
+        return stored === null ? true : stored === 'true';
     });
     const [hoverExpanded, setHoverExpanded] = React.useState(false);
     const [aiRecruitmentExpanded, setAiRecruitmentExpanded] = React.useState(false);
@@ -205,7 +206,7 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
         >
             <aside
                 className={cn(
-                    'dashboard-sidebar absolute left-0 top-0 z-30 h-screen flex flex-col overflow-hidden border-r border-[var(--sidebar-border)] py-6 shadow-sm',
+                    'dashboard-sidebar absolute left-0 top-0 z-30 h-screen flex flex-col overflow-hidden border-r border-[var(--sidebar-border)] py-5 shadow-sm',
                     collapsed ? 'px-3' : 'px-4',
                     collapsed && 'collapsed',
                     sidebarPreviewExpanded && 'preview-expanded',
@@ -213,7 +214,7 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
                 style={{ width: sidebarPanelWidth }}
             >
                 <div className={cn('mb-6 flex shrink-0 items-center', collapsed ? 'justify-center px-0' : 'gap-2.5 px-3')}>
-                    <img src="/logo.png" alt="Logo" className="h-10 w-auto object-contain" />
+                    <img src="/logo.png" alt="Logo" className="h-11 w-auto object-contain" />
                 </div>
 
                 <div className="flex min-h-0 flex-1 flex-col">
@@ -225,7 +226,7 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
                                         active: currentView === 'home' || currentView === 'welcome',
                                         label: homeNavLabel,
                                         icon: (
-                                            <div className={`flex h-5 w-5 items-center justify-center ${currentView === 'home' || currentView === 'welcome' ? 'text-teal-600' : 'text-current'}`}>
+                                            <div className={`flex h-5 w-5 items-center justify-center ${currentView === 'home' || currentView === 'welcome' ? 'text-[var(--tr-red)]' : 'text-current'}`}>
                                                 <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
                                                     <path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z" />
                                                 </svg>
@@ -314,8 +315,8 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
                                                             className={cn(
                                                                 'flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors',
                                                                 activeRecruitmentPage === item.key
-                                                                    ? 'bg-slate-100 font-medium text-slate-900 dark:bg-slate-800 dark:text-slate-100'
-                                                                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200',
+                                                                    ? 'bg-[var(--tr-red-soft)] font-medium text-[var(--tr-red)] dark:bg-slate-800 dark:text-slate-100'
+                                                                    : 'text-slate-600 hover:bg-[var(--tr-red-soft)] hover:text-[var(--tr-red)] dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200',
                                                             )}
                                                             onClick={() => openRecruitmentPage(item.key)}
                                                         >

@@ -65,6 +65,7 @@ import {cn} from "@/lib/utils";
 import {Badge} from "@/components/ui/badge";
 import {CandidateRadarChart} from "../components/CandidateRadarChart";
 import {Button} from "@/components/ui/button";
+import {useColumnResizeDrag} from "../hooks/useColumnResizeDrag";
 import {
     Card,
     CardContent,
@@ -418,13 +419,16 @@ function RailActionButton({
     );
 }
 
-const CANDIDATE_LIST_ESTIMATED_ROW_HEIGHT = 178;
+const CANDIDATE_LIST_ESTIMATED_ROW_HEIGHT = 172;
 const CANDIDATE_LIST_OVERSCAN = 6;
 const CANDIDATE_BOARD_ESTIMATED_CARD_HEIGHT = 150;
 const CANDIDATE_BOARD_OVERSCAN = 5;
+const CANDIDATE_POSITION_SCOPE_DEFAULT_WIDTH = 248;
+const CANDIDATE_POSITION_SCOPE_MIN_WIDTH = 18;
+const CANDIDATE_POSITION_SCOPE_MAX_WIDTH = 420;
 const SCORE_SUGGESTED_STATUS_VALUES = new Set(["screening_passed", "talent_pool", "screening_rejected"]);
 const SMOOTH_VERTICAL_SCROLLBAR_CLASS = "[scrollbar-gutter:stable] [scrollbar-width:thin] [scrollbar-color:rgba(148,163,184,0.82)_transparent] [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 dark:[scrollbar-color:rgba(71,85,105,0.9)_transparent] dark:[&::-webkit-scrollbar-thumb]:bg-slate-700";
-const SMOOTH_HORIZONTAL_SCROLLBAR_CLASS = "[scrollbar-width:thin] [scrollbar-color:rgba(148,163,184,0.86)_transparent] [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 dark:[scrollbar-color:rgba(71,85,105,0.92)_transparent] dark:[&::-webkit-scrollbar-thumb]:bg-slate-700";
+const POSITION_SCOPE_SCROLLBAR_CLASS = "[scrollbar-width:thin] [scrollbar-color:transparent_transparent] hover:[scrollbar-color:rgba(100,116,139,0.52)_transparent] [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-transparent hover:[&::-webkit-scrollbar-thumb]:bg-slate-400/70 dark:hover:[scrollbar-color:rgba(71,85,105,0.62)_transparent] dark:hover:[&::-webkit-scrollbar-thumb]:bg-slate-600/70";
 
 type CandidateRowProps = {
     candidate: CandidateSummary;
@@ -827,11 +831,6 @@ const CandidateApplicantCard = React.memo(function CandidateApplicantCard({
         ? (isZh ? "已关联" : "Assigned")
         : (isZh ? "点击指定" : "Set position");
     const aiPositionLabel = candidate.ai_match_position_title || "";
-    const matchIndicatorLabel = matchPercent != null
-        ? `${isZh ? "AI 匹配度" : "AI Match"} ${formatPercent(matchPercent)}`
-        : (displayStatus === "screening_running"
-            ? (isZh ? "智能初筛中" : "Screening")
-            : (hasStructuredProfile ? (isZh ? "待评估" : "Pending Score") : (isZh ? "信息待解析" : "Parsing Pending")));
     const showOriginalFile = Boolean(originalFileName && (nameLooksLikeOriginalFile || !hasStructuredProfile));
     const fitLabel = (() => {
         if (displayStatus === "screening_running") {
@@ -855,16 +854,16 @@ const CandidateApplicantCard = React.memo(function CandidateApplicantCard({
         return isZh ? "未评估" : "Not Scored";
     })();
     const fitClassName = cn(
-        "rounded px-2 py-0.5 text-xs font-medium",
+        "rounded border px-1.5 py-0.5 text-[11px] font-medium leading-4",
         displayStatus === "screening_running"
-            ? "bg-[#F5F5F5] text-[#171717] dark:bg-neutral-900/30 dark:text-neutral-200"
+            ? "border-slate-100 bg-slate-50 text-slate-500 dark:border-slate-800 dark:bg-slate-900/40 dark:text-slate-400"
             : displayStatus === "pending_screening"
-                ? "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                ? "border-slate-100 bg-slate-50 text-slate-500 dark:border-slate-800 dark:bg-slate-900/40 dark:text-slate-400"
                 : displayStatus === "screening_rejected" || displayStatus === "interview_rejected"
-                    ? "bg-rose-50 text-rose-700 dark:bg-rose-950/30 dark:text-rose-200"
+                    ? "border-rose-100 bg-rose-50/60 text-rose-500 dark:border-rose-900/50 dark:bg-rose-950/20 dark:text-rose-300"
                     : matchPercent != null && matchPercent >= 60
-                        ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-200"
-                        : "bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-200",
+                        ? "border-emerald-100 bg-emerald-50/60 text-emerald-500 dark:border-emerald-900/50 dark:bg-emerald-950/20 dark:text-emerald-300"
+                        : "border-amber-100 bg-amber-50/60 text-amber-500 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-300",
     );
     const topTags = (candidate.tags || []).slice(0, 5);
 
@@ -874,6 +873,41 @@ const CandidateApplicantCard = React.memo(function CandidateApplicantCard({
     const onToggleCheck = React.useCallback((checked: boolean) => {
         toggleCandidateSelection(candidate.id, checked);
     }, [candidate.id, toggleCandidateSelection]);
+
+    const statusReasonText = candidate.display_status_reason
+        ? sanitizeCandidateFacingErrorText(candidate.display_status_reason, {
+            context: resolveCandidateFacingErrorContext(candidate.active_screening_task_type, {
+                autoRetry: candidate.active_screening_auto_retry_scheduled,
+            }),
+            language,
+        })
+        : "";
+    const sourceTimeText = [
+        candidate.source || "-",
+        candidate.updated_at ? formatDateTime(candidate.updated_at) : "",
+    ].filter(Boolean).join("  |  ");
+    const educationSummaryText = [
+        candidate.education,
+        candidate.city,
+        candidate.expected_city ? `${isZh ? "期望" : "Expect"} ${candidate.expected_city}` : "",
+    ].filter(Boolean).join(" · ") || (isZh ? "基础信息待完善" : "Profile pending");
+    const experienceSummaryText = [
+        candidate.current_company || positionLabel,
+        candidate.years_of_experience,
+    ].filter(Boolean).join(" · ") || positionLabel;
+    const recommendedSummaryText = candidate.ai_potential_position
+        ? `${isZh ? "建议转岗" : "Suggested transfer"}：${candidate.ai_potential_position}`
+        : (aiPositionLabel ? `${isZh ? "AI 推荐" : "AI recommendation"}：${aiPositionLabel}` : positionSourceLabel);
+    const actionSummaryText = statusReasonText
+        || (isZh ? "该应聘者已进入当前筛选流程，可继续处理。" : "Candidate is in the current screening flow and can be processed.");
+    const fitBannerClassName = cn(
+        "mt-3 flex min-w-0 items-center justify-between gap-3 rounded-md border px-3 py-2 text-xs leading-5",
+        displayStatus === "screening_rejected" || displayStatus === "interview_rejected"
+            ? "border-rose-100/80 bg-rose-50/45 text-rose-600 dark:border-rose-900/50 dark:bg-rose-950/20 dark:text-rose-300"
+            : matchPercent != null && matchPercent >= 60
+                ? "border-emerald-100/80 bg-emerald-50/45 text-emerald-600 dark:border-emerald-900/50 dark:bg-emerald-950/20 dark:text-emerald-300"
+                : "border-amber-100/80 bg-amber-50/45 text-amber-600 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-300",
+    );
 
     return (
         <div
@@ -888,7 +922,7 @@ const CandidateApplicantCard = React.memo(function CandidateApplicantCard({
                 width: "100%",
                 transform: `translateY(${rowStart}px)`,
             }}
-            className="px-0 pb-3.5"
+            className="pb-3"
         >
             <div
                 role="button"
@@ -901,126 +935,123 @@ const CandidateApplicantCard = React.memo(function CandidateApplicantCard({
                     }
                 }}
                 className={cn(
-                    "flex min-h-[156px] w-full min-w-0 flex-col rounded-md border bg-white px-4 pb-3 pt-3 text-left shadow-none transition dark:bg-slate-950",
-                    "border-[#e5e5e5] hover:border-[#d4d4d4] hover:bg-[#fafafa] dark:border-slate-800 dark:hover:border-slate-600 dark:hover:bg-slate-900/70",
-                    isSelected && "border-[#171717] bg-[#f5f5f5] dark:border-slate-500 dark:bg-slate-900",
+                    "w-full min-w-0 rounded-lg border border-[var(--tr-border-soft)] bg-white px-3 py-3 text-left shadow-[0_1px_2px_rgba(16,32,63,0.03)] transition dark:border-slate-800 dark:bg-slate-950",
+                    "hover:border-slate-300 hover:bg-[#fbfcfe] dark:hover:border-slate-700 dark:hover:bg-slate-900/70",
+                    isSelected && "border-rose-200 bg-rose-50/50 shadow-[inset_3px_0_0_var(--tr-red)] dark:bg-slate-900",
                 )}
             >
-                <div className="flex min-w-0 items-start gap-3.5">
-                    <div className="pt-1.5" onClick={(event) => event.stopPropagation()}>
+                <div className="grid min-w-0 grid-cols-[22px_minmax(0,1fr)] gap-2.5 xl:grid-cols-[22px_minmax(118px,.8fr)_minmax(170px,1.08fr)_minmax(165px,.9fr)_minmax(220px,1fr)] 2xl:grid-cols-[22px_minmax(152px,.85fr)_minmax(260px,1.25fr)_minmax(215px,.95fr)_minmax(240px,1fr)] xl:gap-3 2xl:gap-4">
+                    <div className="pt-1" onClick={(event) => event.stopPropagation()}>
                         <input
                             type="checkbox"
                             checked={isChecked}
                             onChange={(event) => onToggleCheck(event.target.checked)}
                             aria-label={tr.selectCandidate(displayCandidateName)}
+                            className="h-3.5 w-3.5 rounded border-slate-300 accent-[var(--tr-red)]"
                         />
                     </div>
-                    <div className="min-w-0 flex-1">
-                        <div className="flex min-w-0 items-start justify-between gap-4">
-                            <div className="min-w-0">
-                                <div className="flex min-w-0 items-center gap-2">
-                                    <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-lime-500"/>
-                                    <span className="truncate text-[15px] font-semibold leading-5 text-slate-950 dark:text-slate-50">
-                                        {displayCandidateName}
-                                    </span>
-                                </div>
-                                <p className="mt-1 line-clamp-1 text-xs leading-5 text-slate-500 dark:text-slate-400">
-                                    {profileHintText}
-                                </p>
-                            </div>
-                            <div className="flex shrink-0 items-center gap-1.5">
+
+                    <div className="col-start-2 flex min-w-0 gap-2 overflow-hidden xl:col-start-auto 2xl:gap-2.5">
+                        <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-lime-500"/>
+                        <div className="min-w-0">
+                            <div className="flex min-w-0 items-center gap-2">
+                                <span className="truncate text-[15px] font-semibold leading-5 text-[var(--tr-ink)] dark:text-slate-50">
+                                    {displayCandidateName}
+                                </span>
                                 {resumeMailSummary ? (
-                                    <Badge className="rounded border border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+                                    <Badge className="shrink-0 rounded border border-blue-100 bg-blue-50 px-1.5 py-0 text-[11px] text-blue-700 dark:border-blue-900/70 dark:bg-blue-950/30 dark:text-blue-200">
                                         {tr.resumeSent}
                                     </Badge>
                                 ) : null}
-                                <Badge className="rounded border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200">
-                                    {matchIndicatorLabel}
-                                </Badge>
                             </div>
+                            <p className="mt-1 line-clamp-1 text-xs leading-5 text-[var(--tr-ink-muted)] dark:text-slate-400">
+                                {profileHintText}
+                            </p>
+                            <p className="line-clamp-1 text-xs leading-5 text-slate-400 dark:text-slate-500">
+                                {contactText}
+                            </p>
+                            <p className="mt-3 line-clamp-1 text-xs leading-5 text-[var(--tr-ink-muted)] dark:text-slate-400">
+                                {sourceTimeText}
+                            </p>
                         </div>
-                        <div className="mt-3 flex min-w-0 flex-wrap items-center gap-x-6 gap-y-2 border-t border-slate-100 pt-2.5 text-xs leading-5 text-slate-600 dark:border-slate-800 dark:text-slate-300">
-                            <div className="flex min-w-0 max-w-full items-center gap-2">
-                                <span className="shrink-0 text-slate-400">{isZh ? "岗位状态" : "Position"}</span>
-                                <span className="min-w-0 truncate rounded border border-slate-200 bg-white px-2 py-0.5 font-medium text-slate-800 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100">
-                                    {positionLabel}
-                                </span>
-                                <span className="shrink-0 text-slate-400">{positionSourceLabel}</span>
-                            </div>
-                            <div className="flex min-w-0 max-w-full items-center gap-2">
-                                <span className="shrink-0 text-slate-400">{isZh ? "流程阶段" : "Stage"}</span>
-                                <Badge className="h-6 rounded border border-slate-200 bg-slate-50 px-2 text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200">
-                                    {labelForCandidateStatus(displayStatus)}
-                                </Badge>
-                            </div>
-                        </div>
-                        {aiPositionLabel || candidate.ai_potential_position ? (
-                            <div className="mt-2 flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 text-xs leading-5 text-slate-600 dark:text-slate-300">
-                                {aiPositionLabel ? (
-                                    <span className="min-w-0 max-w-full truncate">
-                                        <span className="text-slate-400">{isZh ? "AI 推荐" : "AI recommendation"}</span>：{aiPositionLabel}
-                                    </span>
-                                ) : null}
-                                {candidate.ai_potential_position ? (
-                                    <span className="min-w-0 max-w-full truncate">
-                                        <span className="text-slate-400">{isZh ? "转岗建议" : "Transfer suggestion"}</span>：{candidate.ai_potential_position}
-                                    </span>
-                                ) : null}
-                            </div>
-                        ) : null}
+                    </div>
+
+                    <div className="col-start-2 min-w-0 overflow-hidden space-y-2 border-t border-slate-100 pt-3 xl:col-start-auto xl:border-l xl:border-t-0 xl:pl-3 xl:pt-0 2xl:pl-4 dark:border-slate-800">
+                        <p className="flex min-w-0 items-center gap-2 text-xs leading-5 text-[var(--tr-ink)]">
+                            <GraduationCap className="h-3.5 w-3.5 shrink-0 text-slate-500"/>
+                            <span className="truncate">{educationSummaryText}</span>
+                        </p>
+                        <p className="flex min-w-0 items-center gap-2 text-xs leading-5 text-[var(--tr-ink)]">
+                            <Briefcase className="h-3.5 w-3.5 shrink-0 text-slate-500"/>
+                            <span className="truncate">{experienceSummaryText}</span>
+                        </p>
+                        <p className="flex min-w-0 items-center gap-2 text-xs leading-5 text-[var(--tr-ink-muted)]">
+                            <Bot className="h-3.5 w-3.5 shrink-0 text-slate-500"/>
+                            <span className="truncate">
+                                {aiPositionLabel ? `${isZh ? "AI 推荐" : "AI"}：${aiPositionLabel}` : positionSourceLabel}
+                            </span>
+                        </p>
                         {showOriginalFile ? (
-                            <p className="mt-2 line-clamp-1 text-xs leading-5 text-slate-400 dark:text-slate-500">
+                            <p className="line-clamp-1 text-xs leading-5 text-slate-400 dark:text-slate-500">
                                 {isZh ? "原始文件" : "Original file"}：{originalFileName}
                             </p>
                         ) : null}
-                        {topTags.length ? (
-                            <div className="mt-2 flex min-w-0 flex-wrap items-center gap-1.5">
-                                {topTags.map((tag) => (
-                                    <span key={tag} className="rounded border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
-                                        {tag}
-                                    </span>
-                                ))}
-                            </div>
-                        ) : null}
-                        <div className="mt-2 flex min-w-0 items-start gap-2">
+                        <div className="flex min-w-0 flex-wrap gap-1 pt-0.5 2xl:gap-1.5">
+                            {topTags.slice(0, 4).map((tag) => (
+                                <span key={tag} className="max-w-full truncate rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[11px] leading-4 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 2xl:px-2 2xl:py-1">
+                                    {tag}
+                                </span>
+                            ))}
                             <span className={fitClassName}>{fitLabel}</span>
-                            <p className="line-clamp-2 text-sm leading-5 text-slate-600 dark:text-slate-300">
-                                {candidate.display_status_reason
-                                    ? sanitizeCandidateFacingErrorText(candidate.display_status_reason, {
-                                        context: resolveCandidateFacingErrorContext(candidate.active_screening_task_type, {
-                                            autoRetry: candidate.active_screening_auto_retry_scheduled,
-                                        }),
-                                        language,
-                                    })
-                                    : (isZh ? "该应聘者信息已进入当前筛选流程，可继续处理。" : "Candidate is ready for the current hiring flow.")}
-                            </p>
+                        </div>
+                    </div>
+
+                    <div className="col-start-2 min-w-0 overflow-hidden space-y-2 border-t border-slate-100 pt-3 text-xs leading-5 xl:col-start-auto xl:border-l xl:border-t-0 xl:pl-3 xl:pt-0 2xl:pl-4 dark:border-slate-800">
+                        <div className="grid grid-cols-[60px_minmax(0,1fr)] gap-x-2 gap-y-1 2xl:grid-cols-[72px_minmax(0,1fr)] 2xl:gap-x-3">
+                            <span className="text-slate-400">{isZh ? "应聘岗位" : "Applied"}</span>
+                            <span className="truncate font-semibold text-[var(--tr-ink)]">{positionLabel}</span>
+                            <span className="text-slate-400">{isZh ? "渠道" : "Source"}</span>
+                            <span className="truncate text-[var(--tr-ink-muted)]">{candidate.source || "-"}</span>
+                            <span className="text-slate-400">{isZh ? "投递时间" : "Submitted"}</span>
+                            <span className="truncate text-[var(--tr-ink-muted)]">{candidate.updated_at ? formatDateTime(candidate.updated_at) : "-"}</span>
+                            <span className="text-slate-400">{isZh ? "业务筛选" : "Workflow"}</span>
+                            <span className="truncate text-[var(--tr-ink-muted)]">{labelForCandidateStatus(displayStatus)}</span>
+                        </div>
+                    </div>
+
+                    <div className="col-start-2 min-w-0 overflow-visible border-t border-slate-100 pt-3 xl:col-start-auto xl:border-t-0 xl:pl-2 xl:pt-0 2xl:pl-3 dark:border-slate-800">
+                        <div className="ml-auto flex w-fit max-w-full flex-col items-stretch space-y-2 2xl:space-y-3">
+                            <div className="flex h-8 w-full min-w-0 items-center justify-between gap-2 rounded-md bg-slate-50 px-2 text-xs font-semibold text-[var(--tr-ink)] dark:bg-slate-900 2xl:px-3">
+                                <span>{isZh ? "AI 匹配度" : "AI Match"}</span>
+                                <span className="text-[15px] text-[var(--tr-blue)]">{matchPercent != null ? formatPercent(matchPercent) : "--"}</span>
+                            </div>
+                            <p className="text-left text-xs font-medium text-[var(--tr-ink-muted)]">{isZh ? "候选人处理" : "Candidate actions"}</p>
+                            <div className="flex min-w-0 flex-nowrap items-center gap-1.5 overflow-visible" onClick={(event) => event.stopPropagation()}>
+                                <Button size="sm" className="h-8 w-auto shrink-0 justify-center rounded-md bg-emerald-600 px-3 text-xs leading-5 text-white shadow-none hover:bg-emerald-700" onClick={() => onDisposition(candidate.id, "pass")}>
+                                    <span className="whitespace-nowrap">{tr.quickDispositionPass}</span>
+                                </Button>
+                                <Button size="sm" variant="outline" className="h-8 w-auto shrink-0 justify-center rounded-md px-3 text-xs leading-5" onClick={() => onDisposition(candidate.id, "talent_pool")}>
+                                    <span className="whitespace-nowrap">{tr.quickDispositionTalentPool}</span>
+                                </Button>
+                                <Button size="sm" variant="outline" className="h-8 w-auto shrink-0 justify-center rounded-md border-rose-200 px-3 text-xs leading-5 text-rose-600 hover:bg-rose-50 dark:border-rose-900/70 dark:bg-slate-900 dark:text-rose-300 dark:hover:bg-rose-950/30" onClick={() => onDisposition(candidate.id, "reject")}>
+                                    <span className="whitespace-nowrap">{tr.quickDispositionReject}</span>
+                                </Button>
+                            </div>
                         </div>
                     </div>
                 </div>
-                <div className="mt-auto flex min-w-0 flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-2.5 dark:border-slate-800">
-                    <div className="flex min-w-0 flex-wrap items-center gap-1.5 text-xs text-slate-500">
-                        <span className="hidden max-w-[320px] truncate md:inline">
-                            {isZh ? "来源" : "Source"}：{candidate.source || "-"} · {formatDateTime(candidate.updated_at)}
+
+                <div className={fitBannerClassName}>
+                    <div className="flex min-w-0 items-center gap-2">
+                        <span className="shrink-0 rounded border border-current/20 bg-white/70 px-2 py-0.5 font-semibold dark:bg-slate-950/40">
+                            {fitLabel}
+                        </span>
+                        <span className="min-w-0 truncate">
+                            {actionSummaryText}
+                            {recommendedSummaryText ? ` ${recommendedSummaryText}` : ""}
                         </span>
                     </div>
-                    <div className="flex shrink-0 flex-wrap justify-end gap-2" onClick={(event) => event.stopPropagation()}>
-                        <Button size="sm" variant="outline" className="h-7 rounded-md border-slate-200 bg-white px-2.5 text-xs text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:border-slate-500 dark:hover:bg-slate-800 dark:hover:text-white" onClick={openDetail}>
-                            <Eye className="h-3.5 w-3.5"/>
-                            {isZh ? "详情" : "Details"}
-                        </Button>
-                        <Button size="sm" className="h-7 rounded-md bg-emerald-600 px-2.5 text-xs text-white shadow-none hover:bg-emerald-700" onClick={() => onDisposition(candidate.id, "pass")}>
-                            <Check className="h-3.5 w-3.5"/>
-                            {tr.quickDispositionPass}
-                        </Button>
-                        <Button size="sm" variant="outline" className="h-7 rounded-md border-slate-200 bg-white px-2.5 text-xs text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:border-slate-500 dark:hover:bg-slate-800 dark:hover:text-white" onClick={() => onDisposition(candidate.id, "talent_pool")}>
-                            <Users className="h-3.5 w-3.5"/>
-                            {tr.quickDispositionTalentPool}
-                        </Button>
-                        <Button size="sm" variant="outline" className="h-7 rounded-md border-rose-200 bg-white px-2.5 text-xs text-rose-600 hover:bg-rose-50 dark:border-rose-900/70 dark:bg-slate-900 dark:text-rose-300 dark:hover:bg-rose-950/30 dark:hover:text-rose-200" onClick={() => onDisposition(candidate.id, "reject")}>
-                            <Trash2 className="h-3.5 w-3.5"/>
-                            {tr.quickDispositionReject}
-                        </Button>
-                    </div>
+                    <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-70"/>
                 </div>
             </div>
         </div>
@@ -1176,7 +1207,7 @@ function CandidatePipelineBar({
     loading?: boolean;
 }) {
     return (
-        <div className="grid overflow-hidden rounded-md border border-slate-200 bg-white [grid-template-columns:repeat(auto-fit,minmax(118px,1fr))] dark:border-slate-800 dark:bg-slate-950">
+        <div className="grid overflow-hidden rounded-md border border-[var(--tr-border)] bg-white [grid-template-columns:repeat(auto-fit,minmax(118px,1fr))] dark:border-slate-800 dark:bg-slate-950">
             {stages.map((stage) => (
                 <button
                     key={stage.key}
@@ -1184,15 +1215,15 @@ function CandidatePipelineBar({
                     aria-pressed={stage.active}
                     onClick={() => onSelect(stage)}
                     className={cn(
-                        "min-w-0 border-r border-slate-100 px-3 py-2 text-left transition last:border-r-0 dark:border-slate-800",
+                        "min-w-0 border-r border-[var(--tr-border-soft)] px-4 py-3 text-left transition last:border-r-0 dark:border-slate-800",
                         stage.active
-                            ? "bg-white text-[#171717] shadow-[inset_0_-2px_0_#171717] dark:bg-slate-950 dark:text-neutral-300"
+                            ? "bg-white text-[var(--tr-ink)] shadow-[inset_0_-3px_0_var(--tr-red)] dark:bg-slate-950 dark:text-neutral-300"
                             : "bg-white text-slate-700 hover:bg-slate-50 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-900",
                     )}
                 >
                     <div className="flex items-center justify-between gap-2">
-                        <span className="truncate text-sm font-medium">{stage.label}</span>
-                        <span className="shrink-0 text-lg font-semibold tabular-nums">
+                        <span className="truncate text-sm font-semibold">{stage.label}</span>
+                        <span className={cn("shrink-0 text-lg font-semibold tabular-nums", stage.active && "text-[var(--tr-blue)]")}>
                             {loading ? (
                                 <span className="inline-block h-5 w-8 animate-pulse rounded bg-slate-200 align-middle dark:bg-slate-800" />
                             ) : (
@@ -1203,7 +1234,7 @@ function CandidatePipelineBar({
                     <p
                         className={cn(
                             "mt-1 truncate text-xs",
-                            stage.active ? "text-[#171717]/80 dark:text-neutral-200/80" : "text-slate-500 dark:text-slate-400",
+                            stage.active ? "text-[var(--tr-ink-muted)] dark:text-neutral-200/80" : "text-slate-500 dark:text-slate-400",
                         )}
                     >
                         {stage.hint}
@@ -1252,13 +1283,13 @@ function CandidatePositionScopeSidebar({
     const showInitialLoading = loading && positions.length === 0;
 
     return (
-        <aside className="hidden min-h-0 xl:block">
-            <div className="flex h-full min-h-0 flex-col rounded-md border border-[#e5e5e5] bg-white shadow-none dark:border-slate-800 dark:bg-slate-950">
-                <div className="border-b border-[#e5e5e5] px-4 py-3.5 dark:border-slate-800">
-                    <p className="text-sm font-semibold leading-5 text-slate-950 dark:text-slate-50">
+        <aside className="h-full min-h-0">
+            <div className="flex h-full min-h-0 flex-col rounded-md border border-[var(--tr-border)] bg-white shadow-none dark:border-slate-800 dark:bg-slate-950">
+                <div className="min-w-0 border-b border-[var(--tr-border-soft)] px-4 py-3.5 dark:border-slate-800">
+                    <p className="truncate whitespace-nowrap text-sm font-semibold leading-5 text-slate-950 dark:text-slate-50">
                         {isZh ? "招聘中职位" : "Open Positions"}
                     </p>
-                    <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">
+                    <p className="mt-1 truncate whitespace-nowrap text-xs leading-5 text-slate-500 dark:text-slate-400">
                         {showInitialLoading
                             ? (isZh ? "正在加载职位" : "Loading positions")
                             : (isZh ? `共 ${recruitingCount || positions.length} 个职位` : `${recruitingCount || positions.length} positions`)}
@@ -1270,24 +1301,24 @@ function CandidatePositionScopeSidebar({
                         inputClassName="mt-3 h-8 text-sm"
                     />
                 </div>
-                <div className="border-b border-[#e5e5e5] p-2.5 dark:border-slate-800">
+                <div className="min-w-0 border-b border-[var(--tr-border-soft)] p-2.5 dark:border-slate-800">
                     <button
                         type="button"
                         onClick={() => onSelectPosition("")}
                         className={cn(
-                            "flex min-h-10 w-full items-center justify-between rounded-md px-3 py-2.5 text-left text-sm leading-5 transition",
+                            "flex min-h-10 w-full min-w-0 items-center justify-between gap-2 rounded-md px-3 py-2.5 text-left text-sm leading-5 transition",
                             !activePositionId
-                                ? "bg-[#F5F5F5] text-[#171717]"
+                                ? "bg-[var(--tr-red-soft)] text-[var(--tr-red)]"
                                 : "text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-900",
                         )}
                     >
-                        <span>{isZh ? "全部职位" : "All Positions"}</span>
-                        <span className={cn("text-xs", !activePositionId ? "text-[#171717]/70" : "text-slate-400")}>
+                        <span className="min-w-0 truncate whitespace-nowrap">{isZh ? "全部职位" : "All Positions"}</span>
+                        <span className={cn("text-xs", !activePositionId ? "text-[var(--tr-red)]" : "text-slate-400")}>
                             {showInitialLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin"/> : allPositionCandidateCount}
                         </span>
                     </button>
                 </div>
-                <div className={cn("min-h-0 flex-1 overflow-y-auto p-2.5", SMOOTH_VERTICAL_SCROLLBAR_CLASS)}>
+                <div className={cn("min-h-0 flex-1 overflow-y-auto p-2.5", POSITION_SCOPE_SCROLLBAR_CLASS)}>
                     {showInitialLoading ? (
                         <div className="space-y-2">
                             {Array.from({ length: 6 }).map((_, index) => (
@@ -1311,8 +1342,8 @@ function CandidatePositionScopeSidebar({
                                 className={cn(
                                     "mb-1.5 flex w-full min-w-0 items-start justify-between gap-3 rounded-md px-3 py-2.5 text-left text-sm leading-5 transition",
                                     active
-                                        ? "bg-[#F5F5F5] text-[#171717] dark:bg-slate-900 dark:text-neutral-300"
-                                        : "text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-900",
+                                        ? "bg-[var(--tr-red-soft)] text-[var(--tr-red)] dark:bg-slate-900 dark:text-neutral-300"
+                                        : "text-slate-700 hover:bg-rose-50/70 hover:text-[var(--tr-red)] dark:text-slate-200 dark:hover:bg-slate-900",
                                 )}
                             >
                                 <span className="min-w-0">
@@ -2725,6 +2756,7 @@ export function CandidatesPage({
     const [candidateBoardViewportEl, setCandidateBoardViewportEl] = React.useState<HTMLDivElement | null>(null);
     const [candidateListCompactMode, setCandidateListCompactMode] = React.useState(false);
     const [candidateFilterBarExpanded, setCandidateFilterBarExpanded] = React.useState(false);
+    const [candidatePositionScopeWidth, setCandidatePositionScopeWidth] = React.useState(CANDIDATE_POSITION_SCOPE_DEFAULT_WIDTH);
     const [refreshing, setRefreshing] = React.useState(false);
     const [candidateAiOutputDialogOpen, setCandidateAiOutputDialogOpen] = React.useState(false);
     const [exportDialogOpen, setExportDialogOpen] = React.useState(false);
@@ -2804,6 +2836,51 @@ export function CandidatesPage({
     const candidateDetailToolbarSyncSourceRef = React.useRef<"viewport" | "rail" | null>(null);
     const [candidateDetailToolbarRailWidth, setCandidateDetailToolbarRailWidth] = React.useState(0);
     const [candidateDetailToolbarHasOverflow, setCandidateDetailToolbarHasOverflow] = React.useState(false);
+    const candidatePositionScopeCollapsed = candidatePositionScopeWidth <= CANDIDATE_POSITION_SCOPE_MIN_WIDTH + 1;
+    const candidatePositionScopeColumnWidth = candidatePositionScopeWidth;
+    const candidatePositionScopeGridStyle = React.useMemo(() => ({
+        "--candidate-position-scope-width": `${candidatePositionScopeColumnWidth}px`,
+    }) as React.CSSProperties, [candidatePositionScopeColumnWidth]);
+
+    const handleCandidatePositionScopeResizeStart = useColumnResizeDrag({
+        currentWidth: candidatePositionScopeColumnWidth,
+        maxWidth: CANDIDATE_POSITION_SCOPE_MAX_WIDTH,
+        minWidth: CANDIDATE_POSITION_SCOPE_MIN_WIDTH,
+        setWidth: setCandidatePositionScopeWidth,
+    });
+
+    const handleCandidatePositionScopeResizeKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLButtonElement>) => {
+        const normalizeWidth = (width: number) => {
+            const boundedWidth = Math.max(
+                CANDIDATE_POSITION_SCOPE_MIN_WIDTH,
+                Math.min(CANDIDATE_POSITION_SCOPE_MAX_WIDTH, width),
+            );
+            return boundedWidth;
+        };
+
+        if (event.key === "ArrowLeft") {
+            event.preventDefault();
+            setCandidatePositionScopeWidth((width) => normalizeWidth(width - 24));
+            return;
+        }
+
+        if (event.key === "ArrowRight") {
+            event.preventDefault();
+            setCandidatePositionScopeWidth((width) => normalizeWidth(width + 24));
+            return;
+        }
+
+        if (event.key === "Home") {
+            event.preventDefault();
+            setCandidatePositionScopeWidth(CANDIDATE_POSITION_SCOPE_MIN_WIDTH);
+            return;
+        }
+
+        if (event.key === "End") {
+            event.preventDefault();
+            setCandidatePositionScopeWidth(CANDIDATE_POSITION_SCOPE_MAX_WIDTH);
+        }
+    }, []);
 
     const updateCandidateDetailToolbarMetrics = React.useCallback(() => {
         const node = candidateDetailToolbarScrollRef.current;
@@ -3875,17 +3952,52 @@ export function CandidatesPage({
                     />
                 ) : null}
 
-                <div className="grid min-h-0 grid-cols-1 gap-3 overflow-hidden xl:grid-cols-[248px_minmax(0,1fr)]">
-                    <CandidatePositionScopeSidebar
-                        positions={positions}
-                        loading={positionsLoading}
-                        activePositionId={activeQuickPosition}
-                        allPositionCandidateCount={allPositionCandidateCount}
-                        onSelectPosition={(positionId) => setCandidatePositionFilter(positionId ? [positionId] : [])}
-                        tr={tr}
-                        isZh={isZh}
-                    />
-                <Card className="h-full !gap-0 overflow-hidden rounded-md border border-[#e5e5e5] bg-white !py-0 shadow-none dark:border-slate-800 dark:bg-slate-950">
+                <div
+                    className="grid min-h-0 grid-cols-1 gap-3 overflow-hidden xl:grid-cols-[var(--candidate-position-scope-width)_minmax(0,1fr)]"
+                    style={candidatePositionScopeGridStyle}
+                >
+                    <div className="relative hidden min-h-0 overflow-visible xl:block">
+                        <div
+                            className={cn(
+                                "h-full min-w-0 overflow-hidden transition-opacity duration-150",
+                                candidatePositionScopeCollapsed && "pointer-events-none opacity-0",
+                            )}
+                            aria-hidden={candidatePositionScopeCollapsed}
+                        >
+                            <CandidatePositionScopeSidebar
+                                positions={positions}
+                                loading={positionsLoading}
+                                activePositionId={activeQuickPosition}
+                                allPositionCandidateCount={allPositionCandidateCount}
+                                onSelectPosition={(positionId) => setCandidatePositionFilter(positionId ? [positionId] : [])}
+                                tr={tr}
+                                isZh={isZh}
+                            />
+                        </div>
+                        <button
+                            type="button"
+                            aria-label={isZh ? "拖拽调整岗位列表宽度" : "Drag to resize position list"}
+                            title={isZh ? "拖拽调整岗位列表宽度，双击恢复默认宽度" : "Drag to resize, double click to reset"}
+                            onPointerDown={handleCandidatePositionScopeResizeStart}
+                            onKeyDown={handleCandidatePositionScopeResizeKeyDown}
+                            onDoubleClick={() => setCandidatePositionScopeWidth(CANDIDATE_POSITION_SCOPE_DEFAULT_WIDTH)}
+                            className={cn(
+                                "group absolute -right-2 top-0 z-20 flex h-full w-4 cursor-col-resize touch-none items-center justify-center rounded-full outline-none transition focus-visible:ring-2 focus-visible:ring-[var(--tr-red)] focus-visible:ring-offset-2",
+                                "hover:bg-slate-100/80 dark:hover:bg-slate-900/80",
+                                candidatePositionScopeCollapsed && "bg-white/80 dark:bg-slate-950/80",
+                            )}
+                        >
+                            <span
+                                className={cn(
+                                    "block h-12 w-1 rounded-full bg-slate-300 transition dark:bg-slate-700",
+                                    candidatePositionScopeCollapsed
+                                        ? "bg-[var(--tr-red)] dark:bg-[var(--tr-red)]"
+                                        : "group-hover:bg-slate-400",
+                                )}
+                            />
+                        </button>
+                    </div>
+                <Card className="h-full !gap-0 overflow-hidden rounded-md border border-[var(--tr-border)] bg-white !py-0 shadow-none dark:border-slate-800 dark:bg-slate-950">
                     <CardHeader className="px-4 pt-2 pb-0 sm:px-5">
                         <CandidatePipelineBar
                             stages={candidatePipelineStages}
@@ -3894,9 +4006,9 @@ export function CandidatesPage({
                         />
                         <div
                             className={cn(
-                                "mt-1.5 flex items-center gap-2 border-t border-slate-100 py-1.5 dark:border-slate-800",
+                                "mt-1.5 flex items-center gap-2 border-t border-[var(--tr-border-soft)] py-2 dark:border-slate-800",
                                 selectedCandidateIds.length > 0
-                                    ? "overflow-hidden rounded-md bg-[#F5F5F5]/50 px-2 dark:bg-neutral-900/20"
+                                    ? "overflow-hidden rounded-md bg-slate-50 px-2 dark:bg-neutral-900/20"
                                     : "flex-wrap justify-between",
                             )}
                         >
@@ -4095,7 +4207,7 @@ export function CandidatesPage({
                                         ) : null}
                                     </div>
                                     <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2">
-                                        <div className="w-[150px] max-w-[150px] min-w-0 shrink-0">
+                                        <div className="w-[156px] max-w-[156px] min-w-0 shrink-0">
                                             <NativeSelect
                                                 value={activeQuickPosition || "__all__"}
                                                 title={
@@ -4107,7 +4219,7 @@ export function CandidatesPage({
                                                     const nextValue = event.target.value;
                                                     setCandidatePositionFilter(nextValue === "__all__" ? [] : [nextValue]);
                                                 }}
-                                                className="h-7 w-full max-w-full truncate rounded-md border-slate-200 bg-white px-2 py-0 pr-6 text-xs text-slate-700 shadow-none hover:border-slate-300 hover:text-slate-950 focus-visible:ring-1 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300 dark:hover:text-slate-100"
+                                                className="h-8 w-full max-w-full truncate rounded-md border-[var(--tr-border)] bg-white px-2 py-0 pr-6 text-xs text-slate-700 shadow-none hover:border-slate-300 hover:text-slate-950 focus-visible:ring-1 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300 dark:hover:text-slate-100"
                                             >
                                                 <option value="__all__">{tr.allPositions}</option>
                                                 {positions.map((position) => (
@@ -4120,7 +4232,7 @@ export function CandidatesPage({
                                         <Button
                                             size="sm"
                                             variant="ghost"
-                                            className="h-7 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-normal text-slate-700 shadow-none hover:bg-slate-50 hover:text-slate-950 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300 dark:hover:bg-slate-900 dark:hover:text-slate-100"
+                                            className="h-8 rounded-md border border-[var(--tr-border)] bg-white px-2.5 text-xs font-normal text-slate-700 shadow-none hover:bg-slate-50 hover:text-slate-950 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300 dark:hover:bg-slate-900 dark:hover:text-slate-100"
                                             onClick={() => setCandidateFilterBarExpanded((current) => !current)}
                                         >
                                             <SlidersHorizontal className="h-3.5 w-3.5"/>
@@ -4131,7 +4243,7 @@ export function CandidatesPage({
                             )}
                         </div>
                     </CardHeader>
-                    <CardContent className="relative flex min-h-0 flex-1 flex-col px-4 pt-1 pb-2.5 sm:px-5">
+                    <CardContent className="relative flex min-h-0 flex-1 flex-col px-0 pb-1 pt-0">
                         {candidateMatchSortLoading ? (
                             <div className="mb-2 flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-2 text-sm text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200">
                                 <Loader2 className="h-4 w-4 animate-spin"/>
@@ -4146,10 +4258,10 @@ export function CandidatesPage({
                                     <EmptyState title={tr.noCandidatesMatched} description={tr.noCandidatesMatchedDesc}/>
                                 </div>
                             ) : (
-                                <div className="min-h-0 flex flex-1 flex-col overflow-hidden">
+                                <div className="min-h-0 flex flex-1 flex-col overflow-hidden bg-[#f8fafc] dark:bg-slate-950">
                                     <div
                                         ref={mergedCandidateListScrollRef}
-                                        className={cn("relative min-h-0 flex-1 overflow-y-auto pr-1", SMOOTH_VERTICAL_SCROLLBAR_CLASS)}
+                                        className={cn("relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-4 py-3", SMOOTH_VERTICAL_SCROLLBAR_CLASS)}
                                     >
                                         <div
                                             role="list"
@@ -4179,17 +4291,17 @@ export function CandidatesPage({
                                             })}
                                         </div>
                                     </div>
-                                    <div className="shrink-0 border-t border-slate-200/80 pt-3 dark:border-slate-800">
-                                        <div className="flex flex-wrap items-center justify-between gap-4 text-sm text-slate-500 dark:text-slate-400">
+                                    <div className="shrink-0 border-t border-slate-200/80 px-4 py-1.5 dark:border-slate-800">
+                                        <div className="flex flex-wrap items-center justify-between gap-2 text-xs leading-5 text-slate-500 dark:text-slate-400">
                                             <span>
                                                 {tr.candidatePageRange(candidatePageStart, candidatePageEnd, candidateTotal)}
                                             </span>
-                                            <div className="flex flex-wrap items-center gap-2.5">
+                                            <div className="flex flex-wrap items-center gap-1.5">
                                                 <NativeSelect
                                                     value={String(candidatePageSize)}
                                                     title={tr.rowsPerPage}
                                                     onChange={(event) => setCandidatePageSize(Number(event.target.value))}
-                                                    className="h-8 w-[118px] shrink-0 rounded-md border-slate-200 bg-white pr-8 text-sm shadow-none dark:border-slate-800 dark:bg-slate-950"
+                                                    className="h-7 w-[96px] shrink-0 rounded-md border-slate-200 bg-white pr-7 text-xs shadow-none dark:border-slate-800 dark:bg-slate-950"
                                                 >
                                                     {candidatePageSizeOptions.map((option) => (
                                                         <option key={option} value={option}>{option}{tr.rowsPerPage}</option>
@@ -4198,7 +4310,7 @@ export function CandidatesPage({
                                                 <Button
                                                     size="sm"
                                                     variant="outline"
-                                                    className="h-7 rounded-md px-2.5 text-xs"
+                                                    className="h-6 rounded-md px-2 text-xs leading-4"
                                                     disabled={candidatePageIndex <= 0 || candidatesLoading}
                                                     onClick={() => setCandidatePageIndex(candidatePageIndex - 1)}
                                                 >
@@ -4209,7 +4321,7 @@ export function CandidatesPage({
                                                         key={pageIndex}
                                                         size="sm"
                                                         variant={pageIndex === candidatePageIndex ? "default" : "outline"}
-                                                        className="h-7 min-w-7 rounded-md px-2 text-sm"
+                                                        className="h-6 min-w-6 rounded-md px-1.5 text-xs leading-4"
                                                         disabled={candidatesLoading}
                                                         onClick={() => setCandidatePageIndex(pageIndex)}
                                                     >
@@ -4219,7 +4331,7 @@ export function CandidatesPage({
                                                 <Button
                                                     size="sm"
                                                     variant="outline"
-                                                    className="h-7 rounded-md px-2.5 text-xs"
+                                                    className="h-6 rounded-md px-2 text-xs leading-4"
                                                     disabled={candidatePageIndex >= candidateTotalPages - 1 || candidatesLoading}
                                                     onClick={() => setCandidatePageIndex(candidatePageIndex + 1)}
                                                 >
@@ -4252,28 +4364,28 @@ export function CandidatesPage({
                                         ))}
                                     </div>
                                 </div>
-                                <div className="mt-3 flex shrink-0 flex-wrap items-center justify-between gap-4 border-t border-slate-200/80 pt-3 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
+                                <div className="mt-2 flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-slate-200/80 pt-2 text-xs leading-5 text-slate-500 dark:border-slate-800 dark:text-slate-400">
                                     <span>{tr.candidatePageRange(candidatePageStart, candidatePageEnd, candidateTotal)}</span>
-                                    <div className="flex flex-wrap items-center gap-2.5">
+                                    <div className="flex flex-wrap items-center gap-1.5">
                                         <NativeSelect
                                             value={String(candidatePageSize)}
                                             title={tr.rowsPerPage}
                                             onChange={(event) => setCandidatePageSize(Number(event.target.value))}
-                                            className="h-8 w-[118px] shrink-0 rounded-md border-slate-200 bg-white pr-8 text-sm shadow-none dark:border-slate-800 dark:bg-slate-950"
+                                            className="h-7 w-[96px] shrink-0 rounded-md border-slate-200 bg-white pr-7 text-xs shadow-none dark:border-slate-800 dark:bg-slate-950"
                                         >
                                             {candidatePageSizeOptions.map((option) => (
                                                 <option key={option} value={option}>{option}{tr.rowsPerPage}</option>
                                             ))}
                                         </NativeSelect>
-                                        <Button size="sm" variant="outline" className="h-7 rounded-md px-2.5 text-sm" disabled={candidatePageIndex <= 0 || candidatesLoading} onClick={() => setCandidatePageIndex(candidatePageIndex - 1)}>
+                                        <Button size="sm" variant="outline" className="h-6 rounded-md px-2 text-xs leading-4" disabled={candidatePageIndex <= 0 || candidatesLoading} onClick={() => setCandidatePageIndex(candidatePageIndex - 1)}>
                                             {tr.previousPage}
                                         </Button>
                                         {candidatePaginationPages.map((pageIndex) => (
-                                            <Button key={pageIndex} size="sm" variant={pageIndex === candidatePageIndex ? "default" : "outline"} className="h-7 min-w-7 rounded-md px-2 text-sm" disabled={candidatesLoading} onClick={() => setCandidatePageIndex(pageIndex)}>
+                                            <Button key={pageIndex} size="sm" variant={pageIndex === candidatePageIndex ? "default" : "outline"} className="h-6 min-w-6 rounded-md px-1.5 text-xs leading-4" disabled={candidatesLoading} onClick={() => setCandidatePageIndex(pageIndex)}>
                                                 {pageIndex + 1}
                                             </Button>
                                         ))}
-                                        <Button size="sm" variant="outline" className="h-7 rounded-md px-2.5 text-sm" disabled={candidatePageIndex >= candidateTotalPages - 1 || candidatesLoading} onClick={() => setCandidatePageIndex(candidatePageIndex + 1)}>
+                                        <Button size="sm" variant="outline" className="h-6 rounded-md px-2 text-xs leading-4" disabled={candidatePageIndex >= candidateTotalPages - 1 || candidatesLoading} onClick={() => setCandidatePageIndex(candidatePageIndex + 1)}>
                                             {tr.nextPage}
                                         </Button>
                                     </div>

@@ -83,7 +83,7 @@ export const WeatherChip: React.FC<WeatherChipProps> = ({
 
     return (
         <StatusChip className="shrink-0 whitespace-nowrap">
-            <MapPin className="w-4 h-4 text-primary" />
+            <MapPin className="w-4 h-4 text-slate-500 dark:text-slate-400" />
             <span className="whitespace-nowrap hidden 2xl:inline dark:text-gray-50">{displayLabel}</span>
             <span className="text-muted-foreground hidden 2xl:inline">·</span>
             {state.loading && !state.data ? (
@@ -113,7 +113,7 @@ export const WeatherChip: React.FC<WeatherChipProps> = ({
                 <button
                     type="button"
                     onClick={onRefresh}
-                    className="ml-1 text-xs text-primary hover:underline hidden xl:inline"
+                    className="ml-1 hidden text-xs text-slate-500 hover:text-slate-700 hover:underline dark:text-slate-400 dark:hover:text-slate-200 xl:inline"
                     aria-label={tr.refreshWeather}>
                     {t.common.refresh}
                 </button>
