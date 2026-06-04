@@ -5454,6 +5454,7 @@ class RecruitmentService:
         except Exception:
             TaskEventBus = None  # type: ignore[assignment]
 
+        completed_summary_batch_ids: set[str] = set()
         # 批量自动邮件：找出所有有待发邮件的批次，逐个检查并触发
         try:
             pending_batches = (
@@ -5468,7 +5469,8 @@ class RecruitmentService:
             )
             for (batch_id,) in pending_batches:
                 try:
-                    self._check_and_trigger_batch_email_on_task_completion(batch_id)
+                    if self._check_and_trigger_batch_email_on_task_completion(batch_id):
+                        completed_summary_batch_ids.add(batch_id)
                 except Exception:
                     logger.exception("Batch email trigger failed in _emit_batch_summary_if_needed batch_id=%s", batch_id)
         except Exception:
@@ -5478,13 +5480,16 @@ class RecruitmentService:
         if not TaskEventBus:
             return
 
+        if not completed_summary_batch_ids:
+            return
+
         summary_tokens: set[str] = set()
-        # 为所有批次中的每个候选人发送 task_completed 事件，触发前端 stopTaskMonitor + clearActiveScreeningTask
+        # 只为本次刚完成且成功 claim 的批次发送 SSE，避免每次队列收尾都重复广播历史批次。
         try:
             batch_tasks = (
                 self.db.query(RecruitmentAITaskLog)
                 .filter(
-                    RecruitmentAITaskLog.batch_id.isnot(None),
+                    RecruitmentAITaskLog.batch_id.in_(completed_summary_batch_ids),
                     RecruitmentAITaskLog.task_type == 'screening_flow',
                     RecruitmentAITaskLog.status.in_(TERMINAL_AI_TASK_STATUSES),
                 )
@@ -5520,7 +5525,7 @@ class RecruitmentService:
 
         # batch_summary 事件：独立发送，不依赖邮件逻辑
         try:
-            summary_payload = {"message": "all_tasks_completed"}
+            summary_payload = {"message": "all_tasks_completed", "batch_ids": sorted(completed_summary_batch_ids)}
             fallback_token = self._normalize_task_session_token(self._session_token)
             if fallback_token:
                 summary_tokens.add(fallback_token)
@@ -5534,11 +5539,11 @@ class RecruitmentService:
         except Exception:
             logger.exception("Failed to emit batch_summary event")
 
-    def _check_and_trigger_batch_email_on_task_completion(self, batch_id: str, *, actor_id: str = "system"):
+    def _check_and_trigger_batch_email_on_task_completion(self, batch_id: str, *, actor_id: str = "system") -> bool:
         """当一个任务完成时，检查该批次的根任务是否全部完成，如果是，触发该批次的邮件。"""
         if not batch_id:
             logger.debug("Batch email check skipped: no batch_id")
-            return
+            return False
 
         for attempt in range(3):
             try:
@@ -5548,7 +5553,7 @@ class RecruitmentService:
                 ).first()
                 if already_sent:
                     logger.info("Batch email check batch_id=%s already sent (fast path)", batch_id)
-                    return
+                    return False
 
                 batch_root_tasks = (
                     self.db.query(RecruitmentAITaskLog)
@@ -5560,7 +5565,7 @@ class RecruitmentService:
                 )
                 if not batch_root_tasks:
                     logger.debug("Batch email check skipped: no root tasks found for batch_id=%s", batch_id)
-                    return
+                    return False
 
                 logger.info("Batch email check batch_id=%s root_task_count=%s", batch_id, len(batch_root_tasks))
 
@@ -5568,11 +5573,11 @@ class RecruitmentService:
                 if not all_completed:
                     pending_statuses = [task.status for task in batch_root_tasks if task.status not in TERMINAL_AI_TASK_STATUSES]
                     logger.info("Batch email check batch_id=%s not all completed, pending_statuses=%s", batch_id, pending_statuses)
-                    return
+                    return False
 
                 if any(task.batch_email_sent for task in batch_root_tasks):
                     logger.info("Batch email check batch_id=%s already sent (double check)", batch_id)
-                    return
+                    return False
 
                 root_task_ids = [task.id for task in batch_root_tasks]
                 claimed_count = (
@@ -5595,11 +5600,14 @@ class RecruitmentService:
                         claimed_count,
                         len(root_task_ids),
                     )
-                    return
+                    return False
 
                 logger.info("Batch email trigger batch_id=%s actor_id=%s root_task_count=%s", batch_id, actor_id, len(batch_root_tasks))
-                self._send_batch_auto_resume_mail_for_batch(batch_id, batch_root_tasks)
-                return
+                try:
+                    self._send_batch_auto_resume_mail_for_batch(batch_id, batch_root_tasks)
+                except Exception:
+                    logger.exception("Failed to send batch auto resume mail batch_id=%s", batch_id)
+                return True
             except OperationalError as exc:
                 self.db.rollback()
                 if _is_retryable_mysql_lock_error(exc, allowed_codes=(1205, 1213)) and attempt < 2:
@@ -5614,11 +5622,12 @@ class RecruitmentService:
                     time.sleep(sleep_seconds)
                     continue
                 logger.exception("Failed to send batch auto resume mail batch_id=%s", batch_id)
-                return
+                return False
             except Exception:
                 logger.exception("Failed to send batch auto resume mail batch_id=%s", batch_id)
                 self.db.rollback()
-                return
+                return False
+        return False
 
     def _send_batch_auto_resume_mail_for_batch(
         self,

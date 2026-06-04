@@ -1662,6 +1662,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const pendingCandidateUpdateEventsRef = useRef<TaskSSEEvent[]>([]);
     const candidateUpdateBatchTimerRef = useRef<number | null>(null);
     const candidateStatsRefreshTimerRef = useRef<number | null>(null);
+    const candidateStatsRefreshInFlightRef = useRef(false);
+    const candidateStatsRefreshPendingRef = useRef(false);
     const requestInflightRef = useRef<Map<string, Promise<unknown>>>(new Map());
     const selectedLogIdRef = useRef<number | null>(null);
     const selectedPositionIdRef = useRef<number | null>(null);
@@ -3795,6 +3797,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 window.clearTimeout(candidateStatsRefreshTimerRef.current);
                 candidateStatsRefreshTimerRef.current = null;
             }
+            candidateStatsRefreshInFlightRef.current = false;
+            candidateStatsRefreshPendingRef.current = false;
             pendingCandidateUpdateEventsRef.current = [];
         };
     }, []);
@@ -4628,7 +4632,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     }, []);
 
     const scheduleCandidateStatsRefresh = useCallback(() => {
-        if (candidateStatsRefreshTimerRef.current != null) {
+        candidateStatsRefreshPendingRef.current = true;
+        if (candidateStatsRefreshTimerRef.current != null || candidateStatsRefreshInFlightRef.current) {
             return;
         }
         candidateStatsRefreshTimerRef.current = window.setTimeout(() => {
@@ -4636,11 +4641,18 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             if (!mountedRef.current) {
                 return;
             }
-            void refreshCandidateStats();
-            if (activePageRef.current === "candidates") {
-                void loadPositions({force: true});
-            }
-        }, 250);
+            candidateStatsRefreshPendingRef.current = false;
+            candidateStatsRefreshInFlightRef.current = true;
+            void Promise.all([
+                refreshCandidateStats(),
+                activePageRef.current === "candidates" ? loadPositions({force: true}) : Promise.resolve(),
+            ]).finally(() => {
+                candidateStatsRefreshInFlightRef.current = false;
+                if (mountedRef.current && candidateStatsRefreshPendingRef.current) {
+                    scheduleCandidateStatsRefresh();
+                }
+            });
+        }, 800);
     }, []);
 
     const flushPendingCandidateUpdatedEvents = useCallback(() => {
@@ -4807,7 +4819,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                         scheduleCandidateStatsRefresh();
                     }
                 } else if (event.related_candidate_id && isTerminalScreeningTask) {
-                    void refreshActiveCandidateListAndStats({ silent: true }).catch(() => {});
+                    void refreshActiveCandidateList({ silent: true }).catch(() => {});
+                    scheduleCandidateStatsRefresh();
                 }
                 if (event.related_candidate_id && event.task_type === "screening_flow") {
                     const failedLike = new Set(["failed", "invalid_result", "json_parse_failed", "timeout", "retry_exhausted", "quota_exceeded", "rate_limited", "upstream_timeout", "request_failed"]);
@@ -4895,7 +4908,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 }
             },
             onBatchSummary: () => {
-                void refreshActiveCandidateListAndStats({ silent: true }).catch(() => {});
+                void refreshActiveCandidateList({ silent: true }).catch(() => {});
+                scheduleCandidateStatsRefresh();
             },
             onVersionMismatch: () => {
                 if (versionMismatchShownRef.current) {
@@ -5804,17 +5818,22 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         );
     }
 
+    async function refreshActiveCandidateList(options?: { silent?: boolean }) {
+        if (activePageRef.current !== "candidates") {
+            return [];
+        }
+        return loadCandidates({
+            silent: options?.silent ?? true,
+            force: true,
+            useVisibleFilters: true,
+            pageIndex: candidatePageIndexRef.current,
+            pageSize: candidatePageSizeRef.current,
+        });
+    }
+
     async function refreshActiveCandidateListAndStats(options?: { silent?: boolean }) {
         await Promise.all([
-            activePageRef.current === "candidates"
-                ? loadCandidates({
-                    silent: options?.silent ?? true,
-                    force: true,
-                    useVisibleFilters: true,
-                    pageIndex: candidatePageIndexRef.current,
-                    pageSize: candidatePageSizeRef.current,
-                })
-                : Promise.resolve([]),
+            refreshActiveCandidateList(options),
             refreshCandidateStats(),
         ]);
     }
@@ -6233,7 +6252,10 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 params.set("position_id", activePositionId);
             }
             const queryString = params.toString();
-            const stats = await recruitmentApi<import("@/lib/recruitment-api").CandidateStatsData>(`/candidates/stats${queryString ? `?${queryString}` : ""}`);
+            const stats = await runDedupedRequest(
+                `candidate-pipeline-stats:${queryString || "all"}`,
+                () => recruitmentApi<import("@/lib/recruitment-api").CandidateStatsData>(`/candidates/stats${queryString ? `?${queryString}` : ""}`),
+            );
             setCandidatePipelineStatsData(stats);
             setCandidatePipelineStatsScopeKey(resolveCandidatePipelineStatsScopeKey(departmentScope, orgScope, activePositionId));
         } catch {}
@@ -6243,7 +6265,10 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         try {
             const scopedOrgCode = resolveScopedOrgCode(departmentScope ?? selectedDepartmentScope, orgScope ?? selectedOrgScope);
             const orgCodeParam = scopedOrgCode ? `?org_code=${encodeURIComponent(scopedOrgCode)}` : "";
-            const stats = await recruitmentApi<import("@/lib/recruitment-api").CandidateStatsData>(`/candidates/stats${orgCodeParam}`);
+            const stats = await runDedupedRequest(
+                `candidate-stats:${scopedOrgCode || "all"}`,
+                () => recruitmentApi<import("@/lib/recruitment-api").CandidateStatsData>(`/candidates/stats${orgCodeParam}`),
+            );
             setCandidateStatsData(stats);
             setCandidateScopeTotal(Number(stats?.total || 0));
             if (activePageRef.current === "candidates") {
@@ -6254,13 +6279,19 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         try {
             const scopedOrgCode = resolveScopedOrgCode(departmentScope ?? selectedDepartmentScope, orgScope ?? selectedOrgScope);
             const orgCodeParam = scopedOrgCode ? `?org_code=${encodeURIComponent(scopedOrgCode)}` : "";
-            const f = await recruitmentApi<import("@/lib/recruitment-api").RecruitmentFunnelData>(`/candidates/funnel${orgCodeParam}`);
+            const f = await runDedupedRequest(
+                `candidate-funnel:${scopedOrgCode || "all"}`,
+                () => recruitmentApi<import("@/lib/recruitment-api").RecruitmentFunnelData>(`/candidates/funnel${orgCodeParam}`),
+            );
             setFunnelData(f);
         } catch {}
         try {
             const scopedOrgCode = resolveScopedOrgCode(departmentScope ?? selectedDepartmentScope, orgScope ?? selectedOrgScope);
             const orgCodeParam = scopedOrgCode ? `?org_code=${encodeURIComponent(scopedOrgCode)}` : "";
-            const s = await recruitmentApi<import("@/lib/recruitment-api").SourceStatsData>(`/candidates/source-stats${orgCodeParam}`);
+            const s = await runDedupedRequest(
+                `candidate-source-stats:${scopedOrgCode || "all"}`,
+                () => recruitmentApi<import("@/lib/recruitment-api").SourceStatsData>(`/candidates/source-stats${orgCodeParam}`),
+            );
             setSourceStatsData(s);
         } catch {}
     }
