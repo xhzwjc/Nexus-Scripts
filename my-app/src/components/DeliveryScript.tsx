@@ -705,7 +705,6 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
         const user = userOverride || users.find(item => item.mobile === userMobile);
         const key = `${userMobile}_${task.taskAssignId}`;
         if (!user || !isRejectedDeliveryTask(task)) return;
-        if (draftsRef.current[key]) return;
 
         setLoadingDetailTaskAssignId(task.taskAssignId);
         try {
@@ -723,7 +722,8 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
             if (detailRes.data?.code === 0 && detailRes.data.data) {
                 const detailDraft = buildDraftFromDeliveryDetail(detailRes.data.data as DeliveryDetailData);
                 setDrafts(prev => {
-                    if (prev[key]) return prev;
+                    const existing = prev[key];
+                    if (existing) clearDraftPreviewUrls(existing);
                     return { ...prev, [key]: detailDraft };
                 });
             } else {
