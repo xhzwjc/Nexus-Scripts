@@ -613,6 +613,14 @@ class DeliverySubmitRequest(BaseModel):
     token: str
     payload: Dict[str, Any]
 
+class DeliveryDetailRequest(BaseModel):
+    environment: str
+    token: str
+    id: Optional[Union[int, str]] = Field(default=None, description="交付记录ID")
+    taskId: Optional[str] = Field(default=None, description="任务ID")
+    taskStaffId: Optional[str] = Field(default=None, description="任务人员ID")
+    taskAssignId: Optional[str] = Field(default=None, description="任务分配ID")
+
 class DeliveryWorkerInfoRequest(BaseModel):
     environment: str
     token: str

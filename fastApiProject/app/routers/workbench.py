@@ -14,6 +14,7 @@ from starlette.responses import StreamingResponse
 from ..database import get_db
 from ..models import (
     ChatRequest,
+    DeliveryDetailRequest,
     DeliveryLoginRequest,
     DeliverySubmitRequest,
     DeliveryTaskRequest,
@@ -202,6 +203,26 @@ async def delivery_tasks(
     return service.delivery_get_tasks(request.token, request.status)
 
 
+@workbench_router.post("/delivery/detail", tags=["交付物工具"])
+async def delivery_detail(
+    request: DeliveryDetailRequest,
+    _session: Dict[str, Any] = Depends(require_script_hub_permission("delivery-tool")),
+):
+    logger.info(
+        "[交付物-详情] 获取详情, id=%s, taskAssignId=%s",
+        request.id,
+        request.taskAssignId,
+    )
+    service = MobileTaskService(environment=request.environment, silent=True)
+    return service.delivery_detail(
+        request.token,
+        detail_id=request.id,
+        task_assign_id=request.taskAssignId,
+        task_staff_id=request.taskStaffId,
+        task_id=request.taskId,
+    )
+
+
 @workbench_router.post("/delivery/upload", tags=["交付物工具"])
 async def delivery_upload(
     http_request: Request,
@@ -250,7 +271,7 @@ async def delivery_submit(
         target_code=str(request.payload.get("taskId") or request.payload.get("taskAssignId") or "unknown-task"),
         details={
             "environment": request.environment,
-            "attachment_count": len(request.payload.get("attachmentReqs") or []),
+            "attachment_count": len(request.payload.get("attachments") or []),
             "success": result.get("code") == 0,
         },
     )
@@ -265,6 +286,16 @@ async def delivery_worker_info(
     logger.info("[交付物-用户信息] 获取用户信息")
     service = MobileTaskService(environment=request.environment, silent=True)
     return service.delivery_worker_info(request.token)
+
+
+@workbench_router.post("/delivery/worker-index", tags=["交付物工具"])
+async def delivery_worker_index(
+    request: DeliveryWorkerInfoRequest,
+    _session: Dict[str, Any] = Depends(require_script_hub_permission("delivery-tool")),
+):
+    logger.info("[交付物-用户首页] 获取用户首页信息")
+    service = MobileTaskService(environment=request.environment, silent=True)
+    return service.delivery_worker_index(request.token)
 
 
 @workbench_router.post('/ai/chat', tags=['AI助手'])

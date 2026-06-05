@@ -31,6 +31,14 @@ import { Textarea } from './ui/textarea';
 
 import { Badge } from './ui/badge';
 import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle
+} from './ui/dialog';
+import {
     ArrowLeft, Loader2, Upload, File as FileIcon, X, CheckCircle, AlertCircle,
     Image as ImageIcon, User, ChevronRight, ChevronDown, LogOut, RefreshCw, Sparkles
 } from 'lucide-react';
@@ -52,6 +60,11 @@ const IMAGE_FILE_EXTENSIONS = new Set([
 ]);
 
 const DELIVERY_TIME_ZONE = 'Asia/Shanghai';
+const DELIVERY_OSS_HOSTS = {
+    prod: 'https://fwos-prod.oss-cn-beijing.aliyuncs.com',
+    test: 'https://fwos-test.oss-cn-beijing.aliyuncs.com',
+    local: 'https://fwos-test.oss-cn-beijing.aliyuncs.com'
+} as const;
 
 interface DeliveryScriptProps {
     onBack: () => void;
@@ -78,7 +91,8 @@ const CONSTANTS = {
 
     // 任务状态
     TASK_STATUS: {
-        DELIVERABLE: 4 // myStatus === 4 表示可交付
+        DELIVERABLE: 4, // myStatus === 4 表示可交付
+        REJECTED: 6
     },
 
     // 请求超时（毫秒）
@@ -138,6 +152,46 @@ const toWxTempPath = (filePath: string, fallbackFileName: string) => {
     return filename ? `wxfile://${filename}` : '';
 };
 
+const shouldShowDeliveryTask = (task: Task) => {
+    return (
+        task.myStatus === CONSTANTS.TASK_STATUS.DELIVERABLE ||
+        task.myStatus === CONSTANTS.TASK_STATUS.REJECTED
+    ) && !task.taskName?.includes('【测试');
+};
+
+const isRejectedDeliveryTask = (task: Task | undefined | null) => {
+    return task?.myStatus === CONSTANTS.TASK_STATUS.REJECTED;
+};
+
+const parseUploadTime = (value: unknown) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : Date.now();
+};
+
+const buildDeliveryPreviewUrl = (environment: string, filePath: string) => {
+    const normalizedPath = (filePath || '').replace(/^\/+/, '');
+    if (!normalizedPath) return undefined;
+    const host = DELIVERY_OSS_HOSTS[environment as keyof typeof DELIVERY_OSS_HOSTS] || DELIVERY_OSS_HOSTS.test;
+    return `${host}/${normalizedPath}`;
+};
+
+const normalizeLiveCertStatus = (value: unknown): 0 | 1 | null => {
+    const parsed = Number(value);
+    return parsed === 0 || parsed === 1 ? parsed : null;
+};
+
+const getLiveCertBadgeText = (status: 0 | 1 | null | undefined) => {
+    if (status === 1) return '已活体';
+    if (status === 0) return '未活体';
+    return '活体未知';
+};
+
+const getLiveCertBadgeClassName = (status: 0 | 1 | null | undefined) => {
+    if (status === 1) return 'border-emerald-200 bg-emerald-50 text-emerald-700';
+    if (status === 0) return 'border-amber-200 bg-amber-50 text-amber-700';
+    return 'border-slate-200 bg-slate-50 text-slate-500';
+};
+
 // Data Interfaces
 interface Task {
     taskId: string;
@@ -151,6 +205,7 @@ interface Task {
     taskType: number;
     taskStaffId: string;
     taskAssignId: string;
+    auditRemark?: string | null;
 }
 
 interface UserData {
@@ -158,6 +213,8 @@ interface UserData {
     token: string;
     realname: string;
     tasks: Task[];
+    liveCertStatus?: 0 | 1 | null;
+    liveCertCheckedAt?: number | null;
     loading?: boolean;
 }
 
@@ -179,11 +236,54 @@ interface Attachment {
 }
 
 interface FormDraft {
+    deliveryDetailId?: number | string | null;
+    auditStatus?: number | null;
+    auditRemark?: string | null;
     reportName: string;
     reportContent: string;
     reportAddress: string;
     supplement: string;
     attachments: Attachment[];
+}
+
+interface DeliveryDetailAttachment {
+    fileName?: string;
+    tempPath?: string;
+    fileType?: string;
+    uploadTime?: number | string;
+    fileLength?: number;
+    isPic?: number;
+    isWx?: number;
+    filePath?: string;
+}
+
+interface DeliveryDetailData {
+    id?: number | string;
+    taskContent?: string | null;
+    reportName?: string | null;
+    reportAddress?: string | null;
+    supplement?: string | null;
+    auditStatus?: number | null;
+    auditRemark?: string | null;
+    attachmentsVo?: DeliveryDetailAttachment[];
+}
+
+interface WorkerIndexData {
+    liveCertStatus?: number | string | null;
+}
+
+interface LiveCertWarningUser {
+    realname: string;
+    mobile: string;
+}
+
+interface PendingDeliverySubmit {
+    token: string;
+    payload: Record<string, unknown>;
+    submittedTaskAssignId: string;
+    submittedUserMobile: string;
+    draftKey: string;
+    liveCertStatus: 0 | 1 | null;
 }
 
 export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
@@ -234,8 +334,11 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
 
     // -- Submitting State --
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [loadingDetailTaskAssignId, setLoadingDetailTaskAssignId] = useState<string | null>(null);
     const [showValidation, setShowValidation] = useState(false);
     const [previewImage, setPreviewImage] = useState<string | null>(null);
+    const [liveCertWarningUser, setLiveCertWarningUser] = useState<LiveCertWarningUser | null>(null);
+    const [pendingDeliverySubmit, setPendingDeliverySubmit] = useState<PendingDeliverySubmit | null>(null);
 
     // Keep track of drafts for cleanup
     const draftsRef = useRef<Record<string, FormDraft>>({});
@@ -246,7 +349,7 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
     // 清理 preview URLs 的辅助函数
     const clearDraftPreviewUrls = useCallback((draft: FormDraft) => {
         draft.attachments.forEach(a => {
-            if (a.previewUrl) {
+            if (a.previewUrl?.startsWith('blob:')) {
                 URL.revokeObjectURL(a.previewUrl);
             }
         });
@@ -271,6 +374,41 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
             setDrafts({});
         }
     }, [step, clearDraftPreviewUrls]);
+
+    const fetchWorkerIndex = useCallback(async (token: string) => {
+        const res = await axios.post(`${apiBaseUrl}/delivery/worker-index`, {
+            environment,
+            token
+        }, {
+            timeout: CONSTANTS.REQUEST_TIMEOUT,
+            headers: getScriptHubAuthHeaderRecord(),
+        });
+        if (res.data?.code === 0 && res.data.data) {
+            return res.data.data as WorkerIndexData;
+        }
+        throw new Error(res.data?.msg || '获取活体认证状态失败');
+    }, [apiBaseUrl, environment]);
+
+    const applyLiveCertStatus = useCallback((mobile: string, token: string, liveCertStatus: 0 | 1 | null) => {
+        if (liveCertStatus === null) return;
+        setUsers(prev => prev.map(user => (
+            user.mobile === mobile && user.token === token
+                ? { ...user, liveCertStatus, liveCertCheckedAt: Date.now() }
+                : user
+        )));
+    }, []);
+
+    const refreshUserLiveCertStatus = useCallback(async (user: Pick<UserData, 'mobile' | 'token'>) => {
+        try {
+            const workerIndex = await fetchWorkerIndex(user.token);
+            const liveCertStatus = normalizeLiveCertStatus(workerIndex.liveCertStatus);
+            applyLiveCertStatus(user.mobile, user.token, liveCertStatus);
+            return liveCertStatus;
+        } catch (error) {
+            console.error('[Live Cert Status Error]', { mobile: user.mobile, error });
+            return null;
+        }
+    }, [applyLiveCertStatus, fetchWorkerIndex]);
 
     // -------------------------------------------------------------------------
     // Login Logic (优化：添加超时控制和错误隔离)
@@ -319,9 +457,15 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
 
                         const token = loginRes.data.token;
 
-                        // 2. Get Worker Info and Tasks in parallel with timeout
-                        const [infoRes, taskRes] = await Promise.allSettled([
+                        // 2. Get Worker Info, live cert status and tasks in parallel with timeout
+                        const [infoRes, workerIndexRes, taskRes] = await Promise.allSettled([
                             axios.post(`${apiBaseUrl}/delivery/worker-info`, {
+                                environment, token
+                            }, {
+                                timeout: CONSTANTS.REQUEST_TIMEOUT,
+                                headers: getScriptHubAuthHeaderRecord(),
+                            }),
+                            axios.post(`${apiBaseUrl}/delivery/worker-index`, {
                                 environment, token
                             }, {
                                 timeout: CONSTANTS.REQUEST_TIMEOUT,
@@ -340,11 +484,14 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                             realname = infoRes.value.data.data.realname || mobile;
                         }
 
+                        let liveCertStatus: 0 | 1 | null = null;
+                        if (workerIndexRes.status === 'fulfilled' && workerIndexRes.value.data?.code === 0 && workerIndexRes.value.data.data) {
+                            liveCertStatus = normalizeLiveCertStatus(workerIndexRes.value.data.data.liveCertStatus);
+                        }
+
                         let userTasks: Task[] = [];
                         if (taskRes.status === 'fulfilled' && taskRes.value.data && taskRes.value.data.code === 0 && taskRes.value.data.data?.list) {
-                            userTasks = (taskRes.value.data.data.list as Task[]).filter(
-                                t => t.myStatus === CONSTANTS.TASK_STATUS.DELIVERABLE && !t.taskName?.includes('【测试')
-                            );
+                            userTasks = (taskRes.value.data.data.list as Task[]).filter(shouldShowDeliveryTask);
                         }
 
                         return {
@@ -353,7 +500,9 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                                 mobile,
                                 token,
                                 realname,
-                                tasks: userTasks
+                                tasks: userTasks,
+                                liveCertStatus,
+                                liveCertCheckedAt: liveCertStatus === null ? null : Date.now()
                             }
                         };
                     } catch (e) {
@@ -400,11 +549,15 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                 // 选中第一个有任务的用户的第一个任务
                 const firstUserWithTasks = newUsers.find(u => u.tasks.length > 0);
                 if (firstUserWithTasks) {
-                    const tId = firstUserWithTasks.tasks[0].taskAssignId;
+                    const firstTask = firstUserWithTasks.tasks[0];
+                    const tId = firstTask.taskAssignId;
                     setActiveTaskAssignId(tId);
                     setActiveUserMobile(firstUserWithTasks.mobile);
                     // Initialize draft
                     initDraft(firstUserWithTasks.mobile, tId);
+                    if (isRejectedDeliveryTask(firstTask)) {
+                        void loadRejectedDeliveryDetail(firstUserWithTasks.mobile, firstTask, firstUserWithTasks);
+                    }
                 }
 
                 toast.success(dm.loginSuccess.replace('{count}', String(newUsers.length)));
@@ -432,27 +585,45 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                 await Promise.all(batchIndices.map(async (idx) => {
                     const user = updatedUsers[idx];
                     try {
-                        const taskRes = await axios.post(`${apiBaseUrl}/delivery/tasks`, {
-                            environment, token: user.token, status: 0
-                        }, {
-                            timeout: CONSTANTS.REQUEST_TIMEOUT,
-                            headers: getScriptHubAuthHeaderRecord(),
-                        });
-                        if (taskRes.data && taskRes.data.code === 0 && taskRes.data.data?.list) {
-                            // Filter myStatus=4
-                            const newTasks = (taskRes.data.data.list as Task[]).filter(
-                                t => t.myStatus === CONSTANTS.TASK_STATUS.DELIVERABLE
-                            );
-                            updatedUsers[idx] = { ...user, tasks: newTasks };
+                        const [taskRes, workerIndexRes] = await Promise.allSettled([
+                            axios.post(`${apiBaseUrl}/delivery/tasks`, {
+                                environment, token: user.token, status: 0
+                            }, {
+                                timeout: CONSTANTS.REQUEST_TIMEOUT,
+                                headers: getScriptHubAuthHeaderRecord(),
+                            }),
+                            axios.post(`${apiBaseUrl}/delivery/worker-index`, {
+                                environment, token: user.token
+                            }, {
+                                timeout: CONSTANTS.REQUEST_TIMEOUT,
+                                headers: getScriptHubAuthHeaderRecord(),
+                            })
+                        ]);
+                        let nextUser = { ...user };
+                        if (taskRes.status === 'fulfilled' && taskRes.value.data && taskRes.value.data.code === 0 && taskRes.value.data.data?.list) {
+                            const newTasks = (taskRes.value.data.data.list as Task[]).filter(shouldShowDeliveryTask);
+                            nextUser = { ...nextUser, tasks: newTasks };
                             successCount++;
                         }
+                        if (workerIndexRes.status === 'fulfilled' && workerIndexRes.value.data?.code === 0 && workerIndexRes.value.data.data) {
+                            const liveCertStatus = normalizeLiveCertStatus(workerIndexRes.value.data.data.liveCertStatus);
+                            if (liveCertStatus !== null) {
+                                nextUser = { ...nextUser, liveCertStatus, liveCertCheckedAt: Date.now() };
+                            }
+                        }
+                        updatedUsers[idx] = nextUser;
                     } catch (e) {
                         console.error(`Refresh tasks failed for ${user.mobile}`, e);
                     }
                 }));
             }
 
-            setUsers(updatedUsers);
+            const refreshedByCurrentToken = new Map(
+                updatedUsers.map(user => [`${user.mobile}_${user.token}`, user])
+            );
+            setUsers(prev => prev.map(user => (
+                refreshedByCurrentToken.get(`${user.mobile}_${user.token}`) || user
+            )));
             toast.success(dm.refreshSuccess.replace('{count}', String(successCount)).replace('{total}', String(updatedUsers.length)));
 
         } finally {
@@ -497,6 +668,75 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
         });
     }, []);
 
+    const mapDetailAttachmentToDraft = useCallback((attachment: DeliveryDetailAttachment, index: number): Attachment => {
+        const uploadTime = parseUploadTime(attachment.uploadTime);
+        const fileName = attachment.fileName || getFilenameFromPath(attachment.filePath || '') || `attachment-${index + 1}`;
+        const fileType = normalizeFileType(attachment.fileType, fileName || attachment.filePath || '');
+        const normalizedIsPic = (attachment.isPic === 1 || isImageFileType(fileType)) ? 1 : 0;
+        const normalizedFilePath = normalizeRelativeFilePath(attachment.filePath || '', uploadTime, fileName);
+        return {
+            id: `detail_${normalizedFilePath || fileName}_${index}`,
+            fileName,
+            tempPath: attachment.tempPath || toWxTempPath(normalizedFilePath, fileName),
+            fileType,
+            uploadTime,
+            fileLength: Number(attachment.fileLength) || 0,
+            isPic: normalizedIsPic,
+            isWx: normalizedIsPic === 1 ? 0 : 1,
+            filePath: normalizedFilePath,
+            uploading: false,
+            uploadProgress: 100,
+            previewUrl: normalizedIsPic === 1 ? buildDeliveryPreviewUrl(environment, normalizedFilePath) : undefined
+        };
+    }, [environment]);
+
+    const buildDraftFromDeliveryDetail = useCallback((detail: DeliveryDetailData): FormDraft => ({
+        deliveryDetailId: detail.id ?? null,
+        auditStatus: detail.auditStatus ?? null,
+        auditRemark: detail.auditRemark ?? null,
+        reportName: detail.reportName || '',
+        reportContent: detail.taskContent || '',
+        reportAddress: detail.reportAddress || '',
+        supplement: detail.supplement || '',
+        attachments: (detail.attachmentsVo || []).map(mapDetailAttachmentToDraft)
+    }), [mapDetailAttachmentToDraft]);
+
+    const loadRejectedDeliveryDetail = useCallback(async (userMobile: string, task: Task, userOverride?: UserData) => {
+        const user = userOverride || users.find(item => item.mobile === userMobile);
+        const key = `${userMobile}_${task.taskAssignId}`;
+        if (!user || !isRejectedDeliveryTask(task)) return;
+        if (draftsRef.current[key]) return;
+
+        setLoadingDetailTaskAssignId(task.taskAssignId);
+        try {
+            const detailRes = await axios.post(`${apiBaseUrl}/delivery/detail`, {
+                environment,
+                token: user.token,
+                taskId: task.taskId,
+                taskStaffId: task.taskStaffId,
+                taskAssignId: task.taskAssignId
+            }, {
+                timeout: CONSTANTS.REQUEST_TIMEOUT,
+                headers: getScriptHubAuthHeaderRecord(),
+            });
+
+            if (detailRes.data?.code === 0 && detailRes.data.data) {
+                const detailDraft = buildDraftFromDeliveryDetail(detailRes.data.data as DeliveryDetailData);
+                setDrafts(prev => {
+                    if (prev[key]) return prev;
+                    return { ...prev, [key]: detailDraft };
+                });
+            } else {
+                toast.error(detailRes.data?.msg || '获取驳回交付物详情失败');
+            }
+        } catch (error) {
+            console.error('[Delivery Detail Error]', { taskAssignId: task.taskAssignId, error });
+            toast.error('获取驳回交付物详情失败');
+        } finally {
+            setLoadingDetailTaskAssignId(prev => prev === task.taskAssignId ? null : prev);
+        }
+    }, [apiBaseUrl, buildDraftFromDeliveryDetail, clearDraftPreviewUrls, environment, users]);
+
     const handleSelectTask = useCallback((userMobile: string, taskAssignId: string) => {
         // Ensure user is expanded
         setExpandedUserMobiles(prev =>
@@ -505,8 +745,13 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
         setActiveUserMobile(userMobile);
         setActiveTaskAssignId(taskAssignId);
         initDraft(userMobile, taskAssignId);
+        const selectedUser = users.find(user => user.mobile === userMobile);
+        const selectedTask = selectedUser?.tasks.find(task => task.taskAssignId === taskAssignId);
+        if (selectedTask && isRejectedDeliveryTask(selectedTask)) {
+            void loadRejectedDeliveryDetail(userMobile, selectedTask);
+        }
         setShowValidation(false);
-    }, []);
+    }, [loadRejectedDeliveryDetail, users]);
 
     // -------------------------------------------------------------------------
     // File Upload Logic (优化：添加唯一ID、并行上传)
@@ -517,8 +762,9 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
         const files = e.target.files;
         if (!files || files.length === 0) return;
 
-        // Current draft attachments
-        const currentAtts = currentDraft.attachments;
+        // 使用 ref 中的最新草稿，避免连续上传时闭包里的 currentDraft 覆盖已有附件。
+        const latestDraft = draftsRef.current[draftKey] || currentDraft;
+        const currentAtts = latestDraft.attachments;
         const currentPics = currentAtts.filter(a => a.isPic === 1).length;
         const currentFiles = currentAtts.filter(a => a.isPic === 0).length;
 
@@ -556,9 +802,16 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
             });
         }
 
-        // Add to draft immediately
-        const updatedList = [...currentAtts, ...newAttachments];
-        updateDraft(draftKey, 'attachments', updatedList);
+        // Add to draft immediately. Merge against the latest state so multiple upload events cannot drop each other.
+        setDrafts(prev => {
+            const draft = prev[draftKey] || latestDraft;
+            const existingIds = new Set(draft.attachments.map(a => a.id));
+            const mergedAttachments = [
+                ...draft.attachments,
+                ...newAttachments.filter(a => !existingIds.has(a.id))
+            ];
+            return { ...prev, [draftKey]: { ...draft, attachments: mergedAttachments } };
+        });
 
         // 并行上传所有文件
         await Promise.all(
@@ -599,11 +852,20 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
             });
 
             if (res.data && res.data.code === 0) {
+                const responseData = res.data.data;
                 let finalPath = '';
-                if (typeof res.data.data === 'string') {
-                    finalPath = res.data.data;
-                } else if (typeof res.data.data === 'object') {
-                    finalPath = res.data.data.filePath || res.data.data.fileName || res.data.data.url || '';
+                let uploadedFileName = '';
+                let uploadedTempPath = '';
+                let uploadedTime: number | undefined;
+                let uploadedLength: number | undefined;
+                if (typeof responseData === 'string') {
+                    finalPath = responseData;
+                } else if (typeof responseData === 'object' && responseData) {
+                    finalPath = responseData.filePath || responseData.fileName || responseData.url || '';
+                    uploadedFileName = responseData.fileName || '';
+                    uploadedTempPath = responseData.tempPath || '';
+                    uploadedTime = typeof responseData.uploadTime === 'number' ? responseData.uploadTime : undefined;
+                    uploadedLength = typeof responseData.fileLength === 'number' ? responseData.fileLength : undefined;
                 }
 
                 // 使用 ID 匹配更新状态
@@ -619,8 +881,11 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                             return {
                                 ...a,
                                 uploading: false,
+                                fileName: a.isPic === 1 && uploadedFileName ? uploadedFileName : a.fileName,
                                 filePath: normalizedPath,
-                                tempPath: normalizedTempPath,
+                                tempPath: uploadedTempPath || normalizedTempPath,
+                                uploadTime: uploadedTime ?? a.uploadTime,
+                                fileLength: uploadedLength ?? a.fileLength,
                                 isWx: a.isPic === 1 ? 0 : 1,
                                 uploadProgress: 100
                             };
@@ -672,7 +937,7 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
         if (!currentDraft || !draftKey) return;
 
         const attachmentToRemove = currentDraft.attachments.find(a => a.id === attachmentId);
-        if (attachmentToRemove?.previewUrl) {
+        if (attachmentToRemove?.previewUrl?.startsWith('blob:')) {
             URL.revokeObjectURL(attachmentToRemove.previewUrl);
         }
 
@@ -683,42 +948,134 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
     // -------------------------------------------------------------------------
     // Submit (优化：简化状态更新逻辑，添加超时和错误处理)
     // -------------------------------------------------------------------------
+    const executeDeliverySubmit = useCallback(async (submitRequest: PendingDeliverySubmit): Promise<boolean> => {
+        setIsSubmitting(true);
+        try {
+            const res = await axios.post(`${apiBaseUrl}/delivery/submit`, {
+                environment,
+                token: submitRequest.token,
+                payload: submitRequest.payload
+            }, {
+                timeout: CONSTANTS.REQUEST_TIMEOUT,
+                headers: getScriptHubAuthHeaderRecord(),
+            });
+
+            if (res.data && res.data.code == 0) {
+                toast.success(dm.submitSuccess);
+
+                // 保存提交的任务信息（用于后续状态更新）
+                const submittedTaskAssignId = submitRequest.submittedTaskAssignId;
+                const submittedUserMobile = submitRequest.submittedUserMobile;
+
+                // 1. 清理并删除 draft
+                setDrafts(prev => {
+                    const next = { ...prev };
+                    if (next[submitRequest.draftKey]) {
+                        clearDraftPreviewUrls(next[submitRequest.draftKey]);
+                        delete next[submitRequest.draftKey];
+                    }
+                    return next;
+                });
+
+                const updatedUsers = users.map(u => {
+                    if (u.mobile === submittedUserMobile) {
+                        return {
+                            ...u,
+                            liveCertStatus: submitRequest.liveCertStatus ?? u.liveCertStatus,
+                            liveCertCheckedAt: submitRequest.liveCertStatus === null ? u.liveCertCheckedAt : Date.now(),
+                            tasks: u.tasks.filter(t => t.taskAssignId !== submittedTaskAssignId)
+                        };
+                    }
+                    return u;
+                });
+                const currentUserAfterSubmit = updatedUsers.find(u => u.mobile === submittedUserMobile);
+                const nextUser =
+                    currentUserAfterSubmit && currentUserAfterSubmit.tasks.length > 0
+                        ? currentUserAfterSubmit
+                        : updatedUsers.find(u => u.tasks.length > 0);
+                const nextTask = nextUser?.tasks[0] || null;
+
+                setUsers(updatedUsers);
+                if (nextUser && nextTask) {
+                    const nextTaskAssignId = nextTask.taskAssignId;
+                    setActiveTaskAssignId(nextTaskAssignId);
+                    setActiveUserMobile(nextUser.mobile);
+                    initDraft(nextUser.mobile, nextTaskAssignId);
+                    if (isRejectedDeliveryTask(nextTask)) {
+                        void loadRejectedDeliveryDetail(nextUser.mobile, nextTask, nextUser);
+                    }
+                    setExpandedUserMobiles(prevExpanded =>
+                        prevExpanded.includes(nextUser.mobile) ? prevExpanded : [...prevExpanded, nextUser.mobile]
+                    );
+                } else {
+                    setActiveTaskAssignId(null);
+                    setActiveUserMobile(null);
+                }
+
+                setShowValidation(false);
+                return true;
+
+            } else {
+                toast.error(res.data.msg || dm.submitFailed);
+                return false;
+            }
+        } catch (e) {
+            // 改进的错误处理
+            if (axios.isAxiosError(e)) {
+                if (e.code === 'ECONNABORTED') {
+                    toast.error(dm.submitTimeout);
+                } else if (!e.response) {
+                    toast.error(dm.submitNetworkError);
+                } else {
+                    toast.error(dm.submitServerError.replace('{status}', String(e.response.status)));
+                }
+            } else {
+                toast.error(dm.requestError);
+            }
+            console.error('[Submit Error]', e);
+            return false;
+        } finally {
+            setIsSubmitting(false);
+        }
+    }, [apiBaseUrl, clearDraftPreviewUrls, dm, environment, loadRejectedDeliveryDetail, users]);
+
     const handleSubmit = async () => {
         setShowValidation(true);
         if (!activeTaskAssignId || !activeUser || !currentDraft || !draftKey) return;
+        const latestDraft = draftsRef.current[draftKey] || currentDraft;
 
         // Validation
         let isValid = true;
-        if (!currentDraft.reportName || currentDraft.reportName.length > CONSTANTS.MAX_TITLE_LENGTH) isValid = false;
-        if (!currentDraft.reportContent || currentDraft.reportContent.length > CONSTANTS.MAX_CONTENT_LENGTH) isValid = false;
-        if (!currentDraft.reportAddress || currentDraft.reportAddress.length > CONSTANTS.MAX_ADDRESS_LENGTH) isValid = false;
-        if (currentDraft.supplement.length > CONSTANTS.MAX_SUPPLEMENT_LENGTH) isValid = false;
-        if (currentDraft.attachments.length === 0) {
+        if (!latestDraft.reportName || latestDraft.reportName.length > CONSTANTS.MAX_TITLE_LENGTH) isValid = false;
+        if (!latestDraft.reportContent || latestDraft.reportContent.length > CONSTANTS.MAX_CONTENT_LENGTH) isValid = false;
+        if (!latestDraft.reportAddress || latestDraft.reportAddress.length > CONSTANTS.MAX_ADDRESS_LENGTH) isValid = false;
+        if (latestDraft.supplement.length > CONSTANTS.MAX_SUPPLEMENT_LENGTH) isValid = false;
+        if (latestDraft.attachments.length === 0) {
             toast.error(dm.minAttachment);
             return;
         }
         if (!isValid) return;
 
-        const uploadingItem = currentDraft.attachments.find(a => a.uploading);
+        const uploadingItem = latestDraft.attachments.find(a => a.uploading);
         if (uploadingItem) return toast.error(dm.waitUpload);
-        const errorItem = currentDraft.attachments.find(a => a.error);
+        const errorItem = latestDraft.attachments.find(a => a.error);
         if (errorItem) return toast.error(dm.deleteFailed);
-        const emptyItem = currentDraft.attachments.find(a => !a.filePath);
+        const emptyItem = latestDraft.attachments.find(a => !a.filePath);
         if (emptyItem) return toast.error(dm.pathFailed);
 
         const activeTaskObj = activeUser.tasks.find(t => t.taskAssignId === activeTaskAssignId);
         if (!activeTaskObj) return;
 
-        setIsSubmitting(true);
-        const payload = {
+        const payload: Record<string, unknown> = {
+            ...(latestDraft.deliveryDetailId ? { id: latestDraft.deliveryDetailId } : {}),
             taskId: activeTaskObj.taskId,
             taskStaffId: activeTaskObj.taskStaffId,
             taskAssignId: activeTaskObj.taskAssignId,
-            taskContent: currentDraft.reportContent,
-            reportName: currentDraft.reportName,
-            reportAddress: currentDraft.reportAddress,
-            supplement: currentDraft.supplement || '',
-            attachments: currentDraft.attachments.map(a => {
+            taskContent: latestDraft.reportContent,
+            reportName: latestDraft.reportName,
+            reportAddress: latestDraft.reportAddress,
+            supplement: latestDraft.supplement || '',
+            attachments: latestDraft.attachments.map(a => {
                 const normalizedFileType = normalizeFileType(a.fileType, a.fileName);
                 const normalizedIsPic = isImageFileType(normalizedFileType) || a.isPic === 1 ? 1 : 0;
                 const normalizedFilePath = normalizeRelativeFilePath(a.filePath, a.uploadTime, a.fileName);
@@ -736,106 +1093,48 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
             })
         };
 
-        try {
-            const res = await axios.post(`${apiBaseUrl}/delivery/submit`, {
-                environment,
-                token: activeUser.token,
-                payload
-            }, {
-                timeout: CONSTANTS.REQUEST_TIMEOUT,
-                headers: getScriptHubAuthHeaderRecord(),
+        setIsSubmitting(true);
+        const liveCertStatusBeforeSubmit = await refreshUserLiveCertStatus({
+            mobile: activeUser.mobile,
+            token: activeUser.token
+        });
+        const submitRequest: PendingDeliverySubmit = {
+            token: activeUser.token,
+            payload,
+            submittedTaskAssignId: activeTaskAssignId,
+            submittedUserMobile: activeUser.mobile,
+            draftKey,
+            liveCertStatus: liveCertStatusBeforeSubmit
+        };
+        if (liveCertStatusBeforeSubmit === 0) {
+            setPendingDeliverySubmit(submitRequest);
+            setLiveCertWarningUser({
+                realname: activeUser.realname,
+                mobile: activeUser.mobile
             });
-
-            if (res.data && res.data.code == 0) {
-                toast.success(dm.submitSuccess);
-
-                // 保存提交的任务信息（用于后续状态更新）
-                const submittedTaskId = activeTaskAssignId;
-                const submittedUserMobile = activeUser.mobile;
-
-                // 1. 清理并删除 draft
-                setDrafts(prev => {
-                    const next = { ...prev };
-                    if (next[draftKey]) {
-                        clearDraftPreviewUrls(next[draftKey]);
-                        delete next[draftKey];
-                    }
-                    return next;
-                });
-
-                // 2. 更新 users 并选择下一个任务
-                setUsers(prev => {
-                    // 更新用户列表（移除已提交的任务）
-                    const updatedUsers = prev.map(u => {
-                        if (u.mobile === submittedUserMobile) {
-                            return {
-                                ...u,
-                                tasks: u.tasks.filter(t => t.taskAssignId !== submittedTaskId)
-                            };
-                        }
-                        return u;
-                    });
-
-                    // 选择下一个任务
-                    const currentUser = updatedUsers.find(u => u.mobile === submittedUserMobile);
-                    let nextTask: { mobile: string; taskId: string } | null = null;
-
-                    if (currentUser && currentUser.tasks.length > 0) {
-                        // 同一用户还有其他任务
-                        nextTask = {
-                            mobile: currentUser.mobile,
-                            taskId: currentUser.tasks[0].taskAssignId
-                        };
-                    } else {
-                        // 查找其他有任务的用户
-                        const firstUserWithTasks = updatedUsers.find(u => u.tasks.length > 0);
-                        if (firstUserWithTasks) {
-                            nextTask = {
-                                mobile: firstUserWithTasks.mobile,
-                                taskId: firstUserWithTasks.tasks[0].taskAssignId
-                            };
-                        }
-                    }
-
-                    // 更新选中状态
-                    if (nextTask) {
-                        setActiveTaskAssignId(nextTask.taskId);
-                        setActiveUserMobile(nextTask.mobile);
-                        initDraft(nextTask.mobile, nextTask.taskId);
-                        setExpandedUserMobiles(prevExpanded =>
-                            prevExpanded.includes(nextTask!.mobile) ? prevExpanded : [...prevExpanded, nextTask!.mobile]
-                        );
-                    } else {
-                        setActiveTaskAssignId(null);
-                        setActiveUserMobile(null);
-                    }
-
-                    return updatedUsers;
-                });
-
-                setShowValidation(false);
-
-            } else {
-                toast.error(res.data.msg || dm.submitFailed);
-            }
-        } catch (e) {
-            // 改进的错误处理
-            if (axios.isAxiosError(e)) {
-                if (e.code === 'ECONNABORTED') {
-                    toast.error(dm.submitTimeout);
-                } else if (!e.response) {
-                    toast.error(dm.submitNetworkError);
-                } else {
-                    toast.error(dm.submitServerError.replace('{status}', String(e.response.status)));
-                }
-            } else {
-                toast.error(dm.requestError);
-            }
-            console.error('[Submit Error]', e);
-        } finally {
             setIsSubmitting(false);
+            return;
         }
+
+        await executeDeliverySubmit(submitRequest);
     };
+
+    const handleLiveCertWarningCancel = useCallback(() => {
+        if (isSubmitting) return;
+        setLiveCertWarningUser(null);
+        setPendingDeliverySubmit(null);
+    }, [isSubmitting]);
+
+    const handleLiveCertWarningConfirm = useCallback(async () => {
+        const submitRequest = pendingDeliverySubmit;
+        if (submitRequest) {
+            const success = await executeDeliverySubmit(submitRequest);
+            if (success) {
+                setLiveCertWarningUser(null);
+                setPendingDeliverySubmit(null);
+            }
+        }
+    }, [executeDeliverySubmit, pendingDeliverySubmit]);
 
     // -------------------------------------------------------------------------
     // Logout / Reset (清理所有状态和草稿)
@@ -853,6 +1152,8 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
         setActiveUserMobile(null);
         setExpandedUserMobiles([]);
         setShowValidation(false);
+        setLiveCertWarningUser(null);
+        setPendingDeliverySubmit(null);
 
         // 3. 切换回登录页面
         setStep('login');
@@ -1021,10 +1322,19 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                                             </AvatarFallback>
                                         </Avatar>
                                         <div className="flex-1 min-w-0">
+                                            <div className="flex items-center gap-1.5 min-w-0">
+                                                <span className="font-medium text-sm truncate text-[var(--text-primary)] tracking-tight">
+                                                    {user.realname}
+                                                </span>
+                                                <Badge
+                                                    variant="outline"
+                                                    className={`h-5 px-2 text-[10px] shrink-0 ${getLiveCertBadgeClassName(user.liveCertStatus)}`}
+                                                >
+                                                    {getLiveCertBadgeText(user.liveCertStatus)}
+                                                </Badge>
+                                            </div>
                                             <div
-                                                className="font-medium text-sm truncate text-[var(--text-primary)] tracking-tight">{user.realname}</div>
-                                            <div
-                                                className="text-[11px] text-[var(--text-tertiary)] truncate font-medium">{user.mobile}</div>
+                                                className="mt-1 text-[11px] text-[var(--text-tertiary)] truncate font-medium">{user.mobile}</div>
                                         </div>
                                         <Badge variant="secondary"
                                             className="ml-1 text-[10px] h-5 bg-[var(--background-secondary)]/50 text-[var(--text-secondary)] backdrop-blur-sm border-0">{user.tasks.length}</Badge>
@@ -1059,8 +1369,14 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                                                             <div
                                                                 className="absolute left-1.5 top-1/2 -translate-y-1/2 w-1 h-3 bg-primary rounded-full shadow-[0_0_8px_rgba(var(--primary-rgb),0.6)]" />
                                                         )}
-                                                        <div
-                                                            className={`font-semibold line-clamp-1 break-all pr-1 text-[13px] ${activeTaskAssignId === task.taskAssignId && activeUserMobile === user.mobile ? 'pl-2' : ''} transition-[padding] duration-300`}>{task.taskName}</div>
+                                                        <div className={`flex items-center gap-1 ${activeTaskAssignId === task.taskAssignId && activeUserMobile === user.mobile ? 'pl-2' : ''} transition-[padding] duration-300`}>
+                                                            <span className="font-semibold line-clamp-1 break-all pr-1 text-[13px]">{task.taskName}</span>
+                                                            {isRejectedDeliveryTask(task) && (
+                                                                <Badge variant="outline" className="h-4 px-1 text-[9px] border-red-200 bg-red-50 text-red-600 shrink-0">
+                                                                    驳回
+                                                                </Badge>
+                                                            )}
+                                                        </div>
                                                         <div
                                                             className={`mt-1 opacity-80 text-[11px] line-clamp-2 leading-tight break-all text-muted-foreground/90 ${activeTaskAssignId === task.taskAssignId && activeUserMobile === user.mobile ? 'pl-2' : ''} transition-[padding] duration-300`}>
                                                             {task.taskDesc || dt.process.form.descPlaceholder}
@@ -1148,6 +1464,17 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                 {activeTaskAssignId && activeUser && currentDraft && draftKey ? (
                     <div className="flex-1 p-0" key={draftKey}>
                         <div className="p-6 space-y-6">
+                            {loadingDetailTaskAssignId === activeTaskAssignId && (
+                                <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                    正在回显驳回交付物...
+                                </div>
+                            )}
+                            {isRejectedDeliveryTask(activeTask) && currentDraft.auditRemark && (
+                                <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                                    驳回原因：{currentDraft.auditRemark}
+                                </div>
+                            )}
                             {/* Form Inputs */}
                             <div className="grid grid-cols-2 gap-6">
                                 <div className="space-y-2">
@@ -1342,6 +1669,38 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
 
     return (
         <div className="container max-w-7xl mx-auto py-4 animate-in fade-in duration-500 flex flex-col min-h-[calc(100vh-140px)]">
+
+            <Dialog open={!!liveCertWarningUser}>
+                <DialogContent
+                    className="sm:max-w-md"
+                    showCloseButton={false}
+                    onPointerDownOutside={(event) => event.preventDefault()}
+                    onEscapeKeyDown={(event) => event.preventDefault()}
+                >
+                    <DialogHeader>
+                        <DialogTitle>活体认证未完成</DialogTitle>
+                        <DialogDescription>
+                            该人员未完成活体认证，请及时提醒该用户完成活体认证。未完成认证存在抽查罚款风险。
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter>
+                        <Button
+                            onClick={handleLiveCertWarningConfirm}
+                            disabled={isSubmitting}
+                        >
+                            {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                            继续提交
+                        </Button>
+                        <Button
+                            variant="outline"
+                            onClick={handleLiveCertWarningCancel}
+                            disabled={isSubmitting}
+                        >
+                            暂不提交
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
 
             {/* Modal */}
             {previewImage && (

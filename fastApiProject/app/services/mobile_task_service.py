@@ -1,6 +1,8 @@
 import base64
 import json
 import logging
+import mimetypes
+import os
 import re
 import time
 import uuid
@@ -9,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
+import pymysql
 import requests
 
 from ..config import settings
@@ -28,6 +31,8 @@ IMAGE_FILE_EXTENSIONS = {
 }
 APP_FILE_PATH_PATTERN = re.compile(r"^app/\d{4}-\d{2}-\d{2}/[^/]+$")
 DELIVERY_TIMEZONE = timezone(timedelta(hours=8))
+DEFAULT_DELIVERY_OSS_HOST_PROD = "https://fwos-prod.oss-cn-beijing.aliyuncs.com"
+DEFAULT_DELIVERY_OSS_HOST_TEST = "https://fwos-test.oss-cn-beijing.aliyuncs.com"
 
 
 def _normalize_delivery_file_type(
@@ -78,6 +83,11 @@ def _build_delivery_file_path(file_name: str, upload_time: Any = None) -> str:
     return f"app/{_resolve_delivery_date_segment(upload_time)}/{file_name}"
 
 
+def _build_delivery_oss_key(file_name: str, upload_time: Any = None) -> str:
+    file_type = _normalize_delivery_file_type(None, file_name)
+    return _build_delivery_file_path(f"tmp_{uuid.uuid4().hex}{file_type}", upload_time)
+
+
 def _normalize_delivery_file_path(
     file_path: Optional[str],
     file_name: str,
@@ -85,10 +95,27 @@ def _normalize_delivery_file_path(
 ) -> str:
     raw = str(file_path or "").strip().lstrip("/")
     if raw and APP_FILE_PATH_PATTERN.match(raw):
-        existing_name = raw.split("/")[-1]
-        if existing_name == file_name:
-            return raw
+        return raw
     return _build_delivery_file_path(file_name, upload_time)
+
+
+def _get_delivery_oss_host(environment: str) -> str:
+    normalized_env = settings.resolve_environment(environment)
+    if normalized_env == "prod":
+        return (os.getenv("DELIVERY_OSS_HOST_PROD") or DEFAULT_DELIVERY_OSS_HOST_PROD).rstrip("/")
+    return (os.getenv("DELIVERY_OSS_HOST_TEST") or DEFAULT_DELIVERY_OSS_HOST_TEST).rstrip("/")
+
+
+def _get_delivery_oss_form_config() -> Dict[str, str]:
+    config = {
+        "OSSAccessKeyId": os.getenv("DELIVERY_OSS_ACCESS_KEY_ID") or "",
+        "policy": os.getenv("DELIVERY_OSS_POLICY") or "",
+        "Signature": os.getenv("DELIVERY_OSS_SIGNATURE") or "",
+    }
+    missing = [name for name, value in config.items() if not value]
+    if missing:
+        raise RuntimeError(f"缺少交付物 OSS 上传配置: {', '.join(missing)}")
+    return config
 
 
 def _normalize_delivery_attachment(attachment: Any) -> Any:
@@ -244,7 +271,7 @@ class MobileTaskService:
             )
             logger.info(f"解析完成，共获取 {len(mobile_list)} 个手机号")
 
-            automator = TaskAutomation(self.base_url)
+            automator = TaskAutomation(self.base_url, environment=self.environment)
             results = automator.batch_process(
                 mobile_list=mobile_list,
                 task_info=request.task_info,
@@ -280,7 +307,7 @@ class MobileTaskService:
 
     def delivery_login(self, mobile: str, code: str = "987654") -> Dict:
         """交互式登录"""
-        automator = TaskAutomation(self.base_url)
+        automator = TaskAutomation(self.base_url, environment=self.environment)
         res = automator.sms_login(mobile, code)
         if res.get("code") == 0:
             return {
@@ -292,14 +319,14 @@ class MobileTaskService:
 
     def delivery_get_tasks(self, token: str, status_type: int = 0) -> Dict:
         """获取任务列表"""
-        automator = TaskAutomation(self.base_url)
+        automator = TaskAutomation(self.base_url, environment=self.environment)
         automator.access_token = token
         automator.session.headers.update({"Authorization": f"Bearer {token}"})
         return automator.get_my_tasks_page(status_type)
 
     def delivery_upload(self, token: str, file_content: bytes, filename: str) -> Dict:
         """上传附件"""
-        automator = TaskAutomation(self.base_url)
+        automator = TaskAutomation(self.base_url, environment=self.environment)
         automator.access_token = token
         automator.session.headers.update({"Authorization": f"Bearer {token}"})
         return automator.upload_file(file_content, filename)
@@ -311,7 +338,7 @@ class MobileTaskService:
         logger.info("[交付物提交] 开始处理提交请求")
         logger.info(f"[交付物提交] Token: {token[:20]}...{token[-10:] if len(token) > 30 else token}")
 
-        automator = TaskAutomation(self.base_url)
+        automator = TaskAutomation(self.base_url, environment=self.environment)
         automator.access_token = token
         automator.session.headers.update({"Authorization": f"Bearer {token}"})
 
@@ -386,17 +413,98 @@ class MobileTaskService:
         logger.info("=" * 60)
         return result
 
+    def _resolve_delivery_detail_id(
+        self,
+        task_assign_id: Optional[str] = None,
+        task_staff_id: Optional[str] = None,
+        task_id: Optional[str] = None,
+    ) -> Optional[int]:
+        filters: List[str] = ["deleted = 0"]
+        params: List[Any] = []
+        if task_assign_id:
+            filters.append("task_assign_id = %s")
+            params.append(task_assign_id)
+        if task_staff_id:
+            filters.append("task_staff_id = %s")
+            params.append(task_staff_id)
+        if task_id:
+            filters.append("task_id = %s")
+            params.append(task_id)
+        if len(filters) == 1:
+            return None
+
+        db_config = settings.get_db_config(self.environment)
+        connection = pymysql.connect(
+            host=db_config["host"],
+            port=int(db_config["port"]),
+            user=db_config["user"],
+            password=db_config["password"],
+            database=db_config["database"],
+            charset="utf8mb4",
+            cursorclass=pymysql.cursors.DictCursor,
+            connect_timeout=5,
+            read_timeout=10,
+        )
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    f"""
+                    SELECT id
+                    FROM biz_task_delivery
+                    WHERE {' AND '.join(filters)}
+                    ORDER BY update_time DESC, create_time DESC, id DESC
+                    LIMIT 1
+                    """,
+                    params,
+                )
+                row = cursor.fetchone()
+                return int(row["id"]) if row and row.get("id") is not None else None
+        finally:
+            connection.close()
+
+    def delivery_detail(
+        self,
+        token: str,
+        detail_id: Optional[Any] = None,
+        task_assign_id: Optional[str] = None,
+        task_staff_id: Optional[str] = None,
+        task_id: Optional[str] = None,
+    ) -> Dict:
+        """获取被驳回交付物详情，用于重新上传前回显。"""
+        resolved_id = detail_id
+        if not resolved_id:
+            resolved_id = self._resolve_delivery_detail_id(
+                task_assign_id=task_assign_id,
+                task_staff_id=task_staff_id,
+                task_id=task_id,
+            )
+        if not resolved_id:
+            return {"code": 404, "msg": "未找到交付物详情记录", "data": None}
+
+        automator = TaskAutomation(self.base_url, environment=self.environment)
+        automator.access_token = token
+        automator.session.headers.update({"Authorization": f"Bearer {token}"})
+        return automator.get_delivery_detail(resolved_id)
+
     def delivery_worker_info(self, token: str) -> Dict:
         """获取工人信息"""
-        automator = TaskAutomation(self.base_url)
+        automator = TaskAutomation(self.base_url, environment=self.environment)
         automator.access_token = token
         automator.session.headers.update({"Authorization": f"Bearer {token}"})
         return automator.get_worker_info()
 
+    def delivery_worker_index(self, token: str) -> Dict:
+        """获取工人首页信息，包含活体认证状态。"""
+        automator = TaskAutomation(self.base_url, environment=self.environment)
+        automator.access_token = token
+        automator.session.headers.update({"Authorization": f"Bearer {token}"})
+        return automator.get_worker_index()
+
 
 class TaskAutomation:
-    def __init__(self, base_url: str):
+    def __init__(self, base_url: str, environment: Optional[str] = None):
         self.base_url = base_url
+        self.environment = settings.resolve_environment(environment)
         self.session = requests.Session()
         self.access_token: Optional[str] = None
 
@@ -457,27 +565,76 @@ class TaskAutomation:
         return {"error": f"未找到任务ID: {task_id}"}
 
     def upload_file(self, file_content: bytes, filename: str) -> Dict:
-        """上传文件到服务器"""
-        url = f"{self.base_url}/app-api/infra/file/upload"
+        """按小程序流程将交付物附件直传到 OSS，并返回可提交的 filePath key。"""
+        upload_time = int(time.time() * 1000)
+        file_path = _build_delivery_oss_key(filename, upload_time)
+        file_name = file_path.split("/")[-1]
+        oss_host = _get_delivery_oss_host(self.environment)
+        url = oss_host
         try:
-            files = {"file": (filename, file_content)}
-            headers = self.session.headers.copy()
-            headers.pop("Content-Type", None)
+            form_data = {
+                "key": file_path,
+                "success_action_status": "204",
+                **_get_delivery_oss_form_config(),
+            }
+            content_type = mimetypes.guess_type(file_name)[0] or "application/octet-stream"
+            files = {"file": (file_name, file_content, content_type)}
 
-            resp = requests.post(url, files=files, headers=headers, timeout=30)
-            return resp.json()
+            resp = requests.post(url, data=form_data, files=files, timeout=30)
+            if resp.status_code not in {200, 201, 204}:
+                return {
+                    "code": resp.status_code,
+                    "msg": f"OSS上传失败: HTTP {resp.status_code}",
+                    "data": {"filePath": file_path, "response": resp.text[:500]},
+                }
+
+            file_url = f"{oss_host}/{file_path}"
+            return {
+                "code": 0,
+                "msg": "",
+                "data": {
+                    "filePath": file_path,
+                    "fileName": file_name,
+                    "tempPath": f"wxfile://{file_name}",
+                    "url": file_url,
+                    "uploadTime": upload_time,
+                    "fileLength": len(file_content),
+                    "originalFileName": filename,
+                },
+            }
         except Exception as exc:
-            return {"error": str(exc)}
+            return {"code": 500, "msg": f"OSS上传异常: {exc}"}
 
     def submit_delivery(self, payload: Dict) -> Dict:
         """提交交付物"""
         normalized_payload = _normalize_delivery_payload(payload)
-        logger.info("[TaskAutomation.submit_delivery] 正在提交到: /app-api/applet/delivery/save")
-        return self._post("/app-api/applet/delivery/save", normalized_payload)
+        endpoint = (
+            "/app-api/applet/delivery/update"
+            if normalized_payload.get("id") not in (None, "")
+            else "/app-api/applet/delivery/save"
+        )
+        logger.info("[TaskAutomation.submit_delivery] 正在提交到: %s", endpoint)
+        return self._post(endpoint, normalized_payload)
+
+    def get_delivery_detail(self, detail_id: Any) -> Dict:
+        """获取已提交交付物详情。"""
+        try:
+            resp = self.session.get(
+                f"{self.base_url}/app-api/applet/delivery/detail",
+                params={"id": detail_id},
+                timeout=10,
+            )
+            return resp.json()
+        except Exception as exc:
+            return {"code": 500, "msg": f"获取交付物详情失败: {exc}", "data": None}
 
     def get_worker_info(self) -> Dict:
         """获取工人信息（姓名、手机号等）"""
         return self.session.get(f"{self.base_url}/app-api/applet/worker/info", timeout=10).json()
+
+    def get_worker_index(self) -> Dict:
+        """获取工人首页信息（包含 liveCertStatus）。"""
+        return self.session.get(f"{self.base_url}/app-api/applet/worker/index", timeout=10).json()
 
     def get_balance_id(self) -> Dict:
         """获取待确认的结算单ID"""
@@ -633,7 +790,7 @@ class TaskAutomation:
 
     def _thread_process_wrapper(self, mobile: str, task_info: MobileTaskInfo, mode: Optional[int]) -> Dict:
         """每个线程使用独立实例，避免并发冲突"""
-        return TaskAutomation(self.base_url).process_single_user(mobile, task_info, mode)
+        return TaskAutomation(self.base_url, environment=self.environment).process_single_user(mobile, task_info, mode)
 
     def _post(self, endpoint: str, data: Dict) -> Dict:
         """统一POST请求封装"""
