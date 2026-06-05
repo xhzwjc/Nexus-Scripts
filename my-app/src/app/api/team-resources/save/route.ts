@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { getBackendBaseUrl } from '@/lib/server/backendBaseUrl';
-import { requireScriptHubPermission } from '@/lib/server/scriptHubSession';
+import { requireFreshScriptHubPermission } from '@/lib/server/scriptHubSession';
 
 // POST: 保存团队资源数据
 export async function POST(request: NextRequest) {
-    const auth = requireScriptHubPermission(request, 'team-resources-manage');
+    const auth = await requireFreshScriptHubPermission(request, 'team-resources-manage');
     if ('response' in auth) {
         return auth.response;
     }

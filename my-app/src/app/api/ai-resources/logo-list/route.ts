@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
 
-import { requireScriptHubPermission } from '@/lib/server/scriptHubSession';
+import { requireFreshScriptHubPermission } from '@/lib/server/scriptHubSession';
 
 export const dynamic = 'force-dynamic';
 
@@ -10,7 +10,7 @@ const LOGOS_DIR = path.join(process.cwd(), 'public', 'ai-logos');
 
 // GET: 批量获取所有本地logo文件列表
 export async function GET(request: NextRequest) {
-    const auth = requireScriptHubPermission(request, 'ai-resources');
+    const auth = await requireFreshScriptHubPermission(request, 'ai-resources');
     if ('response' in auth) {
         return auth.response;
     }

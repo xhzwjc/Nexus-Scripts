@@ -156,6 +156,7 @@ def serialize_user_session(db: Session, user: ScriptHubUser) -> Dict[str, Any]:
         "customOrgCodes": json_loads_safe(user.custom_org_codes_json, []),
         "authorizationBoundary": json_loads_safe(user.authorization_boundary_json, {}),
         "permissionVersion": int(user.permission_version or 1),
+        "accessKeyVersion": int(getattr(user, "access_key_version", 1) or 1),
         "teamResourcesLoginKeyEnabled": bool(user.team_resources_access_enabled),
         "landingPage": landing_page,
         "recruitmentMenuGrouped": bool(recruitment_menu_grouped),

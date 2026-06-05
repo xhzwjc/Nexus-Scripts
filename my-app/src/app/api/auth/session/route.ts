@@ -51,6 +51,13 @@ function createLocalSessionResponse(token: string) {
             roles: Array.isArray(session.roles) ? session.roles : [],
             name: session.name,
             permissions: session.permissions,
+            isSuperAdmin: Boolean(session.isSuperAdmin),
+            primaryOrgCode: session.primaryOrgCode || 'group',
+            dataScope: session.dataScope || 'ORG_ONLY',
+            customOrgCodes: Array.isArray(session.customOrgCodes) ? session.customOrgCodes : [],
+            authorizationBoundary: session.authorizationBoundary || {},
+            permissionVersion: session.permissionVersion,
+            accessKeyVersion: session.accessKeyVersion,
             teamResourcesLoginKeyEnabled: session.teamResourcesLoginKeyEnabled,
             landingPage: session.landingPage || 'home',
             recruitmentMenuGrouped: session.recruitmentMenuGrouped !== false,
@@ -107,7 +114,13 @@ export async function GET(request: NextRequest) {
             signal: AbortSignal.timeout(10000),
         });
         return NextResponse.json(refreshed);
-    } catch {
+    } catch (error) {
+        if (error instanceof SessionProxyError) {
+            return NextResponse.json(
+                { error: error.message },
+                { status: error.status },
+            );
+        }
         return NextResponse.json(localSession);
     }
 }

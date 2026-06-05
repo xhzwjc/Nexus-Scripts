@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { getBackendBaseUrl } from '@/lib/server/backendBaseUrl';
-import { requireScriptHubPermission } from '@/lib/server/scriptHubSession';
+import { requireFreshScriptHubPermission } from '@/lib/server/scriptHubSession';
 
 export const dynamic = 'force-dynamic';
 
 // GET: 获取资源数据
 export async function GET(request: NextRequest) {
-    const auth = requireScriptHubPermission(request, 'ai-resources');
+    const auth = await requireFreshScriptHubPermission(request, 'ai-resources');
     if ('response' in auth) {
         return auth.response;
     }

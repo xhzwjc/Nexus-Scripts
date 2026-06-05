@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 
 import { validateExternalHttpUrl } from '@/lib/server/networkGuards';
-import { requireScriptHubPermission } from '@/lib/server/scriptHubSession';
+import { requireFreshScriptHubPermission } from '@/lib/server/scriptHubSession';
 
 const LOGOS_DIR = path.join(process.cwd(), 'public', 'ai-logos');
 
@@ -20,7 +20,7 @@ function ensureLogosDir() {
 
 // GET: 检查本地logo是否存在，返回路径或空
 export async function GET(request: NextRequest) {
-    const auth = requireScriptHubPermission(request, 'ai-resources');
+    const auth = await requireFreshScriptHubPermission(request, 'ai-resources');
     if ('response' in auth) {
         return auth.response;
     }
@@ -119,7 +119,7 @@ async function tryDownload(id: string, url: string): Promise<{ success: boolean;
 
 // POST: 下载并保存logo（支持多来源备用）
 export async function POST(request: NextRequest) {
-    const auth = requireScriptHubPermission(request, 'ai-resources-manage');
+    const auth = await requireFreshScriptHubPermission(request, 'ai-resources-manage');
     if ('response' in auth) {
         return auth.response;
     }
@@ -264,7 +264,7 @@ function detectImageFormat(buffer: Buffer): string | null {
 
 // DELETE: 删除本地logo
 export async function DELETE(request: NextRequest) {
-    const auth = requireScriptHubPermission(request, 'ai-resources-manage');
+    const auth = await requireFreshScriptHubPermission(request, 'ai-resources-manage');
     if ('response' in auth) {
         return auth.response;
     }

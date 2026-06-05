@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import sharp from 'sharp';
 
-import { requireScriptHubPermission } from '@/lib/server/scriptHubSession';
+import { requireFreshScriptHubPermission } from '@/lib/server/scriptHubSession';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,7 +23,7 @@ function ensureDir() {
 
 // POST: 上传 Logo (Base64 -> WebP 文件)
 export async function POST(request: NextRequest) {
-    const auth = requireScriptHubPermission(request, 'team-resources-manage');
+    const auth = await requireFreshScriptHubPermission(request, 'team-resources-manage');
     if ('response' in auth) {
         return auth.response;
     }
@@ -70,7 +70,7 @@ export async function POST(request: NextRequest) {
 
 // DELETE: 删除 Logo
 export async function DELETE(request: NextRequest) {
-    const auth = requireScriptHubPermission(request, 'team-resources-manage');
+    const auth = await requireFreshScriptHubPermission(request, 'team-resources-manage');
     if ('response' in auth) {
         return auth.response;
     }

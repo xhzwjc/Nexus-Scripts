@@ -106,9 +106,10 @@ def _get_session_refresh_cache_max_entries() -> int:
 def _get_session_refresh_cache_key(session: Dict[str, Any]) -> str:
     user_code = str(session.get("id") or "").strip()
     permission_version = str(session.get("permissionVersion") or "")
+    access_key_version = str(session.get("accessKeyVersion") or "")
     issued_at = str(session.get("iat") or "")
     expires_at = str(session.get("exp") or "")
-    return f"{user_code}:{permission_version}:{issued_at}:{expires_at}"
+    return f"{user_code}:{permission_version}:{access_key_version}:{issued_at}:{expires_at}"
 
 
 def _get_cached_versioned_session(cache_key: str, now: float) -> Optional[Dict[str, Any]]:
@@ -182,6 +183,7 @@ def create_script_hub_session(user: Dict[str, Any]) -> Dict[str, Any]:
             "customOrgCodes": payload.get("customOrgCodes") or [],
             "authorizationBoundary": payload.get("authorizationBoundary") or {},
             "permissionVersion": int(payload.get("permissionVersion") or 1),
+            "accessKeyVersion": int(payload.get("accessKeyVersion") or 1),
             "teamResourcesLoginKeyEnabled": bool(payload.get("teamResourcesLoginKeyEnabled")),
             "landingPage": payload.get("landingPage") or "home",
             "recruitmentMenuGrouped": payload.get("recruitmentMenuGrouped") is not False,
@@ -215,8 +217,24 @@ def verify_script_hub_session(token: str) -> Optional[Dict[str, Any]]:
     return payload
 
 
+def validate_script_hub_session_access_key_version(session: Dict[str, Any], user: Dict[str, Any]) -> None:
+    current_access_key_version = int(user.get("accessKeyVersion") or 1)
+    token_access_key_version = session.get("accessKeyVersion")
+    if token_access_key_version is None:
+        if current_access_key_version > 1:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session key version expired")
+        return
+
+    try:
+        parsed_token_access_key_version = int(token_access_key_version)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid session key version")
+    if parsed_token_access_key_version != current_access_key_version:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session key version expired")
+
+
 def _refresh_versioned_session(session: Dict[str, Any]) -> Dict[str, Any]:
-    if "permissionVersion" not in session:
+    if "permissionVersion" not in session and "accessKeyVersion" not in session:
         return session
 
     user_code = str(session.get("id") or "").strip()
@@ -237,6 +255,7 @@ def _refresh_versioned_session(session: Dict[str, Any]) -> Dict[str, Any]:
         user = get_session_user_by_code(db, user_code)
         if not user:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found or inactive")
+        validate_script_hub_session_access_key_version(session, user)
         _set_cached_versioned_session(cache_key, user, now)
         return user
     finally:

@@ -528,6 +528,123 @@ def test_authorization_boundary_blocks_cross_org_and_overpowered_grants(permissi
     )
     assert forbidden_scope.status_code == 403
 
+    forbidden_super_admin = client.post(
+        "/admin/rbac/users",
+        headers=_headers(permission_app, "company_a_admin"),
+        json={
+            "user_code": "company-a-super-overgrant",
+            "display_name": "Bad Super",
+            "primary_org_code": "company-a",
+            "data_scope": DATA_SCOPE_ORG_ONLY,
+            "role_codes": ["e2e-viewer"],
+            "is_super_admin": True,
+        },
+    )
+    assert forbidden_super_admin.status_code == 403
+
+    forbidden_custom_org = client.post(
+        "/admin/rbac/users",
+        headers=_headers(permission_app, "company_a_admin"),
+        json={
+            "user_code": "company-a-custom-overgrant",
+            "display_name": "Bad Custom",
+            "primary_org_code": "company-a",
+            "data_scope": DATA_SCOPE_CUSTOM_ORGS,
+            "custom_org_codes": ["company-b"],
+            "role_codes": ["e2e-viewer"],
+        },
+    )
+    assert forbidden_custom_org.status_code == 403
+
+    forbidden_target_boundary = client.post(
+        "/admin/rbac/users",
+        headers=_headers(permission_app, "company_a_admin"),
+        json={
+            "user_code": "company-a-boundary-overgrant",
+            "display_name": "Bad Boundary",
+            "primary_org_code": "company-a",
+            "data_scope": DATA_SCOPE_ORG_ONLY,
+            "role_codes": ["e2e-viewer"],
+            "authorization_boundary": {
+                "can_grant": True,
+                "managed_org_codes": ["company-b"],
+                "assignable_role_codes": ["e2e-viewer"],
+                "assignable_permission_keys": ["recruitment-dashboard-view"],
+                "max_data_scope": DATA_SCOPE_ORG_ONLY,
+            },
+        },
+    )
+    assert forbidden_target_boundary.status_code == 403
+
+    forbidden_role_create = client.post(
+        "/admin/rbac/roles",
+        headers=_headers(permission_app, "company_a_admin"),
+        json={
+            "code": "company-a-rbac-overgrant",
+            "name": "Bad Role",
+            "permission_keys": ["rbac-manage"],
+        },
+    )
+    assert forbidden_role_create.status_code == 403
+
+    assert client.get(
+        "/admin/rbac/organizations/company-b/users",
+        headers=_headers(permission_app, "company_a_admin"),
+    ).status_code == 403
+    assert client.post(
+        "/admin/rbac/users/company-b-admin/rotate-key",
+        headers=_headers(permission_app, "company_a_admin"),
+        json={},
+    ).status_code == 403
+    assert client.delete(
+        "/admin/rbac/users/company-b-admin",
+        headers=_headers(permission_app, "company_a_admin"),
+    ).status_code == 403
+    assert client.delete(
+        "/admin/rbac/roles/e2e-rbac-manager",
+        headers=_headers(permission_app, "company_a_admin"),
+    ).status_code == 403
+
+    high_privilege_same_org = client.post(
+        "/admin/rbac/users",
+        headers=_headers(permission_app, "group_admin"),
+        json={
+            "user_code": "company-a-high-target",
+            "display_name": "High Target",
+            "primary_org_code": "company-a",
+            "data_scope": DATA_SCOPE_ORG_AND_CHILDREN,
+            "role_codes": ["e2e-company-admin"],
+        },
+    )
+    assert high_privilege_same_org.status_code == 200, high_privilege_same_org.text
+    assert client.post(
+        "/admin/rbac/users/company-a-high-target/rotate-key",
+        headers=_headers(permission_app, "company_a_admin"),
+        json={},
+    ).status_code == 403
+    assert client.delete(
+        "/admin/rbac/users/company-a-high-target",
+        headers=_headers(permission_app, "company_a_admin"),
+    ).status_code == 403
+
+    group_rotate = client.post(
+        "/admin/rbac/users/company-a-high-target/rotate-key",
+        headers=_headers(permission_app, "group_admin"),
+        json={},
+    )
+    assert group_rotate.status_code == 200, group_rotate.text
+    group_delete = client.delete(
+        "/admin/rbac/users/company-a-high-target",
+        headers=_headers(permission_app, "group_admin"),
+    )
+    assert group_delete.status_code == 200, group_delete.text
+
+    company_overview = client.get("/admin/rbac/overview", headers=_headers(permission_app, "company_a_admin"))
+    assert company_overview.status_code == 200, company_overview.text
+    company_catalog = company_overview.json()["catalog"]
+    assert "company-b-admin" not in {item["user_code"] for item in company_overview.json()["users"]}
+    assert "company-b" not in {item["org_code"] for item in company_catalog["organizations"]}
+
     allowed = client.post(
         "/admin/rbac/users",
         headers=_headers(permission_app, "company_a_admin"),
@@ -578,6 +695,26 @@ def test_optimistic_locking_rejects_stale_permission_mutation(permission_app):
 
     refreshed = _overview_user(client.get("/admin/rbac/overview", headers=_headers(permission_app, "group_admin")), "dept-user")
     assert refreshed["notes"] == "first commit"
+
+
+def test_rotated_access_key_invalidates_existing_token(permission_app):
+    client = permission_app["client"]
+    stale_headers = _headers(permission_app, "viewer")
+
+    assert client.get("/recruitment/dashboard", headers=stale_headers).status_code == 200
+    rotated = client.post(
+        "/admin/rbac/users/viewer-user/rotate-key",
+        headers=_headers(permission_app, "group_admin"),
+        json={},
+    )
+    assert rotated.status_code == 200, rotated.text
+    assert client.get("/auth/session", headers=stale_headers).status_code == 401
+    assert client.get("/recruitment/dashboard", headers=stale_headers).status_code == 401
+
+    login = client.post("/auth/session", json={"key": rotated.json()["generated_access_key"]})
+    assert login.status_code == 200, login.text
+    refreshed_headers = {"Authorization": f"Bearer {login.json()['token']}"}
+    assert client.get("/recruitment/dashboard", headers=refreshed_headers).status_code == 200
 
 
 def test_data_scope_downgrade_requires_confirmation_and_immediately_changes_visibility(permission_app):

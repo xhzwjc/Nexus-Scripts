@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { NextResponse } from 'next/server';
 
+import { getBackendBaseUrl } from '@/lib/server/backendBaseUrl';
 import type { User } from '@/lib/types';
 
 const DEFAULT_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
@@ -196,6 +197,84 @@ export function requireScriptHubPermission(request: Request, permission?: string
     }
 
     return { session };
+}
+
+function extractBackendAuthError(payload: unknown, fallback: string) {
+    if (payload && typeof payload === 'object') {
+        const detail = 'detail' in payload ? payload.detail : undefined;
+        const error = 'error' in payload ? payload.error : undefined;
+        if (typeof detail === 'string' && detail.trim()) {
+            return detail;
+        }
+        if (typeof error === 'string' && error.trim()) {
+            return error;
+        }
+    }
+    return fallback;
+}
+
+export async function requireFreshScriptHubPermission(request: Request, permission?: string) {
+    const localAuth = requireScriptHubPermission(request, permission);
+    if ('response' in localAuth) {
+        return localAuth;
+    }
+
+    const token = getSessionTokenFromRequest(request);
+    if (!token) {
+        return {
+            response: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }),
+        };
+    }
+
+    try {
+        const response = await fetch(`${getBackendBaseUrl()}/auth/session`, {
+            method: 'GET',
+            cache: 'no-store',
+            headers: {
+                Authorization: `Bearer ${token}`,
+            },
+            signal: AbortSignal.timeout(10000),
+        });
+        const payload = await response.json().catch(() => null) as { user?: User; expiresAt?: number } | null;
+        if (!response.ok) {
+            return {
+                response: NextResponse.json(
+                    { error: extractBackendAuthError(payload, 'Session refresh failed') },
+                    { status: response.status },
+                ),
+            };
+        }
+
+        const refreshedUser = payload?.user;
+        if (!refreshedUser?.id) {
+            return {
+                response: NextResponse.json({ error: 'Invalid refreshed session' }, { status: 401 }),
+            };
+        }
+
+        const permissions = expandPermissionAliases(refreshedUser.permissions);
+        if (permission && !permissions[permission]) {
+            return {
+                response: NextResponse.json({ error: 'Forbidden' }, { status: 403 }),
+            };
+        }
+
+        return {
+            session: {
+                ...localAuth.session,
+                ...refreshedUser,
+                id: refreshedUser.id,
+                permissions,
+                iat: localAuth.session.iat,
+                exp: typeof payload?.expiresAt === 'number' ? payload.expiresAt : localAuth.session.exp,
+            } as SessionPayload,
+        };
+    } catch (error) {
+        console.error('Failed to refresh Script Hub session', error);
+        return {
+            response: NextResponse.json({ error: 'Session refresh unavailable' }, { status: 503 }),
+        };
+    }
 }
 
 export function requireScriptHubAnyPermission(request: Request, permissions: string[]) {

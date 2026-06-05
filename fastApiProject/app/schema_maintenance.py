@@ -519,6 +519,11 @@ def ensure_script_hub_schema() -> None:
                     connection.execute(text("ALTER TABLE script_hub_users ADD COLUMN permission_version INTEGER NOT NULL DEFAULT 1"))
                 logger.info("Added script_hub_users.permission_version column")
 
+            if "access_key_version" not in columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE script_hub_users ADD COLUMN access_key_version INTEGER NOT NULL DEFAULT 1"))
+                logger.info("Added script_hub_users.access_key_version column")
+
             if "team_resources_access_enabled" not in columns:
                 with engine.begin() as connection:
                     connection.execute(text("ALTER TABLE script_hub_users ADD COLUMN team_resources_access_enabled BOOLEAN NOT NULL DEFAULT TRUE"))

@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { getBackendBaseUrl } from '@/lib/server/backendBaseUrl';
-import { requireScriptHubPermission } from '@/lib/server/scriptHubSession';
+import { requireFreshScriptHubPermission } from '@/lib/server/scriptHubSession';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
-    const auth = requireScriptHubPermission(request, 'team-resources-manage');
+    const auth = await requireFreshScriptHubPermission(request, 'team-resources-manage');
     if ('response' in auth) {
         return auth.response;
     }

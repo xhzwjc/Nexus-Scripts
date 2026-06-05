@@ -19,6 +19,7 @@ export interface User {
     customOrgCodes?: string[];
     authorizationBoundary?: Record<string, unknown>;
     permissionVersion?: number;
+    accessKeyVersion?: number;
     teamResourcesLoginKeyEnabled?: boolean;
     landingPage?: 'home' | 'welcome';
     recruitmentMenuGrouped?: boolean;

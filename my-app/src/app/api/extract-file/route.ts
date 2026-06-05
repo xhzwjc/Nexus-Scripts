@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import mammoth from 'mammoth';
 import * as xlsx from 'xlsx';
 
-import { requireScriptHubPermission } from '@/lib/server/scriptHubSession';
+import { requireFreshScriptHubPermission } from '@/lib/server/scriptHubSession';
 
 // 强制动态路由，阻止 Next.js 在构建时尝试执行此文件收集静态数据
 export const dynamic = 'force-dynamic';
@@ -18,7 +18,7 @@ function trimExtractedText(text: string): string {
 }
 
 export async function POST(request: NextRequest) {
-    const auth = requireScriptHubPermission(request, 'agent-chat');
+    const auth = await requireFreshScriptHubPermission(request, 'agent-chat');
     if ('response' in auth) {
         return auth.response;
     }

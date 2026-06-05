@@ -2,12 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
 
-import { requireScriptHubPermission } from '@/lib/server/scriptHubSession';
+import { requireFreshScriptHubPermission } from '@/lib/server/scriptHubSession';
 
 const DATA_FILE = path.join(process.cwd(), 'data', 'team-resources.enc.json');
 
 export async function POST(request: NextRequest) {
-    const auth = requireScriptHubPermission(request, 'team-resources-manage');
+    const auth = await requireFreshScriptHubPermission(request, 'team-resources-manage');
     if ('response' in auth) {
         return auth.response;
     }

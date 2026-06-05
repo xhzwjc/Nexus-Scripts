@@ -1,7 +1,7 @@
 import axios, { type AxiosRequestConfig } from 'axios';
 import { NextRequest, NextResponse } from 'next/server';
 
-import { requireScriptHubPermission } from '@/lib/server/scriptHubSession';
+import { requireFreshScriptHubPermission } from '@/lib/server/scriptHubSession';
 
 export const runtime = 'nodejs';
 
@@ -744,7 +744,7 @@ function createGeminiTextResponse(stream: NodeJS.ReadableStream, effectiveModel:
 }
 
 export async function POST(request: NextRequest) {
-    const auth = requireScriptHubPermission(request, 'agent-chat');
+    const auth = await requireFreshScriptHubPermission(request, 'agent-chat');
     if ('response' in auth) {
         return auth.response;
     }
@@ -856,7 +856,6 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: errorMessage }, { status: 500 });
     }
 }
-
 
 
 

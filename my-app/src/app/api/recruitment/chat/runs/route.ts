@@ -1,7 +1,7 @@
 import {NextRequest, NextResponse} from "next/server";
 
 import {getBackendBaseUrl} from "@/lib/server/backendBaseUrl";
-import {requireScriptHubPermission} from "@/lib/server/scriptHubSession";
+import {requireFreshScriptHubPermission} from "@/lib/server/scriptHubSession";
 import type {
     AITaskLog,
     CandidateSummary,
@@ -1670,7 +1670,7 @@ async function streamTextWithDelay(
 }
 
 export async function POST(request: NextRequest) {
-    const auth = requireScriptHubPermission(request, "recruitment-assistant-view");
+    const auth = await requireFreshScriptHubPermission(request, "recruitment-assistant-view");
     if ("response" in auth) {
         return auth.response;
     }

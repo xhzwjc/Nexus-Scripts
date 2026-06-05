@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
 
-import { requireScriptHubPermission } from '@/lib/server/scriptHubSession';
+import { requireFreshScriptHubPermission } from '@/lib/server/scriptHubSession';
 
 const LOGOS_DIR = path.join(process.cwd(), 'public', 'ai-logos');
 
@@ -19,7 +19,7 @@ function ensureLogosDir() {
 
 // POST: 上传icon到本地目录
 export async function POST(request: NextRequest) {
-    const auth = requireScriptHubPermission(request, 'ai-resources-manage');
+    const auth = await requireFreshScriptHubPermission(request, 'ai-resources-manage');
     if ('response' in auth) {
         return auth.response;
     }

@@ -4,7 +4,7 @@ import http from 'http';
 import tls from 'tls';
 
 import { validateExternalHttpUrl } from '@/lib/server/networkGuards';
-import { requireScriptHubPermission } from '@/lib/server/scriptHubSession';
+import { requireFreshScriptHubPermission } from '@/lib/server/scriptHubSession';
 
 export const dynamic = 'force-dynamic';
 
@@ -190,7 +190,7 @@ function checkAccessibility(urlString: string): Promise<{ accessible: boolean; s
 }
 
 export async function POST(request: NextRequest) {
-    const auth = requireScriptHubPermission(request, 'cert-health');
+    const auth = await requireFreshScriptHubPermission(request, 'cert-health');
     if ('response' in auth) {
         return auth.response;
     }

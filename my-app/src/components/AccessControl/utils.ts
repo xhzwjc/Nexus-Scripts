@@ -568,8 +568,8 @@ export function filterAuditLogs(
 const DATA_SCOPE_RANK: Record<DataScope, number> = {
     ALL: 50,
     ORG_AND_CHILDREN: 40,
-    ORG_ONLY: 30,
-    CUSTOM_ORGS: 20,
+    CUSTOM_ORGS: 30,
+    ORG_ONLY: 20,
     SELF: 10,
 };
 

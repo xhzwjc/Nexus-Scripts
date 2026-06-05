@@ -79,6 +79,7 @@ class ScriptHubUser(Base):
     custom_org_codes_json = Column(Text)
     authorization_boundary_json = Column(Text)
     permission_version = Column(Integer, default=1, nullable=False)
+    access_key_version = Column(Integer, default=1, nullable=False)
     team_resources_access_enabled = Column(Boolean, default=True, nullable=False)
     is_super_admin = Column(Boolean, default=False, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)

@@ -176,6 +176,84 @@ def _boundary_managed_org_codes(boundary: Dict[str, Any]) -> Set[str]:
     return set(normalize_org_code_list(boundary.get("managed_org_codes") or boundary.get("manageable_org_codes") or []))
 
 
+def _boundary_assignable_role_codes(boundary: Dict[str, Any]) -> Set[str]:
+    return set(str(item or "").strip() for item in boundary.get("assignable_role_codes") or [])
+
+
+def _boundary_assignable_permission_keys(boundary: Dict[str, Any]) -> Set[str]:
+    return set(str(item or "").strip() for item in boundary.get("assignable_permission_keys") or [])
+
+
+def _validate_org_codes_within_actor_boundary(
+    db: Session,
+    *,
+    actor: Optional[Dict[str, Any]],
+    org_codes: Iterable[str],
+    error_prefix: str,
+) -> None:
+    if _actor_has_unbounded_grant(actor):
+        return
+
+    context = build_permission_context(db, actor)
+    boundary = actor.get("authorizationBoundary") if actor else {}
+    if not isinstance(boundary, dict) or not _boundary_allows_grant(boundary):
+        raise ValueError("Actor is not allowed to grant permissions")
+
+    managed_orgs = _boundary_managed_org_codes(boundary)
+    visible_orgs = set(context.visible_org_codes or ())
+    for org_code in {normalize_org_code(item) for item in org_codes if normalize_org_code(item)}:
+        if managed_orgs and org_code not in managed_orgs:
+            raise ValueError(f"{error_prefix} is outside the actor authorization boundary")
+        if not context.has_all_orgs and org_code not in visible_orgs:
+            raise ValueError(f"{error_prefix} is outside the actor data scope")
+
+
+def _validate_target_authorization_boundary(
+    db: Session,
+    *,
+    actor: Optional[Dict[str, Any]],
+    target_boundary: Optional[Dict[str, Any]],
+) -> None:
+    if _actor_has_unbounded_grant(actor) or not target_boundary:
+        return
+
+    if not isinstance(target_boundary, dict):
+        raise ValueError("Target authorization boundary is invalid")
+
+    if not _boundary_allows_grant(target_boundary):
+        return
+
+    actor_boundary = actor.get("authorizationBoundary") if actor else {}
+    if not isinstance(actor_boundary, dict) or not _boundary_allows_grant(actor_boundary):
+        raise ValueError("Actor is not allowed to grant permissions")
+
+    target_managed_orgs = _boundary_managed_org_codes(target_boundary)
+    if target_managed_orgs:
+        _validate_org_codes_within_actor_boundary(
+            db,
+            actor=actor,
+            org_codes=target_managed_orgs,
+            error_prefix="Target authorization boundary organization",
+        )
+
+    actor_assignable_roles = _boundary_assignable_role_codes(actor_boundary)
+    target_assignable_roles = _boundary_assignable_role_codes(target_boundary)
+    if "admin" in target_assignable_roles and "admin" not in actor_assignable_roles:
+        raise ValueError("Target authorization boundary role assignment exceeds actor authorization boundary")
+    if actor_assignable_roles and not target_assignable_roles.issubset(actor_assignable_roles):
+        raise ValueError("Target authorization boundary role assignment exceeds actor authorization boundary")
+
+    actor_assignable_permissions = _boundary_assignable_permission_keys(actor_boundary)
+    target_assignable_permissions = _boundary_assignable_permission_keys(target_boundary)
+    if actor_assignable_permissions and not target_assignable_permissions.issubset(actor_assignable_permissions):
+        raise ValueError("Target authorization boundary permission grant exceeds actor authorization boundary")
+
+    actor_max_data_scope = normalize_data_scope(actor_boundary.get("max_data_scope") or DATA_SCOPE_SELF)
+    target_max_data_scope = normalize_data_scope(target_boundary.get("max_data_scope") or DATA_SCOPE_SELF)
+    if _data_scope_rank(target_max_data_scope) > _data_scope_rank(actor_max_data_scope):
+        raise ValueError("Target authorization boundary data scope exceeds actor authorization boundary")
+
+
 def _validate_org_mutation_boundary(
     db: Session,
     *,
@@ -209,13 +287,19 @@ def _validate_authorization_boundary(
     *,
     actor: Optional[Dict[str, Any]],
     target_org_code: str,
+    custom_org_codes: Iterable[str],
+    target_authorization_boundary: Optional[Dict[str, Any]],
     role_codes: Iterable[str],
     granted_permissions: Iterable[str],
     revoked_permissions: Iterable[str],
     data_scope: str,
+    is_super_admin: bool,
 ) -> None:
     if _actor_has_unbounded_grant(actor):
         return
+
+    if is_super_admin:
+        raise ValueError("Super admin grant exceeds actor authorization boundary")
 
     context = build_permission_context(db, actor)
     boundary = actor.get("authorizationBoundary") if actor else {}
@@ -229,11 +313,25 @@ def _validate_authorization_boundary(
     if not context.has_all_orgs and target_org_code not in set(context.visible_org_codes or ()):
         raise ValueError("Target organization is outside the actor data scope")
 
-    assignable_roles = set(str(item or "").strip() for item in boundary.get("assignable_role_codes") or [])
+    _validate_org_codes_within_actor_boundary(
+        db,
+        actor=actor,
+        org_codes=custom_org_codes,
+        error_prefix="Custom organization",
+    )
+    _validate_target_authorization_boundary(
+        db,
+        actor=actor,
+        target_boundary=target_authorization_boundary,
+    )
+
+    assignable_roles = _boundary_assignable_role_codes(boundary)
+    if "admin" in set(role_codes) and "admin" not in assignable_roles:
+        raise ValueError("Role assignment exceeds actor authorization boundary")
     if assignable_roles and not set(role_codes).issubset(assignable_roles):
         raise ValueError("Role assignment exceeds actor authorization boundary")
 
-    assignable_permissions = set(str(item or "").strip() for item in boundary.get("assignable_permission_keys") or [])
+    assignable_permissions = _boundary_assignable_permission_keys(boundary)
     if assignable_permissions and not set(granted_permissions).issubset(assignable_permissions):
         raise ValueError("Permission grant exceeds actor authorization boundary")
     if assignable_permissions and not set(revoked_permissions).issubset(assignable_permissions):
@@ -242,6 +340,55 @@ def _validate_authorization_boundary(
     max_data_scope = normalize_data_scope(boundary.get("max_data_scope") or DATA_SCOPE_SELF)
     if _data_scope_rank(data_scope) > _data_scope_rank(max_data_scope):
         raise ValueError("Data scope exceeds actor authorization boundary")
+
+
+def _validate_role_mutation_boundary(
+    *,
+    actor: Optional[Dict[str, Any]],
+    permission_keys: Iterable[str],
+) -> None:
+    if _actor_has_unbounded_grant(actor):
+        return
+
+    boundary = actor.get("authorizationBoundary") if actor else {}
+    if not isinstance(boundary, dict) or not _boundary_allows_grant(boundary):
+        raise ValueError("Actor is not allowed to grant permissions")
+
+    assignable_permissions = _boundary_assignable_permission_keys(boundary)
+    if assignable_permissions and not set(permission_keys).issubset(assignable_permissions):
+        raise ValueError("Role permission assignment exceeds actor authorization boundary")
+
+
+def _validate_user_target_boundary(
+    db: Session,
+    *,
+    actor: Optional[Dict[str, Any]],
+    user: ScriptHubUser,
+) -> None:
+    if _actor_has_unbounded_grant(actor):
+        return
+
+    role_codes = [role.role_code for role in load_roles_for_user(db, user.id)]
+    granted_permissions = []
+    revoked_permissions = []
+    for permission_key, is_granted in load_user_permission_overrides(db, user.id):
+        if is_granted:
+            granted_permissions.append(permission_key)
+        else:
+            revoked_permissions.append(permission_key)
+
+    _validate_authorization_boundary(
+        db,
+        actor=actor,
+        target_org_code=normalize_org_code(user.primary_org_code),
+        custom_org_codes=normalize_org_code_list(user.custom_org_codes_json),
+        target_authorization_boundary=_json_loads_safe(user.authorization_boundary_json, {}),
+        role_codes=role_codes,
+        granted_permissions=granted_permissions,
+        revoked_permissions=revoked_permissions,
+        data_scope=normalize_data_scope(user.data_scope),
+        is_super_admin=bool(user.is_super_admin),
+    )
 
 
 def _permission_rows(db: Session) -> Dict[str, ScriptHubPermission]:
@@ -430,6 +577,21 @@ def _guard_last_admin(db: Session, user: ScriptHubUser, next_is_active: bool, ne
 
 
 def list_rbac_overview(db: Session, actor: Optional[Dict[str, Any]] = None) -> Dict[str, object]:
+    context = build_permission_context(db, actor) if actor else None
+    visible_orgs = None if not context or context.has_all_orgs else set(context.visible_org_codes or ())
+
+    def org_visible_to_actor(organization: Dict[str, object]) -> bool:
+        if visible_orgs is None:
+            return True
+        return normalize_org_code(str(organization.get("org_code") or "")) in visible_orgs
+
+    def user_visible_to_actor(user: ScriptHubUser) -> bool:
+        if visible_orgs is None:
+            return True
+        target_orgs = {normalize_org_code(user.primary_org_code)}
+        target_orgs.update(normalize_org_code_list(user.custom_org_codes_json))
+        return bool(target_orgs & visible_orgs) or user.user_code == context.actor_user_code
+
     permissions = [
         {
             "key": permission.permission_key,
@@ -461,13 +623,14 @@ def list_rbac_overview(db: Session, actor: Optional[Dict[str, Any]] = None) -> D
         .filter(ScriptHubUser.is_deleted.is_(False))
         .order_by(ScriptHubUser.created_at.asc(), ScriptHubUser.user_code.asc())
         .all()
+        if user_visible_to_actor(user)
     ]
 
     return {
         "catalog": {
             "permissions": permissions,
             "roles": roles,
-            "organizations": _list_organizations(db),
+            "organizations": [organization for organization in _list_organizations(db) if org_visible_to_actor(organization)],
         },
         "users": users,
         "audit_logs": (
@@ -512,11 +675,17 @@ def _org_has_user_references(db: Session, org_code: str) -> bool:
     return False
 
 
-def get_org_users(db: Session, org_code: str) -> Dict[str, object]:
+def get_org_users(db: Session, org_code: str, *, actor: Optional[Dict[str, Any]] = None) -> Dict[str, object]:
     normalized = normalize_org_code(org_code)
     org = db.query(ScriptHubOrganization).filter(ScriptHubOrganization.org_code == normalized).first()
     if not org:
         raise ValueError("Organization not found")
+    _validate_org_codes_within_actor_boundary(
+        db,
+        actor=actor,
+        org_codes=[normalized],
+        error_prefix="Organization",
+    )
 
     primary_users = []
     data_scope_users = []
@@ -749,6 +918,7 @@ def _invalidate_users_with_role_session_cache(db: Session, role_id: int) -> None
 def create_rbac_role(
     db: Session,
     *,
+    actor: Optional[Dict[str, Any]] = None,
     code: str,
     name: str,
     description: Optional[str],
@@ -770,6 +940,7 @@ def create_rbac_role(
     normalized_permission_keys = _normalize_permission_keys(permission_keys, permission_rows)
     if not normalized_permission_keys:
         raise ValueError("At least one permission is required")
+    _validate_role_mutation_boundary(actor=actor, permission_keys=normalized_permission_keys)
 
     max_sort_order = db.query(ScriptHubRole.sort_order).order_by(ScriptHubRole.sort_order.desc()).limit(1).scalar()
     next_sort_order = (max_sort_order or 0) + 10
@@ -796,6 +967,7 @@ def update_rbac_role(
     db: Session,
     role_code: str,
     *,
+    actor: Optional[Dict[str, Any]] = None,
     name: Optional[str] = None,
     description: Optional[str] = None,
     permission_keys: Optional[Iterable[str]] = None,
@@ -821,6 +993,7 @@ def update_rbac_role(
     )
     if not normalized_permission_keys:
         raise ValueError("At least one permission is required")
+    _validate_role_mutation_boundary(actor=actor, permission_keys=normalized_permission_keys)
 
     next_is_active = role.is_active if is_active is None else bool(is_active)
     if not next_is_active and _get_assigned_user_count(db, role.id) > 0:
@@ -893,10 +1066,13 @@ def create_rbac_user(
         db,
         actor=actor,
         target_org_code=normalized_primary_org_code,
+        custom_org_codes=normalized_custom_org_codes,
+        target_authorization_boundary=authorization_boundary,
         role_codes=normalized_role_codes,
         granted_permissions=normalized_granted_permissions,
         revoked_permissions=normalized_revoked_permissions,
         data_scope=normalized_data_scope,
+        is_super_admin=bool(is_super_admin),
     )
 
     plain_access_key = (access_key or "").strip() or _generate_access_key()
@@ -1005,10 +1181,13 @@ def update_rbac_user(
         db,
         actor=actor,
         target_org_code=next_primary_org_code,
+        custom_org_codes=next_custom_org_codes,
+        target_authorization_boundary=authorization_boundary if authorization_boundary is not None else _json_loads_safe(user.authorization_boundary_json, {}),
         role_codes=next_role_codes,
         granted_permissions=next_granted_permissions,
         revoked_permissions=next_revoked_permissions,
         data_scope=next_data_scope,
+        is_super_admin=next_is_super_admin,
     )
 
     _guard_last_admin(db, user, next_is_active, next_is_super_admin, next_role_codes)
@@ -1051,7 +1230,13 @@ def update_rbac_user(
     return serialize_admin_user(db, user)
 
 
-def rotate_user_access_key(db: Session, user_code: str, access_key: Optional[str] = None) -> Tuple[Dict[str, object], str]:
+def rotate_user_access_key(
+    db: Session,
+    user_code: str,
+    *,
+    actor: Optional[Dict[str, Any]] = None,
+    access_key: Optional[str] = None,
+) -> Tuple[Dict[str, object], str]:
     normalized_user_code = _normalize_user_code(user_code)
     user = db.query(ScriptHubUser).filter(
         ScriptHubUser.user_code == normalized_user_code,
@@ -1059,6 +1244,7 @@ def rotate_user_access_key(db: Session, user_code: str, access_key: Optional[str
     ).first()
     if not user:
         raise ValueError("User not found")
+    _validate_user_target_boundary(db, actor=actor, user=user)
 
     plain_access_key = (access_key or "").strip() or _generate_access_key()
     material = create_access_key_material(plain_access_key)
@@ -1077,6 +1263,7 @@ def rotate_user_access_key(db: Session, user_code: str, access_key: Optional[str
     user.access_key_lookup_hash = material["lookup_hash"]
     user.access_key_salt = material["salt"]
     user.access_key_hash = material["hash"]
+    user.access_key_version = int(getattr(user, "access_key_version", 1) or 1) + 1
 
     db.commit()
     invalidate_script_hub_session_refresh_cache(user.user_code)
@@ -1084,7 +1271,12 @@ def rotate_user_access_key(db: Session, user_code: str, access_key: Optional[str
     return serialize_admin_user(db, user), plain_access_key
 
 
-def delete_rbac_user(db: Session, user_code: str) -> Dict[str, object]:
+def delete_rbac_user(
+    db: Session,
+    user_code: str,
+    *,
+    actor: Optional[Dict[str, Any]] = None,
+) -> Dict[str, object]:
     normalized_user_code = _normalize_user_code(user_code)
     user = db.query(ScriptHubUser).filter(
         ScriptHubUser.user_code == normalized_user_code,
@@ -1092,6 +1284,7 @@ def delete_rbac_user(db: Session, user_code: str) -> Dict[str, object]:
     ).first()
     if not user:
         raise ValueError("User not found")
+    _validate_user_target_boundary(db, actor=actor, user=user)
 
     current_role_codes = [role.role_code for role in load_roles_for_user(db, user.id)]
     _guard_last_admin(db, user, False, False, current_role_codes)
@@ -1109,7 +1302,12 @@ def delete_rbac_user(db: Session, user_code: str) -> Dict[str, object]:
     }
 
 
-def delete_rbac_role(db: Session, role_code: str) -> Dict[str, object]:
+def delete_rbac_role(
+    db: Session,
+    role_code: str,
+    *,
+    actor: Optional[Dict[str, Any]] = None,
+) -> Dict[str, object]:
     normalized_role_code = _normalize_role_code(role_code)
     role = db.query(ScriptHubRole).filter(
         ScriptHubRole.role_code == normalized_role_code,
@@ -1119,6 +1317,7 @@ def delete_rbac_role(db: Session, role_code: str) -> Dict[str, object]:
         raise ValueError("Role not found")
     if role.is_system:
         raise ValueError("System roles are read-only")
+    _validate_role_mutation_boundary(actor=actor, permission_keys=_serialize_role_permission_keys(db, [role.id]))
     if _get_assigned_user_count(db, role.id) > 0:
         raise ValueError("This role is still assigned to users. Reassign users before deleting it")
 

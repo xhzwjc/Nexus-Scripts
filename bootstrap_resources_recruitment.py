@@ -443,7 +443,7 @@ def _apply_rbac_seed(
                     is_super_admin=user["is_super_admin"],
                     notes=user["notes"],
                 )
-                rotate_user_access_key(db, user["user_code"], access_key)
+                rotate_user_access_key(db, user["user_code"], access_key=access_key)
             else:
                 create_rbac_user(
                     db,

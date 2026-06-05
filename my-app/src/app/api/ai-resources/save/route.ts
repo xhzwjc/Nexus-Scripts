@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 
 import { getBackendBaseUrl } from '@/lib/server/backendBaseUrl';
-import { requireScriptHubPermission } from '@/lib/server/scriptHubSession';
+import { requireFreshScriptHubPermission } from '@/lib/server/scriptHubSession';
 
 const DATA_FILE = path.join(process.cwd(), 'data', 'ai-resources.json');
 
@@ -17,7 +17,7 @@ function ensureDataDir() {
 
 // POST: 保存资源数据
 export async function POST(request: NextRequest) {
-    const auth = requireScriptHubPermission(request, 'ai-resources-manage');
+    const auth = await requireFreshScriptHubPermission(request, 'ai-resources-manage');
     if ('response' in auth) {
         return auth.response;
     }
