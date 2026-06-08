@@ -602,6 +602,10 @@ export interface CandidateDetail {
   status_history: CandidateStatusHistory[];
   interview_questions: InterviewQuestion[];
   activity: AITaskLog[];
+  department_review_context?: {
+    assignment: DepartmentReviewAssignment;
+    batch: DepartmentReviewBatch;
+  } | null;
 }
 
 export interface ChatContext {

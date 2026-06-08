@@ -787,7 +787,7 @@ async def get_candidate_status_history(candidate_id: int, _session: Dict[str, An
 @recruitment_router.post("/department-reviews")
 async def create_department_review(payload: DepartmentReviewCreateRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-review-manage")), service: RecruitmentService = Depends(get_recruitment_service)):
     try:
-        data = service.create_department_review(payload.model_dump(), _session.get("id") or "unknown")
+        data = service.create_department_review(payload.model_dump(exclude_unset=True), _session.get("id") or "unknown")
         return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
@@ -809,7 +809,7 @@ async def list_department_reviewers(
 
 
 @recruitment_router.get("/candidates/{candidate_id}/department-reviews")
-async def list_candidate_department_reviews(candidate_id: int, _session: Dict[str, Any] = Depends(require_script_hub_any_permission(["recruitment-dashboard-view", "recruitment-review-view"])), service: RecruitmentService = Depends(get_recruitment_service)):
+async def list_candidate_department_reviews(candidate_id: int, _session: Dict[str, Any] = Depends(require_script_hub_any_permission(["recruitment-dashboard-view", "recruitment-review-manage"])), service: RecruitmentService = Depends(get_recruitment_service)):
     try:
         data = service.list_candidate_department_reviews(candidate_id)
         return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
@@ -824,6 +824,54 @@ async def list_my_department_review_tasks(status: Optional[str] = Query(None), _
         return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+
+
+@recruitment_router.get("/department-reviews/assignments/{assignment_id}/candidate")
+async def get_my_department_review_candidate_detail(
+    assignment_id: int,
+    _session: Dict[str, Any] = Depends(require_script_hub_any_permission(["recruitment-review-view", "recruitment-review-act"])),
+    service: RecruitmentService = Depends(get_recruitment_service),
+):
+    try:
+        data = service.get_department_review_candidate_detail(assignment_id, _session.get("id") or "unknown")
+        return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+
+
+@recruitment_router.get("/department-reviews/assignments/{assignment_id}/history")
+async def list_my_department_review_assignment_history(
+    assignment_id: int,
+    _session: Dict[str, Any] = Depends(require_script_hub_any_permission(["recruitment-review-view", "recruitment-review-act"])),
+    service: RecruitmentService = Depends(get_recruitment_service),
+):
+    try:
+        data = service.list_department_review_assignment_history(assignment_id, _session.get("id") or "unknown")
+        return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+
+
+@recruitment_router.get("/department-reviews/assignments/{assignment_id}/resume-files/{resume_file_id}/download")
+async def download_my_department_review_resume_file(
+    assignment_id: int,
+    resume_file_id: int,
+    _session: Dict[str, Any] = Depends(require_script_hub_any_permission(["recruitment-review-view", "recruitment-review-act"])),
+    service: RecruitmentService = Depends(get_recruitment_service),
+):
+    try:
+        payload = service.get_department_review_resume_file_download(
+            assignment_id,
+            resume_file_id,
+            _session.get("id") or "unknown",
+        )
+        file_name = payload["file_name"] or "resume.bin"
+        file_extension = f".{file_name.rsplit('.', 1)[1]}" if "." in file_name and not file_name.endswith(".") else ".bin"
+        quoted_name = quote(file_name)
+        headers = {"Content-Disposition": f"inline; filename=\"resume{file_extension}\"; filename*=UTF-8''{quoted_name}"}
+        return Response(content=payload["content"], media_type=payload["media_type"], headers=headers)
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
 
 
 @recruitment_router.post("/department-reviews/assignments/{assignment_id}/decision")

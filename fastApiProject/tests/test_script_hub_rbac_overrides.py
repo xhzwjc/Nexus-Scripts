@@ -3,7 +3,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.database import Base
-from app.rbac_catalog import ALL_PERMISSION_KEYS, DEPRECATED_PERMISSION_KEYS, PERMISSION_DEFINITIONS, ROLE_DEFINITIONS
+from app.rbac_catalog import ALL_PERMISSION_KEYS, DEPRECATED_PERMISSION_KEYS, PERMISSION_DEFINITIONS, ROLE_DEFINITIONS, ROLE_INDEX
 from app.rbac_models import (
     ScriptHubOrganization,
     ScriptHubPermission,
@@ -82,6 +82,13 @@ def _seed_catalog(db):
             )
 
     db.commit()
+
+
+def test_recruitment_collaboration_roles_are_top_level_by_default():
+    assert ROLE_INDEX["recruitment-reviewer"].recruitment_menu_grouped is False
+    assert ROLE_INDEX["recruitment-interviewer"].recruitment_menu_grouped is False
+    assert "recruitment-dashboard-view" not in ROLE_INDEX["recruitment-reviewer"].permissions
+    assert "recruitment-dashboard-view" not in ROLE_INDEX["recruitment-interviewer"].permissions
 
 
 def test_super_admin_revoked_overrides_still_take_effect():

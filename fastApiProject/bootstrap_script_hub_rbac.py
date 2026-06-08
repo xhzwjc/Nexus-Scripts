@@ -81,6 +81,8 @@ def sync_roles(db):
             existing.sort_order = definition.sort_order
             existing.is_system = True
             existing.is_active = True
+            existing.landing_page = definition.landing_page
+            existing.recruitment_menu_grouped = definition.recruitment_menu_grouped
         else:
             db.add(
                 ScriptHubRole(
@@ -90,6 +92,8 @@ def sync_roles(db):
                     sort_order=definition.sort_order,
                     is_system=True,
                     is_active=True,
+                    landing_page=definition.landing_page,
+                    recruitment_menu_grouped=definition.recruitment_menu_grouped,
                 )
             )
     db.flush()

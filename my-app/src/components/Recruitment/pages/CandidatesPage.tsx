@@ -2547,6 +2547,7 @@ type CandidatesPageProps = {
     isSelectedCandidateScreeningCancelling: boolean;
     selectedCandidateScreeningTaskId: number | null;
     openResumeFile: (file: ResumeFile, download?: boolean) => Promise<void>;
+    resolveResumeFileDownloadPath: (file: ResumeFile) => string;
     requestDeleteResumeFile: (file: ResumeFile) => void;
     requestDeleteCandidate: (candidate: CandidateSummary) => void;
     generateInterviewQuestions: () => Promise<void>;
@@ -2670,6 +2671,7 @@ export function CandidatesPage({
     isSelectedCandidateScreeningCancelling,
     selectedCandidateScreeningTaskId,
     openResumeFile,
+    resolveResumeFileDownloadPath,
     requestDeleteResumeFile,
     requestDeleteCandidate,
     generateInterviewQuestions,
@@ -3819,7 +3821,7 @@ export function CandidatesPage({
         setInlineResumePreviewLoading(true);
         setInlineResumePreviewError(null);
 
-        authenticatedFetch(`/api/recruitment/resume-files/${primaryResumeFile.id}/download`, {
+        authenticatedFetch(resolveResumeFileDownloadPath(primaryResumeFile), {
             method: "GET",
             cache: "no-store",
             signal: abortController.signal,
@@ -3863,7 +3865,7 @@ export function CandidatesPage({
                 URL.revokeObjectURL(objectUrl);
             }
         };
-    }, [candidateDetailPanel, candidateResumePreviewRefreshKey, candidateResumeView, isZh, primaryResumeFile?.id]);
+    }, [candidateDetailPanel, candidateResumePreviewRefreshKey, candidateResumeView, isZh, primaryResumeFile, resolveResumeFileDownloadPath]);
     const handleInlineResumeFrameLoad = React.useCallback(() => {
         if (inlineResumeFrameReadyTimerRef.current !== null) {
             window.clearTimeout(inlineResumeFrameReadyTimerRef.current);

@@ -326,6 +326,8 @@ def _sync_script_hub_catalog() -> None:
                     is_active=True,
                     is_deleted=False,
                     deleted_at=None,
+                    landing_page=definition.landing_page,
+                    recruitment_menu_grouped=definition.recruitment_menu_grouped,
                 )
                 db.add(row)
                 role_rows[definition.code] = row
@@ -337,6 +339,8 @@ def _sync_script_hub_catalog() -> None:
                 row.is_active = True
                 row.is_deleted = False
                 row.deleted_at = None
+                row.landing_page = definition.landing_page
+                row.recruitment_menu_grouped = definition.recruitment_menu_grouped
 
         db.flush()
 
@@ -551,6 +555,11 @@ def ensure_script_hub_schema() -> None:
                 logger.info("Added script_hub_organizations.deleted_at column")
 
             role_columns = {column["name"] for column in inspector.get_columns("script_hub_roles")}
+            if "landing_page" not in role_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE script_hub_roles ADD COLUMN landing_page VARCHAR(20) NOT NULL DEFAULT 'home'"))
+                logger.info("Added script_hub_roles.landing_page column")
+
             if "recruitment_menu_grouped" not in role_columns:
                 with engine.begin() as connection:
                     connection.execute(text("ALTER TABLE script_hub_roles ADD COLUMN recruitment_menu_grouped BOOLEAN NOT NULL DEFAULT TRUE"))

@@ -19,6 +19,7 @@ class RoleDefinition:
     sort_order: int
     permissions: Tuple[str, ...]
     landing_page: str = "home"  # "home" | "welcome"
+    recruitment_menu_grouped: bool = True
 
 
 PERMISSION_DEFINITIONS: Tuple[PermissionDefinition, ...] = (
@@ -87,8 +88,8 @@ ROLE_DEFINITIONS: Tuple[RoleDefinition, ...] = (
     RoleDefinition("admin", "系统超管", "拥有所有权限的系统管理员，可管理平台、资源和全部业务工具", 10, ALL_PERMISSION_KEYS, "home"),
     RoleDefinition("operations-manager", "业务管理员", "负责核心业务流程执行与协同，不包含平台级危险操作", 20, ("settlement", "commission", "balance", "task-automation", "sms_operations_center", "tax-reporting", "tax-calculation", "settlement-sim", "payment-stats", "delivery-tool", "ocr-tool", "team-resources", "ai-resources", "agent-chat", "recruitment-dashboard-view", "recruitment-position-manage", "recruitment-candidate-manage", "recruitment-process-execute", "recruitment-talent-pool-view", "recruitment-assistant-view", "recruitment-log-view", "recruitment-review-view", "recruitment-review-act", "recruitment-review-manage", "recruitment-interview-view", "recruitment-interview-act", "recruitment-interview-manage", "recruitment-skill-view", "recruitment-skill-bind", "recruitment-mail-view", "recruitment-mail-send", "biz-scene", "biz-task"), "home"),
     RoleDefinition("operator", "运营专员", "负责日常运营、交付和查询类工作，不修改资源配置与平台设置", 30, ("tax-reporting", "tax-calculation", "payment-stats", "delivery-tool", "ocr-tool", "team-resources", "ai-resources", "agent-chat", "recruitment-dashboard-view", "recruitment-candidate-manage", "recruitment-process-execute", "recruitment-talent-pool-view", "recruitment-assistant-view", "recruitment-review-view", "recruitment-review-act", "recruitment-review-manage", "recruitment-interview-view", "recruitment-interview-act", "recruitment-interview-manage", "recruitment-skill-view", "recruitment-skill-bind", "recruitment-mail-view", "recruitment-mail-send"), "home"),
-    RoleDefinition("recruitment-reviewer", "用人部门评审", "处理候选人部门评审、面试协同和评审意见回写", 35, ("recruitment-review-view", "recruitment-review-act", "recruitment-interview-view", "recruitment-interview-act"), "home"),
-    RoleDefinition("recruitment-interviewer", "面试官", "维护自己的可面试时间并处理分配给自己的面试任务", 36, ("recruitment-interview-view", "recruitment-interview-act"), "home"),
+    RoleDefinition("recruitment-reviewer", "用人部门评审", "处理候选人部门评审、面试协同和评审意见回写", 35, ("recruitment-review-view", "recruitment-review-act", "recruitment-interview-view", "recruitment-interview-act"), "home", False),
+    RoleDefinition("recruitment-interviewer", "面试官", "维护自己的可面试时间并处理分配给自己的面试任务", 36, ("recruitment-interview-view", "recruitment-interview-act"), "home", False),
     RoleDefinition("finance-analyst", "财务分析", "负责财务核验、分析与报表工具，不直接执行高风险业务操作", 40, ("commission", "balance", "tax-reporting", "tax-calculation", "payment-stats", "team-resources", "ai-resources"), "home"),
     RoleDefinition("resource-manager", "资源管理员", "负责维护团队资源、AI 资源及相关健康检测配置", 50, ("team-resources", "team-resources-manage", "ai-resources", "ai-resources-manage", "cert-health", "agent-chat", "ocr-tool", "resource-sharing-manage"), "home"),
     RoleDefinition("platform-engineer", "平台运维", "负责运维中心、系统健康、排障和平台工具", 60, ("server-monitoring", "cert-health", "dev-tools", "team-resources", "ai-resources", "agent-chat", "ocr-tool"), "home"),

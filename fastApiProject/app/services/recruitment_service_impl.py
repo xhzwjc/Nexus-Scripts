@@ -100,6 +100,15 @@ SCREENING_FLOW_TASK_TYPE = "screening_flow"
 SCREENING_DEBUG_TASK_TYPE = "resume_screening_debug"
 SCREENING_ONE_PASS_TASK_TYPE = "resume_screening_one_pass"
 SCREENING_SCORE_TASK_TYPES = ("resume_score", SCREENING_ONE_PASS_TASK_TYPE)
+DEPARTMENT_REVIEW_DEFAULT_VISIBLE_SECTIONS = ("original_resume", "standard_resume", "screening_result", "assessment_result")
+DEPARTMENT_REVIEW_ALLOWED_VISIBLE_SECTIONS = (
+    "original_resume",
+    "standard_resume",
+    "screening_result",
+    "assessment_result",
+    "interview_feedback",
+    "attachments",
+)
 KNOWN_AI_TASK_TYPES = [SCREENING_FLOW_TASK_TYPE, "jd_generation", "resume_parse", "resume_score", SCREENING_ONE_PASS_TASK_TYPE, "interview_question_generation", "chat_orchestrator", "resume_mail_dispatch", "publish_task"]
 KNOWN_AI_TASK_TYPES = [SCREENING_FLOW_TASK_TYPE, "jd_generation", "resume_parse", "resume_score", SCREENING_ONE_PASS_TASK_TYPE, "interview_question_generation", "chat_orchestrator", "ai_position_match", "resume_mail_dispatch", "publish_task"]
 LLM_TASK_TYPE_OPTIONS = [{"value": "default", "label": "默认模型"}, {"value": "jd_generation", "label": "JD 生成"}, {"value": "resume_parse", "label": "简历解析"}, {"value": "resume_score", "label": "简历评分"}, {"value": SCREENING_ONE_PASS_TASK_TYPE, "label": "一体化初筛"}, {"value": "interview_question_generation", "label": "面试题生成"}, {"value": "chat_orchestrator", "label": "AI 助手"}, {"value": "ai_position_match", "label": "岗位匹配"}]
@@ -11913,6 +11922,160 @@ class RecruitmentService:
         except Exception:
             logger.debug("Failed to emit department review candidate update", exc_info=True)
 
+    def _normalize_department_review_visible_sections(
+        self,
+        raw_sections: Optional[Iterable[Any]],
+        *,
+        default_when_missing: bool = True,
+    ) -> List[str]:
+        if raw_sections is None:
+            return list(DEPARTMENT_REVIEW_DEFAULT_VISIBLE_SECTIONS) if default_when_missing else []
+        normalized: List[str] = []
+        allowed = set(DEPARTMENT_REVIEW_ALLOWED_VISIBLE_SECTIONS)
+        for item in raw_sections:
+            value = str(item or "").strip()
+            if not value or value not in allowed or value in normalized:
+                continue
+            normalized.append(value)
+        return normalized
+
+    def _sanitize_department_review_candidate_payload(
+        self,
+        candidate_payload: Dict[str, Any],
+        visible_sections: set[str],
+    ) -> Dict[str, Any]:
+        sanitized = dict(candidate_payload or {})
+        if "original_resume" not in visible_sections:
+            sanitized["latest_resume_file_id"] = None
+        if "standard_resume" not in visible_sections:
+            sanitized["latest_parse_result_id"] = None
+            sanitized["latest_completed_parse_task_id"] = None
+        if "assessment_result" not in visible_sections:
+            sanitized["latest_score_id"] = None
+            sanitized["latest_total_score"] = None
+            sanitized["match_percent"] = None
+        if "screening_result" not in visible_sections:
+            for key in (
+                "display_status_reason",
+                "active_screening_run_id",
+                "active_screening_task_id",
+                "active_screening_task_type",
+                "active_screening_stage",
+                "active_screening_status",
+                "active_screening_task_status",
+                "active_screening_failure_code",
+                "active_screening_started_at",
+                "latest_completed_score_task_id",
+                "screened_position_title",
+                "ai_recommended_status",
+            ):
+                sanitized[key] = None
+            sanitized["active_screening_auto_retry_scheduled"] = False
+        return sanitized
+
+    def _filter_department_review_activity(
+        self,
+        activity: Sequence[Dict[str, Any]],
+        visible_sections: set[str],
+    ) -> List[Dict[str, Any]]:
+        if "screening_result" not in visible_sections:
+            return []
+        allowed_types = {SCREENING_FLOW_TASK_TYPE, SCREENING_ONE_PASS_TASK_TYPE}
+        return [
+            self._sanitize_department_review_activity_item(item, visible_sections)
+            for item in activity
+            if str((item or {}).get("task_type") or "").strip() in allowed_types
+        ]
+
+    def _sanitize_department_review_activity_item(
+        self,
+        item: Dict[str, Any],
+        visible_sections: set[str],
+    ) -> Dict[str, Any]:
+        payload = dict(item or {})
+        return {
+            "id": payload.get("id"),
+            "task_type": payload.get("task_type"),
+            "screening_run_id": payload.get("screening_run_id"),
+            "batch_id": payload.get("batch_id"),
+            "stage": payload.get("stage"),
+            "stage_started_at": payload.get("stage_started_at"),
+            "stage_completed_at": payload.get("stage_completed_at"),
+            "related_candidate_id": payload.get("related_candidate_id"),
+            "duration_ms": payload.get("duration_ms"),
+            "status": payload.get("status"),
+            "output_summary": payload.get("output_summary") if "assessment_result" in visible_sections else None,
+            "created_at": payload.get("created_at"),
+            "updated_at": payload.get("updated_at"),
+        }
+
+    def _sanitize_department_review_workflow_memory(
+        self,
+        workflow_memory: Optional[Dict[str, Any]],
+        visible_sections: set[str],
+    ) -> Optional[Dict[str, Any]]:
+        if not workflow_memory:
+            return None
+        if "screening_result" not in visible_sections and "interview_feedback" not in visible_sections:
+            return None
+        sanitized = dict(workflow_memory)
+        if "screening_result" not in visible_sections:
+            sanitized["screening_skill_ids"] = []
+            sanitized["screening_skills"] = []
+            sanitized["screening_memory_source"] = None
+            sanitized["screening_rule_snapshot"] = None
+            sanitized["last_screened_at"] = None
+        if "standard_resume" not in visible_sections:
+            sanitized["latest_parse_result_id"] = None
+        if "assessment_result" not in visible_sections:
+            sanitized["latest_score_id"] = None
+        if "interview_feedback" not in visible_sections:
+            sanitized["interview_skill_ids"] = []
+            sanitized["interview_skills"] = []
+            sanitized["last_interview_question_id"] = None
+        return sanitized
+
+    def _sanitize_department_review_candidate_detail(
+        self,
+        detail: Dict[str, Any],
+        visible_sections: Sequence[str],
+    ) -> Dict[str, Any]:
+        visible = set(visible_sections)
+        sanitized = dict(detail or {})
+        sanitized["candidate"] = self._sanitize_department_review_candidate_payload(
+            sanitized.get("candidate") or {},
+            visible,
+        )
+        if "original_resume" not in visible:
+            sanitized["resume_files"] = []
+        if "standard_resume" not in visible:
+            sanitized["parse_result"] = None
+        if "assessment_result" not in visible:
+            sanitized["score"] = None
+
+        screening_payload = dict(sanitized.get("screening") or {})
+        if "standard_resume" not in visible:
+            screening_payload["parsed_resume"] = None
+        if "assessment_result" not in visible:
+            screening_payload["score"] = None
+        if "screening_result" not in visible:
+            screening_payload["meta"] = None
+        sanitized["screening"] = screening_payload
+        sanitized["workflow_memory"] = self._sanitize_department_review_workflow_memory(
+            sanitized.get("workflow_memory"),
+            visible,
+        )
+
+        activity = self._filter_department_review_activity(sanitized.get("activity") or [], visible)
+        sanitized["activity"] = activity
+        sanitized["activity_meta"] = {
+            **dict(sanitized.get("activity_meta") or {}),
+            "returned_count": len(activity),
+        }
+        sanitized["status_history"] = []
+        sanitized["interview_questions"] = []
+        return sanitized
+
     def list_department_reviewers(
         self,
         *,
@@ -12035,12 +12198,10 @@ class RecruitmentService:
         if not normalized_reviewers:
             raise ValueError("请至少选择一位评审人")
 
-        default_sections = ["original_resume", "standard_resume", "screening_result", "assessment_result"]
-        visible_sections = [
-            str(item or "").strip()
-            for item in (payload.get("visible_sections") or default_sections)
-            if str(item or "").strip()
-        ] or default_sections
+        visible_sections = self._normalize_department_review_visible_sections(
+            payload.get("visible_sections") if "visible_sections" in payload else None,
+            default_when_missing=True,
+        )
         cc_user_codes = [
             str(item or "").strip()
             for item in (payload.get("cc_user_codes") or [])
@@ -12218,6 +12379,88 @@ class RecruitmentService:
         }
         counts["todo"] = count_review_assignments(["pending", "deferred"])
         return {"items": items, "total": len(items), "counts": counts}
+
+    def _get_department_review_assignment_for_actor(
+        self,
+        assignment_id: int,
+        actor_id: str,
+    ) -> tuple[RecruitmentDepartmentReviewAssignment, RecruitmentDepartmentReviewBatch]:
+        normalized_actor_id = str(actor_id or "").strip()
+        if not normalized_actor_id:
+            raise ValueError("无法识别当前评审账号")
+        assignment = self.db.query(RecruitmentDepartmentReviewAssignment).filter(
+            RecruitmentDepartmentReviewAssignment.id == assignment_id,
+        ).first()
+        if not assignment:
+            raise ValueError(f"部门评审任务 ID={assignment_id} 不存在")
+        if assignment.reviewer_user_code != normalized_actor_id:
+            raise ValueError("只能查看分配给自己的部门评审候选人")
+        batch = self.db.query(RecruitmentDepartmentReviewBatch).filter(
+            RecruitmentDepartmentReviewBatch.id == assignment.batch_id,
+        ).first()
+        if not batch or batch.status == "cancelled":
+            raise ValueError("该部门评审已取消或不存在")
+        return assignment, batch
+
+    def get_department_review_candidate_detail(self, assignment_id: int, actor_id: str) -> Dict[str, Any]:
+        assignment, batch = self._get_department_review_assignment_for_actor(assignment_id, actor_id)
+        detail = self.get_candidate_detail(assignment.candidate_id)
+        visible_sections = self._normalize_department_review_visible_sections(
+            json_loads_safe(batch.visible_sections_json, None),
+            default_when_missing=True,
+        )
+        detail = self._sanitize_department_review_candidate_detail(detail, visible_sections)
+        detail["department_review_context"] = {
+            "assignment": self._serialize_department_review_assignment(assignment),
+            "batch": self._serialize_department_review_batch(batch, assignments=[assignment]),
+        }
+        return detail
+
+    def list_department_review_assignment_history(self, assignment_id: int, actor_id: str) -> List[Dict[str, Any]]:
+        assignment, _batch = self._get_department_review_assignment_for_actor(assignment_id, actor_id)
+        actor_assignments = (
+            self.db.query(RecruitmentDepartmentReviewAssignment)
+            .filter(
+                RecruitmentDepartmentReviewAssignment.candidate_id == assignment.candidate_id,
+                RecruitmentDepartmentReviewAssignment.reviewer_user_code == str(actor_id or "").strip(),
+            )
+            .order_by(RecruitmentDepartmentReviewAssignment.updated_at.desc(), RecruitmentDepartmentReviewAssignment.id.desc())
+            .all()
+        )
+        batch_ids = [row.batch_id for row in actor_assignments]
+        if not batch_ids:
+            return []
+        batches = (
+            self.db.query(RecruitmentDepartmentReviewBatch)
+            .filter(RecruitmentDepartmentReviewBatch.id.in_(batch_ids))
+            .order_by(RecruitmentDepartmentReviewBatch.created_at.desc(), RecruitmentDepartmentReviewBatch.id.desc())
+            .all()
+        )
+        assignments_by_batch: Dict[int, List[RecruitmentDepartmentReviewAssignment]] = {}
+        for row in actor_assignments:
+            assignments_by_batch.setdefault(row.batch_id, []).append(row)
+        return [
+            self._serialize_department_review_batch(row, assignments=assignments_by_batch.get(row.id, []))
+            for row in batches
+        ]
+
+    def get_department_review_resume_file_download(
+        self,
+        assignment_id: int,
+        resume_file_id: int,
+        actor_id: str,
+    ) -> Dict[str, Any]:
+        assignment, batch = self._get_department_review_assignment_for_actor(assignment_id, actor_id)
+        visible_sections = self._normalize_department_review_visible_sections(
+            json_loads_safe(batch.visible_sections_json, None),
+            default_when_missing=True,
+        )
+        if "original_resume" not in visible_sections:
+            raise ValueError("当前部门评审未开放原始简历查看")
+        resume_file = self._get_resume_file(resume_file_id)
+        if resume_file.candidate_id != assignment.candidate_id:
+            raise ValueError("只能下载分配给自己的部门评审候选人简历")
+        return self.get_resume_file_download(resume_file_id)
 
     def decide_department_review_assignment(self, assignment_id: int, payload: Dict[str, Any], actor_id: str) -> Dict[str, Any]:
         assignment = self.db.query(RecruitmentDepartmentReviewAssignment).filter(

@@ -2274,6 +2274,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         comment?: string | null;
         reviewerName?: string | null;
     } | null>(null);
+    const candidateDetailReviewContextRef = useRef<typeof candidateDetailReviewContext>(null);
     const [allTalentPoolCandidates, setAllTalentPoolCandidates] = useState<CandidateSummary[]>([]);
     const [talentPoolCandidates, setTalentPoolCandidates] = useState<CandidateSummary[]>([]);
     const [talentPoolLoading, setTalentPoolLoading] = useState(false);
@@ -3724,6 +3725,10 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     }, [selectedCandidateId]);
 
     useEffect(() => {
+        candidateDetailReviewContextRef.current = candidateDetailReviewContext;
+    }, [candidateDetailReviewContext]);
+
+    useEffect(() => {
         if (activePage !== "candidates") {
             candidatePageTargetCandidateIdRef.current = null;
         }
@@ -4008,6 +4013,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     }, [selectedPositionId, activePage]);
 
     const selectedCandidateDetailId = candidateDetail?.candidate.id ?? null;
+    const selectedCandidateDetailReviewAssignmentId = candidateDetail?.department_review_context?.assignment?.id ?? null;
 
     useEffect(() => {
         if (activePage === "candidates" && candidateMenuSuppressStaleDetailRef.current) {
@@ -4029,8 +4035,12 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         }
         // 仅在详情真正可见时加载，避免 workspace 首屏预拉详情
         const isTalentPoolDetail = talentPoolCandidateDetailOpen && activePage === "talent-pool";
-        const shouldCheckDuplicates = !isTalentPoolDetail && checkedDuplicateCandidateIdRef.current !== selectedCandidateId;
-        if (selectedCandidateDetailId === selectedCandidateId) {
+        const isReviewWorkbenchDetail = activePage === "review-workbench" && candidateDetailReviewContext?.candidateId === selectedCandidateId;
+        const reviewAssignmentId = isReviewWorkbenchDetail ? candidateDetailReviewContext?.assignmentId ?? null : null;
+        const shouldCheckDuplicates = !isTalentPoolDetail && !isReviewWorkbenchDetail && checkedDuplicateCandidateIdRef.current !== selectedCandidateId;
+        const cachedDetailMatchesCurrentScope = selectedCandidateDetailId === selectedCandidateId
+            && selectedCandidateDetailReviewAssignmentId === (isReviewWorkbenchDetail ? reviewAssignmentId : null);
+        if (cachedDetailMatchesCurrentScope) {
             if (shouldCheckDuplicates && candidateDetail) {
                 checkedDuplicateCandidateIdRef.current = selectedCandidateId;
                 void checkDuplicatesForCandidate(candidateDetail);
@@ -4042,9 +4052,10 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         }
         void loadCandidateDetail(selectedCandidateId, {
             includeDuplicates: shouldCheckDuplicates,
-            skipChatContextSave: isTalentPoolDetail,
+            skipChatContextSave: isTalentPoolDetail || isReviewWorkbenchDetail,
+            reviewAssignmentId: reviewAssignmentId ?? null,
         });
-    }, [activePage, candidateDetail, candidateDetailReviewContext?.candidateId, selectedCandidateDetailId, selectedCandidateId, talentPoolCandidateDetailOpen]);
+    }, [activePage, candidateDetail, candidateDetailReviewContext?.assignmentId, candidateDetailReviewContext?.candidateId, selectedCandidateDetailId, selectedCandidateDetailReviewAssignmentId, selectedCandidateId, talentPoolCandidateDetailOpen]);
 
     useEffect(() => {
         if (!selectedLogId) {
@@ -4997,6 +5008,13 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 }, 260);
                 return () => window.clearTimeout(timer);
             }
+            if (activePage === "review-workbench" && candidateDetailReviewContext?.candidateId === selectedCandidateId) {
+                void loadInterviewSchedules(selectedCandidateId);
+                void loadDepartmentReviews(selectedCandidateId, {reviewAssignmentId: candidateDetailReviewContext.assignmentId});
+                setOffers([]);
+                setFollowUps([]);
+                return;
+            }
             void loadInterviewSchedules(selectedCandidateId);
             void loadOffers(selectedCandidateId);
             void loadFollowUps(selectedCandidateId);
@@ -5007,7 +5025,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             setFollowUps([]);
             setDepartmentReviews([]);
         }
-    }, [activePage, candidateDetailReviewContext?.candidateId, selectedCandidateId, talentPoolCandidateDetailOpen]);
+    }, [activePage, candidateDetailReviewContext?.assignmentId, candidateDetailReviewContext?.candidateId, selectedCandidateId, talentPoolCandidateDetailOpen]);
 
     useEffect(() => {
         if (activePage !== "assistant") {
@@ -5908,17 +5926,31 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
 
     async function loadCandidateDetail(
         candidateId: number,
-        options?: { silent?: boolean; force?: boolean; includeDuplicates?: boolean; skipChatContextSave?: boolean },
+        options?: {
+            silent?: boolean;
+            force?: boolean;
+            includeDuplicates?: boolean;
+            skipChatContextSave?: boolean;
+            reviewAssignmentId?: number | null;
+        },
     ) {
         if (!options?.silent) {
             setCandidateDetailLoading(true);
         }
         try {
-            const request = () => recruitmentApi<CandidateDetail>(`/candidates/${candidateId}`);
+            const reviewAssignmentId = options?.reviewAssignmentId ?? (
+                activePage === "review-workbench" && candidateDetailReviewContext?.candidateId === candidateId
+                    ? candidateDetailReviewContext.assignmentId
+                    : null
+            );
+            const detailPath = reviewAssignmentId
+                ? `/department-reviews/assignments/${reviewAssignmentId}/candidate`
+                : `/candidates/${candidateId}`;
+            const request = () => recruitmentApi<CandidateDetail>(detailPath);
             const data = options?.force
                 ? await request()
                 : await runDedupedRequest(
-                    `candidate-detail:${candidateId}:${options?.silent ? "silent" : "full"}`,
+                    `candidate-detail:${detailPath}:${options?.silent ? "silent" : "full"}`,
                     request,
                 );
             const recentCompletedAt = recentlyCompletedScreeningCandidatesRef.current.get(candidateId);
@@ -5939,11 +5971,21 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             if (!isLiveTaskStatus(normalizedData?.candidate?.active_screening_task_status)) {
                 recentlyCompletedScreeningCandidatesRef.current.delete(candidateId);
             }
-            if (!mountedRef.current || selectedCandidateIdRef.current !== candidateId) {
+            const currentReviewAssignmentId = (
+                activePageRef.current === "review-workbench"
+                && candidateDetailReviewContextRef.current?.candidateId === candidateId
+            )
+                ? candidateDetailReviewContextRef.current.assignmentId
+                : null;
+            if (
+                !mountedRef.current
+                || selectedCandidateIdRef.current !== candidateId
+                || currentReviewAssignmentId !== (reviewAssignmentId ?? null)
+            ) {
                 return normalizedData;
             }
             setCandidateDetail(normalizedData);
-            if (!options?.skipChatContextSave) {
+            if (!options?.skipChatContextSave && !reviewAssignmentId) {
                 const nextPositionId = normalizedData.candidate.position_id ?? null;
                 if (
                     normalizedData.candidate.id !== (chatContext.candidate_id ?? null)
@@ -10258,6 +10300,16 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         }
     }
 
+    const resolveResumeFileDownloadPath = useCallback((file: ResumeFile) => {
+        const reviewAssignmentId = (
+            activePage === "review-workbench"
+            && candidateDetailReviewContext?.candidateId === file.candidate_id
+        ) ? candidateDetailReviewContext.assignmentId : null;
+        return reviewAssignmentId
+            ? `/api/recruitment/department-reviews/assignments/${reviewAssignmentId}/resume-files/${file.id}/download`
+            : `/api/recruitment/resume-files/${file.id}/download`;
+    }, [activePage, candidateDetailReviewContext?.assignmentId, candidateDetailReviewContext?.candidateId]);
+
     async function openResumeFile(file: ResumeFile, download = false) {
         const previewWindow = !download ? window.open("about:blank", "_blank") : null;
         if (previewWindow) {
@@ -10266,7 +10318,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             previewWindow.document.body.innerHTML = `<p style="font:14px -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#475569;padding:24px;">Loading resume...</p>`;
         }
         try {
-            const response = await authenticatedFetch(`/api/recruitment/resume-files/${file.id}/download`, {
+            const response = await authenticatedFetch(resolveResumeFileDownloadPath(file), {
                 method: "GET",
                 cache: "no-store"
             });
@@ -10536,9 +10588,14 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         }
     }
 
-    async function loadDepartmentReviews(candidateId: number) {
+    async function loadDepartmentReviews(candidateId: number, options?: {reviewAssignmentId?: number | null}) {
         try {
-            const data = await recruitmentApi<DepartmentReviewBatch[]>(`/candidates/${candidateId}/department-reviews`);
+            const reviewAssignmentId = options?.reviewAssignmentId ?? null;
+            const data = await recruitmentApi<DepartmentReviewBatch[]>(
+                reviewAssignmentId
+                    ? `/department-reviews/assignments/${reviewAssignmentId}/history`
+                    : `/candidates/${candidateId}/department-reviews`,
+            );
             if (mountedRef.current) {
                 setDepartmentReviews(data || []);
             }
@@ -10614,7 +10671,9 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             loadCandidates({silent: true, force: true}),
             refreshCandidateStats(),
             selectedCandidateIdRef.current ? loadCandidateDetail(selectedCandidateIdRef.current, {silent: true, force: true}) : Promise.resolve(),
-            selectedCandidateIdRef.current ? loadDepartmentReviews(selectedCandidateIdRef.current) : Promise.resolve(),
+            selectedCandidateIdRef.current ? loadDepartmentReviews(selectedCandidateIdRef.current, {
+                reviewAssignmentId: candidateDetailReviewContextRef.current?.assignmentId ?? null,
+            }) : Promise.resolve(),
         ]);
     }
 
@@ -12853,6 +12912,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 isSelectedCandidateScreeningCancelling={isSelectedCandidateScreeningCancelling}
                 selectedCandidateScreeningTaskId={selectedCandidateScreeningTaskId}
                 openResumeFile={openResumeFile}
+                resolveResumeFileDownloadPath={resolveResumeFileDownloadPath}
                 generateInterviewQuestions={generateInterviewQuestions}
                 isCurrentInterviewTaskCancelling={isCurrentInterviewTaskCancelling}
                 currentCandidateInterviewTaskId={currentCandidateInterviewTaskId}

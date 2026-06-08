@@ -78,6 +78,14 @@ function resolveRecruitmentPermission(path: string, method: string): string | st
       : "recruitment-review-act";
   }
 
+  if (/^candidates\/\d+\/department-reviews$/.test(path)) {
+    return ["recruitment-dashboard-view", "recruitment-review-manage"];
+  }
+
+  if (/^candidates\/\d+\/interview-schedules$/.test(path)) {
+    return ["recruitment-dashboard-view", "recruitment-interview-view", "recruitment-interview-manage"];
+  }
+
   if (path === "interview-availability/my") {
     return normalizedMethod === "GET" || normalizedMethod === "HEAD"
       ? ["recruitment-interview-view", "recruitment-interview-act"]

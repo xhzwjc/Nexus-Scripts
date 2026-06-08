@@ -1,3 +1,5 @@
+import json
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -8,8 +10,14 @@ from app.database import Base
 from app.recruitment_models import (
     RecruitmentCandidate,
     RecruitmentCandidateStatusHistory,
+    RecruitmentCandidateScore,
+    RecruitmentCandidateWorkflowMemory,
+    RecruitmentAITaskLog,
     RecruitmentDepartmentReviewAssignment,
     RecruitmentDepartmentReviewBatch,
+    RecruitmentInterviewQuestion,
+    RecruitmentResumeParseResult,
+    RecruitmentResumeFile,
 )
 from app.rbac_models import (
     ScriptHubPermission,
@@ -48,6 +56,130 @@ def _add_candidate(db, *, code: str = "C-DEPT-1", status: str = "screening_passe
     db.commit()
     db.refresh(candidate)
     return candidate
+
+
+def _add_resume_file(db, candidate: RecruitmentCandidate, tmp_path, *, name: str = "resume.pdf") -> RecruitmentResumeFile:
+    storage_path = tmp_path / f"{candidate.candidate_code}-{name}"
+    storage_path.write_bytes(b"resume-bytes")
+    resume_file = RecruitmentResumeFile(
+        org_code=candidate.org_code,
+        candidate_id=candidate.id,
+        original_name=name,
+        stored_name=storage_path.name,
+        file_ext=".pdf",
+        mime_type="application/pdf",
+        file_size=storage_path.stat().st_size,
+        storage_path=str(storage_path),
+        parse_status="success",
+        uploaded_by="hr",
+    )
+    db.add(resume_file)
+    db.commit()
+    db.refresh(resume_file)
+    candidate.latest_resume_file_id = resume_file.id
+    db.add(candidate)
+    db.commit()
+    db.refresh(candidate)
+    return resume_file
+
+
+def _add_candidate_detail_artifacts(db, candidate: RecruitmentCandidate, resume_file: RecruitmentResumeFile):
+    parse_row = RecruitmentResumeParseResult(
+        candidate_id=candidate.id,
+        resume_file_id=resume_file.id,
+        org_code=candidate.org_code,
+        raw_text="raw resume text",
+        basic_info_json=json.dumps({"name": candidate.name}, ensure_ascii=False),
+        work_experiences_json=json.dumps([{"company": "示例公司"}], ensure_ascii=False),
+        education_experiences_json=json.dumps([{"school": "示例大学"}], ensure_ascii=False),
+        skills_json=json.dumps(["Python"], ensure_ascii=False),
+        projects_json=json.dumps([], ensure_ascii=False),
+        summary_text="标准简历摘要",
+        status="success",
+    )
+    db.add(parse_row)
+    db.flush()
+    score_row = RecruitmentCandidateScore(
+        candidate_id=candidate.id,
+        parse_result_id=parse_row.id,
+        org_code=candidate.org_code,
+        score_json=json.dumps({"dimensions": []}, ensure_ascii=False),
+        total_score=88,
+        match_percent=92,
+        recommendation="pass",
+        suggested_status="screening_passed",
+    )
+    db.add(score_row)
+    db.flush()
+    candidate.latest_parse_result_id = parse_row.id
+    candidate.latest_score_id = score_row.id
+    candidate.match_percent = 92
+    candidate.ai_recommended_status = "screening_passed"
+    db.add(candidate)
+    db.add(
+        RecruitmentCandidateStatusHistory(
+            candidate_id=candidate.id,
+            org_code=candidate.org_code,
+            from_status="pending_screening",
+            to_status="screening_passed",
+            reason="AI 初筛通过",
+            changed_by="hr",
+            source="screening",
+        )
+    )
+    db.add(
+        RecruitmentCandidateWorkflowMemory(
+            candidate_id=candidate.id,
+            position_id=candidate.position_id,
+            org_code=candidate.org_code,
+            screening_skill_ids_json=json.dumps([1]),
+            screening_memory_source="candidate",
+            latest_parse_result_id=parse_row.id,
+            latest_score_id=score_row.id,
+            interview_skill_ids_json=json.dumps([2]),
+        )
+    )
+    db.add(
+        RecruitmentAITaskLog(
+            task_type="screening_flow",
+            org_code=candidate.org_code,
+            related_candidate_id=candidate.id,
+            status="success",
+            prompt_snapshot="prompt with hidden score",
+            input_summary="input includes resume and score context",
+            output_summary="初筛通过",
+            output_snapshot=json.dumps({"score": {"total_score": 88, "match_percent": 92}}, ensure_ascii=False),
+            parsed_response_json=json.dumps({"score": {"total_score": 88}}, ensure_ascii=False),
+            sanitized_response_json=json.dumps({"score": {"total_score": 88}}, ensure_ascii=False),
+            validation_meta_json=json.dumps({"screening_result_valid": True, "score_visible": True}, ensure_ascii=False),
+            created_by="hr",
+        )
+    )
+    db.add(
+        RecruitmentAITaskLog(
+            task_type="chat_orchestrator",
+            org_code=candidate.org_code,
+            related_candidate_id=candidate.id,
+            status="success",
+            output_summary="助手记录",
+            created_by="hr",
+        )
+    )
+    db.add(
+        RecruitmentInterviewQuestion(
+            candidate_id=candidate.id,
+            position_id=candidate.position_id,
+            org_code=candidate.org_code,
+            skill_ids_json=json.dumps([2]),
+            round_name="初试",
+            markdown_content="问题",
+            status="generated",
+            created_by="hr",
+        )
+    )
+    db.commit()
+    db.refresh(candidate)
+    return parse_row, score_row
 
 
 def _seed_reviewers(db, *user_codes: str):
@@ -275,6 +407,220 @@ def test_list_my_department_review_tasks_returns_only_assignee_tasks():
     assert result["total"] == 1
     assert result["counts"]["todo"] == 1
     assert result["items"][0]["assignment"]["reviewer_user_code"] == "manager-a"
+
+
+def test_department_review_candidate_detail_enforces_assignee_scope():
+    db = _build_test_db()
+    candidate = _add_candidate(db)
+    _seed_reviewers(db, "manager-a", "manager-b")
+    service = RecruitmentService(db)
+    created = service.create_department_review(
+        {
+            "candidate_id": candidate.id,
+            "reviewers": [{"user_code": "manager-a"}],
+        },
+        "hr",
+    )
+    assignment_id = created["batch"]["assignments"][0]["id"]
+
+    detail = service.get_department_review_candidate_detail(assignment_id, "manager-a")
+
+    assert detail["candidate"]["id"] == candidate.id
+    assert detail["department_review_context"]["assignment"]["id"] == assignment_id
+    with pytest.raises(ValueError, match="只能查看分配给自己的部门评审候选人"):
+        service.get_department_review_candidate_detail(assignment_id, "manager-b")
+
+
+def test_department_review_candidate_detail_applies_visible_sections_crop(tmp_path):
+    db = _build_test_db()
+    candidate = _add_candidate(db)
+    resume_file = _add_resume_file(db, candidate, tmp_path, name="candidate.pdf")
+    parse_row, _score_row = _add_candidate_detail_artifacts(db, candidate, resume_file)
+    _seed_reviewers(db, "manager-a")
+    service = RecruitmentService(db)
+    created = service.create_department_review(
+        {
+            "candidate_id": candidate.id,
+            "reviewers": [{"user_code": "manager-a"}],
+            "visible_sections": ["standard_resume"],
+        },
+        "hr",
+    )
+    assignment_id = created["batch"]["assignments"][0]["id"]
+
+    detail = service.get_department_review_candidate_detail(assignment_id, "manager-a")
+
+    assert detail["department_review_context"]["batch"]["visible_sections"] == ["standard_resume"]
+    assert detail["candidate"]["latest_resume_file_id"] is None
+    assert detail["resume_files"] == []
+    assert detail["candidate"]["latest_parse_result_id"] == parse_row.id
+    assert detail["parse_result"]["id"] == parse_row.id
+    assert detail["screening"]["parsed_resume"]["summary"] == "标准简历摘要"
+    assert detail["candidate"]["latest_score_id"] is None
+    assert detail["candidate"]["latest_total_score"] is None
+    assert detail["candidate"]["match_percent"] is None
+    assert detail["score"] is None
+    assert detail["screening"]["score"] is None
+    assert detail["screening"]["meta"] is None
+    assert detail["workflow_memory"] is None
+    assert detail["status_history"] == []
+    assert detail["interview_questions"] == []
+    assert detail["activity"] == []
+    assert detail["activity_meta"]["returned_count"] == 0
+    with pytest.raises(ValueError, match="当前部门评审未开放原始简历查看"):
+        service.get_department_review_resume_file_download(assignment_id, resume_file.id, "manager-a")
+
+
+def test_department_review_candidate_detail_respects_explicit_empty_visible_sections(tmp_path):
+    db = _build_test_db()
+    candidate = _add_candidate(db)
+    resume_file = _add_resume_file(db, candidate, tmp_path, name="candidate.pdf")
+    _add_candidate_detail_artifacts(db, candidate, resume_file)
+    _seed_reviewers(db, "manager-a")
+    service = RecruitmentService(db)
+    created = service.create_department_review(
+        {
+            "candidate_id": candidate.id,
+            "reviewers": [{"user_code": "manager-a"}],
+            "visible_sections": [],
+        },
+        "hr",
+    )
+    assignment_id = created["batch"]["assignments"][0]["id"]
+
+    detail = service.get_department_review_candidate_detail(assignment_id, "manager-a")
+
+    assert created["batch"]["visible_sections"] == []
+    assert detail["department_review_context"]["batch"]["visible_sections"] == []
+    assert detail["candidate"]["latest_resume_file_id"] is None
+    assert detail["candidate"]["latest_parse_result_id"] is None
+    assert detail["candidate"]["latest_score_id"] is None
+    assert detail["candidate"]["latest_total_score"] is None
+    assert detail["candidate"]["match_percent"] is None
+    assert detail["resume_files"] == []
+    assert detail["parse_result"] is None
+    assert detail["score"] is None
+    assert detail["screening"]["parsed_resume"] is None
+    assert detail["screening"]["score"] is None
+    assert detail["screening"]["meta"] is None
+    assert detail["workflow_memory"] is None
+    assert detail["status_history"] == []
+    assert detail["interview_questions"] == []
+    assert detail["activity"] == []
+
+
+def test_department_review_candidate_detail_redacts_screening_activity_outputs(tmp_path):
+    db = _build_test_db()
+    candidate = _add_candidate(db)
+    resume_file = _add_resume_file(db, candidate, tmp_path, name="candidate.pdf")
+    _add_candidate_detail_artifacts(db, candidate, resume_file)
+    _seed_reviewers(db, "manager-a")
+    service = RecruitmentService(db)
+    created = service.create_department_review(
+        {
+            "candidate_id": candidate.id,
+            "reviewers": [{"user_code": "manager-a"}],
+            "visible_sections": ["screening_result"],
+        },
+        "hr",
+    )
+    assignment_id = created["batch"]["assignments"][0]["id"]
+
+    detail = service.get_department_review_candidate_detail(assignment_id, "manager-a")
+
+    assert detail["score"] is None
+    assert detail["candidate"]["latest_score_id"] is None
+    assert detail["activity"]
+    activity = detail["activity"][0]
+    assert activity["task_type"] == "screening_flow"
+    assert activity["status"] == "success"
+    assert activity["output_summary"] is None
+    for hidden_key in (
+        "prompt_snapshot",
+        "input_summary",
+        "output_snapshot",
+        "raw_response_text",
+        "parsed_response_json",
+        "sanitized_response_json",
+        "validation_meta",
+        "persisted_result_refs",
+        "score_rule_snapshot",
+    ):
+        assert hidden_key not in activity
+
+
+def test_department_review_assignment_history_returns_only_actor_assignments():
+    db = _build_test_db()
+    candidate = _add_candidate(db)
+    _seed_reviewers(db, "manager-a", "manager-b")
+    service = RecruitmentService(db)
+    first = service.create_department_review(
+        {
+            "candidate_id": candidate.id,
+            "reviewers": [{"user_code": "manager-a"}, {"user_code": "manager-b"}],
+            "visible_sections": ["screening_result"],
+        },
+        "hr",
+    )
+    first_assignment_id = next(
+        item["id"]
+        for item in first["batch"]["assignments"]
+        if item["reviewer_user_code"] == "manager-a"
+    )
+    first_other_assignment_id = next(
+        item["id"]
+        for item in first["batch"]["assignments"]
+        if item["reviewer_user_code"] == "manager-b"
+    )
+    service.decide_department_review_assignment(first_assignment_id, {"status": "passed", "comment": "可进入面试"}, "manager-a")
+    service.decide_department_review_assignment(first_other_assignment_id, {"status": "passed"}, "manager-b")
+    second = service.create_department_review(
+        {
+            "candidate_id": candidate.id,
+            "reviewers": [{"user_code": "manager-a"}],
+            "visible_sections": ["standard_resume"],
+        },
+        "hr",
+    )
+    second_assignment_id = second["batch"]["assignments"][0]["id"]
+
+    history = service.list_department_review_assignment_history(second_assignment_id, "manager-a")
+
+    assert [row["id"] for row in history] == [second["batch"]["id"], first["batch"]["id"]]
+    assert all(len(row["assignments"]) == 1 for row in history)
+    assert all(row["assignments"][0]["reviewer_user_code"] == "manager-a" for row in history)
+    assert history[0]["visible_sections"] == ["standard_resume"]
+    assert history[1]["visible_sections"] == ["screening_result"]
+    with pytest.raises(ValueError, match="只能查看分配给自己的部门评审候选人"):
+        service.list_department_review_assignment_history(second_assignment_id, "manager-b")
+
+
+def test_department_review_resume_download_enforces_assignment_scope(tmp_path):
+    db = _build_test_db()
+    candidate = _add_candidate(db)
+    other_candidate = _add_candidate(db, code="C-DEPT-OTHER")
+    resume_file = _add_resume_file(db, candidate, tmp_path, name="candidate.pdf")
+    other_resume_file = _add_resume_file(db, other_candidate, tmp_path, name="other.pdf")
+    _seed_reviewers(db, "manager-a", "manager-b")
+    service = RecruitmentService(db)
+    created = service.create_department_review(
+        {
+            "candidate_id": candidate.id,
+            "reviewers": [{"user_code": "manager-a"}],
+            "visible_sections": ["original_resume", "screening_result"],
+        },
+        "hr",
+    )
+    assignment_id = created["batch"]["assignments"][0]["id"]
+
+    payload = service.get_department_review_resume_file_download(assignment_id, resume_file.id, "manager-a")
+
+    assert payload["file_name"] == "candidate.pdf"
+    assert payload["content"] == b"resume-bytes"
+    with pytest.raises(ValueError, match="只能下载分配给自己的部门评审候选人简历"):
+        service.get_department_review_resume_file_download(assignment_id, other_resume_file.id, "manager-a")
+    with pytest.raises(ValueError, match="只能查看分配给自己的部门评审候选人"):
+        service.get_department_review_resume_file_download(assignment_id, resume_file.id, "manager-b")
 
 
 def test_list_my_department_review_counts_assignment_rows_by_status():
