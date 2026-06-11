@@ -125,8 +125,8 @@ type InterviewMethod = "onsite" | "video" | "phone";
 const INTERVIEW_ROUND_OPTIONS = [
     {value: "初试", labelZh: "初试", labelEn: "First interview", roundIndex: 1},
     {value: "复试", labelZh: "复试", labelEn: "Second interview", roundIndex: 2},
-    {value: "终试", labelZh: "终试", labelEn: "Final interview", roundIndex: 3},
-    {value: "加试", labelZh: "加试", labelEn: "Additional interview", roundIndex: null},
+    {value: "加试", labelZh: "加试", labelEn: "Additional interview", roundIndex: 3},
+    {value: "终试", labelZh: "终试", labelEn: "Final interview", roundIndex: 4},
 ] as const;
 
 const INTERVIEW_METHOD_OPTIONS: Array<{value: InterviewMethod; labelZh: string; labelEn: string}> = [
@@ -636,13 +636,21 @@ function TimeSelect({
 function interviewRoundNameForIndex(roundIndex: number) {
     if (roundIndex <= 1) return "初试";
     if (roundIndex === 2) return "复试";
-    if (roundIndex === 3) return "终试";
-    return "加试";
+    if (roundIndex === 3) return "加试";
+    return "终试";
 }
 
 function interviewRoundIndexForName(roundName: string, fallbackIndex: number) {
     const option = INTERVIEW_ROUND_OPTIONS.find((item) => item.value === roundName);
     return option?.roundIndex || Math.max(4, fallbackIndex || 4);
+}
+
+function isFinalInterviewRound(roundName?: string | null, roundIndex?: number | null) {
+    const normalizedName = String(roundName || "").trim();
+    const normalizedIndex = Number(roundIndex || 0);
+    if (normalizedName.includes("终")) return true;
+    if (normalizedName.includes("加")) return false;
+    return normalizedIndex >= 4;
 }
 
 function defaultScheduleSubject(candidateName?: string | null) {
@@ -659,7 +667,7 @@ function createScheduleForm(roundIndex = 1, candidateName?: string | null, candi
     return {
         subject: defaultScheduleSubject(candidateName),
         round_name: roundName,
-        round_index: String(roundName === "加试" ? Math.max(4, roundIndex) : interviewRoundIndexForName(roundName, roundIndex)),
+        round_index: String(interviewRoundIndexForName(roundName, roundIndex)),
         interview_method: "onsite",
         interviewer_user_code: "",
         interviewer_name: "",
@@ -1502,6 +1510,9 @@ export function InterviewWorkbenchPage({
         const key = `${scheduleId}:${result}`;
         const roundName = String(task.schedule.round_name || "").trim();
         const roundIndex = Number(task.schedule.round_index || (roundName ? interviewRoundIndexForName(roundName, 1) : 1) || 1);
+        if (result === "next_round" && isFinalInterviewRound(roundName, roundIndex)) {
+            return;
+        }
         const nextRoundName = result === "next_round" ? interviewRoundNameForIndex(roundIndex + 1) : undefined;
         setSubmittingKey(key);
         try {
@@ -1776,6 +1787,10 @@ export function InterviewWorkbenchPage({
         const schedule = task.schedule;
         if (!schedule) return null;
         const canSubmitResult = canSubmitTaskResult(task);
+        const canEnterNextRound = !isFinalInterviewRound(
+            schedule.round_name,
+            Number(schedule.round_index || (schedule.round_name ? interviewRoundIndexForName(schedule.round_name, 1) : 1)),
+        );
         return (
             <div className={cn("flex flex-wrap justify-end gap-1.5", compact && "justify-start")}>
                 {([
@@ -1784,7 +1799,7 @@ export function InterviewWorkbenchPage({
                     ["hold", isZh ? "暂缓" : "Hold", "border-amber-200 text-amber-700 hover:bg-amber-50 dark:border-amber-900/70 dark:bg-slate-900 dark:text-amber-300 dark:hover:bg-amber-950/30"],
                     ["no_show", isZh ? "未到场" : "No show", "border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"],
                     ["rejected", isZh ? "淘汰" : "Reject", "border-rose-200 text-rose-700 hover:bg-rose-50 dark:border-rose-900/70 dark:bg-slate-900 dark:text-rose-300 dark:hover:bg-rose-950/30"],
-                ] as const).map(([result, label, className]) => {
+                ] as const).filter(([result]) => result !== "next_round" || canEnterNextRound).map(([result, label, className]) => {
                     const loadingKey = submittingKey === `${schedule.id}:${result}`;
                     return (
                         <Button

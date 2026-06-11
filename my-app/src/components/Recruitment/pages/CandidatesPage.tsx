@@ -94,6 +94,9 @@ import {
 } from "../types";
 import {
     CANDIDATE_PIPELINE_STAGES,
+    INTERVIEW_PIPELINE_STATUS_VALUES,
+    INTERVIEW_REJECTED_STATUS_VALUES,
+    INTERVIEW_TODO_STATUS_VALUES,
     type CandidatePipelineStageChildConfig,
     type CandidatePipelineStageConfig,
 } from "../workflowStages";
@@ -136,8 +139,8 @@ type InterviewMethod = "onsite" | "video" | "phone";
 const INTERVIEW_ROUND_OPTIONS = [
     {value: "初试", labelZh: "初试", labelEn: "First interview", roundIndex: 1},
     {value: "复试", labelZh: "复试", labelEn: "Second interview", roundIndex: 2},
-    {value: "终试", labelZh: "终试", labelEn: "Final interview", roundIndex: 3},
-    {value: "加试", labelZh: "加试", labelEn: "Additional interview", roundIndex: null},
+    {value: "加试", labelZh: "加试", labelEn: "Additional interview", roundIndex: 3},
+    {value: "终试", labelZh: "终试", labelEn: "Final interview", roundIndex: 4},
 ] as const;
 
 const INTERVIEW_METHOD_OPTIONS: Array<{value: InterviewMethod; labelZh: string; labelEn: string}> = [
@@ -161,6 +164,13 @@ const DEFAULT_INTERVIEW_VISIBLE_SECTIONS = ["original_resume", "standard_resume"
 const TIME_OPTION_STEP_MINUTES = 15;
 const TIME_OPTION_START_MINUTES = 7 * 60;
 const TIME_OPTION_END_MINUTES = 23 * 60 + 59;
+const DERIVED_CANDIDATE_DISPLAY_STATUS_VALUES = new Set([
+    "screening_running",
+    ...INTERVIEW_PIPELINE_STATUS_VALUES,
+]);
+const INTERVIEW_TODO_STATUS_SET = new Set<string>(INTERVIEW_TODO_STATUS_VALUES);
+const INTERVIEW_PIPELINE_STATUS_SET = new Set<string>(INTERVIEW_PIPELINE_STATUS_VALUES);
+const INTERVIEW_REJECTED_STATUS_SET = new Set<string>(INTERVIEW_REJECTED_STATUS_VALUES);
 
 type CandidateScheduleFormErrorKey =
     | "subject"
@@ -174,8 +184,8 @@ type CandidateScheduleFormErrorKey =
 function interviewRoundNameForIndex(roundIndex: number) {
     if (roundIndex <= 1) return "初试";
     if (roundIndex === 2) return "复试";
-    if (roundIndex === 3) return "终试";
-    return "加试";
+    if (roundIndex === 3) return "加试";
+    return "终试";
 }
 
 function interviewRoundIndexForName(roundName: string, fallbackIndex: number) {
@@ -1154,7 +1164,7 @@ const CandidateApplicantCard = React.memo(function CandidateApplicantCard({
         if (displayStatus === "pending_screening") {
             return isZh ? "待初筛" : "To Screen";
         }
-        if (displayStatus === "screening_rejected" || displayStatus === "interview_rejected") {
+        if (displayStatus === "screening_rejected" || INTERVIEW_REJECTED_STATUS_SET.has(displayStatus)) {
             return isZh ? "不符合" : "Rejected";
         }
         if (matchPercent != null && matchPercent >= 80) {
@@ -1174,7 +1184,7 @@ const CandidateApplicantCard = React.memo(function CandidateApplicantCard({
             ? "border-slate-100 bg-slate-50 text-slate-500 dark:border-slate-800 dark:bg-slate-900/40 dark:text-slate-400"
             : displayStatus === "pending_screening"
                 ? "border-slate-100 bg-slate-50 text-slate-500 dark:border-slate-800 dark:bg-slate-900/40 dark:text-slate-400"
-                : displayStatus === "screening_rejected" || displayStatus === "interview_rejected"
+                : displayStatus === "screening_rejected" || INTERVIEW_REJECTED_STATUS_SET.has(displayStatus)
                     ? "border-rose-100 bg-rose-50/60 text-rose-500 dark:border-rose-900/50 dark:bg-rose-950/20 dark:text-rose-300"
                     : matchPercent != null && matchPercent >= 60
                         ? "border-emerald-100 bg-emerald-50/60 text-emerald-500 dark:border-emerald-900/50 dark:bg-emerald-950/20 dark:text-emerald-300"
@@ -1219,7 +1229,7 @@ const CandidateApplicantCard = React.memo(function CandidateApplicantCard({
     const showRejectAction = displayStatus !== "screening_rejected";
     const fitBannerClassName = cn(
         "mt-3 flex min-w-0 items-center justify-between gap-3 rounded-md border px-3 py-2 text-xs leading-5",
-        displayStatus === "screening_rejected" || displayStatus === "interview_rejected"
+        displayStatus === "screening_rejected" || INTERVIEW_REJECTED_STATUS_SET.has(displayStatus)
             ? "border-rose-100/80 bg-rose-50/45 text-rose-600 dark:border-rose-900/50 dark:bg-rose-950/20 dark:text-rose-300"
             : matchPercent != null && matchPercent >= 60
                 ? "border-emerald-100/80 bg-emerald-50/45 text-emerald-600 dark:border-emerald-900/50 dark:bg-emerald-950/20 dark:text-emerald-300"
@@ -3879,18 +3889,27 @@ export function CandidatesPage({
             return next;
         });
     }, [scheduleAvailabilitySlots]);
+    const highestInterviewRoundIndex = React.useMemo(() => {
+        return interviewSchedules.reduce((maxRoundIndex, schedule) => {
+            const explicitRoundIndex = Number(schedule.round_index || 0);
+            const roundIndex = Number.isFinite(explicitRoundIndex) && explicitRoundIndex > 0
+                ? explicitRoundIndex
+                : interviewRoundIndexForName(String(schedule.round_name || ""), 1);
+            return Math.max(maxRoundIndex, roundIndex);
+        }, 0);
+    }, [interviewSchedules]);
     const buildNextInterviewRoundName = React.useCallback((roundIndex: number) => {
         return interviewRoundNameForIndex(roundIndex);
     }, []);
     const openInterviewScheduleForm = React.useCallback(() => {
-        const nextRoundIndex = Math.max(1, interviewSchedules.length + 1);
+        const nextRoundIndex = Math.max(1, highestInterviewRoundIndex + 1);
         const nextRoundName = buildNextInterviewRoundName(nextRoundIndex);
         setCandidateDetailPanel("interview");
         setScheduleDatePickerOpen(false);
         setScheduleForm({
             subject: defaultInterviewSubject(candidateDetail?.candidate.name),
             round_name: nextRoundName,
-            round_index: String(nextRoundName === "加试" ? Math.max(4, nextRoundIndex) : interviewRoundIndexForName(nextRoundName, nextRoundIndex)),
+            round_index: String(interviewRoundIndexForName(nextRoundName, nextRoundIndex)),
             interview_method: "onsite",
             interviewer_user_code: "",
             interviewer_name: "",
@@ -3909,7 +3928,7 @@ export function CandidatesPage({
         setScheduleFormErrors({});
         setScheduleAvailabilitySlots([]);
         setScheduleFormOpen(true);
-    }, [buildNextInterviewRoundName, candidateDetail?.candidate.name, candidateDetail?.candidate.phone, interviewSchedules.length, latestPassedDepartmentReviewAssignmentId]);
+    }, [buildNextInterviewRoundName, candidateDetail?.candidate.name, candidateDetail?.candidate.phone, highestInterviewRoundIndex, latestPassedDepartmentReviewAssignmentId]);
     const lastAutoOpenedScheduleCandidateIdRef = React.useRef<number | null>(null);
     React.useEffect(() => {
         if (!autoOpenInterviewScheduleCandidateId) {
@@ -4041,7 +4060,7 @@ export function CandidatesPage({
         statusUpdateReason,
     ]);
     const manualCandidateStatusOptions = React.useMemo(
-        () => Object.entries(candidateStatusLabels).filter(([value]) => value !== "screening_running"),
+        () => Object.entries(candidateStatusLabels).filter(([value]) => !DERIVED_CANDIDATE_DISPLAY_STATUS_VALUES.has(value)),
         [],
     );
     const pendingStatusOption = React.useMemo(
@@ -4109,7 +4128,7 @@ export function CandidatesPage({
         return visibleCandidates.reduce((acc, candidate) => {
             const status = resolveCandidateDisplayStatus(candidate);
             if (status === "pending_screening") acc.pendingScreening++;
-            if (status === "pending_interview") acc.pendingInterview++;
+            if (status === "pending_interview" || INTERVIEW_TODO_STATUS_SET.has(status)) acc.pendingInterview++;
             if (status === "talent_pool") acc.talentPool++;
             if (visibleCandidateResumeMailSummaryMap.get(candidate.id)) acc.sent++;
             return acc;
@@ -4223,6 +4242,7 @@ export function CandidatesPage({
             "department_review_passed",
             "department_review_rejected",
             "pending_interview",
+            ...INTERVIEW_PIPELINE_STATUS_VALUES,
             "talent_pool",
         ].includes(resolveCandidateDisplayStatus(candidateDetail?.candidate)),
     );
@@ -4420,6 +4440,9 @@ export function CandidatesPage({
     const normalizedCandidateDetailFlowStatus = React.useMemo(() => {
         if (candidateDetailDisplayStatus === "screening_passed") return "department_review_pending";
         if (candidateDetailDisplayStatus === "department_review_passed") return "pending_interview";
+        if (INTERVIEW_PIPELINE_STATUS_SET.has(candidateDetailDisplayStatus) || INTERVIEW_REJECTED_STATUS_SET.has(candidateDetailDisplayStatus)) {
+            return "pending_interview";
+        }
         return candidateDetailDisplayStatus;
     }, [candidateDetailDisplayStatus]);
     const candidateDetailFlowIndex = Math.max(
@@ -7358,7 +7381,7 @@ export function CandidatesPage({
                             <p className="text-sm font-medium text-slate-700 dark:text-slate-300">{tr.batchUpdateStatusLabel}</p>
                             <NativeSelect value={batchStatusValue} onChange={(event) => setBatchStatusValue(event.target.value)}>
                                 <option value="" disabled>{tr.batchUpdateStatusSelectPlaceholder}</option>
-                                {Object.entries(candidateStatusLabels).map(([value, label]) => (
+                                {manualCandidateStatusOptions.map(([value, label]) => (
                                     <option key={value} value={value}>{label}</option>
                                 ))}
                             </NativeSelect>

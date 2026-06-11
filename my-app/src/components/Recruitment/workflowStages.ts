@@ -2,7 +2,8 @@ export type CandidatePipelineStageKey =
     | "all"
     | "resume_screening"
     | "department_review"
-    | "interview"
+    | "first_interview"
+    | "second_interview"
     | "offer"
     | "hired"
     | "talent_pool";
@@ -25,6 +26,36 @@ export type CandidatePipelineStageConfig = {
     hintEn: string;
     children?: CandidatePipelineStageChildConfig[];
 };
+
+export const INTERVIEW_FIRST_STAGE_STATUS_VALUES = [
+    "interview_first_pending",
+    "interview_first_active",
+    "interview_first_rejected",
+] as const;
+
+export const INTERVIEW_SECOND_STAGE_STATUS_VALUES = [
+    "interview_second_pending",
+    "interview_second_active",
+    "interview_second_rejected",
+] as const;
+
+export const INTERVIEW_TODO_STATUS_VALUES = [
+    "interview_first_pending",
+    "interview_first_active",
+    "interview_second_pending",
+    "interview_second_active",
+] as const;
+
+export const INTERVIEW_REJECTED_STATUS_VALUES = [
+    "interview_rejected",
+    "interview_first_rejected",
+    "interview_second_rejected",
+] as const;
+
+export const INTERVIEW_PIPELINE_STATUS_VALUES = [
+    ...INTERVIEW_FIRST_STAGE_STATUS_VALUES,
+    ...INTERVIEW_SECOND_STAGE_STATUS_VALUES,
+] as const;
 
 export const CANDIDATE_PIPELINE_STAGES: CandidatePipelineStageConfig[] = [
     {
@@ -94,23 +125,58 @@ export const CANDIDATE_PIPELINE_STAGES: CandidatePipelineStageConfig[] = [
         ],
     },
     {
-        key: "interview",
-        statusValue: "pending_interview",
-        statusValues: ["department_review_passed", "pending_interview", "interview_rejected"],
-        labelZh: "面试",
-        labelEn: "Interview",
+        key: "first_interview",
+        statusValue: "interview_first_pending",
+        statusValues: [...INTERVIEW_FIRST_STAGE_STATUS_VALUES],
+        labelZh: "初试",
+        labelEn: "First Interview",
         hintZh: "未处理",
         hintEn: "Unhandled",
         children: [
             {
-                key: "interview_unhandled",
-                statusValues: ["department_review_passed", "pending_interview"],
+                key: "first_interview_unhandled",
+                statusValue: "interview_first_pending",
                 labelZh: "未处理",
                 labelEn: "Unhandled",
             },
             {
-                key: "interview_rejected",
-                statusValue: "interview_rejected",
+                key: "first_interview_active",
+                statusValue: "interview_first_active",
+                labelZh: "进行中",
+                labelEn: "In progress",
+            },
+            {
+                key: "first_interview_rejected",
+                statusValue: "interview_first_rejected",
+                labelZh: "本轮淘汰",
+                labelEn: "Rejected",
+            },
+        ],
+    },
+    {
+        key: "second_interview",
+        statusValue: "interview_second_pending",
+        statusValues: [...INTERVIEW_SECOND_STAGE_STATUS_VALUES],
+        labelZh: "复试",
+        labelEn: "Second Interview",
+        hintZh: "未处理",
+        hintEn: "Unhandled",
+        children: [
+            {
+                key: "second_interview_unhandled",
+                statusValue: "interview_second_pending",
+                labelZh: "未处理",
+                labelEn: "Unhandled",
+            },
+            {
+                key: "second_interview_active",
+                statusValue: "interview_second_active",
+                labelZh: "进行中",
+                labelEn: "In progress",
+            },
+            {
+                key: "second_interview_rejected",
+                statusValue: "interview_second_rejected",
                 labelZh: "本轮淘汰",
                 labelEn: "Rejected",
             },

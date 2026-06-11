@@ -218,6 +218,10 @@ import {TalentPoolPage} from "./pages/TalentPoolPage";
 import {WorkspacePage} from "./pages/WorkspacePage";
 import { useOptimizedStats, useCachedListData, useCachedObjectData, useTaskSSE, type TaskSSEEvent } from "./hooks";
 import {
+    INTERVIEW_REJECTED_STATUS_VALUES,
+    INTERVIEW_TODO_STATUS_VALUES,
+} from "./workflowStages";
+import {
     navigateToRecruitmentPage,
     recruitmentNavBus,
     resolveRecruitmentNavigationDetail,
@@ -516,11 +520,11 @@ function buildLocalRecruitmentFunnelData(candidates: CandidateSummary[], talentP
             {key: "total", label_zh: "全部候选人", label_en: "All Candidates", count: candidates.length},
             {key: "new_or_pending", label_zh: "待筛选", label_en: "Pending Screening", count: countCandidatesByStatuses(candidates, ["new_imported", "pending_screening"])},
             {key: "screening_passed", label_zh: "初筛通过", label_en: "Screening Passed", count: countCandidatesByStatuses(candidates, ["screening_passed"])},
-            {key: "interview", label_zh: "面试阶段", label_en: "Interview Stage", count: countCandidatesByStatuses(candidates, ["pending_interview", "interview_passed"])},
+            {key: "interview", label_zh: "面试阶段", label_en: "Interview Stage", count: countCandidatesByStatuses(candidates, [...INTERVIEW_TODO_STATUS_VALUES, "pending_interview", "interview_passed"])},
             {key: "offer", label_zh: "Offer 阶段", label_en: "Offer Stage", count: countCandidatesByStatuses(candidates, ["pending_offer", "offer_sent"])},
             {key: "hired", label_zh: "已入职", label_en: "Hired", count: countCandidatesByStatuses(candidates, ["hired"])},
         ],
-        rejected_count: countCandidatesByStatuses(candidates, ["screening_failed", "screening_rejected", "interview_rejected"]),
+        rejected_count: countCandidatesByStatuses(candidates, ["screening_failed", "screening_rejected", ...INTERVIEW_REJECTED_STATUS_VALUES]),
         talent_pool_count: talentPoolCount,
     };
 }

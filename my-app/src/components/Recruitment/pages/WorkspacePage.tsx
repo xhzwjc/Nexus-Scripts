@@ -43,6 +43,7 @@ import {Input} from "@/components/ui/input";
 
 import type {RecruitmentPage} from "../types";
 import {EmptyState} from "../components/SharedComponents";
+import {INTERVIEW_TODO_STATUS_VALUES} from "../workflowStages";
 import {
     formatDateTime,
     formatPercent,
@@ -97,6 +98,9 @@ type TodoTileProps = {
     tone?: "default" | "blue" | "green" | "amber" | "rose";
     onClick: () => void;
 };
+
+const WORKSPACE_INTERVIEW_TODO_STATUS_VALUES = [...INTERVIEW_TODO_STATUS_VALUES];
+const WORKSPACE_INTERVIEW_QUESTION_STATUS_VALUES = ["screening_passed", ...INTERVIEW_TODO_STATUS_VALUES];
 
 function TodoTile({title, value, description, icon: Icon, tone = "default", onClick}: TodoTileProps) {
     const toneClass = {
@@ -323,7 +327,7 @@ export function WorkspacePage({
             description: tr.pendingInterviewDesc,
             icon: NotebookText,
             tone: "default" as const,
-            onClick: () => openCandidates(["screening_passed", "pending_interview"]),
+            onClick: () => openCandidates(WORKSPACE_INTERVIEW_TODO_STATUS_VALUES),
         },
         {
             title: tr.talentPool,
@@ -340,19 +344,19 @@ export function WorkspacePage({
         {title: tr.uploadResume, description: tr.uploadResumeDesc, icon: Upload, onClick: () => setResumeUploadOpen(true)},
         {title: tr.batchScreening, description: tr.batchScreeningDesc, icon: ClipboardCheck, onClick: () => openCandidates(["new_imported", "pending_screening", "screening_failed"])},
         {title: tr.generateJd, description: tr.generateJdDesc, icon: Wand2, onClick: () => setActivePage("positions")},
-        {title: tr.interviewQuestions, description: tr.interviewQuestionsDesc, icon: NotebookText, onClick: () => openCandidates(["screening_passed", "pending_interview"])},
+        {title: tr.interviewQuestions, description: tr.interviewQuestionsDesc, icon: NotebookText, onClick: () => openCandidates(WORKSPACE_INTERVIEW_QUESTION_STATUS_VALUES)},
     ];
 
     const todayWorkItems = [
         {title: tr.pendingScreening, count: stats.todo.pendingScreening, icon: FileSearch, statuses: ["new_imported", "pending_screening", "screening_failed"]},
-        {title: tr.pendingInterview, count: stats.todo.pendingInterview, icon: CalendarDays, statuses: ["screening_passed", "pending_interview"]},
+        {title: tr.pendingInterview, count: stats.todo.pendingInterview, icon: CalendarDays, statuses: WORKSPACE_INTERVIEW_TODO_STATUS_VALUES},
         {title: tr.pendingDecision, count: stats.todo.pendingDecision, icon: CheckCircle2, statuses: ["pending_offer", "offer_sent"]},
         {title: tr.todayNew, count: todayNewResumes, icon: Upload, page: "candidates" as RecruitmentPage},
     ];
 
     const scheduleItems = [
         {label: tr.todayNew, count: todayNewResumes, icon: Upload, page: "candidates" as RecruitmentPage},
-        {label: tr.pendingInterview, count: stats.todo.pendingInterview, icon: CalendarDays, statuses: ["screening_passed", "pending_interview"]},
+        {label: tr.pendingInterview, count: stats.todo.pendingInterview, icon: CalendarDays, statuses: WORKSPACE_INTERVIEW_TODO_STATUS_VALUES},
         {label: tr.pendingDecision, count: stats.todo.pendingDecision, icon: Clock, statuses: ["pending_offer", "offer_sent"]},
         {label: tr.rejected, count: rejectedTotal, icon: ClipboardCheck, statuses: ["rejected", "eliminated"]},
     ];
@@ -559,7 +563,7 @@ export function WorkspacePage({
                         <div className="grid grid-cols-2 gap-2">
                             {[
                                 {label: tr.pendingScreening, value: stats.todo.pendingScreening, statuses: ["new_imported", "pending_screening", "screening_failed"]},
-                                {label: tr.pendingInterview, value: stats.todo.pendingInterview, statuses: ["screening_passed", "pending_interview"]},
+                                {label: tr.pendingInterview, value: stats.todo.pendingInterview, statuses: WORKSPACE_INTERVIEW_TODO_STATUS_VALUES},
                                 {label: tr.talentPool, value: funnelData?.talent_pool_count || 0, page: "talent-pool" as RecruitmentPage},
                                 {label: tr.rejected, value: rejectedTotal, statuses: ["rejected", "eliminated"]},
                             ].map((item) => (

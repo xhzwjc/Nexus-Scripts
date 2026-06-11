@@ -3,6 +3,9 @@
 import { useMemo, useRef, useCallback } from 'react';
 import type { PositionSummary, CandidateSummary, AITaskLog } from '@/lib/recruitment-api';
 import { resolveCandidateDisplayStatus, isToday, withinDays } from '../utils';
+import { INTERVIEW_TODO_STATUS_VALUES } from '../workflowStages';
+
+const INTERVIEW_TODO_STATUS_SET = new Set<string>(INTERVIEW_TODO_STATUS_VALUES);
 
 // 使用 Map 进行快速查找的状态索引
 interface CandidateStatusIndex {
@@ -301,12 +304,13 @@ export function useOptimizedStats(
             const status = resolveCandidateDisplayStatus(candidate);
             statusDistribution.set(status, (statusDistribution.get(status) || 0) + 1);
             
+            if (status === 'pending_interview' || INTERVIEW_TODO_STATUS_SET.has(status)) {
+                pendingInterview++;
+            }
+
             switch (status) {
                 case 'pending_screening':
                     pendingScreening++;
-                    break;
-                case 'pending_interview':
-                    pendingInterview++;
                     break;
                 case 'pending_offer':
                     pendingOffer++;

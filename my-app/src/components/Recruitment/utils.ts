@@ -1317,13 +1317,13 @@ export function statusBadgeClass(kind: "position" | "candidate" | "task", value?
         if (value === "closed") return "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200";
     }
     if (kind === "candidate") {
-        if (value === "screening_running") {
+        if (value === "screening_running" || value === "interview_first_active" || value === "interview_second_active") {
             return "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200";
         }
         if (value === "screening_passed" || value === "department_review_passed" || value === "interview_passed" || value === "offer_sent" || value === "hired") {
             return "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200";
         }
-        if (value === "screening_rejected" || value === "department_review_rejected" || value === "interview_rejected") {
+        if (value === "screening_rejected" || value === "department_review_rejected" || value === "interview_rejected" || value === "interview_first_rejected" || value === "interview_second_rejected") {
             return "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200";
         }
         if (value === "matching") {
@@ -1332,7 +1332,7 @@ export function statusBadgeClass(kind: "position" | "candidate" | "task", value?
         if (value === "unmatched") {
             return "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200";
         }
-        if (value === "pending_screening" || value === "department_review_pending" || value === "pending_interview" || value === "pending_offer") {
+        if (value === "pending_screening" || value === "department_review_pending" || value === "pending_interview" || value === "pending_offer" || value === "interview_first_pending" || value === "interview_second_pending") {
             return "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200";
         }
         if (value === "talent_pool") {

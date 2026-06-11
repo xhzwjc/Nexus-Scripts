@@ -111,6 +111,15 @@ DEPARTMENT_REVIEW_ALLOWED_VISIBLE_SECTIONS = (
 )
 INTERVIEW_DEFAULT_VISIBLE_SECTIONS = DEPARTMENT_REVIEW_DEFAULT_VISIBLE_SECTIONS
 INTERVIEW_ALLOWED_VISIBLE_SECTIONS = DEPARTMENT_REVIEW_ALLOWED_VISIBLE_SECTIONS
+INTERVIEW_ACTIVE_SCHEDULE_STATUSES = ("scheduled", "confirmed", "in_progress")
+INTERVIEW_COMPLETED_SCHEDULE_STATUSES = ("completed", "no_show")
+INTERVIEW_FIRST_PENDING_STATUS = "interview_first_pending"
+INTERVIEW_FIRST_ACTIVE_STATUS = "interview_first_active"
+INTERVIEW_FIRST_REJECTED_STATUS = "interview_first_rejected"
+INTERVIEW_SECOND_PENDING_STATUS = "interview_second_pending"
+INTERVIEW_SECOND_ACTIVE_STATUS = "interview_second_active"
+INTERVIEW_SECOND_REJECTED_STATUS = "interview_second_rejected"
+INTERVIEW_DISPLAY_SOURCE_STATUSES = ("department_review_passed", "pending_interview", "interview_rejected")
 INTERVIEW_METHOD_ALIASES = {
     "onsite": "onsite",
     "offline": "onsite",
@@ -9148,6 +9157,79 @@ class RecruitmentService:
             return bool(getattr(row, "position_id", None)) and reason in {"auto_archived", "moved_by_hr"}
         return True
 
+    @staticmethod
+    def _interview_schedule_round_index(row: Optional[RecruitmentInterviewSchedule]) -> int:
+        if not row:
+            return 1
+        try:
+            return max(1, int(getattr(row, "round_index", None) or 1))
+        except (TypeError, ValueError):
+            return 1
+
+    @classmethod
+    def _resolve_interview_display_status(
+        cls,
+        candidate_status: Optional[str],
+        *,
+        active_schedule: Optional[RecruitmentInterviewSchedule] = None,
+        latest_completed_schedule: Optional[RecruitmentInterviewSchedule] = None,
+    ) -> str:
+        normalized_status = str(candidate_status or "").strip()
+        if active_schedule and normalized_status in INTERVIEW_DISPLAY_SOURCE_STATUSES:
+            return INTERVIEW_FIRST_ACTIVE_STATUS if cls._interview_schedule_round_index(active_schedule) <= 1 else INTERVIEW_SECOND_ACTIVE_STATUS
+        if normalized_status == "department_review_passed":
+            return INTERVIEW_FIRST_PENDING_STATUS
+        if normalized_status == "pending_interview":
+            if latest_completed_schedule:
+                latest_round_index = cls._interview_schedule_round_index(latest_completed_schedule)
+                latest_result_status = str(getattr(latest_completed_schedule, "result_status", None) or "").strip()
+                if latest_result_status == "next_round" or latest_round_index >= 2:
+                    return INTERVIEW_SECOND_PENDING_STATUS
+            return INTERVIEW_FIRST_PENDING_STATUS
+        if normalized_status == "interview_rejected":
+            if latest_completed_schedule and cls._interview_schedule_round_index(latest_completed_schedule) >= 2:
+                return INTERVIEW_SECOND_REJECTED_STATUS
+            return INTERVIEW_FIRST_REJECTED_STATUS
+        return normalized_status
+
+    def _build_interview_display_state_map(self, candidate_ids: Sequence[int]) -> Dict[int, Dict[str, Optional[RecruitmentInterviewSchedule]]]:
+        normalized_candidate_ids = [int(candidate_id) for candidate_id in candidate_ids if candidate_id]
+        if not normalized_candidate_ids:
+            return {}
+        state_map: Dict[int, Dict[str, Optional[RecruitmentInterviewSchedule]]] = {
+            candidate_id: {"active_schedule": None, "latest_completed_schedule": None}
+            for candidate_id in normalized_candidate_ids
+        }
+        active_rows = self.db.query(RecruitmentInterviewSchedule).filter(
+            RecruitmentInterviewSchedule.candidate_id.in_(normalized_candidate_ids),
+            RecruitmentInterviewSchedule.status.in_(list(INTERVIEW_ACTIVE_SCHEDULE_STATUSES)),
+        ).order_by(
+            RecruitmentInterviewSchedule.candidate_id.asc(),
+            RecruitmentInterviewSchedule.round_index.desc(),
+            RecruitmentInterviewSchedule.scheduled_at.is_(None),
+            RecruitmentInterviewSchedule.scheduled_at.desc(),
+            RecruitmentInterviewSchedule.id.desc(),
+        ).all()
+        for row in active_rows:
+            if row.candidate_id in state_map and state_map[row.candidate_id]["active_schedule"] is None:
+                state_map[row.candidate_id]["active_schedule"] = row
+
+        completed_rows = self.db.query(RecruitmentInterviewSchedule).filter(
+            RecruitmentInterviewSchedule.candidate_id.in_(normalized_candidate_ids),
+            RecruitmentInterviewSchedule.status.in_(list(INTERVIEW_COMPLETED_SCHEDULE_STATUSES)),
+        ).order_by(
+            RecruitmentInterviewSchedule.candidate_id.asc(),
+            RecruitmentInterviewSchedule.result_submitted_at.is_(None),
+            RecruitmentInterviewSchedule.result_submitted_at.desc(),
+            RecruitmentInterviewSchedule.scheduled_at.is_(None),
+            RecruitmentInterviewSchedule.scheduled_at.desc(),
+            RecruitmentInterviewSchedule.id.desc(),
+        ).all()
+        for row in completed_rows:
+            if row.candidate_id in state_map and state_map[row.candidate_id]["latest_completed_schedule"] is None:
+                state_map[row.candidate_id]["latest_completed_schedule"] = row
+        return state_map
+
     def _candidate_display_status_expr(self):
         active_screening_exists = (
             self.db.query(func.count(RecruitmentAITaskLog.id))
@@ -9157,6 +9239,56 @@ class RecruitmentService:
                 RecruitmentAITaskLog.parent_task_id.is_(None),
                 RecruitmentAITaskLog.status.in_(SCREENING_LIVE_TASK_STATUSES),
             )
+            .correlate(RecruitmentCandidate)
+            .scalar_subquery()
+        )
+        active_interview_round_index = (
+            self.db.query(func.coalesce(RecruitmentInterviewSchedule.round_index, 1))
+            .filter(
+                RecruitmentInterviewSchedule.candidate_id == RecruitmentCandidate.id,
+                RecruitmentInterviewSchedule.status.in_(list(INTERVIEW_ACTIVE_SCHEDULE_STATUSES)),
+            )
+            .order_by(
+                RecruitmentInterviewSchedule.round_index.desc(),
+                RecruitmentInterviewSchedule.scheduled_at.is_(None),
+                RecruitmentInterviewSchedule.scheduled_at.desc(),
+                RecruitmentInterviewSchedule.id.desc(),
+            )
+            .limit(1)
+            .correlate(RecruitmentCandidate)
+            .scalar_subquery()
+        )
+        latest_completed_interview_round_index = (
+            self.db.query(func.coalesce(RecruitmentInterviewSchedule.round_index, 1))
+            .filter(
+                RecruitmentInterviewSchedule.candidate_id == RecruitmentCandidate.id,
+                RecruitmentInterviewSchedule.status.in_(list(INTERVIEW_COMPLETED_SCHEDULE_STATUSES)),
+            )
+            .order_by(
+                RecruitmentInterviewSchedule.result_submitted_at.is_(None),
+                RecruitmentInterviewSchedule.result_submitted_at.desc(),
+                RecruitmentInterviewSchedule.scheduled_at.is_(None),
+                RecruitmentInterviewSchedule.scheduled_at.desc(),
+                RecruitmentInterviewSchedule.id.desc(),
+            )
+            .limit(1)
+            .correlate(RecruitmentCandidate)
+            .scalar_subquery()
+        )
+        latest_completed_interview_result = (
+            self.db.query(RecruitmentInterviewSchedule.result_status)
+            .filter(
+                RecruitmentInterviewSchedule.candidate_id == RecruitmentCandidate.id,
+                RecruitmentInterviewSchedule.status.in_(list(INTERVIEW_COMPLETED_SCHEDULE_STATUSES)),
+            )
+            .order_by(
+                RecruitmentInterviewSchedule.result_submitted_at.is_(None),
+                RecruitmentInterviewSchedule.result_submitted_at.desc(),
+                RecruitmentInterviewSchedule.scheduled_at.is_(None),
+                RecruitmentInterviewSchedule.scheduled_at.desc(),
+                RecruitmentInterviewSchedule.id.desc(),
+            )
+            .limit(1)
             .correlate(RecruitmentCandidate)
             .scalar_subquery()
         )
@@ -9178,6 +9310,40 @@ class RecruitmentService:
                 ),
                 literal_column("'talent_pool'"),
             ),
+            (
+                and_(
+                    RecruitmentCandidate.status.in_(list(INTERVIEW_DISPLAY_SOURCE_STATUSES)),
+                    active_interview_round_index <= 1,
+                ),
+                literal_column(f"'{INTERVIEW_FIRST_ACTIVE_STATUS}'"),
+            ),
+            (
+                and_(
+                    RecruitmentCandidate.status.in_(list(INTERVIEW_DISPLAY_SOURCE_STATUSES)),
+                    active_interview_round_index > 1,
+                ),
+                literal_column(f"'{INTERVIEW_SECOND_ACTIVE_STATUS}'"),
+            ),
+            (RecruitmentCandidate.status == "department_review_passed", literal_column(f"'{INTERVIEW_FIRST_PENDING_STATUS}'")),
+            (
+                and_(
+                    RecruitmentCandidate.status == "pending_interview",
+                    or_(
+                        latest_completed_interview_result == "next_round",
+                        latest_completed_interview_round_index >= 2,
+                    ),
+                ),
+                literal_column(f"'{INTERVIEW_SECOND_PENDING_STATUS}'"),
+            ),
+            (RecruitmentCandidate.status == "pending_interview", literal_column(f"'{INTERVIEW_FIRST_PENDING_STATUS}'")),
+            (
+                and_(
+                    RecruitmentCandidate.status == "interview_rejected",
+                    latest_completed_interview_round_index >= 2,
+                ),
+                literal_column(f"'{INTERVIEW_SECOND_REJECTED_STATUS}'"),
+            ),
+            (RecruitmentCandidate.status == "interview_rejected", literal_column(f"'{INTERVIEW_FIRST_REJECTED_STATUS}'")),
             else_=RecruitmentCandidate.status,
         )
 
@@ -10273,6 +10439,7 @@ class RecruitmentService:
         *,
         _preloaded_score_row: Optional[RecruitmentCandidateScore] = None,
         _preloaded_screening_state: Optional[Dict[str, Any]] = None,
+        _preloaded_interview_state: Optional[Dict[str, Optional[RecruitmentInterviewSchedule]]] = None,
     ) -> Dict[str, Any]:
         score_row = _preloaded_score_row if _preloaded_score_row is not None else (
             self.db.query(RecruitmentCandidateScore).filter(RecruitmentCandidateScore.id == row.latest_score_id).first()
@@ -10294,7 +10461,15 @@ class RecruitmentService:
         ):
             display_status = "talent_pool"
         else:
-            display_status = row.status or ""
+            interview_state = _preloaded_interview_state
+            if interview_state is None and str(row.status or "").strip() in INTERVIEW_DISPLAY_SOURCE_STATUSES:
+                interview_state = self._build_interview_display_state_map([row.id]).get(row.id, {})
+            interview_state = interview_state or {}
+            display_status = self._resolve_interview_display_status(
+                row.status,
+                active_schedule=interview_state.get("active_schedule"),
+                latest_completed_schedule=interview_state.get("latest_completed_schedule"),
+            )
         return {
             "screening_state": screening_state,
             "display_status": display_status,
@@ -10311,6 +10486,7 @@ class RecruitmentService:
         _preloaded_position: Optional[RecruitmentPosition] = None,
         _preloaded_score_row: Optional[RecruitmentCandidateScore] = None,
         _preloaded_screening_state: Optional[Dict[str, Any]] = None,
+        _preloaded_interview_state: Optional[Dict[str, Optional[RecruitmentInterviewSchedule]]] = None,
         _preloaded_skill_rows: Optional[Dict[str, List[RecruitmentSkill]]] = None,
     ) -> Dict[str, Any]:
         position = _preloaded_position if _preloaded_position is not None else (self.db.query(RecruitmentPosition).filter(RecruitmentPosition.id == row.position_id, RecruitmentPosition.deleted.is_(False)).first() if row.position_id else None)
@@ -10319,6 +10495,7 @@ class RecruitmentService:
             row,
             _preloaded_score_row=score_row,
             _preloaded_screening_state=_preloaded_screening_state,
+            _preloaded_interview_state=_preloaded_interview_state,
         )
         screening_state = display_payload["screening_state"]
         ai_recommended_status = display_payload["ai_recommended_status"]
@@ -10345,6 +10522,7 @@ class RecruitmentService:
         _preloaded_position: Optional[RecruitmentPosition] = None,
         _preloaded_score_row: Optional[RecruitmentCandidateScore] = None,
         _preloaded_screening_state: Optional[Dict[str, Any]] = None,
+        _preloaded_interview_state: Optional[Dict[str, Optional[RecruitmentInterviewSchedule]]] = None,
         _preloaded_ai_match_snapshot: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         position = _preloaded_position if _preloaded_position is not None else (
@@ -10357,6 +10535,7 @@ class RecruitmentService:
             row,
             _preloaded_score_row=_preloaded_score_row,
             _preloaded_screening_state=_preloaded_screening_state,
+            _preloaded_interview_state=_preloaded_interview_state,
         )
         screening_state = display_payload["screening_state"]
         ai_match_snapshot = _preloaded_ai_match_snapshot if _preloaded_ai_match_snapshot is not None else self._resolve_candidate_ai_match_snapshot(row)
@@ -10414,12 +10593,14 @@ class RecruitmentService:
         _preloaded_position: Optional[RecruitmentPosition] = None,
         _preloaded_score_row: Optional[RecruitmentCandidateScore] = None,
         _preloaded_screening_state: Optional[Dict[str, Any]] = None,
+        _preloaded_interview_state: Optional[Dict[str, Optional[RecruitmentInterviewSchedule]]] = None,
         _preloaded_ai_match_snapshot: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         display_payload = self._build_candidate_list_display_payload(
             row,
             _preloaded_score_row=_preloaded_score_row,
             _preloaded_screening_state=_preloaded_screening_state,
+            _preloaded_interview_state=_preloaded_interview_state,
         )
         screening_state = display_payload["screening_state"]
         ai_match_snapshot = _preloaded_ai_match_snapshot if _preloaded_ai_match_snapshot is not None else self._resolve_candidate_ai_match_snapshot(row)
@@ -10627,15 +10808,31 @@ class RecruitmentService:
         def _count(statuses: List[str]) -> int:
             return base_q.filter(RecruitmentCandidate.status.in_(statuses)).count()
 
+        display_status_expr = self._candidate_display_status_expr()
+
+        def _count_display(statuses: List[str]) -> int:
+            return base_q.filter(display_status_expr.in_(statuses)).count()
+
         stages = [
             {"key": "total", "label_zh": "全部候选人", "label_en": "All Candidates", "count": base_q.count()},
             {"key": "new_or_pending", "label_zh": "待筛选", "label_en": "Pending Screening", "count": _count(["new_imported", "pending_screening"])},
             {"key": "screening_passed", "label_zh": "初筛通过", "label_en": "Screening Passed", "count": _count(["screening_passed"])},
-            {"key": "interview", "label_zh": "面试阶段", "label_en": "Interview Stage", "count": _count(["pending_interview", "interview_passed"])},
+            {
+                "key": "interview",
+                "label_zh": "面试阶段",
+                "label_en": "Interview Stage",
+                "count": _count_display([
+                    INTERVIEW_FIRST_PENDING_STATUS,
+                    INTERVIEW_FIRST_ACTIVE_STATUS,
+                    INTERVIEW_SECOND_PENDING_STATUS,
+                    INTERVIEW_SECOND_ACTIVE_STATUS,
+                    "interview_passed",
+                ]),
+            },
             {"key": "offer", "label_zh": "Offer 阶段", "label_en": "Offer Stage", "count": _count(["pending_offer", "offer_sent"])},
             {"key": "hired", "label_zh": "已入职", "label_en": "Hired", "count": _count(["hired"])},
         ]
-        rejected_count = _count(["screening_failed", "screening_rejected", "interview_rejected"])
+        rejected_count = _count_display(["screening_failed", "screening_rejected", INTERVIEW_FIRST_REJECTED_STATUS, INTERVIEW_SECOND_REJECTED_STATUS])
         talent_pool_count = base_q.filter(or_(
             RecruitmentCandidate.status == "talent_pool",
             and_(
@@ -10799,6 +10996,7 @@ class RecruitmentService:
 
         # Batch preload screening state (active root tasks)
         candidate_ids = [row.id for row in rows]
+        interview_display_state_map = self._build_interview_display_state_map(candidate_ids)
         active_root_map: Dict[int, RecruitmentAITaskLog] = {}
         if candidate_ids:
             active_rows = self.db.query(RecruitmentAITaskLog).filter(
@@ -10873,6 +11071,7 @@ class RecruitmentService:
                 _preloaded_position=preloaded_position,
                 _preloaded_score_row=preloaded_score_row,
                 _preloaded_screening_state=screening_state,
+                _preloaded_interview_state=interview_display_state_map.get(row.id),
                 _preloaded_ai_match_snapshot=ai_match_snapshot_map.get(row.id),
             ))
         return {"items": serialized_rows, "total": total}
@@ -11639,8 +11838,8 @@ class RecruitmentService:
         if round_index == 2:
             return "复试"
         if round_index == 3:
-            return "终试"
-        return "加试"
+            return "加试"
+        return "终试"
 
     @staticmethod
     def _interview_round_index_from_name(round_name: Optional[str]) -> int:
@@ -11649,9 +11848,9 @@ class RecruitmentService:
             return 1
         if "复" in normalized:
             return 2
-        if "终" in normalized:
-            return 3
         if "加" in normalized:
+            return 3
+        if "终" in normalized:
             return 4
         return 1
 

@@ -599,3 +599,171 @@ def test_submit_interview_result_writes_result_and_candidate_status():
     assert todo_tasks["items"][0]["next_round_index"] == 2
     assert todo_tasks["items"][0]["next_round_name"] == "复试"
     assert todo_tasks["items"][0]["last_completed_schedule"]["id"] == schedule["id"]
+
+
+def test_candidate_list_exposes_first_and_second_interview_pipeline_statuses():
+    db = _build_test_db()
+    candidate = _add_candidate(db, code="C-PIPELINE-1", status="department_review_passed")
+    _seed_interviewers(db, "interviewer-a")
+    service = RecruitmentService(db)
+    start = datetime.now().replace(microsecond=0) + timedelta(days=1)
+
+    assert service.list_candidates(status="interview_first_pending")["total"] == 1
+    assert service.get_candidate_stats()["status_counts"]["interview_first_pending"] == 1
+    funnel = service.get_recruitment_funnel()
+    assert next(item["count"] for item in funnel["stages"] if item["key"] == "interview") == 1
+
+    first_schedule = service.create_interview_schedule(
+        {
+            "candidate_id": candidate.id,
+            "round_name": "初试",
+            "round_index": 1,
+            "interviewer_user_code": "interviewer-a",
+            "scheduled_at": start.isoformat(),
+            "duration_minutes": 60,
+        },
+        "hr",
+    )
+    assert service.list_candidates(status="interview_first_active")["total"] == 1
+    assert service.list_candidates(status="interview_first_active")["items"][0]["display_status"] == "interview_first_active"
+
+    service.submit_interview_schedule_result(
+        first_schedule["id"],
+        {"result_status": "next_round", "result_comment": "进入复试", "next_round_name": "复试"},
+        "interviewer-a",
+    )
+    assert service.list_candidates(status="interview_second_pending")["total"] == 1
+
+    second_schedule = service.create_interview_schedule(
+        {
+            "candidate_id": candidate.id,
+            "round_name": "复试",
+            "round_index": 2,
+            "interviewer_user_code": "interviewer-a",
+            "scheduled_at": (start + timedelta(days=1)).isoformat(),
+            "duration_minutes": 60,
+        },
+        "hr",
+    )
+    assert service.list_candidates(status="interview_second_active")["total"] == 1
+
+    service.submit_interview_schedule_result(
+        second_schedule["id"],
+        {"result_status": "rejected", "result_comment": "复试淘汰"},
+        "interviewer-a",
+    )
+    assert service.list_candidates(status="interview_second_rejected")["total"] == 1
+    assert service.get_candidate_stats()["status_counts"]["interview_second_rejected"] == 1
+    funnel = service.get_recruitment_funnel()
+    assert next(item["count"] for item in funnel["stages"] if item["key"] == "interview") == 0
+    assert funnel["rejected_count"] == 1
+
+
+def test_interview_next_round_sequence_enters_extra_then_final_round():
+    db = _build_test_db()
+    candidate = _add_candidate(db, code="C-ROUND-SEQUENCE", status="pending_interview")
+    _seed_interviewers(db, "interviewer-a")
+    service = RecruitmentService(db)
+    start = datetime.now().replace(microsecond=0) + timedelta(days=1)
+
+    second_schedule = service.create_interview_schedule(
+        {
+            "candidate_id": candidate.id,
+            "round_name": "复试",
+            "round_index": 2,
+            "interviewer_user_code": "interviewer-a",
+            "scheduled_at": start.isoformat(),
+            "duration_minutes": 60,
+        },
+        "hr",
+    )
+    service.submit_interview_schedule_result(
+        second_schedule["id"],
+        {"result_status": "next_round", "result_comment": "建议加试", "next_round_name": "加试"},
+        "interviewer-a",
+    )
+    todo_tasks = service.list_interview_tasks(status="todo")
+    assert todo_tasks["items"][0]["next_round_index"] == 3
+    assert todo_tasks["items"][0]["next_round_name"] == "加试"
+
+    extra_schedule = service.create_interview_schedule(
+        {
+            "candidate_id": candidate.id,
+            "round_name": "加试",
+            "round_index": 3,
+            "interviewer_user_code": "interviewer-a",
+            "scheduled_at": (start + timedelta(days=1)).isoformat(),
+            "duration_minutes": 60,
+        },
+        "hr",
+    )
+    service.submit_interview_schedule_result(
+        extra_schedule["id"],
+        {"result_status": "next_round", "result_comment": "建议终试", "next_round_name": "终试"},
+        "interviewer-a",
+    )
+    todo_tasks = service.list_interview_tasks(status="todo")
+    assert todo_tasks["items"][0]["next_round_index"] == 4
+    assert todo_tasks["items"][0]["next_round_name"] == "终试"
+
+
+def test_active_interview_schedule_does_not_override_closed_candidate_status():
+    db = _build_test_db()
+    candidate = _add_candidate(db, code="C-CLOSED-WITH-SCHEDULE", status="hired")
+    _seed_interviewers(db, "interviewer-a")
+    service = RecruitmentService(db)
+    start = datetime.now().replace(microsecond=0) + timedelta(days=1)
+
+    service.create_interview_schedule(
+        {
+            "candidate_id": candidate.id,
+            "round_name": "初试",
+            "round_index": 1,
+            "interviewer_user_code": "interviewer-a",
+            "scheduled_at": start.isoformat(),
+            "duration_minutes": 60,
+        },
+        "hr",
+    )
+
+    assert service.list_candidates(status="interview_first_active")["total"] == 0
+    hired_result = service.list_candidates(status="hired")
+    assert hired_result["total"] == 1
+    assert hired_result["items"][0]["display_status"] == "hired"
+    assert service.get_candidate_stats()["status_counts"]["hired"] == 1
+
+
+def test_multiple_active_interview_schedules_use_highest_round_for_display_status():
+    db = _build_test_db()
+    candidate = _add_candidate(db, code="C-MULTI-ACTIVE", status="pending_interview")
+    _seed_interviewers(db, "interviewer-a")
+    service = RecruitmentService(db)
+    start = datetime.now().replace(microsecond=0) + timedelta(days=1)
+
+    service.create_interview_schedule(
+        {
+            "candidate_id": candidate.id,
+            "round_name": "初试",
+            "round_index": 1,
+            "interviewer_user_code": "interviewer-a",
+            "scheduled_at": (start + timedelta(days=1)).isoformat(),
+            "duration_minutes": 60,
+        },
+        "hr",
+    )
+    service.create_interview_schedule(
+        {
+            "candidate_id": candidate.id,
+            "round_name": "复试",
+            "round_index": 2,
+            "interviewer_user_code": "interviewer-a",
+            "scheduled_at": start.isoformat(),
+            "duration_minutes": 60,
+        },
+        "hr",
+    )
+
+    result = service.list_candidates(status="interview_second_active")
+    assert result["total"] == 1
+    assert result["items"][0]["display_status"] == "interview_second_active"
+    assert service.get_candidate_stats()["status_counts"]["interview_second_active"] == 1
