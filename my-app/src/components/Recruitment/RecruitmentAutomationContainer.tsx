@@ -10712,7 +10712,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         }
     }
 
-    async function saveMyInterviewAvailability(slots: Array<{start_at: string; end_at: string; notes?: string}>) {
+    async function saveMyInterviewAvailability(slots: Array<{start_at: string; end_at: string; status?: "available" | "unavailable"; notes?: string}>) {
         setMyInterviewAvailabilitySaving(true);
         try {
             const {start, end} = buildInterviewAvailabilityRange();
@@ -10727,9 +10727,6 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             if (mountedRef.current) {
                 setMyInterviewAvailabilitySlots(data?.items || []);
             }
-            toast.success(isZh ? "可面试时间已保存" : "Availability saved");
-        } catch (error) {
-            toast.error(isZh ? `保存可面试时间失败：${formatActionError(error)}` : `Failed to save availability: ${formatActionError(error)}`);
         } finally {
             if (mountedRef.current) {
                 setMyInterviewAvailabilitySaving(false);
@@ -10763,12 +10760,18 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         }
     }
 
-    async function submitInterviewResult(scheduleId: number, resultStatus: "passed" | "next_round" | "hold" | "rejected" | "no_show", comment: string) {
+    async function submitInterviewResult(
+        scheduleId: number,
+        resultStatus: "passed" | "next_round" | "hold" | "rejected" | "no_show",
+        comment: string,
+        options?: {next_round_name?: string | null},
+    ) {
         await recruitmentApi(`/interview-schedules/${scheduleId}/result`, {
             method: "POST",
             body: JSON.stringify({
                 result_status: resultStatus,
                 result_comment: comment.trim() || null,
+                next_round_name: resultStatus === "next_round" ? options?.next_round_name || undefined : undefined,
             }),
         });
         toast.success(isZh ? "面试结果已提交" : "Interview result submitted");
@@ -10784,15 +10787,21 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
 
     async function createInterviewSchedule(payload: {
         candidate_id: number;
+        subject?: string;
         round_name?: string;
         round_index?: number;
+        interview_method?: string;
         interviewer_user_code?: string;
         interviewer_name?: string;
         scheduled_at?: string;
         duration_minutes?: number;
         location?: string;
+        meeting_room?: string;
+        video_tool?: string;
         meeting_link?: string;
+        contact_phone?: string;
         notes?: string;
+        visible_sections?: string[];
         availability_slot_id?: number;
         department_review_assignment_id?: number;
     }) {
@@ -10801,6 +10810,41 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             body: JSON.stringify(payload),
         });
         toast.success(recruitmentToast.interviewScheduleCreated);
+        await Promise.allSettled([
+            loadMyInterviewTasks({silent: true}),
+            loadMyInterviewAvailability({silent: true}),
+            loadCandidates({silent: true, force: true}),
+            refreshCandidateStats(),
+        ]);
+        if (selectedCandidateId) {
+            await loadInterviewSchedules(selectedCandidateId);
+        }
+        return data;
+    }
+
+    async function updateInterviewSchedule(scheduleId: number, payload: {
+        subject?: string;
+        round_name?: string;
+        round_index?: number;
+        interview_method?: string;
+        interviewer_user_code?: string;
+        interviewer_name?: string;
+        scheduled_at?: string;
+        duration_minutes?: number;
+        location?: string;
+        meeting_room?: string;
+        video_tool?: string;
+        meeting_link?: string;
+        contact_phone?: string;
+        notes?: string;
+        visible_sections?: string[];
+        availability_slot_id?: number;
+    }) {
+        const data = await recruitmentApi<InterviewSchedule>(`/interview-schedules/${scheduleId}`, {
+            method: "PATCH",
+            body: JSON.stringify(payload),
+        });
+        toast.success(isZh ? "面试已更新" : "Interview updated");
         await Promise.allSettled([
             loadMyInterviewTasks({silent: true}),
             loadMyInterviewAvailability({silent: true}),
@@ -13217,6 +13261,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 }}
                 onSubmitResult={submitInterviewResult}
                 onCreateSchedule={createInterviewSchedule}
+                onUpdateSchedule={updateInterviewSchedule}
                 onSaveAvailability={saveMyInterviewAvailability}
             />
         );

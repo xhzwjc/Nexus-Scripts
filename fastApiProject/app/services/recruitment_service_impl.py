@@ -109,6 +109,23 @@ DEPARTMENT_REVIEW_ALLOWED_VISIBLE_SECTIONS = (
     "interview_feedback",
     "attachments",
 )
+INTERVIEW_DEFAULT_VISIBLE_SECTIONS = DEPARTMENT_REVIEW_DEFAULT_VISIBLE_SECTIONS
+INTERVIEW_ALLOWED_VISIBLE_SECTIONS = DEPARTMENT_REVIEW_ALLOWED_VISIBLE_SECTIONS
+INTERVIEW_METHOD_ALIASES = {
+    "onsite": "onsite",
+    "offline": "onsite",
+    "现场": "onsite",
+    "现场面试": "onsite",
+    "video": "video",
+    "online": "video",
+    "remote": "video",
+    "视频": "video",
+    "视频面试": "video",
+    "phone": "phone",
+    "telephone": "phone",
+    "电话": "phone",
+    "电话面试": "phone",
+}
 KNOWN_AI_TASK_TYPES = [SCREENING_FLOW_TASK_TYPE, "jd_generation", "resume_parse", "resume_score", SCREENING_ONE_PASS_TASK_TYPE, "interview_question_generation", "chat_orchestrator", "resume_mail_dispatch", "publish_task"]
 KNOWN_AI_TASK_TYPES = [SCREENING_FLOW_TASK_TYPE, "jd_generation", "resume_parse", "resume_score", SCREENING_ONE_PASS_TASK_TYPE, "interview_question_generation", "chat_orchestrator", "ai_position_match", "resume_mail_dispatch", "publish_task"]
 LLM_TASK_TYPE_OPTIONS = [{"value": "default", "label": "默认模型"}, {"value": "jd_generation", "label": "JD 生成"}, {"value": "resume_parse", "label": "简历解析"}, {"value": "resume_score", "label": "简历评分"}, {"value": SCREENING_ONE_PASS_TASK_TYPE, "label": "一体化初筛"}, {"value": "interview_question_generation", "label": "面试题生成"}, {"value": "chat_orchestrator", "label": "AI 助手"}, {"value": "ai_position_match", "label": "岗位匹配"}]
@@ -11060,21 +11077,57 @@ class RecruitmentService:
         visible = [r for r in rows if self._is_business_row_visible(r)]
         return [{"id": r.id, "candidate_code": r.candidate_code, "name": r.name, "phone": r.phone, "email": r.email, "position_id": r.position_id, "status": r.status, "created_at": isoformat_or_none(r.created_at)} for r in visible[:20]]
 
+    def _normalize_interview_method(self, value: Optional[Any]) -> str:
+        normalized = str(value or "onsite").strip().lower()
+        return INTERVIEW_METHOD_ALIASES.get(normalized, normalized if normalized in {"onsite", "video", "phone"} else "onsite")
+
+    def _normalize_interview_visible_sections(
+        self,
+        raw_sections: Optional[Iterable[Any]],
+        *,
+        default_when_missing: bool = True,
+    ) -> List[str]:
+        if raw_sections is None:
+            return list(INTERVIEW_DEFAULT_VISIBLE_SECTIONS) if default_when_missing else []
+        normalized: List[str] = []
+        allowed = set(INTERVIEW_ALLOWED_VISIBLE_SECTIONS)
+        for item in raw_sections:
+            value = str(item or "").strip()
+            if not value or value not in allowed or value in normalized:
+                continue
+            normalized.append(value)
+        return normalized
+
+    def _interview_visible_sections_for_schedule(self, row: RecruitmentInterviewSchedule) -> List[str]:
+        return self._normalize_interview_visible_sections(
+            json_loads_safe(getattr(row, "visible_sections_json", None), None),
+            default_when_missing=True,
+        )
+
     def _serialize_interview_schedule(self, row: RecruitmentInterviewSchedule) -> Dict[str, Any]:
         return {
             "id": row.id,
             "candidate_id": row.candidate_id,
             "position_id": row.position_id,
             "org_code": normalize_org_code(getattr(row, "org_code", None)),
+            "subject": getattr(row, "subject", None),
             "round_name": row.round_name,
             "round_index": getattr(row, "round_index", None) or 1,
+            "interview_method": getattr(row, "interview_method", None) or "onsite",
             "interviewer_user_code": getattr(row, "interviewer_user_code", None),
             "interviewer_name": row.interviewer_name,
             "scheduled_at": isoformat_or_none(row.scheduled_at),
             "duration_minutes": row.duration_minutes,
             "location": row.location,
+            "meeting_room": getattr(row, "meeting_room", None),
+            "video_tool": getattr(row, "video_tool", None),
             "meeting_link": row.meeting_link,
+            "contact_phone": getattr(row, "contact_phone", None),
             "notes": row.notes,
+            "visible_sections": self._normalize_interview_visible_sections(
+                json_loads_safe(getattr(row, "visible_sections_json", None), None),
+                default_when_missing=True,
+            ),
             "availability_slot_id": getattr(row, "availability_slot_id", None),
             "department_review_assignment_id": getattr(row, "department_review_assignment_id", None),
             "notification_status": getattr(row, "notification_status", None) or "pending",
@@ -11157,6 +11210,24 @@ class RecruitmentService:
             if row_start and row_end and row_start < end_at and start_at < row_end:
                 return row
         return None
+
+    def _find_interview_unavailable_conflict(
+        self,
+        interviewer_user_code: Optional[str],
+        start_at: Optional[datetime],
+        duration_minutes: Optional[int],
+    ) -> Optional[RecruitmentInterviewAvailabilitySlot]:
+        if not interviewer_user_code or not start_at:
+            return None
+        end_at = self._interview_end_at(start_at, duration_minutes)
+        if not end_at:
+            return None
+        return self.db.query(RecruitmentInterviewAvailabilitySlot).filter(
+            RecruitmentInterviewAvailabilitySlot.interviewer_user_code == interviewer_user_code,
+            RecruitmentInterviewAvailabilitySlot.status == "unavailable",
+            RecruitmentInterviewAvailabilitySlot.start_at < end_at,
+            RecruitmentInterviewAvailabilitySlot.end_at > start_at,
+        ).order_by(RecruitmentInterviewAvailabilitySlot.start_at.asc()).first()
 
     def _resolve_interview_availability_slot(
         self,
@@ -11297,37 +11368,41 @@ class RecruitmentService:
         range_start = _parse_iso_datetime_value(payload.get("range_start")) or datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
         range_end = _parse_iso_datetime_value(payload.get("range_end")) or (range_start + timedelta(days=14))
         if range_end <= range_start:
-            raise ValueError("可面试时间范围不合法")
-        existing = self.db.query(RecruitmentInterviewAvailabilitySlot).filter(
-            RecruitmentInterviewAvailabilitySlot.interviewer_user_code == actor_id,
-            RecruitmentInterviewAvailabilitySlot.start_at >= range_start,
-            RecruitmentInterviewAvailabilitySlot.end_at <= range_end,
-            RecruitmentInterviewAvailabilitySlot.status == "available",
-        ).all()
-        for row in existing:
-            self.db.delete(row)
+            raise ValueError("面试时间范围不合法")
         created_rows: List[RecruitmentInterviewAvailabilitySlot] = []
-        normalized_slots: List[Tuple[datetime, datetime, Optional[str]]] = []
+        normalized_slots: List[Tuple[datetime, datetime, Optional[str], str]] = []
         for item in payload.get("slots") or []:
             start = _parse_iso_datetime_value((item or {}).get("start_at"))
             end = _parse_iso_datetime_value((item or {}).get("end_at"))
             if not start or not end or end <= start:
-                raise ValueError("可面试时间段不合法")
-            for existing_start, existing_end, _ in normalized_slots:
+                raise ValueError("面试时间段不合法")
+            status = str((item or {}).get("status") or "available").strip() or "available"
+            if status not in {"available", "unavailable"}:
+                raise ValueError("面试时间状态不合法")
+            for existing_start, existing_end, _, _ in normalized_slots:
                 if existing_start < end and start < existing_end:
-                    raise ValueError("可面试时间段不能互相重叠")
+                    raise ValueError("面试时间段不能互相重叠")
             conflict = self._find_interview_schedule_conflict(actor_id, start, int((end - start).total_seconds() / 60))
             if conflict:
-                raise ValueError(f"可面试时间与已安排面试冲突：{conflict.round_name} {isoformat_or_none(conflict.scheduled_at)}")
-            normalized_slots.append((start, end, str((item or {}).get("notes") or "").strip() or None))
-        for start, end, notes in normalized_slots:
+                label = "不可面试时间" if status == "unavailable" else "可面试时间"
+                raise ValueError(f"{label}与已安排面试冲突：{conflict.round_name} {isoformat_or_none(conflict.scheduled_at)}")
+            normalized_slots.append((start, end, str((item or {}).get("notes") or "").strip() or None, status))
+        existing = self.db.query(RecruitmentInterviewAvailabilitySlot).filter(
+            RecruitmentInterviewAvailabilitySlot.interviewer_user_code == actor_id,
+            RecruitmentInterviewAvailabilitySlot.start_at >= range_start,
+            RecruitmentInterviewAvailabilitySlot.end_at <= range_end,
+            RecruitmentInterviewAvailabilitySlot.status.in_(["available", "unavailable"]),
+        ).all()
+        for row in existing:
+            self.db.delete(row)
+        for start, end, notes, status in normalized_slots:
             row = RecruitmentInterviewAvailabilitySlot(
                 interviewer_user_code=actor_id,
                 interviewer_name=interviewer_name,
                 org_code=org_code or self._current_org_code(),
                 start_at=start,
                 end_at=end,
-                status="available",
+                status=status,
                 notes=notes,
                 created_by=actor_id,
                 updated_by=actor_id,
@@ -11377,6 +11452,9 @@ class RecruitmentService:
         conflict = self._find_interview_schedule_conflict(interviewer_user_code, scheduled_at, duration_minutes)
         if conflict:
             raise ValueError(f"面试官该时间段已有面试安排：{conflict.round_name} {isoformat_or_none(conflict.scheduled_at)}")
+        unavailable_conflict = self._find_interview_unavailable_conflict(interviewer_user_code, scheduled_at, duration_minutes)
+        if unavailable_conflict:
+            raise ValueError(f"面试时间与面试官不可面试时间冲突：{isoformat_or_none(unavailable_conflict.start_at)}")
         slot = self._resolve_interview_availability_slot(
             interviewer_user_code,
             scheduled_at,
@@ -11385,19 +11463,31 @@ class RecruitmentService:
         )
         if payload.get("availability_slot_id") and not slot:
             raise ValueError("选择的可面试时间段不可用或已被占用")
+        subject = str(payload.get("subject") or "").strip() or f"{candidate.name or '候选人'}的面试"
+        interview_method = self._normalize_interview_method(payload.get("interview_method"))
+        visible_sections = self._normalize_interview_visible_sections(
+            payload.get("visible_sections") if "visible_sections" in payload else None,
+            default_when_missing=True,
+        )
         row = RecruitmentInterviewSchedule(
             candidate_id=candidate.id,
             position_id=payload.get("position_id") or candidate.position_id,
             org_code=org_code,
+            subject=subject,
             round_name=payload.get("round_name") or "初试",
             round_index=int(payload.get("round_index") or 1),
+            interview_method=interview_method,
             interviewer_user_code=interviewer_user_code,
             interviewer_name=interviewer_name,
             scheduled_at=scheduled_at,
             duration_minutes=duration_minutes,
-            location=payload.get("location"),
-            meeting_link=payload.get("meeting_link"),
-            notes=payload.get("notes"),
+            location=str(payload.get("location") or "").strip() or None,
+            meeting_room=str(payload.get("meeting_room") or "").strip() or None,
+            video_tool=str(payload.get("video_tool") or "").strip() or None,
+            meeting_link=str(payload.get("meeting_link") or "").strip() or None,
+            contact_phone=str(payload.get("contact_phone") or "").strip() or getattr(candidate, "phone", None),
+            notes=str(payload.get("notes") or "").strip() or None,
+            visible_sections_json=json_dumps_safe(visible_sections),
             availability_slot_id=slot.id if slot else None,
             department_review_assignment_id=payload.get("department_review_assignment_id"),
             notification_status="sent" if interviewer_user_code else "pending",
@@ -11439,7 +11529,26 @@ class RecruitmentService:
             )
             row.interviewer_user_code = interviewer_user_code
             row.interviewer_name = interviewer_name
-        for field in ["round_name", "round_index", "duration_minutes", "location", "meeting_link", "notes", "status"]:
+        if "interview_method" in payload:
+            payload["interview_method"] = self._normalize_interview_method(payload.get("interview_method"))
+        if "visible_sections" in payload:
+            row.visible_sections_json = json_dumps_safe(
+                self._normalize_interview_visible_sections(payload.get("visible_sections"), default_when_missing=False)
+            )
+        for field in [
+            "subject",
+            "round_name",
+            "round_index",
+            "interview_method",
+            "duration_minutes",
+            "location",
+            "meeting_room",
+            "video_tool",
+            "meeting_link",
+            "contact_phone",
+            "notes",
+            "status",
+        ]:
             if field in payload:
                 setattr(row, field, payload[field])
         if row.status in {"scheduled", "confirmed", "in_progress"}:
@@ -11452,6 +11561,10 @@ class RecruitmentService:
         conflict = self._find_interview_schedule_conflict(row.interviewer_user_code, row.scheduled_at, row.duration_minutes, exclude_schedule_id=row.id)
         if conflict:
             raise ValueError(f"面试官该时间段已有面试安排：{conflict.round_name} {isoformat_or_none(conflict.scheduled_at)}")
+        if row.status in {"scheduled", "confirmed", "in_progress"}:
+            unavailable_conflict = self._find_interview_unavailable_conflict(row.interviewer_user_code, row.scheduled_at, row.duration_minutes)
+            if unavailable_conflict:
+                raise ValueError(f"面试时间与面试官不可面试时间冲突：{isoformat_or_none(unavailable_conflict.start_at)}")
         next_slot = None
         if row.status in {"cancelled", "completed", "no_show"}:
             self._release_interview_availability_slot(previous_slot_id)
@@ -11519,24 +11632,96 @@ class RecruitmentService:
     def list_interview_tasks(self, status: Optional[str] = None) -> Dict[str, Any]:
         return self._list_interview_tasks(status=status, interviewer_user_code=None)
 
-    def _assert_interview_candidate_assigned_to_user(self, candidate_id: int, actor_id: str) -> None:
+    @staticmethod
+    def _interview_round_name_for_index(round_index: int) -> str:
+        if round_index <= 1:
+            return "初试"
+        if round_index == 2:
+            return "复试"
+        if round_index == 3:
+            return "终试"
+        return "加试"
+
+    @staticmethod
+    def _interview_round_index_from_name(round_name: Optional[str]) -> int:
+        normalized = str(round_name or "").strip()
+        if "初" in normalized:
+            return 1
+        if "复" in normalized:
+            return 2
+        if "终" in normalized:
+            return 3
+        if "加" in normalized:
+            return 4
+        return 1
+
+    def _next_interview_round_context(
+        self,
+        candidate: RecruitmentCandidate,
+        latest_schedule: Optional[RecruitmentInterviewSchedule],
+    ) -> Dict[str, Any]:
+        if not latest_schedule:
+            next_round_index = 1
+        else:
+            latest_round_index = int(
+                getattr(latest_schedule, "round_index", None)
+                or self._interview_round_index_from_name(getattr(latest_schedule, "round_name", None))
+                or 1
+            )
+            latest_result_status = str(getattr(latest_schedule, "result_status", None) or "").strip()
+            next_round_index = latest_round_index + 1 if latest_result_status == "next_round" else latest_round_index
+            next_round_index = max(1, next_round_index)
+        return {
+            "next_round_index": next_round_index,
+            "next_round_name": self._interview_round_name_for_index(next_round_index),
+            "last_completed_schedule": self._serialize_interview_schedule(latest_schedule) if latest_schedule else None,
+            "interview_stage_reason": getattr(candidate, "status_reason", None),
+        }
+
+    def _get_interview_schedule_for_actor(
+        self,
+        candidate_id: int,
+        actor_id: str,
+        schedule_id: Optional[int] = None,
+    ) -> RecruitmentInterviewSchedule:
         normalized_actor_id = str(actor_id or "").strip()
         if not normalized_actor_id:
             raise ValueError("无法识别当前面试官账号")
-        rows = self.db.query(RecruitmentInterviewSchedule).filter(
+        query = self.db.query(RecruitmentInterviewSchedule).filter(
             RecruitmentInterviewSchedule.candidate_id == candidate_id,
             RecruitmentInterviewSchedule.interviewer_user_code == normalized_actor_id,
-        ).all()
-        if not any(self._is_business_row_visible(row) for row in rows):
-            raise ValueError("只能查看分配给自己的面试候选人")
+        )
+        if schedule_id:
+            query = query.filter(RecruitmentInterviewSchedule.id == schedule_id)
+        rows = query.order_by(RecruitmentInterviewSchedule.scheduled_at.desc(), RecruitmentInterviewSchedule.id.desc()).all()
+        for row in rows:
+            if self._is_business_row_visible(row):
+                return row
+        if schedule_id:
+            raise ValueError("只能查看分配给自己的当前面试任务")
+        raise ValueError("只能查看分配给自己的面试候选人")
 
-    def get_interview_candidate_detail(self, candidate_id: int, actor_id: str) -> Dict[str, Any]:
-        self._assert_interview_candidate_assigned_to_user(candidate_id, actor_id)
-        return self.get_candidate_detail(candidate_id)
+    def _assert_interview_candidate_assigned_to_user(self, candidate_id: int, actor_id: str) -> None:
+        self._get_interview_schedule_for_actor(candidate_id, actor_id)
 
-    def get_interview_resume_file_download(self, resume_file_id: int, actor_id: str) -> Dict[str, Any]:
+    def get_interview_candidate_detail(self, candidate_id: int, actor_id: str, schedule_id: Optional[int] = None) -> Dict[str, Any]:
+        schedule = self._get_interview_schedule_for_actor(candidate_id, actor_id, schedule_id)
+        detail = self.get_candidate_detail(candidate_id)
+        visible_sections = self._interview_visible_sections_for_schedule(schedule)
+        detail = self._sanitize_department_review_candidate_detail(detail, visible_sections)
+        detail["interview_context"] = {
+            "schedule": self._serialize_interview_schedule(schedule),
+        }
+        return detail
+
+    def get_interview_resume_file_download(self, resume_file_id: int, actor_id: str, schedule_id: Optional[int] = None) -> Dict[str, Any]:
         resume_file = self._get_resume_file(resume_file_id)
-        self._assert_interview_candidate_assigned_to_user(resume_file.candidate_id, actor_id)
+        schedule = self._get_interview_schedule_for_actor(resume_file.candidate_id, actor_id, schedule_id)
+        visible_sections = self._interview_visible_sections_for_schedule(schedule)
+        if "original_resume" not in visible_sections:
+            raise ValueError("当前面试安排未开放原始简历查看")
+        if resume_file.candidate_id != schedule.candidate_id:
+            raise ValueError("只能查看分配给自己的面试候选人")
         return self.get_resume_file_download(resume_file_id)
 
     def _list_interview_tasks(
@@ -11618,6 +11803,21 @@ class RecruitmentService:
                 ).all()
                 if self._is_business_row_visible(candidate)
             ]
+            latest_completed_schedule_by_candidate: Dict[int, RecruitmentInterviewSchedule] = {}
+            if unscheduled_candidates:
+                unscheduled_candidate_ids = [candidate.id for candidate in unscheduled_candidates]
+                latest_completed_schedule_rows = self.db.query(RecruitmentInterviewSchedule).filter(
+                    RecruitmentInterviewSchedule.candidate_id.in_(unscheduled_candidate_ids),
+                    RecruitmentInterviewSchedule.status.in_(["completed", "no_show"]),
+                ).order_by(
+                    RecruitmentInterviewSchedule.candidate_id.asc(),
+                    RecruitmentInterviewSchedule.scheduled_at.is_(None),
+                    RecruitmentInterviewSchedule.scheduled_at.desc(),
+                    RecruitmentInterviewSchedule.id.desc(),
+                ).all()
+                for schedule_row in latest_completed_schedule_rows:
+                    if schedule_row.candidate_id not in latest_completed_schedule_by_candidate:
+                        latest_completed_schedule_by_candidate[schedule_row.candidate_id] = schedule_row
             unscheduled_position_ids = [candidate.position_id for candidate in unscheduled_candidates if candidate.position_id]
             unscheduled_positions = {
                 row.id: row
@@ -11633,6 +11833,7 @@ class RecruitmentService:
                     "schedule": None,
                     "candidate": self._serialize_candidate_summary(candidate, _preloaded_position=position),
                     "position": self._serialize_position(position) if position else None,
+                    **self._next_interview_round_context(candidate, latest_completed_schedule_by_candidate.get(candidate.id)),
                 })
 
         def count_schedules(status_values: Sequence[str]) -> int:

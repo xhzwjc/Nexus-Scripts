@@ -1,3 +1,4 @@
+import json
 from datetime import datetime, timedelta
 
 import pytest
@@ -8,11 +9,14 @@ from sqlalchemy.pool import StaticPool
 from app.database import Base
 from app.recruitment_models import (
     RecruitmentCandidate,
+    RecruitmentCandidateScore,
     RecruitmentCandidateStatusHistory,
     RecruitmentFollowUp,
     RecruitmentInterviewAvailabilitySlot,
     RecruitmentInterviewResult,
     RecruitmentInterviewSchedule,
+    RecruitmentResumeFile,
+    RecruitmentResumeParseResult,
 )
 from app.rbac_models import (
     ScriptHubPermission,
@@ -51,6 +55,57 @@ def _add_candidate(db, *, code: str = "C-INT-1", status: str = "department_revie
     db.commit()
     db.refresh(candidate)
     return candidate
+
+
+def _add_candidate_detail_artifacts(db, candidate: RecruitmentCandidate, tmp_path):
+    resume_path = tmp_path / f"{candidate.candidate_code}.pdf"
+    resume_path.write_bytes(b"resume-bytes")
+    resume_file = RecruitmentResumeFile(
+        candidate_id=candidate.id,
+        org_code=candidate.org_code,
+        original_name=resume_path.name,
+        stored_name=resume_path.name,
+        file_ext=".pdf",
+        mime_type="application/pdf",
+        file_size=len(b"resume-bytes"),
+        storage_path=str(resume_path),
+        parse_status="success",
+        uploaded_by="hr",
+    )
+    db.add(resume_file)
+    db.flush()
+    parse_row = RecruitmentResumeParseResult(
+        candidate_id=candidate.id,
+        resume_file_id=resume_file.id,
+        org_code=candidate.org_code,
+        raw_text="候选人原文",
+        basic_info_json=json.dumps({"name": candidate.name}, ensure_ascii=False),
+        summary_text="标准简历摘要",
+        status="success",
+    )
+    db.add(parse_row)
+    db.flush()
+    score_row = RecruitmentCandidateScore(
+        candidate_id=candidate.id,
+        parse_result_id=parse_row.id,
+        org_code=candidate.org_code,
+        score_json=json.dumps({"dimensions": []}, ensure_ascii=False),
+        total_score=88,
+        match_percent=88,
+        recommendation="建议面试",
+        suggested_status="screening_passed",
+    )
+    db.add(score_row)
+    db.flush()
+    candidate.latest_resume_file_id = resume_file.id
+    candidate.latest_parse_result_id = parse_row.id
+    candidate.latest_score_id = score_row.id
+    candidate.latest_total_score = score_row.total_score
+    candidate.match_percent = score_row.match_percent
+    db.add(candidate)
+    db.commit()
+    db.refresh(candidate)
+    return resume_file, parse_row, score_row
 
 
 def _seed_interviewers(db, *user_codes: str):
@@ -113,6 +168,73 @@ def test_interviewer_availability_rejects_overlapping_slots():
         )
 
 
+def test_interviewer_availability_saves_unavailable_slots():
+    db = _build_test_db()
+    _seed_interviewers(db, "interviewer-a")
+    service = RecruitmentService(db)
+    start = datetime.now().replace(microsecond=0) + timedelta(days=1)
+
+    result = service.replace_my_interview_availability(
+        {
+            "range_start": (start - timedelta(hours=1)).isoformat(),
+            "range_end": (start + timedelta(days=1)).isoformat(),
+            "slots": [
+                {
+                    "start_at": start.isoformat(),
+                    "end_at": (start + timedelta(hours=1)).isoformat(),
+                    "status": "available",
+                },
+                {
+                    "start_at": (start + timedelta(hours=2)).isoformat(),
+                    "end_at": (start + timedelta(hours=3)).isoformat(),
+                    "status": "unavailable",
+                    "notes": "内部会议",
+                },
+            ],
+        },
+        "interviewer-a",
+    )
+
+    slots_by_status = {slot["status"]: slot for slot in result["items"]}
+    assert set(slots_by_status) == {"available", "unavailable"}
+    assert slots_by_status["unavailable"]["notes"] == "内部会议"
+
+
+def test_create_interview_schedule_rejects_unavailable_time():
+    db = _build_test_db()
+    candidate = _add_candidate(db)
+    _seed_interviewers(db, "interviewer-a")
+    service = RecruitmentService(db)
+    start = datetime.now().replace(microsecond=0) + timedelta(days=1)
+
+    service.replace_my_interview_availability(
+        {
+            "range_start": (start - timedelta(hours=1)).isoformat(),
+            "range_end": (start + timedelta(days=1)).isoformat(),
+            "slots": [
+                {
+                    "start_at": start.isoformat(),
+                    "end_at": (start + timedelta(hours=2)).isoformat(),
+                    "status": "unavailable",
+                }
+            ],
+        },
+        "interviewer-a",
+    )
+
+    with pytest.raises(ValueError, match="不可面试时间冲突"):
+        service.create_interview_schedule(
+            {
+                "candidate_id": candidate.id,
+                "round_name": "初试",
+                "interviewer_user_code": "interviewer-a",
+                "scheduled_at": (start + timedelta(minutes=30)).isoformat(),
+                "duration_minutes": 60,
+            },
+            "hr",
+        )
+
+
 def test_create_interview_schedule_books_availability_and_updates_candidate():
     db = _build_test_db()
     candidate = _add_candidate(db)
@@ -165,6 +287,41 @@ def test_create_interview_schedule_books_availability_and_updates_candidate():
         )
 
 
+def test_create_interview_schedule_saves_subject_method_and_visible_sections():
+    db = _build_test_db()
+    candidate = _add_candidate(db)
+    _seed_interviewers(db, "interviewer-a")
+    service = RecruitmentService(db)
+    start = datetime.now().replace(microsecond=0) + timedelta(days=1)
+
+    schedule = service.create_interview_schedule(
+        {
+            "candidate_id": candidate.id,
+            "subject": "周思霖的视频面试",
+            "round_name": "复试",
+            "round_index": 2,
+            "interview_method": "video",
+            "interviewer_user_code": "interviewer-a",
+            "scheduled_at": start.isoformat(),
+            "duration_minutes": 60,
+            "video_tool": "腾讯会议",
+            "meeting_link": "https://meeting.example.com/abc",
+            "visible_sections": ["standard_resume", "screening_result"],
+        },
+        "hr",
+    )
+
+    row = db.query(RecruitmentInterviewSchedule).filter_by(id=schedule["id"]).one()
+    assert schedule["subject"] == "周思霖的视频面试"
+    assert schedule["round_name"] == "复试"
+    assert schedule["round_index"] == 2
+    assert schedule["interview_method"] == "video"
+    assert schedule["video_tool"] == "腾讯会议"
+    assert schedule["meeting_link"] == "https://meeting.example.com/abc"
+    assert schedule["visible_sections"] == ["standard_resume", "screening_result"]
+    assert json.loads(row.visible_sections_json) == ["standard_resume", "screening_result"]
+
+
 def test_create_interview_schedule_requires_interviewer_and_time():
     db = _build_test_db()
     candidate = _add_candidate(db)
@@ -209,6 +366,8 @@ def test_list_interview_tasks_includes_candidates_waiting_for_schedule():
     assert todo_tasks["items"][0]["task_type"] == "needs_scheduling"
     assert todo_tasks["items"][0]["schedule"] is None
     assert todo_tasks["items"][0]["candidate"]["id"] == candidate.id
+    assert todo_tasks["items"][0]["next_round_index"] == 1
+    assert todo_tasks["items"][0]["next_round_name"] == "初试"
 
     service.create_interview_schedule(
         {
@@ -257,6 +416,52 @@ def test_scheduled_interview_is_visible_to_assigned_interviewer():
     assert service.get_interview_candidate_detail(candidate.id, "interviewer-a")["candidate"]["id"] == candidate.id
     with pytest.raises(ValueError, match="只能查看分配给自己的面试候选人"):
         service.get_interview_candidate_detail(candidate.id, "interviewer-b")
+
+
+def test_interview_candidate_detail_uses_schedule_visible_sections(tmp_path):
+    db = _build_test_db()
+    candidate = _add_candidate(db)
+    resume_file, parse_row, _score_row = _add_candidate_detail_artifacts(db, candidate, tmp_path)
+    _seed_interviewers(db, "interviewer-a", "interviewer-b")
+    service = RecruitmentService(db)
+    start = datetime.now().replace(microsecond=0) + timedelta(days=1)
+    schedule = service.create_interview_schedule(
+        {
+            "candidate_id": candidate.id,
+            "round_name": "初试",
+            "interviewer_user_code": "interviewer-a",
+            "scheduled_at": start.isoformat(),
+            "duration_minutes": 60,
+            "visible_sections": ["standard_resume"],
+        },
+        "hr",
+    )
+    other_schedule = service.create_interview_schedule(
+        {
+            "candidate_id": candidate.id,
+            "round_name": "复试",
+            "round_index": 2,
+            "interviewer_user_code": "interviewer-b",
+            "scheduled_at": (start + timedelta(hours=2)).isoformat(),
+            "duration_minutes": 60,
+            "visible_sections": ["original_resume", "assessment_result"],
+        },
+        "hr",
+    )
+
+    detail = service.get_interview_candidate_detail(candidate.id, "interviewer-a", schedule["id"])
+
+    assert detail["interview_context"]["schedule"]["id"] == schedule["id"]
+    assert detail["interview_context"]["schedule"]["visible_sections"] == ["standard_resume"]
+    assert detail["candidate"]["latest_resume_file_id"] is None
+    assert detail["resume_files"] == []
+    assert detail["parse_result"]["id"] == parse_row.id
+    assert detail["score"] is None
+    assert detail["screening"]["score"] is None
+    with pytest.raises(ValueError, match="当前面试安排未开放原始简历查看"):
+        service.get_interview_resume_file_download(resume_file.id, "interviewer-a", schedule["id"])
+    with pytest.raises(ValueError, match="当前面试任务"):
+        service.get_interview_candidate_detail(candidate.id, "interviewer-a", other_schedule["id"])
 
 
 def test_update_interview_schedule_reassigns_interviewer_and_notifies():
@@ -387,3 +592,10 @@ def test_submit_interview_result_writes_result_and_candidate_status():
     assert result_row.final_recommendation == "next_round"
     assert candidate.status == "pending_interview"
     assert history_rows[-1].reason == "初试通过，待安排复试"
+
+    todo_tasks = service.list_interview_tasks(status="todo")
+    assert todo_tasks["total"] == 1
+    assert todo_tasks["items"][0]["task_type"] == "needs_scheduling"
+    assert todo_tasks["items"][0]["next_round_index"] == 2
+    assert todo_tasks["items"][0]["next_round_name"] == "复试"
+    assert todo_tasks["items"][0]["last_completed_schedule"]["id"] == schedule["id"]

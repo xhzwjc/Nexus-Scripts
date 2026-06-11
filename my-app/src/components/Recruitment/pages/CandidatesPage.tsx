@@ -10,9 +10,11 @@ import {
     Bot,
     Briefcase,
     Calendar,
+    CalendarClock,
     Check,
     ChevronDown,
     ChevronUp,
+    Clock3,
     Copy,
     Download,
     ExternalLink,
@@ -41,6 +43,7 @@ import {
     UserCheck,
     UserPlus,
     Users,
+    Video,
 } from "lucide-react";
 
 import {
@@ -91,6 +94,7 @@ import {
 } from "../types";
 import {
     CANDIDATE_PIPELINE_STAGES,
+    type CandidatePipelineStageChildConfig,
     type CandidatePipelineStageConfig,
 } from "../workflowStages";
 import {
@@ -126,6 +130,317 @@ import {
     sanitizeCandidateFacingErrorText,
     statusBadgeClass,
 } from "../utils";
+
+type InterviewMethod = "onsite" | "video" | "phone";
+
+const INTERVIEW_ROUND_OPTIONS = [
+    {value: "初试", labelZh: "初试", labelEn: "First interview", roundIndex: 1},
+    {value: "复试", labelZh: "复试", labelEn: "Second interview", roundIndex: 2},
+    {value: "终试", labelZh: "终试", labelEn: "Final interview", roundIndex: 3},
+    {value: "加试", labelZh: "加试", labelEn: "Additional interview", roundIndex: null},
+] as const;
+
+const INTERVIEW_METHOD_OPTIONS: Array<{value: InterviewMethod; labelZh: string; labelEn: string}> = [
+    {value: "onsite", labelZh: "现场面试", labelEn: "Onsite"},
+    {value: "video", labelZh: "视频面试", labelEn: "Video"},
+    {value: "phone", labelZh: "电话面试", labelEn: "Phone"},
+];
+
+const INTERVIEW_VIDEO_TOOL_OPTIONS = ["腾讯会议", "飞书会议", "Zoom", "其他"];
+
+const INTERVIEW_VISIBLE_SECTION_OPTIONS = [
+    {value: "original_resume", labelZh: "原始简历", labelEn: "Original resume"},
+    {value: "standard_resume", labelZh: "标准简历", labelEn: "Standard resume"},
+    {value: "screening_result", labelZh: "初筛结果", labelEn: "Screening result"},
+    {value: "assessment_result", labelZh: "测评结果", labelEn: "Assessment result"},
+    {value: "interview_feedback", labelZh: "面试评价", labelEn: "Interview feedback"},
+    {value: "attachments", labelZh: "附加资料", labelEn: "Attachments"},
+] as const;
+
+const DEFAULT_INTERVIEW_VISIBLE_SECTIONS = ["original_resume", "standard_resume", "screening_result", "assessment_result"];
+const TIME_OPTION_STEP_MINUTES = 15;
+const TIME_OPTION_START_MINUTES = 7 * 60;
+const TIME_OPTION_END_MINUTES = 23 * 60 + 59;
+
+type CandidateScheduleFormErrorKey =
+    | "subject"
+    | "round_name"
+    | "interview_method"
+    | "interviewer_user_code"
+    | "scheduled_date"
+    | "scheduled_start_time"
+    | "scheduled_end_time";
+
+function interviewRoundNameForIndex(roundIndex: number) {
+    if (roundIndex <= 1) return "初试";
+    if (roundIndex === 2) return "复试";
+    if (roundIndex === 3) return "终试";
+    return "加试";
+}
+
+function interviewRoundIndexForName(roundName: string, fallbackIndex: number) {
+    const option = INTERVIEW_ROUND_OPTIONS.find((item) => item.value === roundName);
+    return option?.roundIndex || Math.max(4, fallbackIndex || 4);
+}
+
+function defaultInterviewSubject(candidateName?: string | null) {
+    const name = String(candidateName || "").trim();
+    return name ? `${name}的面试` : "候选人的面试";
+}
+
+function formatLocalDateValue(date: Date) {
+    const pad = (value: number) => String(value).padStart(2, "0");
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+function todayDateValue() {
+    return formatLocalDateValue(new Date());
+}
+
+function parseLocalDateValue(value?: string | null) {
+    const normalized = String(value || "").trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+        return null;
+    }
+    const [year, month, day] = normalized.split("-").map(Number);
+    const date = new Date(year, month - 1, day);
+    return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function formatDateDisplay(value: string, isZh: boolean) {
+    const date = parseLocalDateValue(value);
+    if (!date) return isZh ? "请选择日期" : "Select date";
+    const weekday = new Intl.DateTimeFormat(isZh ? "zh-CN" : "en-US", {weekday: "short"}).format(date);
+    return `${value} ${weekday}`;
+}
+
+function buildDateOptions(days = 35) {
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    return Array.from({length: days}, (_, index) => {
+        const date = new Date(start);
+        date.setDate(start.getDate() + index);
+        return formatLocalDateValue(date);
+    });
+}
+
+function formatTimeValue(minutes: number) {
+    const normalized = Math.max(0, minutes);
+    const hours = Math.floor(normalized / 60);
+    const rest = normalized % 60;
+    return `${String(hours).padStart(2, "0")}:${String(rest).padStart(2, "0")}`;
+}
+
+function buildTimeOptions(start = TIME_OPTION_START_MINUTES, end = TIME_OPTION_END_MINUTES, includeExactEnd = false) {
+    const options: string[] = [];
+    for (let minutes = start; minutes <= end; minutes += TIME_OPTION_STEP_MINUTES) {
+        options.push(formatTimeValue(minutes));
+    }
+    const exactEnd = formatTimeValue(end);
+    if (includeExactEnd && options[options.length - 1] !== exactEnd) {
+        options.push(exactEnd);
+    }
+    return options;
+}
+
+const INTERVIEW_START_TIME_OPTIONS = buildTimeOptions();
+const INTERVIEW_END_TIME_OPTIONS = buildTimeOptions(TIME_OPTION_START_MINUTES + TIME_OPTION_STEP_MINUTES, TIME_OPTION_END_MINUTES, true);
+
+function timeToMinutes(value?: string | null) {
+    const match = String(value || "").match(/^(\d{2}):(\d{2})$/);
+    if (!match) return null;
+    const hours = Number(match[1]);
+    const minutes = Number(match[2]);
+    if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+    return hours * 60 + minutes;
+}
+
+function localDateTimeParts(value?: string | null) {
+    const normalized = String(value || "");
+    if (!normalized.includes("T")) return {date: "", time: ""};
+    return {
+        date: normalized.slice(0, 10),
+        time: normalized.slice(11, 16),
+    };
+}
+
+function combineLocalDateTime(date: string, time: string) {
+    return date && time ? `${date}T${time}` : "";
+}
+
+function formatDurationText(minutes: number, isZh: boolean) {
+    const safeMinutes = Math.max(0, Math.round(minutes));
+    const hours = Math.floor(safeMinutes / 60);
+    const rest = safeMinutes % 60;
+    if (!isZh) {
+        return hours ? `${hours}h${rest ? ` ${rest}m` : ""}` : `${rest}m`;
+    }
+    if (!hours) return `${rest}分钟`;
+    return rest ? `${hours}小时${rest}分钟` : `${hours}小时`;
+}
+
+function ScheduleTimeSelect({
+    value,
+    options,
+    placeholder,
+    disabled,
+    onChange,
+    formatOption,
+    className,
+    buttonClassName,
+}: {
+    value: string;
+    options: string[];
+    placeholder: string;
+    disabled?: boolean;
+    onChange: (value: string) => void;
+    formatOption?: (value: string) => React.ReactNode;
+    className?: string;
+    buttonClassName?: string;
+}) {
+    const [open, setOpen] = React.useState(false);
+
+    return (
+        <div
+            className={cn("relative", className)}
+            onBlur={(event) => {
+                const nextTarget = event.relatedTarget;
+                if (!(nextTarget instanceof Node) || !event.currentTarget.contains(nextTarget)) {
+                    setOpen(false);
+                }
+            }}
+        >
+            <button
+                type="button"
+                disabled={disabled}
+                onClick={() => {
+                    if (!disabled) setOpen((current) => !current);
+                }}
+                className={cn(
+                    "flex h-10 w-full items-center justify-between gap-2 rounded-md border border-slate-200 bg-white px-3 text-left text-sm outline-none transition hover:border-slate-300 focus:border-[#171717] dark:border-slate-700 dark:bg-slate-950 dark:hover:border-slate-600 dark:focus:border-slate-500",
+                    value ? "text-slate-800 dark:text-slate-100" : "text-slate-400 dark:text-slate-500",
+                    disabled ? "cursor-not-allowed bg-slate-50 text-slate-300 hover:border-slate-200 dark:bg-slate-900 dark:text-slate-600 dark:hover:border-slate-700" : "",
+                    buttonClassName,
+                )}
+            >
+                <span className="min-w-0 truncate">{value || placeholder}</span>
+                <Clock3 className="h-3.5 w-3.5 shrink-0 text-slate-300 dark:text-slate-500"/>
+            </button>
+            {open && !disabled ? (
+                <div className="absolute left-0 top-[calc(100%+4px)] z-30 max-h-56 w-full overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 shadow-xl dark:border-slate-700 dark:bg-slate-950">
+                    {options.map((time) => {
+                        const optionContent = formatOption ? formatOption(time) : time;
+                        return (
+                            <button
+                                key={time}
+                                type="button"
+                                onMouseDown={(event) => event.preventDefault()}
+                                onClick={() => {
+                                    onChange(time);
+                                    setOpen(false);
+                                }}
+                                className={cn(
+                                    "flex h-8 w-full min-w-0 items-center px-3 text-left text-sm transition",
+                                    time === value
+                                        ? "bg-neutral-100 text-[#171717] dark:bg-slate-800 dark:text-slate-100"
+                                        : "text-slate-700 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-900",
+                                )}
+                            >
+                                <span className="min-w-0 truncate">{optionContent}</span>
+                            </button>
+                        );
+                    })}
+                </div>
+            ) : null}
+        </div>
+    );
+}
+
+function parseInterviewScheduleDate(value?: string | null) {
+    if (!value) return null;
+    const date = new Date(value);
+    return Number.isFinite(date.getTime()) ? date : null;
+}
+
+function formatTwoDigit(value: number) {
+    return String(value).padStart(2, "0");
+}
+
+function formatInterviewDateWithWeekday(value?: string | null, isZh = true) {
+    const date = parseInterviewScheduleDate(value);
+    if (!date) return "--";
+    const monthDay = `${formatTwoDigit(date.getMonth() + 1)}-${formatTwoDigit(date.getDate())}`;
+    const weekday = new Intl.DateTimeFormat(isZh ? "zh-CN" : "en-US", {weekday: "short"}).format(date);
+    return `${monthDay} ${weekday}`;
+}
+
+function formatInterviewTimeRange(schedule: InterviewSchedule) {
+    const start = parseInterviewScheduleDate(schedule.scheduled_at);
+    if (!start) return "--";
+    const duration = Number(schedule.duration_minutes || 0);
+    const end = duration > 0 ? new Date(start.getTime() + duration * 60_000) : null;
+    const startText = `${formatTwoDigit(start.getHours())}:${formatTwoDigit(start.getMinutes())}`;
+    if (!end || !Number.isFinite(end.getTime())) return startText;
+    return `${startText}-${formatTwoDigit(end.getHours())}:${formatTwoDigit(end.getMinutes())}`;
+}
+
+function formatInterviewDateTime(value?: string | null, isZh = true) {
+    const date = parseInterviewScheduleDate(value);
+    if (!date) return "--";
+    const year = date.getFullYear();
+    const month = formatTwoDigit(date.getMonth() + 1);
+    const day = formatTwoDigit(date.getDate());
+    const time = `${formatTwoDigit(date.getHours())}:${formatTwoDigit(date.getMinutes())}`;
+    return isZh ? `${year}-${month}-${day} ${time}` : `${month}/${day}/${year} ${time}`;
+}
+
+function interviewMethodLabel(method?: string | null, isZh = true) {
+    const normalized = String(method || "onsite").trim().toLowerCase();
+    if (normalized === "video") return isZh ? "视频面试" : "Video";
+    if (normalized === "phone") return isZh ? "电话面试" : "Phone";
+    return isZh ? "现场面试" : "Onsite";
+}
+
+function interviewMethodIcon(method?: string | null) {
+    const normalized = String(method || "onsite").trim().toLowerCase();
+    if (normalized === "video") return Video;
+    if (normalized === "phone") return Phone;
+    return Briefcase;
+}
+
+function interviewScheduleStatusLabel(schedule: InterviewSchedule, isZh = true) {
+    const resultStatus = String(schedule.result_status || "").trim();
+    if (resultStatus) {
+        const resultLabels: Record<string, [string, string]> = {
+            passed: ["面试通过", "Passed"],
+            next_round: ["进入下轮", "Next round"],
+            hold: ["待定", "Hold"],
+            rejected: ["本轮淘汰", "Rejected"],
+            no_show: ["未到场", "No-show"],
+        };
+        const label = resultLabels[resultStatus];
+        if (label) return isZh ? label[0] : label[1];
+    }
+    const status = String(schedule.status || "").trim();
+    const labels: Record<string, [string, string]> = {
+        scheduled: ["待面试", "Scheduled"],
+        confirmed: ["已确认", "Confirmed"],
+        in_progress: ["进行中", "In progress"],
+        completed: ["已完成", "Completed"],
+        cancelled: ["已取消", "Cancelled"],
+        no_show: ["未到场", "No-show"],
+    };
+    const label = labels[status];
+    return label ? (isZh ? label[0] : label[1]) : (status || (isZh ? "待面试" : "Scheduled"));
+}
+
+function interviewScheduleStatusClass(schedule: InterviewSchedule) {
+    const status = String(schedule.result_status || schedule.status || "").trim();
+    if (["passed", "next_round", "completed"].includes(status)) return "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/70 dark:bg-emerald-950/30 dark:text-emerald-300";
+    if (["rejected", "cancelled", "no_show"].includes(status)) return "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900/70 dark:bg-rose-950/30 dark:text-rose-300";
+    if (status === "hold") return "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/70 dark:bg-amber-950/30 dark:text-amber-300";
+    return "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900/70 dark:bg-sky-950/30 dark:text-sky-300";
+}
 
 type CandidateBoardGroup = {
     status: string;
@@ -1196,57 +1511,150 @@ const CandidateBoardColumn = React.memo(function CandidateBoardColumn({
     );
 });
 
-type CandidatePipelineStageSummary = CandidatePipelineStageConfig & {
+type CandidatePipelineStageChildSummary = CandidatePipelineStageChildConfig & {
+    label: string;
+    count: number;
+    active: boolean;
+    resolvedStatusValues: string[];
+};
+
+type CandidatePipelineStageSummary = Omit<CandidatePipelineStageConfig, "children"> & {
     label: string;
     hint: string;
     count: number;
     active: boolean;
+    allActive: boolean;
+    resolvedStatusValues: string[];
+    children?: CandidatePipelineStageChildSummary[];
 };
+
+function resolvePipelineStatusValues(stage: {statusValue?: string | null; statusValues?: string[]}) {
+    return stage.statusValues || (stage.statusValue ? [stage.statusValue] : []);
+}
+
+function pipelineStatusValuesEqual(left: string[], right: string[]) {
+    return left.length === right.length && left.every((value) => right.includes(value));
+}
 
 function CandidatePipelineBar({
     stages,
     onSelect,
+    onSelectChild,
     loading,
+    allLabel,
 }: {
     stages: CandidatePipelineStageSummary[];
     onSelect: (stage: CandidatePipelineStageSummary) => void;
+    onSelectChild: (stage: CandidatePipelineStageSummary, child: CandidatePipelineStageChildSummary) => void;
     loading?: boolean;
+    allLabel: string;
 }) {
     return (
-        <div className="grid overflow-hidden rounded-md border border-[var(--tr-border)] bg-white [grid-template-columns:repeat(auto-fit,minmax(118px,1fr))] dark:border-slate-800 dark:bg-slate-950">
-            {stages.map((stage) => (
-                <button
+        <div className="grid overflow-visible rounded-md border border-[var(--tr-border)] bg-white [grid-template-columns:repeat(auto-fit,minmax(128px,1fr))] dark:border-slate-800 dark:bg-slate-950">
+            {stages.map((stage) => {
+                const activeChild = stage.children?.find((child) => child.active);
+                const defaultChild = stage.children?.[0];
+                const displayChild = activeChild || (stage.allActive ? undefined : defaultChild);
+                const displayCount = displayChild?.count ?? stage.count;
+                const displayHint = displayChild?.label || (stage.allActive ? allLabel : stage.hint);
+                const hasChildMenu = stage.key !== "all" && stage.key !== "talent_pool";
+                const hasDistinctStageAllOption = !stage.children?.some((child) => pipelineStatusValuesEqual(child.resolvedStatusValues, stage.resolvedStatusValues));
+                return (
+                <div
                     key={stage.key}
-                    type="button"
-                    aria-pressed={stage.active}
-                    onClick={() => onSelect(stage)}
                     className={cn(
-                        "min-w-0 border-r border-[var(--tr-border-soft)] px-4 py-3 text-left transition last:border-r-0 dark:border-slate-800",
+                        "group relative min-w-0 border-r border-[var(--tr-border-soft)] transition last:border-r-0 dark:border-slate-800",
                         stage.active
                             ? "bg-white text-[var(--tr-ink)] shadow-[inset_0_-3px_0_var(--tr-red)] dark:bg-slate-950 dark:text-neutral-300"
                             : "bg-white text-slate-700 hover:bg-slate-50 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-900",
                     )}
                 >
-                    <div className="flex items-center justify-between gap-2">
-                        <span className="truncate text-sm font-semibold">{stage.label}</span>
-                        <span className={cn("shrink-0 text-lg font-semibold tabular-nums", stage.active && "text-[var(--tr-blue)]")}>
-                            {loading ? (
-                                <span className="inline-block h-5 w-8 animate-pulse rounded bg-slate-200 align-middle dark:bg-slate-800" />
-                            ) : (
-                                stage.count.toLocaleString()
+                    {hasChildMenu ? (
+                        <div className="w-full cursor-default px-4 py-3 text-left">
+                            <div className="flex items-center justify-between gap-2">
+                                <span className="truncate text-sm font-semibold">{stage.label}</span>
+                                <span className={cn("shrink-0 text-lg font-semibold tabular-nums", stage.active && "text-[var(--tr-blue)]")}>
+                                    {loading ? (
+                                        <span className="inline-block h-5 w-8 animate-pulse rounded bg-slate-200 align-middle dark:bg-slate-800" />
+                                    ) : (
+                                        displayCount.toLocaleString()
+                                    )}
+                                </span>
+                            </div>
+                            <p
+                                className={cn(
+                                    "mt-1 flex min-w-0 items-center gap-1 text-xs",
+                                    stage.active ? "text-[var(--tr-ink-muted)] dark:text-neutral-200/80" : "text-slate-500 dark:text-slate-400",
+                                )}
+                            >
+                                <span className="truncate">{displayHint}</span>
+                                <ChevronDown className="h-3 w-3 shrink-0" />
+                            </p>
+                        </div>
+                    ) : (
+                        <button
+                            type="button"
+                            aria-pressed={stage.active}
+                            onClick={() => onSelect(stage)}
+                            className="w-full px-4 py-3 text-left"
+                        >
+                        <div className="flex items-center justify-between gap-2">
+                            <span className="truncate text-sm font-semibold">{stage.label}</span>
+                            <span className={cn("shrink-0 text-lg font-semibold tabular-nums", stage.active && "text-[var(--tr-blue)]")}>
+                                {loading ? (
+                                    <span className="inline-block h-5 w-8 animate-pulse rounded bg-slate-200 align-middle dark:bg-slate-800" />
+                                ) : (
+                                    displayCount.toLocaleString()
+                                )}
+                            </span>
+                        </div>
+                        <p
+                            className={cn(
+                                "mt-1 truncate text-xs",
+                                stage.active ? "text-[var(--tr-ink-muted)] dark:text-neutral-200/80" : "text-slate-500 dark:text-slate-400",
                             )}
-                        </span>
-                    </div>
-                    <p
-                        className={cn(
-                            "mt-1 truncate text-xs",
-                            stage.active ? "text-[var(--tr-ink-muted)] dark:text-neutral-200/80" : "text-slate-500 dark:text-slate-400",
-                        )}
-                    >
-                        {stage.hint}
-                    </p>
-                </button>
-            ))}
+                        >
+                            {displayHint}
+                        </p>
+                        </button>
+                    )}
+                    {hasChildMenu ? (
+                        <div className="invisible absolute left-0 top-0 z-40 min-w-40 w-full rounded-md border border-blue-300 bg-white pb-1 text-sm opacity-0 shadow-xl transition group-hover:visible group-hover:opacity-100 dark:border-blue-900/70 dark:bg-slate-950">
+                            <div className="px-4 pt-3 pb-2 text-[var(--tr-blue)]">
+                                <span className="border-l-2 border-[var(--tr-blue)] pl-2 font-semibold">{stage.label}</span>
+                            </div>
+                            {stage.children?.map((child) => (
+                                <button
+                                    key={child.key}
+                                    type="button"
+                                    onClick={() => onSelectChild(stage, child)}
+                                    className={cn(
+                                        "flex h-10 w-full items-center justify-between gap-3 px-4 text-left transition hover:bg-blue-50 dark:hover:bg-blue-950/30",
+                                        child.active ? "bg-blue-50 text-[var(--tr-blue)] dark:bg-blue-950/30" : "text-slate-700 dark:text-slate-200",
+                                    )}
+                                >
+                                    <span className="truncate">{child.label}</span>
+                                    <span className="shrink-0 tabular-nums">{child.count.toLocaleString()}</span>
+                                </button>
+                            ))}
+                            {hasDistinctStageAllOption ? (
+                                <button
+                                    type="button"
+                                    onClick={() => onSelect(stage)}
+                                    className={cn(
+                                        "flex h-10 w-full items-center justify-between gap-3 px-4 text-left transition hover:bg-blue-50 dark:hover:bg-blue-950/30",
+                                        stage.allActive ? "bg-blue-50 text-[var(--tr-blue)] dark:bg-blue-950/30" : "text-slate-700 dark:text-slate-200",
+                                    )}
+                                >
+                                    <span>{allLabel}</span>
+                                    <span className="tabular-nums">{stage.count.toLocaleString()}</span>
+                                </button>
+                            ) : null}
+                        </div>
+                    ) : null}
+                </div>
+                );
+            })}
         </div>
     );
 }
@@ -2596,7 +3004,26 @@ type CandidatesPageProps = {
     batchUpdateStatus: (candidateIds: number[], status: string, reason: string) => Promise<void>;
     duplicateCandidates: Array<{id: number; candidate_code: string; name: string; phone: string | null; email: string | null; status: string}>;
     interviewSchedules: InterviewSchedule[];
-    createInterviewSchedule: (payload: {candidate_id: number; round_name?: string; round_index?: number; interviewer_user_code?: string; interviewer_name?: string; scheduled_at?: string; duration_minutes?: number; location?: string; meeting_link?: string; notes?: string; availability_slot_id?: number; department_review_assignment_id?: number}) => Promise<unknown>;
+    createInterviewSchedule: (payload: {
+        candidate_id: number;
+        subject?: string;
+        round_name?: string;
+        round_index?: number;
+        interview_method?: string;
+        interviewer_user_code?: string;
+        interviewer_name?: string;
+        scheduled_at?: string;
+        duration_minutes?: number;
+        location?: string;
+        meeting_room?: string;
+        video_tool?: string;
+        meeting_link?: string;
+        contact_phone?: string;
+        notes?: string;
+        visible_sections?: string[];
+        availability_slot_id?: number;
+        department_review_assignment_id?: number;
+    }) => Promise<unknown>;
     deleteInterviewSchedule: (scheduleId: number) => Promise<void>;
     offers: Array<{id: number; candidate_id: number; offer_title?: string | null; salary?: string | null; department?: string | null; entry_date?: string | null; offer_content?: string | null; notes?: string | null; status: string; created_at?: string | null}>;
     createOffer: (payload: {candidate_id: number; offer_title?: string; salary?: string; department?: string; entry_date?: string; offer_content?: string; notes?: string}) => Promise<unknown>;
@@ -2815,10 +3242,13 @@ export function CandidatesPage({
         await runCandidateDisposition(selectedCandidateIds, action);
     }, [runCandidateDisposition, selectedCandidateIds]);
     const [scheduleFormOpen, setScheduleFormOpen] = React.useState(false);
+    const [scheduleDatePickerOpen, setScheduleDatePickerOpen] = React.useState(false);
     const defaultRoundName = tr.roundNameDefault;
     const [scheduleForm, setScheduleForm] = React.useState({
+        subject: "",
         round_name: defaultRoundName,
         round_index: "1",
+        interview_method: "onsite" as InterviewMethod,
         interviewer_user_code: "",
         interviewer_name: "",
         scheduled_at: "",
@@ -2826,12 +3256,61 @@ export function CandidatesPage({
         availability_slot_id: "",
         department_review_assignment_id: "",
         location: "",
+        meeting_room: "",
+        video_tool: "腾讯会议",
         meeting_link: "",
+        contact_phone: "",
         notes: "",
+        visible_sections: [...DEFAULT_INTERVIEW_VISIBLE_SECTIONS],
     });
+    const [scheduleFormErrors, setScheduleFormErrors] = React.useState<Partial<Record<CandidateScheduleFormErrorKey, string>>>({});
     const [scheduleAvailabilitySlots, setScheduleAvailabilitySlots] = React.useState<InterviewAvailabilitySlot[]>([]);
     const [scheduleAvailabilityLoading, setScheduleAvailabilityLoading] = React.useState(false);
     const [scheduleSubmitting, setScheduleSubmitting] = React.useState(false);
+    const scheduleRequiredText = isZh ? "必填" : "Required";
+    const scheduleRequiredErrorClass = "border-rose-500 bg-rose-50/30 focus:border-rose-500 dark:border-rose-500 dark:bg-rose-950/10 dark:focus:border-rose-500";
+    const clearScheduleFormError = React.useCallback((field: CandidateScheduleFormErrorKey) => {
+        setScheduleFormErrors((current) => {
+            if (!current[field]) return current;
+            const next = {...current};
+            delete next[field];
+            return next;
+        });
+    }, []);
+    const renderScheduleFormError = (field: CandidateScheduleFormErrorKey) => (
+        scheduleFormErrors[field] ? <p className="mt-1 text-xs leading-4 text-rose-500">{scheduleFormErrors[field]}</p> : null
+    );
+    const scheduleDateOptions = React.useMemo(() => buildDateOptions(35), []);
+    const scheduleToday = todayDateValue();
+    const scheduleDateTimeParts = React.useMemo(() => localDateTimeParts(scheduleForm.scheduled_at), [scheduleForm.scheduled_at]);
+    const scheduleDatePart = scheduleDateTimeParts.date;
+    const scheduleStartTimePart = scheduleDateTimeParts.time;
+    const scheduleStartMinutes = timeToMinutes(scheduleStartTimePart);
+    const rawScheduleDurationMinutes = Number(scheduleForm.duration_minutes || 0);
+    const scheduleDurationMinutes = Number.isFinite(rawScheduleDurationMinutes)
+        ? Math.max(0, rawScheduleDurationMinutes)
+        : 0;
+    const scheduleEndMinutes = scheduleStartMinutes == null
+        ? null
+        : Math.min(TIME_OPTION_END_MINUTES, scheduleStartMinutes + scheduleDurationMinutes);
+    const scheduleEndTimePart = scheduleStartMinutes == null || scheduleEndMinutes == null || scheduleEndMinutes <= scheduleStartMinutes
+        ? ""
+        : formatTimeValue(scheduleEndMinutes);
+    const effectiveScheduleDurationMinutes = scheduleStartMinutes == null
+        ? scheduleDurationMinutes
+        : Math.max(0, (timeToMinutes(scheduleEndTimePart) ?? scheduleStartMinutes) - scheduleStartMinutes);
+    const scheduleStartTimeOptions = scheduleStartTimePart && !INTERVIEW_START_TIME_OPTIONS.includes(scheduleStartTimePart)
+        ? [...INTERVIEW_START_TIME_OPTIONS, scheduleStartTimePart].sort((a, b) => (timeToMinutes(a) || 0) - (timeToMinutes(b) || 0))
+        : INTERVIEW_START_TIME_OPTIONS;
+    const scheduleEndTimeOptions = React.useMemo(() => (
+        INTERVIEW_END_TIME_OPTIONS.filter((time) => {
+            const minutes = timeToMinutes(time);
+            return scheduleStartMinutes == null || minutes == null ? true : minutes > scheduleStartMinutes;
+        })
+    ), [scheduleStartMinutes]);
+    const scheduleEndTimeSelectOptions = scheduleEndTimePart && !scheduleEndTimeOptions.includes(scheduleEndTimePart)
+        ? [...scheduleEndTimeOptions, scheduleEndTimePart].sort((a, b) => (timeToMinutes(a) || 0) - (timeToMinutes(b) || 0))
+        : scheduleEndTimeOptions;
     const [offerFormOpen, setOfferFormOpen] = React.useState(false);
     const [offerForm, setOfferForm] = React.useState({offer_title: "", salary: "", department: "", entry_date: "", offer_content: "", notes: ""});
     const [offerSubmitting, setOfferSubmitting] = React.useState(false);
@@ -3092,24 +3571,43 @@ export function CandidatesPage({
         const scopedStatusCounts = candidatePipelineStatusCounts || null;
         const scopedTotal = typeof candidatePipelineTotal === "number" ? candidatePipelineTotal : null;
         return CANDIDATE_PIPELINE_STAGES.map((stage) => {
-            const stageStatusValues = stage.statusValues || (stage.statusValue ? [stage.statusValue] : []);
+            const stageStatusValues = resolvePipelineStatusValues(stage);
             const stageCount = stageStatusValues.length
                 ? stageStatusValues.reduce((sum, value) => sum + (scopedStatusCounts ? Number(scopedStatusCounts[value] || 0) : 0), 0)
                 : (scopedTotal ?? activePositionTotal);
-            const active = stageStatusValues.length
+            const children = stage.children?.map((child) => {
+                const childStatusValues = resolvePipelineStatusValues(child);
+                return {
+                    ...child,
+                    label: isZh ? child.labelZh : child.labelEn,
+                    count: childStatusValues.reduce((sum, value) => sum + (scopedStatusCounts ? Number(scopedStatusCounts[value] || 0) : 0), 0),
+                    active: childStatusValues.length > 0
+                        && candidateStatusFilter.length === childStatusValues.length
+                        && childStatusValues.every((value) => candidateStatusFilter.includes(value)),
+                    resolvedStatusValues: childStatusValues,
+                };
+            });
+            const stageActive = stageStatusValues.length
                 ? candidateStatusFilter.length === stageStatusValues.length && stageStatusValues.every((value) => candidateStatusFilter.includes(value))
                 : candidateStatusFilter.length === 0;
+            const active = stageActive || Boolean(children?.some((child) => child.active));
             return {
                 ...stage,
                 label: isZh ? stage.labelZh : stage.labelEn,
                 hint: isZh ? stage.hintZh : stage.hintEn,
                 count: stageCount,
                 active,
+                allActive: stageActive,
+                resolvedStatusValues: stageStatusValues,
+                children,
             };
         });
     }, [activePositionTotal, candidatePipelineStatusCounts, candidatePipelineTotal, candidateStatusFilter, isZh]);
     const selectCandidatePipelineStage = React.useCallback((stage: CandidatePipelineStageSummary) => {
-        setCandidateStatusFilter(stage.statusValues || (stage.statusValue ? [stage.statusValue] : []));
+        setCandidateStatusFilter(stage.resolvedStatusValues);
+    }, [setCandidateStatusFilter]);
+    const selectCandidatePipelineChild = React.useCallback((_stage: CandidatePipelineStageSummary, child: CandidatePipelineStageChildSummary) => {
+        setCandidateStatusFilter(child.resolvedStatusValues);
     }, [setCandidateStatusFilter]);
 
     const virtualItems = rowVirtualizer.getVirtualItems();
@@ -3272,6 +3770,11 @@ export function CandidatesPage({
         }
         void loadInterviewers();
     }, [loadInterviewers, scheduleFormOpen]);
+    React.useEffect(() => {
+        if (!scheduleFormOpen) {
+            setScheduleDatePickerOpen(false);
+        }
+    }, [scheduleFormOpen]);
     const departmentReviewerByCode = React.useMemo(() => new Map(
         departmentReviewReviewerOptions.map((reviewer) => [reviewer.user_code, reviewer]),
     ), [departmentReviewReviewerOptions]);
@@ -3349,9 +3852,10 @@ export function CandidatesPage({
             }
             const start = slot.start_at ? new Date(slot.start_at) : null;
             const end = slot.end_at ? new Date(slot.end_at) : null;
+            const currentDuration = Number(current.duration_minutes || 60);
             const duration = start && end && Number.isFinite(start.getTime()) && Number.isFinite(end.getTime())
                 ? Math.max(1, Math.round((end.getTime() - start.getTime()) / 60000))
-                : Number(current.duration_minutes || 60);
+                : Number.isFinite(currentDuration) ? currentDuration : 60;
             const toInput = (date: Date | null) => {
                 if (!date || !Number.isFinite(date.getTime())) {
                     return current.scheduled_at;
@@ -3366,26 +3870,28 @@ export function CandidatesPage({
                 duration_minutes: String(duration),
             };
         });
+        setScheduleFormErrors((current) => {
+            if (!current.scheduled_date && !current.scheduled_start_time && !current.scheduled_end_time) return current;
+            const next = {...current};
+            delete next.scheduled_date;
+            delete next.scheduled_start_time;
+            delete next.scheduled_end_time;
+            return next;
+        });
     }, [scheduleAvailabilitySlots]);
-    const scheduleFormCanSubmit = Boolean(
-        scheduleForm.interviewer_user_code.trim()
-        && scheduleForm.scheduled_at
-        && Number(scheduleForm.duration_minutes || 0) > 0
-    );
     const buildNextInterviewRoundName = React.useCallback((roundIndex: number) => {
-        if (!isZh) {
-            return roundIndex <= 1 ? "First Interview" : `Round ${roundIndex} Interview`;
-        }
-        if (roundIndex <= 1) return "初试";
-        if (roundIndex === 2) return "复试";
-        return `第 ${roundIndex} 轮面试`;
-    }, [isZh]);
+        return interviewRoundNameForIndex(roundIndex);
+    }, []);
     const openInterviewScheduleForm = React.useCallback(() => {
         const nextRoundIndex = Math.max(1, interviewSchedules.length + 1);
+        const nextRoundName = buildNextInterviewRoundName(nextRoundIndex);
         setCandidateDetailPanel("interview");
+        setScheduleDatePickerOpen(false);
         setScheduleForm({
-            round_name: buildNextInterviewRoundName(nextRoundIndex),
-            round_index: String(nextRoundIndex),
+            subject: defaultInterviewSubject(candidateDetail?.candidate.name),
+            round_name: nextRoundName,
+            round_index: String(nextRoundName === "加试" ? Math.max(4, nextRoundIndex) : interviewRoundIndexForName(nextRoundName, nextRoundIndex)),
+            interview_method: "onsite",
             interviewer_user_code: "",
             interviewer_name: "",
             scheduled_at: "",
@@ -3393,12 +3899,17 @@ export function CandidatesPage({
             availability_slot_id: "",
             department_review_assignment_id: latestPassedDepartmentReviewAssignmentId ? String(latestPassedDepartmentReviewAssignmentId) : "",
             location: "",
+            meeting_room: "",
+            video_tool: "腾讯会议",
             meeting_link: "",
+            contact_phone: String(candidateDetail?.candidate.phone || "").trim(),
             notes: "",
+            visible_sections: [...DEFAULT_INTERVIEW_VISIBLE_SECTIONS],
         });
+        setScheduleFormErrors({});
         setScheduleAvailabilitySlots([]);
         setScheduleFormOpen(true);
-    }, [buildNextInterviewRoundName, interviewSchedules.length, latestPassedDepartmentReviewAssignmentId]);
+    }, [buildNextInterviewRoundName, candidateDetail?.candidate.name, candidateDetail?.candidate.phone, interviewSchedules.length, latestPassedDepartmentReviewAssignmentId]);
     const lastAutoOpenedScheduleCandidateIdRef = React.useRef<number | null>(null);
     React.useEffect(() => {
         if (!autoOpenInterviewScheduleCandidateId) {
@@ -3650,6 +4161,14 @@ export function CandidatesPage({
     const [inlineResumeFrameReady, setInlineResumeFrameReady] = React.useState(false);
     const inlineResumeFrameReadyTimerRef = React.useRef<number | null>(null);
     const latestInterviewQuestion = candidateDetail?.interview_questions[0] ?? null;
+    const sortedInterviewSchedules = React.useMemo(() => (
+        [...interviewSchedules].sort((left, right) => {
+            const leftTime = parseInterviewScheduleDate(left.scheduled_at)?.getTime() ?? -Infinity;
+            const rightTime = parseInterviewScheduleDate(right.scheduled_at)?.getTime() ?? -Infinity;
+            if (leftTime !== rightTime) return rightTime - leftTime;
+            return Number(right.id || 0) - Number(left.id || 0);
+        })
+    ), [interviewSchedules]);
     const latestResumeScoreLog = React.useMemo(
         () => candidateProcessActivity.find((log) => log.task_type === "resume_score") || null,
         [candidateProcessActivity],
@@ -4010,7 +4529,9 @@ export function CandidatesPage({
                         <CandidatePipelineBar
                             stages={candidatePipelineStages}
                             onSelect={selectCandidatePipelineStage}
+                            onSelectChild={selectCandidatePipelineChild}
                             loading={candidatePipelineStatsLoading}
+                            allLabel={isZh ? "全部" : "All"}
                         />
                         <div
                             className={cn(
@@ -4596,125 +5117,129 @@ export function CandidatesPage({
                                         ))}
                                     </div>
 
-                                    <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 py-3 dark:border-slate-800">
-                                        <div className="flex flex-wrap items-center gap-2">
-                                            <Button
-                                                size="sm"
-                                                variant={candidateResumeView === "original" ? "default" : "outline"}
-                                                className={cn("h-8 rounded-[4px] px-3 text-[13px]", candidateResumeView === "original" && "bg-[#171717] text-white hover:bg-[#262626]")}
-                                                onClick={() => switchCandidateResumeView("original")}
-                                            >
-                                                {isZh ? "原始简历" : "Original"}
-                                            </Button>
-                                            <Button
-                                                size="sm"
-                                                variant={candidateResumeView === "standard" ? "default" : "outline"}
-                                                className={cn("h-8 rounded-[4px] px-3 text-[13px]", candidateResumeView === "standard" && "bg-[#171717] text-white hover:bg-[#262626]")}
-                                                onClick={() => switchCandidateResumeView("standard")}
-                                            >
-                                                {isZh ? "标准简历" : "Standard"}
-                                            </Button>
-                                            <Button
-                                                size="sm"
-                                                variant={candidateResumeView === "history" ? "default" : "outline"}
-                                                className={cn("h-8 rounded-[4px] px-3 text-[13px]", candidateResumeView === "history" && "bg-[#171717] text-white hover:bg-[#262626]")}
-                                                onClick={() => switchCandidateResumeView("history")}
-                                            >
-                                                {isZh ? "历史简历" : "History"}
-                                            </Button>
-                                        </div>
-                                        <div className="flex min-w-0 flex-1 items-center justify-end gap-2 text-[13px] text-slate-500 dark:text-slate-400">
-                                            <Button
-                                                size="sm"
-                                                variant="ghost"
-                                                className="h-8 px-2 text-[13px]"
-                                                onClick={() => void refreshCurrentCandidateDetail()}
-                                                disabled={!onRefreshCandidateDetail || candidateDetailRefreshing}
-                                            >
-                                                <RotateCcw className={cn("h-3.5 w-3.5", candidateDetailRefreshing && "animate-spin")}/>
-                                                {tr.refresh}
-                                            </Button>
-                                            {primaryResumeFile ? (
-                                                <>
-                                                    <Button size="sm" variant="ghost" className="h-8 px-2 text-[13px]" onClick={() => void openResumeFile(primaryResumeFile, true)}>
-                                                        <Download className="h-3.5 w-3.5"/>
-                                                        {tr.downloadResume}
+                                    {candidateDetailPanel === "resume" ? (
+                                        <>
+                                            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 py-3 dark:border-slate-800">
+                                                <div className="flex flex-wrap items-center gap-2">
+                                                    <Button
+                                                        size="sm"
+                                                        variant={candidateResumeView === "original" ? "default" : "outline"}
+                                                        className={cn("h-8 rounded-[4px] px-3 text-[13px]", candidateResumeView === "original" && "bg-[#171717] text-white hover:bg-[#262626]")}
+                                                        onClick={() => switchCandidateResumeView("original")}
+                                                    >
+                                                        {isZh ? "原始简历" : "Original"}
                                                     </Button>
-                                                </>
-                                            ) : null}
-                                            <Button size="sm" variant="ghost" className="h-8 px-2 text-[13px]" onClick={() => window.print()}>
-                                                <Printer className="h-3.5 w-3.5"/>
-                                                {isZh ? "打印" : "Print"}
-                                            </Button>
-                                            <Popover open={candidateResumeMoreOpen} onOpenChange={setCandidateResumeMoreOpen}>
-                                                <PopoverTrigger asChild>
-                                                    <Button size="sm" variant="ghost" className="h-8 px-2 text-[13px]">
-                                                        <MoreHorizontal className="h-3.5 w-3.5"/>
-                                                        {isZh ? "更多" : "More"}
+                                                    <Button
+                                                        size="sm"
+                                                        variant={candidateResumeView === "standard" ? "default" : "outline"}
+                                                        className={cn("h-8 rounded-[4px] px-3 text-[13px]", candidateResumeView === "standard" && "bg-[#171717] text-white hover:bg-[#262626]")}
+                                                        onClick={() => switchCandidateResumeView("standard")}
+                                                    >
+                                                        {isZh ? "标准简历" : "Standard"}
                                                     </Button>
-                                                </PopoverTrigger>
-                                                <PopoverContent className="w-44 border-slate-200 bg-white p-1 dark:border-slate-800 dark:bg-slate-950" align="end">
-	                                                    <button
-	                                                        type="button"
-	                                                        className="flex w-full items-center rounded-[4px] px-3 py-2 text-left text-[13px] text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-900"
-	                                                        onClick={(event) => {
-	                                                            event.preventDefault();
-	                                                            event.stopPropagation();
-	                                                            switchCandidateResumeView("standard");
-	                                                        }}
-	                                                    >
-	                                                        {isZh ? "查看标准简历" : "Standard Resume"}
-	                                                    </button>
-	                                                    <button
-	                                                        type="button"
-	                                                        className="flex w-full items-center rounded-[4px] px-3 py-2 text-left text-[13px] text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-900"
-	                                                        onClick={(event) => {
-	                                                            event.preventDefault();
-	                                                            event.stopPropagation();
-	                                                            switchCandidateResumeView("history");
-	                                                        }}
-	                                                    >
-	                                                        {isZh ? "查看历史简历" : "Resume History"}
-	                                                    </button>
-                                                    <button
-	                                                        type="button"
-	                                                        className="flex w-full items-center rounded-[4px] px-3 py-2 text-left text-[13px] text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:text-slate-400 dark:text-slate-300 dark:hover:bg-slate-900 dark:disabled:text-slate-600"
-	                                                        disabled={!primaryResumeFile}
-	                                                        onClick={(event) => {
-	                                                            event.preventDefault();
-	                                                            event.stopPropagation();
-	                                                            setCandidateResumeMoreOpen(false);
-	                                                            if (primaryResumeFile) void openResumeFile(primaryResumeFile, false);
-	                                                        }}
-	                                                    >
-                                                        {isZh ? "新窗口打开" : "Open in New Window"}
-                                                    </button>
-                                                </PopoverContent>
-                                            </Popover>
-                                        </div>
-                                    </div>
+                                                    <Button
+                                                        size="sm"
+                                                        variant={candidateResumeView === "history" ? "default" : "outline"}
+                                                        className={cn("h-8 rounded-[4px] px-3 text-[13px]", candidateResumeView === "history" && "bg-[#171717] text-white hover:bg-[#262626]")}
+                                                        onClick={() => switchCandidateResumeView("history")}
+                                                    >
+                                                        {isZh ? "历史简历" : "History"}
+                                                    </Button>
+                                                </div>
+                                                <div className="flex min-w-0 flex-1 items-center justify-end gap-2 text-[13px] text-slate-500 dark:text-slate-400">
+                                                    <Button
+                                                        size="sm"
+                                                        variant="ghost"
+                                                        className="h-8 px-2 text-[13px]"
+                                                        onClick={() => void refreshCurrentCandidateDetail()}
+                                                        disabled={!onRefreshCandidateDetail || candidateDetailRefreshing}
+                                                    >
+                                                        <RotateCcw className={cn("h-3.5 w-3.5", candidateDetailRefreshing && "animate-spin")}/>
+                                                        {tr.refresh}
+                                                    </Button>
+                                                    {primaryResumeFile ? (
+                                                        <>
+                                                            <Button size="sm" variant="ghost" className="h-8 px-2 text-[13px]" onClick={() => void openResumeFile(primaryResumeFile, true)}>
+                                                                <Download className="h-3.5 w-3.5"/>
+                                                                {tr.downloadResume}
+                                                            </Button>
+                                                        </>
+                                                    ) : null}
+                                                    <Button size="sm" variant="ghost" className="h-8 px-2 text-[13px]" onClick={() => window.print()}>
+                                                        <Printer className="h-3.5 w-3.5"/>
+                                                        {isZh ? "打印" : "Print"}
+                                                    </Button>
+                                                    <Popover open={candidateResumeMoreOpen} onOpenChange={setCandidateResumeMoreOpen}>
+                                                        <PopoverTrigger asChild>
+                                                            <Button size="sm" variant="ghost" className="h-8 px-2 text-[13px]">
+                                                                <MoreHorizontal className="h-3.5 w-3.5"/>
+                                                                {isZh ? "更多" : "More"}
+                                                            </Button>
+                                                        </PopoverTrigger>
+                                                        <PopoverContent className="w-44 border-slate-200 bg-white p-1 dark:border-slate-800 dark:bg-slate-950" align="end">
+                                                            <button
+                                                                type="button"
+                                                                className="flex w-full items-center rounded-[4px] px-3 py-2 text-left text-[13px] text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-900"
+                                                                onClick={(event) => {
+                                                                    event.preventDefault();
+                                                                    event.stopPropagation();
+                                                                    switchCandidateResumeView("standard");
+                                                                }}
+                                                            >
+                                                                {isZh ? "查看标准简历" : "Standard Resume"}
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                className="flex w-full items-center rounded-[4px] px-3 py-2 text-left text-[13px] text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-900"
+                                                                onClick={(event) => {
+                                                                    event.preventDefault();
+                                                                    event.stopPropagation();
+                                                                    switchCandidateResumeView("history");
+                                                                }}
+                                                            >
+                                                                {isZh ? "查看历史简历" : "Resume History"}
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                className="flex w-full items-center rounded-[4px] px-3 py-2 text-left text-[13px] text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:text-slate-400 dark:text-slate-300 dark:hover:bg-slate-900 dark:disabled:text-slate-600"
+                                                                disabled={!primaryResumeFile}
+                                                                onClick={(event) => {
+                                                                    event.preventDefault();
+                                                                    event.stopPropagation();
+                                                                    setCandidateResumeMoreOpen(false);
+                                                                    if (primaryResumeFile) void openResumeFile(primaryResumeFile, false);
+                                                                }}
+                                                            >
+                                                                {isZh ? "新窗口打开" : "Open in New Window"}
+                                                            </button>
+                                                        </PopoverContent>
+                                                    </Popover>
+                                                </div>
+                                            </div>
 
-                                    <div className="flex min-w-0 items-center gap-3 pb-3">
-                                        <div className="min-w-0 flex-1">
-                                            <NativeSelect
-                                                className="h-8 rounded-[3px] border-slate-200 text-[13px] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-                                                value={primaryResumeFile ? String(primaryResumeFile.id) : ""}
-                                                onChange={(event) => {
-                                                    const nextId = Number(event.target.value);
-                                                    setSelectedResumeFileId(Number.isFinite(nextId) ? nextId : null);
-                                                    setCandidateResumeView("original");
-                                                }}
-                                            >
-                                                {resumeFiles.length ? (
-                                                    resumeFiles.map((file) => (
-                                                        <option key={file.id} value={String(file.id)}>{file.original_name}</option>
-                                                    ))
-                                                ) : (
-                                                    <option value="">{tr.noResumeFile}</option>
-                                                )}
-                                            </NativeSelect>
-                                        </div>
-	                                    </div>
+                                            <div className="flex min-w-0 items-center gap-3 pb-3">
+                                                <div className="min-w-0 flex-1">
+                                                    <NativeSelect
+                                                        className="h-8 rounded-[3px] border-slate-200 text-[13px] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                                                        value={primaryResumeFile ? String(primaryResumeFile.id) : ""}
+                                                        onChange={(event) => {
+                                                            const nextId = Number(event.target.value);
+                                                            setSelectedResumeFileId(Number.isFinite(nextId) ? nextId : null);
+                                                            setCandidateResumeView("original");
+                                                        }}
+                                                    >
+                                                        {resumeFiles.length ? (
+                                                            resumeFiles.map((file) => (
+                                                                <option key={file.id} value={String(file.id)}>{file.original_name}</option>
+                                                            ))
+                                                        ) : (
+                                                            <option value="">{tr.noResumeFile}</option>
+                                                        )}
+                                                    </NativeSelect>
+                                                </div>
+                                            </div>
+                                        </>
+                                    ) : null}
                                 </div>
 
                                 <div className="bg-white dark:bg-slate-950">
@@ -5713,6 +6238,8 @@ export function CandidatesPage({
                                                     <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{tr.interviewSchedules}</p>
                                                     <Button size="sm" variant="outline" onClick={() => {
                                                         if (scheduleFormOpen) {
+                                                            setScheduleFormErrors({});
+                                                            setScheduleDatePickerOpen(false);
                                                             setScheduleFormOpen(false);
                                                             return;
                                                         }
@@ -5725,50 +6252,301 @@ export function CandidatesPage({
                                                 {scheduleFormOpen && candidateDetail && (
                                                     <div className="mt-3 space-y-2 rounded-xl border border-slate-200/70 bg-slate-50/50 p-3 dark:border-slate-800 dark:bg-slate-900/50">
                                                         <div className="grid gap-2 md:grid-cols-2">
-                                                            <Input value={scheduleForm.round_name} onChange={(e) => setScheduleForm((f) => ({...f, round_name: e.target.value}))} placeholder={tr.scheduleRound}/>
-                                                            <Input type="number" min={1} value={scheduleForm.round_index} onChange={(e) => setScheduleForm((f) => ({...f, round_index: e.target.value}))} placeholder={isZh ? "面试轮次" : "Round index"}/>
-                                                            <NativeSelect
-                                                                value={scheduleForm.interviewer_user_code}
-                                                                onChange={(event) => {
-                                                                    const userCode = event.target.value;
-                                                                    const reviewer = interviewerByCode.get(userCode);
-                                                                    setScheduleForm((current) => ({
-                                                                        ...current,
-                                                                        interviewer_user_code: userCode,
-                                                                        interviewer_name: reviewer?.name || reviewer?.display_name || userCode,
-                                                                        availability_slot_id: "",
-                                                                    }));
-                                                                }}
-                                                                className="h-10"
-                                                            >
-                                                                <option value="">{interviewerLoading ? (isZh ? "正在加载面试官..." : "Loading interviewers...") : (isZh ? "选择面试官" : "Select interviewer")}</option>
-                                                                {interviewerOptions.map((reviewer) => (
-                                                                    <option key={reviewer.user_code} value={reviewer.user_code}>
-                                                                        {reviewer.name || reviewer.display_name || reviewer.user_code} · {reviewer.user_code}
+                                                            <label className="space-y-1 md:col-span-2">
+                                                                <span className="text-xs text-slate-500 dark:text-slate-400"><span className="mr-0.5 text-rose-500">*</span>{isZh ? "面试主题" : "Interview subject"}</span>
+                                                                <Input
+                                                                    value={scheduleForm.subject}
+                                                                    onChange={(e) => {
+                                                                        clearScheduleFormError("subject");
+                                                                        setScheduleForm((f) => ({...f, subject: e.target.value}));
+                                                                    }}
+                                                                    placeholder={isZh ? "面试主题" : "Interview subject"}
+                                                                    className={cn(scheduleFormErrors.subject && scheduleRequiredErrorClass)}
+                                                                />
+                                                                {renderScheduleFormError("subject")}
+                                                            </label>
+                                                            <label className="space-y-1 md:col-span-2">
+                                                                <span className="text-xs text-slate-500 dark:text-slate-400"><span className="mr-0.5 text-rose-500">*</span>{isZh ? "面试轮次" : "Round"}</span>
+                                                                <NativeSelect
+                                                                    value={scheduleForm.round_name}
+                                                                    onChange={(event) => {
+                                                                        clearScheduleFormError("round_name");
+                                                                        const roundName = event.target.value;
+                                                                        setScheduleForm((current) => ({
+                                                                            ...current,
+                                                                            round_name: roundName,
+                                                                            round_index: String(interviewRoundIndexForName(roundName, Number(current.round_index || 4))),
+                                                                        }));
+                                                                    }}
+                                                                    className={cn("h-10", scheduleFormErrors.round_name && scheduleRequiredErrorClass)}
+                                                                >
+                                                                    {INTERVIEW_ROUND_OPTIONS.map((option) => (
+                                                                        <option key={option.value} value={option.value}>
+                                                                            {isZh ? option.labelZh : option.labelEn}
+                                                                        </option>
+                                                                    ))}
+                                                                </NativeSelect>
+                                                                {renderScheduleFormError("round_name")}
+                                                            </label>
+                                                            <div className="space-y-1 md:col-span-2">
+                                                                <span className="text-xs text-slate-500 dark:text-slate-400"><span className="mr-0.5 text-rose-500">*</span>{isZh ? "面试方式" : "Interview method"}</span>
+                                                                <div className={cn("grid grid-cols-3 gap-1.5 rounded-md", scheduleFormErrors.interview_method && "border border-rose-500 bg-rose-50/30 p-1 dark:bg-rose-950/10")}>
+                                                                    {INTERVIEW_METHOD_OPTIONS.map((option) => {
+                                                                        const active = scheduleForm.interview_method === option.value;
+                                                                        const Icon = option.value === "onsite" ? Briefcase : option.value === "video" ? Video : Phone;
+                                                                        return (
+                                                                            <button
+                                                                                key={option.value}
+                                                                                type="button"
+                                                                                onClick={() => {
+                                                                                    clearScheduleFormError("interview_method");
+                                                                                    setScheduleForm((current) => ({...current, interview_method: option.value}));
+                                                                                }}
+                                                                                className={cn(
+                                                                                    "flex h-10 items-center justify-center gap-1 rounded-md border px-2 text-xs transition",
+                                                                                    active
+                                                                                        ? "border-[#171717] bg-white font-medium text-[#171717] dark:border-slate-500 dark:bg-slate-800 dark:text-slate-100"
+                                                                                        : "border-slate-200 bg-white text-slate-500 hover:text-slate-800 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300",
+                                                                                )}
+                                                                            >
+                                                                                <Icon className="h-3.5 w-3.5"/>
+                                                                                <span className="truncate">{isZh ? option.labelZh : option.labelEn}</span>
+                                                                            </button>
+                                                                        );
+                                                                    })}
+                                                                </div>
+                                                                {renderScheduleFormError("interview_method")}
+                                                            </div>
+                                                            <label className="space-y-1">
+                                                                <span className="text-xs text-slate-500 dark:text-slate-400"><span className="mr-0.5 text-rose-500">*</span>{isZh ? "面试官" : "Interviewer"}</span>
+                                                                <NativeSelect
+                                                                    value={scheduleForm.interviewer_user_code}
+                                                                    onChange={(event) => {
+                                                                        clearScheduleFormError("interviewer_user_code");
+                                                                        const userCode = event.target.value;
+                                                                        const reviewer = interviewerByCode.get(userCode);
+                                                                        setScheduleForm((current) => ({
+                                                                            ...current,
+                                                                            interviewer_user_code: userCode,
+                                                                            interviewer_name: reviewer?.name || reviewer?.display_name || userCode,
+                                                                            availability_slot_id: "",
+                                                                        }));
+                                                                    }}
+                                                                    className={cn("h-10", scheduleFormErrors.interviewer_user_code && scheduleRequiredErrorClass)}
+                                                                >
+                                                                    <option value="">{interviewerLoading ? (isZh ? "正在加载面试官..." : "Loading interviewers...") : (isZh ? "选择面试官" : "Select interviewer")}</option>
+                                                                    {interviewerOptions.map((reviewer) => (
+                                                                        <option key={reviewer.user_code} value={reviewer.user_code}>
+                                                                            {reviewer.name || reviewer.display_name || reviewer.user_code} · {reviewer.user_code}
+                                                                        </option>
+                                                                    ))}
+                                                                </NativeSelect>
+                                                                {renderScheduleFormError("interviewer_user_code")}
+                                                            </label>
+                                                            <label className="space-y-1">
+                                                                <span className="text-xs text-slate-500 dark:text-slate-400">{isZh ? "可面试时间" : "Available time"}</span>
+                                                                <NativeSelect
+                                                                    value={scheduleForm.availability_slot_id}
+                                                                    onChange={(event) => applyScheduleAvailabilitySlot(event.target.value)}
+                                                                    disabled={!scheduleForm.interviewer_user_code || scheduleAvailabilityLoading}
+                                                                    className="h-10"
+                                                                >
+                                                                    <option value="">
+                                                                        {scheduleForm.interviewer_user_code
+                                                                            ? (isZh ? "选择可面试时间（可手动填写）" : "Select available time or fill manually")
+                                                                            : (isZh ? "先选择面试官" : "Select interviewer first")}
                                                                     </option>
+                                                                    {scheduleAvailabilitySlots.map((slot) => (
+                                                                        <option key={slot.id} value={String(slot.id)}>
+                                                                            {formatDateTime(slot.start_at)} - {formatDateTime(slot.end_at)}{slot.notes ? ` · ${slot.notes}` : ""}
+                                                                        </option>
+                                                                    ))}
+                                                                </NativeSelect>
+                                                            </label>
+                                                            <div className="relative space-y-1 md:col-span-2">
+                                                                <span className="text-xs text-slate-500 dark:text-slate-400"><span className="mr-0.5 text-rose-500">*</span>{isZh ? "日期时间" : "Date and time"}</span>
+                                                                <div className="grid grid-cols-1 items-start gap-2 md:grid-cols-[minmax(0,1fr)_132px_auto_152px]">
+                                                                    <div className="min-w-0">
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => setScheduleDatePickerOpen((open) => !open)}
+                                                                            className={cn(
+                                                                                "flex h-10 w-full min-w-0 items-center justify-between gap-2 rounded-md border border-slate-200 bg-white px-3 text-left text-sm outline-none transition hover:border-slate-300 focus:border-[#171717] dark:border-slate-700 dark:bg-slate-950 dark:hover:border-slate-600 dark:focus:border-slate-500",
+                                                                                scheduleDatePart ? "text-slate-800 dark:text-slate-100" : "text-slate-400 dark:text-slate-500",
+                                                                                scheduleFormErrors.scheduled_date && scheduleRequiredErrorClass,
+                                                                            )}
+                                                                        >
+                                                                            <span className="min-w-0 truncate">{formatDateDisplay(scheduleDatePart, isZh)}</span>
+                                                                            <CalendarClock className="h-3.5 w-3.5 shrink-0 text-slate-300 dark:text-slate-500"/>
+                                                                        </button>
+                                                                        {renderScheduleFormError("scheduled_date")}
+                                                                    </div>
+                                                                    <div className="min-w-0">
+                                                                        <ScheduleTimeSelect
+                                                                            value={scheduleStartTimePart}
+                                                                            options={scheduleStartTimeOptions}
+                                                                            placeholder={isZh ? "开始时间" : "Start"}
+                                                                            buttonClassName={scheduleFormErrors.scheduled_start_time ? scheduleRequiredErrorClass : undefined}
+                                                                            onChange={(nextTime) => {
+                                                                                clearScheduleFormError("scheduled_date");
+                                                                                clearScheduleFormError("scheduled_start_time");
+                                                                                const nextDate = scheduleDatePart || scheduleToday;
+                                                                                const nextStartMinutes = timeToMinutes(nextTime);
+                                                                                setScheduleForm((current) => {
+                                                                                    const currentDuration = Number(current.duration_minutes || 60);
+                                                                                    const desiredDuration = Number.isFinite(currentDuration) ? Math.max(15, currentDuration) : 60;
+                                                                                    const nextDuration = nextStartMinutes == null
+                                                                                        ? desiredDuration
+                                                                                        : Math.max(1, Math.min(TIME_OPTION_END_MINUTES, nextStartMinutes + desiredDuration) - nextStartMinutes);
+                                                                                    return {
+                                                                                        ...current,
+                                                                                        scheduled_at: combineLocalDateTime(nextDate, nextTime),
+                                                                                        duration_minutes: String(nextDuration),
+                                                                                        availability_slot_id: "",
+                                                                                    };
+                                                                                });
+                                                                            }}
+                                                                        />
+                                                                        {renderScheduleFormError("scheduled_start_time")}
+                                                                    </div>
+                                                                    <span className="hidden pt-2 text-sm text-slate-300 dark:text-slate-600 md:block">~</span>
+                                                                    <div className="min-w-0">
+                                                                        <ScheduleTimeSelect
+                                                                            value={scheduleEndTimePart}
+                                                                            disabled={!scheduleStartTimePart}
+                                                                            options={scheduleEndTimeSelectOptions}
+                                                                            placeholder={isZh ? "结束时间" : "End"}
+                                                                            buttonClassName={scheduleFormErrors.scheduled_end_time ? scheduleRequiredErrorClass : undefined}
+                                                                            formatOption={(time) => {
+                                                                                const endMinutes = timeToMinutes(time);
+                                                                                const duration = scheduleStartMinutes == null || endMinutes == null ? 0 : endMinutes - scheduleStartMinutes;
+                                                                                return duration > 0 ? `${time}（${formatDurationText(duration, isZh)}）` : time;
+                                                                            }}
+                                                                            onChange={(nextTime) => {
+                                                                                clearScheduleFormError("scheduled_end_time");
+                                                                                const endMinutes = timeToMinutes(nextTime);
+                                                                                const startMinutes = timeToMinutes(scheduleStartTimePart);
+                                                                                if (endMinutes == null || startMinutes == null || endMinutes <= startMinutes) {
+                                                                                    return;
+                                                                                }
+                                                                                setScheduleForm((current) => ({
+                                                                                    ...current,
+                                                                                    duration_minutes: String(endMinutes - startMinutes),
+                                                                                    availability_slot_id: "",
+                                                                                }));
+                                                                            }}
+                                                                        />
+                                                                        {renderScheduleFormError("scheduled_end_time")}
+                                                                    </div>
+                                                                </div>
+                                                                {scheduleDatePickerOpen ? (
+                                                                    <div className="absolute left-0 top-[66px] z-30 w-[360px] rounded-xl border border-slate-200 bg-white p-3 shadow-xl dark:border-slate-700 dark:bg-slate-950">
+                                                                        <div className="mb-2 flex items-center justify-between">
+                                                                            <span className="text-xs font-medium text-slate-500 dark:text-slate-400">{isZh ? "选择面试日期" : "Select date"}</span>
+                                                                            <button
+                                                                                type="button"
+                                                                                className="text-xs text-[#171717] dark:text-slate-100"
+                                                                                onClick={() => {
+                                                                                    clearScheduleFormError("scheduled_date");
+                                                                                    clearScheduleFormError("scheduled_start_time");
+                                                                                    clearScheduleFormError("scheduled_end_time");
+                                                                                    const nextTime = scheduleStartTimePart || "09:00";
+                                                                                    setScheduleForm((current) => ({
+                                                                                        ...current,
+                                                                                        scheduled_at: combineLocalDateTime(scheduleToday, nextTime),
+                                                                                        duration_minutes: current.duration_minutes || "60",
+                                                                                        availability_slot_id: "",
+                                                                                    }));
+                                                                                    setScheduleDatePickerOpen(false);
+                                                                                }}
+                                                                            >
+                                                                                {isZh ? "今天" : "Today"}
+                                                                            </button>
+                                                                        </div>
+                                                                        <div className="grid grid-cols-7 gap-1">
+                                                                            {scheduleDateOptions.map((date) => {
+                                                                                const parsed = parseLocalDateValue(date);
+                                                                                const active = date === scheduleDatePart;
+                                                                                const isToday = date === scheduleToday;
+                                                                                return (
+                                                                                    <button
+                                                                                        key={date}
+                                                                                        type="button"
+                                                                                        onClick={() => {
+                                                                                            clearScheduleFormError("scheduled_date");
+                                                                                            clearScheduleFormError("scheduled_start_time");
+                                                                                            clearScheduleFormError("scheduled_end_time");
+                                                                                            const nextTime = scheduleStartTimePart || "09:00";
+                                                                                            setScheduleForm((current) => ({
+                                                                                                ...current,
+                                                                                                scheduled_at: combineLocalDateTime(date, nextTime),
+                                                                                                duration_minutes: current.duration_minutes || "60",
+                                                                                                availability_slot_id: "",
+                                                                                            }));
+                                                                                            setScheduleDatePickerOpen(false);
+                                                                                        }}
+                                                                                        className={cn(
+                                                                                            "flex h-10 flex-col items-center justify-center rounded-lg text-xs transition",
+                                                                                            active
+                                                                                                ? "bg-[#171717] text-white shadow-sm dark:bg-slate-100 dark:text-slate-900"
+                                                                                                : isToday
+                                                                                                    ? "bg-neutral-100 text-[#171717] ring-1 ring-neutral-200 dark:bg-slate-800 dark:text-slate-100 dark:ring-slate-700"
+                                                                                                    : "text-slate-600 hover:bg-neutral-100 hover:text-[#171717] dark:text-slate-300 dark:hover:bg-slate-900 dark:hover:text-slate-100",
+                                                                                        )}
+                                                                                    >
+                                                                                        <span>{parsed ? parsed.getDate() : date.slice(-2)}</span>
+                                                                                        <span className={cn("mt-0.5 text-[10px]", active ? "text-white/80" : isToday ? "text-neutral-400" : "text-slate-300")}>
+                                                                                            {parsed ? new Intl.DateTimeFormat(isZh ? "zh-CN" : "en-US", {weekday: "short"}).format(parsed) : ""}
+                                                                                        </span>
+                                                                                    </button>
+                                                                                );
+                                                                            })}
+                                                                        </div>
+                                                                    </div>
+                                                                ) : null}
+                                                                <p className="text-[11px] text-slate-400 dark:text-slate-500">
+                                                                    {scheduleStartTimePart
+                                                                        ? (isZh ? `当前时长 ${formatDurationText(effectiveScheduleDurationMinutes, isZh)}` : `Duration ${formatDurationText(effectiveScheduleDurationMinutes, isZh)}`)
+                                                                        : (isZh ? "先选日期和开始时间，再选择结束时间。" : "Select date and start time, then end time.")}
+                                                                </p>
+                                                            </div>
+                                                            {scheduleForm.interview_method === "onsite" ? (
+                                                                <>
+                                                                    <Input value={scheduleForm.location} onChange={(e) => setScheduleForm((f) => ({...f, location: e.target.value}))} placeholder={isZh ? "面试地点" : "Interview location"}/>
+                                                                    <Input value={scheduleForm.meeting_room} onChange={(e) => setScheduleForm((f) => ({...f, meeting_room: e.target.value}))} placeholder={isZh ? "会议室" : "Meeting room"}/>
+                                                                </>
+                                                            ) : null}
+                                                            {scheduleForm.interview_method === "video" ? (
+                                                                <>
+                                                                    <NativeSelect value={scheduleForm.video_tool} onChange={(e) => setScheduleForm((f) => ({...f, video_tool: e.target.value}))} className="h-10">
+                                                                        {INTERVIEW_VIDEO_TOOL_OPTIONS.map((tool) => (
+                                                                            <option key={tool} value={tool}>{tool}</option>
+                                                                        ))}
+                                                                    </NativeSelect>
+                                                                    <Input value={scheduleForm.meeting_link} onChange={(e) => setScheduleForm((f) => ({...f, meeting_link: e.target.value}))} placeholder={isZh ? "会议链接/会议号" : "Meeting link / ID"}/>
+                                                                </>
+                                                            ) : null}
+                                                            {scheduleForm.interview_method === "phone" ? (
+                                                                <Input className="md:col-span-2" value={scheduleForm.contact_phone} onChange={(e) => setScheduleForm((f) => ({...f, contact_phone: e.target.value}))} placeholder={isZh ? "联系电话" : "Contact phone"}/>
+                                                            ) : null}
+                                                            <div className="md:col-span-2 grid gap-2 sm:grid-cols-2">
+                                                                {INTERVIEW_VISIBLE_SECTION_OPTIONS.map((option) => (
+                                                                    <label key={option.value} className="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300">
+                                                                        <input
+                                                                            type="checkbox"
+                                                                            className="accent-[#171717] dark:accent-slate-100"
+                                                                            checked={scheduleForm.visible_sections.includes(option.value)}
+                                                                            onChange={() => setScheduleForm((current) => ({
+                                                                                ...current,
+                                                                                visible_sections: current.visible_sections.includes(option.value)
+                                                                                    ? current.visible_sections.filter((item) => item !== option.value)
+                                                                                    : [...current.visible_sections, option.value],
+                                                                            }))}
+                                                                        />
+                                                                        <span>{isZh ? option.labelZh : option.labelEn}</span>
+                                                                    </label>
                                                                 ))}
-                                                            </NativeSelect>
-                                                            <NativeSelect
-                                                                value={scheduleForm.availability_slot_id}
-                                                                onChange={(event) => applyScheduleAvailabilitySlot(event.target.value)}
-                                                                disabled={!scheduleForm.interviewer_user_code || scheduleAvailabilityLoading}
-                                                                className="h-10"
-                                                            >
-                                                                <option value="">
-                                                                    {scheduleForm.interviewer_user_code
-                                                                        ? (isZh ? "选择可面试时间（可手动填写）" : "Select available time or fill manually")
-                                                                        : (isZh ? "先选择面试官" : "Select interviewer first")}
-                                                                </option>
-                                                                {scheduleAvailabilitySlots.map((slot) => (
-                                                                    <option key={slot.id} value={String(slot.id)}>
-                                                                        {formatDateTime(slot.start_at)} - {formatDateTime(slot.end_at)}{slot.notes ? ` · ${slot.notes}` : ""}
-                                                                    </option>
-                                                                ))}
-                                                            </NativeSelect>
-                                                            <Input type="datetime-local" value={scheduleForm.scheduled_at} onChange={(e) => setScheduleForm((f) => ({...f, scheduled_at: e.target.value}))} placeholder={tr.scheduleTime}/>
-                                                            <Input type="number" value={scheduleForm.duration_minutes} onChange={(e) => setScheduleForm((f) => ({...f, duration_minutes: e.target.value}))} placeholder={tr.scheduleDuration}/>
-                                                            <Input value={scheduleForm.location} onChange={(e) => setScheduleForm((f) => ({...f, location: e.target.value}))} placeholder={tr.scheduleLocation}/>
-                                                            <Input value={scheduleForm.meeting_link} onChange={(e) => setScheduleForm((f) => ({...f, meeting_link: e.target.value}))} placeholder={tr.scheduleMeetingLink}/>
+                                                            </div>
                                                         </div>
                                                         {scheduleForm.interviewer_user_code && !scheduleAvailabilityLoading && scheduleAvailabilitySlots.length === 0 ? (
                                                             <p className="text-xs text-amber-600">
@@ -5777,14 +6555,47 @@ export function CandidatesPage({
                                                         ) : null}
                                                         <Textarea value={scheduleForm.notes} onChange={(e) => setScheduleForm((f) => ({...f, notes: e.target.value}))} rows={2} placeholder={tr.scheduleNotes}/>
                                                         <div className="flex justify-end gap-2">
-                                                            <Button size="sm" variant="outline" onClick={() => setScheduleFormOpen(false)}>{tr.batchBindPositionCancel}</Button>
-                                                            <Button size="sm" disabled={scheduleSubmitting || !scheduleFormCanSubmit} onClick={async () => {
+                                                            <Button size="sm" variant="outline" onClick={() => {
+                                                                setScheduleFormErrors({});
+                                                                setScheduleDatePickerOpen(false);
+                                                                setScheduleFormOpen(false);
+                                                            }}>{tr.batchBindPositionCancel}</Button>
+                                                            <Button size="sm" disabled={scheduleSubmitting} onClick={async () => {
+                                                                const nextErrors: Partial<Record<CandidateScheduleFormErrorKey, string>> = {};
+                                                                if (!scheduleForm.subject.trim()) {
+                                                                    nextErrors.subject = scheduleRequiredText;
+                                                                }
+                                                                if (!scheduleForm.round_name.trim()) {
+                                                                    nextErrors.round_name = scheduleRequiredText;
+                                                                }
+                                                                if (!scheduleForm.interview_method) {
+                                                                    nextErrors.interview_method = scheduleRequiredText;
+                                                                }
+                                                                if (!scheduleForm.interviewer_user_code.trim()) {
+                                                                    nextErrors.interviewer_user_code = scheduleRequiredText;
+                                                                }
+                                                                if (!scheduleDatePart) {
+                                                                    nextErrors.scheduled_date = scheduleRequiredText;
+                                                                }
+                                                                if (!scheduleStartTimePart) {
+                                                                    nextErrors.scheduled_start_time = scheduleRequiredText;
+                                                                }
+                                                                if (!scheduleEndTimePart || effectiveScheduleDurationMinutes <= 0) {
+                                                                    nextErrors.scheduled_end_time = scheduleRequiredText;
+                                                                }
+                                                                if (Object.keys(nextErrors).length > 0) {
+                                                                    setScheduleFormErrors(nextErrors);
+                                                                    return;
+                                                                }
+                                                                setScheduleFormErrors({});
                                                                 setScheduleSubmitting(true);
                                                                 try {
                                                                     await createInterviewSchedule({
                                                                         candidate_id: candidateDetail.candidate.id,
+                                                                        subject: scheduleForm.subject.trim() || undefined,
                                                                         round_name: scheduleForm.round_name || undefined,
                                                                         round_index: scheduleForm.round_index ? Number(scheduleForm.round_index) : undefined,
+                                                                        interview_method: scheduleForm.interview_method,
                                                                         interviewer_user_code: scheduleForm.interviewer_user_code || undefined,
                                                                         interviewer_name: scheduleForm.interviewer_name || undefined,
                                                                         scheduled_at: scheduleForm.scheduled_at ? new Date(scheduleForm.scheduled_at).toISOString() : undefined,
@@ -5792,9 +6603,14 @@ export function CandidatesPage({
                                                                         availability_slot_id: scheduleForm.availability_slot_id ? Number(scheduleForm.availability_slot_id) : undefined,
                                                                         department_review_assignment_id: scheduleForm.department_review_assignment_id ? Number(scheduleForm.department_review_assignment_id) : undefined,
                                                                         location: scheduleForm.location || undefined,
+                                                                        meeting_room: scheduleForm.meeting_room || undefined,
+                                                                        video_tool: scheduleForm.video_tool || undefined,
                                                                         meeting_link: scheduleForm.meeting_link || undefined,
+                                                                        contact_phone: scheduleForm.contact_phone || undefined,
                                                                         notes: scheduleForm.notes || undefined,
+                                                                        visible_sections: scheduleForm.visible_sections,
                                                                     });
+                                                                    setScheduleDatePickerOpen(false);
                                                                     setScheduleFormOpen(false);
                                                                 } catch (error) {
                                                                     toast.error(isZh ? `安排面试失败：${formatActionError(error)}` : `Failed to schedule interview: ${formatActionError(error)}`);
@@ -5808,32 +6624,97 @@ export function CandidatesPage({
                                                         </div>
                                                     </div>
                                                 )}
-                                                <div className="mt-3 space-y-2">
-                                                    {interviewSchedules.length > 0 ? interviewSchedules.map((schedule) => (
-                                                        <div key={schedule.id} className="rounded-xl border border-slate-200/70 px-3 py-2 dark:border-slate-800">
-                                                            <div className="flex items-start justify-between gap-2">
-                                                                <div className="min-w-0 flex-1">
-                                                                    <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
-                                                                        {schedule.round_name}
-                                                                        {schedule.interviewer_name ? ` · ${schedule.interviewer_name}` : ""}
-                                                                    </p>
-                                                                    {schedule.scheduled_at && (
-                                                                        <p className="mt-0.5 flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
-                                                                            <Calendar className="h-3 w-3"/>
-                                                                            {new Date(schedule.scheduled_at).toLocaleString()}
-                                                                            {schedule.duration_minutes ? ` (${schedule.duration_minutes} min)` : ""}
+                                                <div className="mt-5">
+                                                    {sortedInterviewSchedules.length > 0 ? (
+                                                        <div className="relative pl-7">
+                                                            {sortedInterviewSchedules.map((schedule, index) => {
+                                                                const MethodIcon = interviewMethodIcon(schedule.interview_method);
+                                                                const isLast = index === sortedInterviewSchedules.length - 1;
+                                                                const meetingLink = String(schedule.meeting_link || "").trim();
+                                                                const meetingHref = /^https?:\/\//i.test(meetingLink) ? meetingLink : "";
+                                                                const method = String(schedule.interview_method || "onsite").trim().toLowerCase();
+                                                                const locationText = method === "video"
+                                                                    ? (schedule.location || "--")
+                                                                    : method === "phone"
+                                                                        ? (schedule.contact_phone || "--")
+                                                                        : (schedule.location || "--");
+                                                                return (
+                                                                    <div key={schedule.id} className="relative pb-7">
+                                                                        {!isLast ? <span className="absolute -left-[19px] top-5 bottom-0 w-px bg-sky-200 dark:bg-sky-900/70"/> : null}
+                                                                        <span className="absolute -left-[26px] top-1 flex h-4 w-4 items-center justify-center rounded-full bg-sky-500 ring-4 ring-sky-50 dark:bg-sky-400 dark:ring-sky-950">
+                                                                            <span className="h-1.5 w-1.5 rounded-full bg-white"/>
+                                                                        </span>
+                                                                        <p className="mb-2 text-[15px] font-semibold text-slate-900 dark:text-slate-100">
+                                                                            {schedule.round_name || (isZh ? "面试" : "Interview")}
                                                                         </p>
-                                                                    )}
-                                                                    {schedule.location && <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{schedule.location}</p>}
-                                                                    {schedule.meeting_link && <p className="mt-0.5 text-xs text-[#171717] dark:text-neutral-400 truncate">{schedule.meeting_link}</p>}
-                                                                    {schedule.notes && <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{schedule.notes}</p>}
-                                                                </div>
-                                                                <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-rose-500 hover:text-rose-700" onClick={() => { if (window.confirm(tr.confirmDeleteSchedule)) void deleteInterviewSchedule(schedule.id); }}>
-                                                                    <Trash2 className="h-3.5 w-3.5"/>
-                                                                </Button>
-                                                            </div>
+                                                                        <div className="overflow-hidden rounded-[6px] border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
+                                                                            <div className="bg-slate-50 px-4 py-3 dark:bg-slate-900/60">
+                                                                                <div className="flex flex-wrap items-start justify-between gap-3">
+                                                                                    <div className="min-w-0">
+                                                                                        <div className="flex flex-wrap items-center gap-2">
+                                                                                            <p className="text-[16px] font-semibold text-slate-900 dark:text-slate-100">
+                                                                                                {formatInterviewDateWithWeekday(schedule.scheduled_at, isZh)} - {formatInterviewTimeRange(schedule)}
+                                                                                            </p>
+                                                                                            <Badge variant="outline" className="h-6 gap-1 rounded-[3px] border-slate-200 bg-white px-2 text-[12px] text-slate-600 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300">
+                                                                                                <MethodIcon className="h-3.5 w-3.5"/>
+                                                                                                {interviewMethodLabel(schedule.interview_method, isZh)}
+                                                                                            </Badge>
+                                                                                            {schedule.subject ? (
+                                                                                                <span className="max-w-[320px] truncate text-[12px] text-slate-400 dark:text-slate-500">{schedule.subject}</span>
+                                                                                            ) : null}
+                                                                                        </div>
+                                                                                        <div className="mt-3 grid gap-x-10 gap-y-2 text-[13px] text-slate-600 dark:text-slate-300 md:grid-cols-2">
+                                                                                            <div><span className="mr-2 text-slate-400 dark:text-slate-500">{isZh ? "安排人" : "Creator"}</span>{schedule.created_by || "--"}</div>
+                                                                                            <div><span className="mr-2 text-slate-400 dark:text-slate-500">{isZh ? "面试地点" : "Location"}</span>{locationText}</div>
+                                                                                            <div><span className="mr-2 text-slate-400 dark:text-slate-500">{isZh ? "安排时间" : "Created"}</span>{formatInterviewDateTime(schedule.created_at, isZh)}</div>
+                                                                                            {method === "video" ? (
+                                                                                                <div className="min-w-0">
+                                                                                                    <span className="mr-2 text-slate-400 dark:text-slate-500">{isZh ? "视频工具" : "Video tool"}</span>
+                                                                                                    <span>{schedule.video_tool || "--"}</span>
+                                                                                                    {meetingLink ? (
+                                                                                                        <>
+                                                                                                            <span className="mx-1.5 text-slate-300">|</span>
+                                                                                                            {meetingHref ? (
+                                                                                                                <a className="font-medium text-[#2438ff] hover:underline" href={meetingHref} target="_blank" rel="noreferrer">{isZh ? "查看链接" : "Open link"}</a>
+                                                                                                            ) : (
+                                                                                                                <span className="break-all text-[#2438ff]">{meetingLink}</span>
+                                                                                                            )}
+                                                                                                        </>
+                                                                                                    ) : null}
+                                                                                                </div>
+                                                                                            ) : null}
+                                                                                            {method === "phone" ? (
+                                                                                                <div><span className="mr-2 text-slate-400 dark:text-slate-500">{isZh ? "联系电话" : "Phone"}</span>{schedule.contact_phone || "--"}</div>
+                                                                                            ) : null}
+                                                                                            {method === "onsite" && schedule.meeting_room ? (
+                                                                                                <div><span className="mr-2 text-slate-400 dark:text-slate-500">{isZh ? "会议室" : "Room"}</span>{schedule.meeting_room}</div>
+                                                                                            ) : null}
+                                                                                        </div>
+                                                                                    </div>
+                                                                                    <div className="flex shrink-0 items-center gap-2">
+                                                                                        <Badge variant="outline" className={cn("h-7 rounded-[3px] px-2.5 text-[12px]", interviewScheduleStatusClass(schedule))}>
+                                                                                            {interviewScheduleStatusLabel(schedule, isZh)}
+                                                                                        </Badge>
+                                                                                        <Button size="sm" variant="outline" className="h-8 rounded-[4px] px-2.5 text-[12px]" onClick={() => { if (window.confirm(tr.confirmDeleteSchedule)) void deleteInterviewSchedule(schedule.id); }}>
+                                                                                            <Trash2 className="h-3.5 w-3.5"/>
+                                                                                            {isZh ? "删除" : "Delete"}
+                                                                                        </Button>
+                                                                                    </div>
+                                                                                </div>
+                                                                            </div>
+                                                                            <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+                                                                                <div className="min-w-0 text-[14px] text-slate-700 dark:text-slate-300">
+                                                                                    <span className="font-medium text-slate-900 dark:text-slate-100">{schedule.interviewer_name || schedule.interviewer_user_code || "--"}</span>
+                                                                                    {schedule.interviewer_user_code && schedule.interviewer_name ? <span className="ml-1 text-slate-400">({schedule.interviewer_user_code})</span> : null}
+                                                                                </div>
+                                                                                {schedule.notes ? <p className="min-w-0 flex-1 truncate text-right text-[13px] text-slate-400 dark:text-slate-500">{schedule.notes}</p> : null}
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+                                                                );
+                                                            })}
                                                         </div>
-                                                    )) : (
+                                                    ) : (
                                                         <EmptyState title={tr.noSchedules} description={tr.noSchedulesDesc}/>
                                                     )}
                                                 </div>

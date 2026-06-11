@@ -233,29 +233,41 @@ class InterviewResultCreateRequest(BaseModel):
 class InterviewScheduleCreateRequest(BaseModel):
     candidate_id: int = Field(..., ge=1)
     position_id: Optional[int] = None
+    subject: Optional[str] = Field(None, max_length=200)
     round_name: str = Field("初试", min_length=1, max_length=80)
     round_index: int = Field(1, ge=1, le=20)
+    interview_method: Optional[str] = Field("onsite", max_length=50)
     interviewer_user_code: Optional[str] = Field(None, max_length=100)
     interviewer_name: Optional[str] = None
     scheduled_at: Optional[str] = None
     duration_minutes: int = Field(60, ge=1, le=480)
     location: Optional[str] = None
+    meeting_room: Optional[str] = Field(None, max_length=120)
+    video_tool: Optional[str] = Field(None, max_length=120)
     meeting_link: Optional[str] = None
+    contact_phone: Optional[str] = Field(None, max_length=50)
     notes: Optional[str] = None
+    visible_sections: Optional[List[str]] = None
     availability_slot_id: Optional[int] = Field(None, ge=1)
     department_review_assignment_id: Optional[int] = Field(None, ge=1)
 
 
 class InterviewScheduleUpdateRequest(BaseModel):
+    subject: Optional[str] = Field(None, max_length=200)
     round_name: Optional[str] = Field(None, min_length=1, max_length=80)
     round_index: Optional[int] = Field(None, ge=1, le=20)
+    interview_method: Optional[str] = Field(None, max_length=50)
     interviewer_user_code: Optional[str] = Field(None, max_length=100)
     interviewer_name: Optional[str] = None
     scheduled_at: Optional[str] = None
     duration_minutes: Optional[int] = Field(None, ge=1, le=480)
     location: Optional[str] = None
+    meeting_room: Optional[str] = Field(None, max_length=120)
+    video_tool: Optional[str] = Field(None, max_length=120)
     meeting_link: Optional[str] = None
+    contact_phone: Optional[str] = Field(None, max_length=50)
     notes: Optional[str] = None
+    visible_sections: Optional[List[str]] = None
     availability_slot_id: Optional[int] = Field(None, ge=1)
     status: Optional[str] = None
 
@@ -263,6 +275,7 @@ class InterviewScheduleUpdateRequest(BaseModel):
 class InterviewAvailabilitySlotRequest(BaseModel):
     start_at: str = Field(..., min_length=1)
     end_at: str = Field(..., min_length=1)
+    status: Optional[str] = Field("available", max_length=50)
     notes: Optional[str] = None
 
 

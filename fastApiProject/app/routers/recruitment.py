@@ -1582,11 +1582,12 @@ async def list_my_interview_tasks(
 @recruitment_router.get("/interviews/candidates/{candidate_id}")
 async def get_my_interview_candidate_detail(
     candidate_id: int,
+    schedule_id: Optional[int] = Query(None, ge=1),
     _session: Dict[str, Any] = Depends(require_script_hub_any_permission(["recruitment-interview-view", "recruitment-interview-act"])),
     service: RecruitmentService = Depends(get_recruitment_service),
 ):
     try:
-        data = service.get_interview_candidate_detail(candidate_id, _session.get("id") or "unknown")
+        data = service.get_interview_candidate_detail(candidate_id, _session.get("id") or "unknown", schedule_id=schedule_id)
         return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
     except ValueError as exc:
         raise HTTPException(status_code=403, detail=str(exc))
@@ -1595,11 +1596,12 @@ async def get_my_interview_candidate_detail(
 @recruitment_router.get("/interviews/resume-files/{resume_file_id}/download")
 async def download_my_interview_resume_file(
     resume_file_id: int,
+    schedule_id: Optional[int] = Query(None, ge=1),
     _session: Dict[str, Any] = Depends(require_script_hub_any_permission(["recruitment-interview-view", "recruitment-interview-act"])),
     service: RecruitmentService = Depends(get_recruitment_service),
 ):
     try:
-        payload = service.get_interview_resume_file_download(resume_file_id, _session.get("id") or "unknown")
+        payload = service.get_interview_resume_file_download(resume_file_id, _session.get("id") or "unknown", schedule_id=schedule_id)
         file_name = payload["file_name"] or "resume.bin"
         file_extension = f".{file_name.rsplit('.', 1)[1]}" if "." in file_name and not file_name.endswith(".") else ".bin"
         quoted_name = quote(file_name)

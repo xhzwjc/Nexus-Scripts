@@ -6,6 +6,7 @@ import {
     CalendarCheck,
     CalendarClock,
     Check,
+    ChevronLeft,
     ChevronRight,
     Clock3,
     Download,
@@ -15,8 +16,8 @@ import {
     Loader2,
     Mail,
     MapPin,
+    PencilLine,
     Phone,
-    Plus,
     RefreshCw,
     Search,
     Sparkles,
@@ -28,8 +29,16 @@ import {
 
 import {Badge} from "@/components/ui/badge";
 import {Button} from "@/components/ui/button";
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog";
 import {Input} from "@/components/ui/input";
 import {Textarea} from "@/components/ui/textarea";
+import {Tooltip, TooltipContent, TooltipTrigger} from "@/components/ui/tooltip";
 import {
     recruitmentApi,
     type CandidateDetail,
@@ -48,28 +57,142 @@ type InterviewFilter = "todo" | "today" | "completed" | "cancelled";
 type InterviewResult = "passed" | "next_round" | "hold" | "rejected" | "no_show";
 type PdfJsModule = typeof import("pdfjs-dist");
 type PdfLoadingTask = ReturnType<PdfJsModule["getDocument"]>;
+const PDF_RENDER_FIRST_PAGE_TIMEOUT_MS = 10000;
 const TIME_OPTION_STEP_MINUTES = 15;
 const TIME_OPTION_START_MINUTES = 7 * 60;
 const TIME_OPTION_END_MINUTES = 23 * 60 + 59;
+const AVAILABILITY_CALENDAR_START_MINUTES = 7 * 60;
+const AVAILABILITY_CALENDAR_END_MINUTES = 20 * 60;
+const AVAILABILITY_CALENDAR_STEP_MINUTES = 30;
+const AVAILABILITY_DEFAULT_SLOT_MINUTES = AVAILABILITY_CALENDAR_STEP_MINUTES;
+const AVAILABILITY_HOUR_HEIGHT = 56;
+const AVAILABILITY_CALENDAR_HOURS = Array.from(
+    {length: (AVAILABILITY_CALENDAR_END_MINUTES - AVAILABILITY_CALENDAR_START_MINUTES) / 60 + 1},
+    (_, index) => AVAILABILITY_CALENDAR_START_MINUTES + index * 60,
+);
+const AVAILABILITY_CALENDAR_CELL_STARTS = Array.from(
+    {length: (AVAILABILITY_CALENDAR_END_MINUTES - AVAILABILITY_CALENDAR_START_MINUTES) / AVAILABILITY_CALENDAR_STEP_MINUTES},
+    (_, index) => AVAILABILITY_CALENDAR_START_MINUTES + index * AVAILABILITY_CALENDAR_STEP_MINUTES,
+);
+const AVAILABILITY_CALENDAR_HEIGHT = ((AVAILABILITY_CALENDAR_END_MINUTES - AVAILABILITY_CALENDAR_START_MINUTES) / 60) * AVAILABILITY_HOUR_HEIGHT;
+
+type AvailabilitySlotStatus = "available" | "unavailable";
 
 type AvailabilityDraftSlot = {
     key: string;
     start_at: string;
     end_at: string;
+    status: AvailabilitySlotStatus;
     notes?: string;
 };
 
+type AvailabilityDragSelection = {
+    dateKey: string;
+    day: Date;
+    anchorMinutes: number;
+    currentMinutes: number;
+    mode: AvailabilitySlotStatus;
+};
+
+type AvailabilitySaveNotice = {
+    type: "success" | "error";
+    message: string;
+};
+
+class PdfRenderTimeoutError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = "PdfRenderTimeoutError";
+    }
+}
+
+function withPdfRenderTimeout<T>(promise: Promise<T>, message: string): Promise<T> {
+    let timeoutId: number | null = null;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+        timeoutId = window.setTimeout(() => {
+            reject(new PdfRenderTimeoutError(message));
+        }, PDF_RENDER_FIRST_PAGE_TIMEOUT_MS);
+    });
+    return Promise.race([promise, timeoutPromise]).finally(() => {
+        if (timeoutId !== null) {
+            window.clearTimeout(timeoutId);
+        }
+    });
+}
+
+type InterviewMethod = "onsite" | "video" | "phone";
+
+const INTERVIEW_ROUND_OPTIONS = [
+    {value: "初试", labelZh: "初试", labelEn: "First interview", roundIndex: 1},
+    {value: "复试", labelZh: "复试", labelEn: "Second interview", roundIndex: 2},
+    {value: "终试", labelZh: "终试", labelEn: "Final interview", roundIndex: 3},
+    {value: "加试", labelZh: "加试", labelEn: "Additional interview", roundIndex: null},
+] as const;
+
+const INTERVIEW_METHOD_OPTIONS: Array<{value: InterviewMethod; labelZh: string; labelEn: string}> = [
+    {value: "onsite", labelZh: "现场面试", labelEn: "Onsite"},
+    {value: "video", labelZh: "视频面试", labelEn: "Video"},
+    {value: "phone", labelZh: "电话面试", labelEn: "Phone"},
+];
+
+const INTERVIEW_VIDEO_TOOL_OPTIONS = ["腾讯会议", "飞书会议", "Zoom", "其他"];
+
+const INTERVIEW_VISIBLE_SECTION_OPTIONS = [
+    {value: "original_resume", labelZh: "原始简历", labelEn: "Original resume"},
+    {value: "standard_resume", labelZh: "标准简历", labelEn: "Standard resume"},
+    {value: "screening_result", labelZh: "初筛结果", labelEn: "Screening result"},
+    {value: "assessment_result", labelZh: "测评结果", labelEn: "Assessment result"},
+    {value: "interview_feedback", labelZh: "面试评价", labelEn: "Interview feedback"},
+    {value: "attachments", labelZh: "附加资料", labelEn: "Attachments"},
+] as const;
+
+const DEFAULT_INTERVIEW_VISIBLE_SECTIONS = ["original_resume", "standard_resume", "screening_result", "assessment_result"];
+
 type ScheduleFormState = {
+    subject: string;
     round_name: string;
     round_index: string;
+    interview_method: InterviewMethod;
     interviewer_user_code: string;
     interviewer_name: string;
     availability_slot_id: string;
     scheduled_at: string;
     duration_minutes: string;
     location: string;
+    meeting_room: string;
+    video_tool: string;
     meeting_link: string;
+    contact_phone: string;
     notes: string;
+    visible_sections: string[];
+};
+
+type ScheduleFormErrorKey =
+    | "subject"
+    | "round_name"
+    | "interview_method"
+    | "interviewer_user_code"
+    | "scheduled_date"
+    | "scheduled_start_time"
+    | "scheduled_end_time";
+
+type InterviewSchedulePayload = {
+    subject?: string;
+    round_name?: string;
+    round_index?: number;
+    interview_method?: string;
+    interviewer_user_code?: string;
+    interviewer_name?: string;
+    scheduled_at?: string;
+    duration_minutes?: number;
+    location?: string;
+    meeting_room?: string;
+    video_tool?: string;
+    meeting_link?: string;
+    contact_phone?: string;
+    notes?: string;
+    visible_sections?: string[];
+    availability_slot_id?: number;
 };
 
 type InterviewWorkbenchPageProps = {
@@ -85,22 +208,18 @@ type InterviewWorkbenchPageProps = {
     availabilityLoading: boolean;
     availabilitySaving: boolean;
     onRefresh: () => Promise<void>;
-    onSubmitResult: (scheduleId: number, resultStatus: InterviewResult, comment: string) => Promise<void>;
-    onCreateSchedule?: (payload: {
+    onSubmitResult: (
+        scheduleId: number,
+        resultStatus: InterviewResult,
+        comment: string,
+        options?: {next_round_name?: string | null},
+    ) => Promise<void>;
+    onCreateSchedule?: (payload: InterviewSchedulePayload & {
         candidate_id: number;
-        round_name?: string;
-        round_index?: number;
-        interviewer_user_code?: string;
-        interviewer_name?: string;
-        scheduled_at?: string;
-        duration_minutes?: number;
-        location?: string;
-        meeting_link?: string;
-        notes?: string;
-        availability_slot_id?: number;
         department_review_assignment_id?: number;
     }) => Promise<unknown>;
-    onSaveAvailability: (slots: Array<{start_at: string; end_at: string; notes?: string}>) => Promise<void>;
+    onUpdateSchedule?: (scheduleId: number, payload: InterviewSchedulePayload) => Promise<unknown>;
+    onSaveAvailability: (slots: Array<{start_at: string; end_at: string; status?: AvailabilitySlotStatus; notes?: string}>) => Promise<void>;
 };
 
 function toLocalInputValue(value?: string | null) {
@@ -113,10 +232,6 @@ function toLocalInputValue(value?: string | null) {
         pad(date.getMonth() + 1),
         pad(date.getDate()),
     ].join("-") + `T${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
-
-function normalizeInputDate(value: string) {
-    return value ? new Date(value).toISOString() : "";
 }
 
 function formatLocalDateValue(date: Date) {
@@ -210,6 +325,236 @@ function formatDurationText(minutes: number, isZh: boolean) {
     return rest ? `${hours}小时${rest}分钟` : `${hours}小时`;
 }
 
+function createDraftSlotKey() {
+    const cryptoSource = typeof globalThis !== "undefined" ? globalThis.crypto : undefined;
+    return cryptoSource && "randomUUID" in cryptoSource ? cryptoSource.randomUUID() : `${Date.now()}-${Math.random()}`;
+}
+
+function startOfAvailabilityWeek(date: Date) {
+    const next = new Date(date);
+    next.setHours(0, 0, 0, 0);
+    const day = next.getDay();
+    const diff = day === 0 ? -6 : 1 - day;
+    next.setDate(next.getDate() + diff);
+    return next;
+}
+
+function addDays(date: Date, days: number) {
+    const next = new Date(date);
+    next.setDate(next.getDate() + days);
+    return next;
+}
+
+function getAvailabilityWeekDays(weekStart: Date) {
+    return Array.from({length: 7}, (_, index) => addDays(weekStart, index));
+}
+
+function dateAtMinutes(day: Date, minutes: number) {
+    const next = new Date(day);
+    next.setHours(Math.floor(minutes / 60), minutes % 60, 0, 0);
+    return next;
+}
+
+function clampAvailabilityMinutes(minutes: number) {
+    return Math.max(AVAILABILITY_CALENDAR_START_MINUTES, Math.min(minutes, AVAILABILITY_CALENDAR_END_MINUTES));
+}
+
+function snapAvailabilityMinutes(minutes: number, mode: "floor" | "round") {
+    const stepped = mode === "floor"
+        ? Math.floor(minutes / AVAILABILITY_CALENDAR_STEP_MINUTES) * AVAILABILITY_CALENDAR_STEP_MINUTES
+        : Math.round(minutes / AVAILABILITY_CALENDAR_STEP_MINUTES) * AVAILABILITY_CALENDAR_STEP_MINUTES;
+    return clampAvailabilityMinutes(stepped);
+}
+
+function availabilityMinutesFromPointer(clientY: number, element: HTMLElement, mode: "floor" | "round") {
+    const rect = element.getBoundingClientRect();
+    if (!rect.height) return AVAILABILITY_CALENDAR_START_MINUTES;
+    const ratio = Math.max(0, Math.min(1, (clientY - rect.top) / rect.height));
+    const rawMinutes = AVAILABILITY_CALENDAR_START_MINUTES + ratio * (AVAILABILITY_CALENDAR_END_MINUTES - AVAILABILITY_CALENDAR_START_MINUTES);
+    return snapAvailabilityMinutes(rawMinutes, mode);
+}
+
+function rangeTouchesOrOverlaps(startA: number, endA: number, startB: number, endB: number) {
+    return startA <= endB && startB <= endA;
+}
+
+function availabilityRangeFromSelection(anchorMinutes: number, currentMinutes: number) {
+    const anchor = clampAvailabilityMinutes(anchorMinutes);
+    const current = clampAvailabilityMinutes(currentMinutes);
+    const start = Math.min(anchor, current);
+    const end = Math.max(anchor, current);
+    if (start === end) {
+        return {
+            startMinutes: Math.max(AVAILABILITY_CALENDAR_START_MINUTES, Math.min(start, AVAILABILITY_CALENDAR_END_MINUTES - AVAILABILITY_DEFAULT_SLOT_MINUTES)),
+            endMinutes: Math.min(start + AVAILABILITY_DEFAULT_SLOT_MINUTES, AVAILABILITY_CALENDAR_END_MINUTES),
+        };
+    }
+    return {
+        startMinutes: start,
+        endMinutes: Math.max(start + AVAILABILITY_CALENDAR_STEP_MINUTES, end),
+    };
+}
+
+function normalizeAvailabilityDraftStatus(status?: string | null): AvailabilitySlotStatus {
+    return status === "unavailable" ? "unavailable" : "available";
+}
+
+function createDraftSlotFromRange(
+    day: Date,
+    startMinutes: number,
+    endMinutes: number,
+    status: AvailabilitySlotStatus,
+    notes = "",
+): AvailabilityDraftSlot {
+    const start = dateAtMinutes(day, startMinutes);
+    const end = dateAtMinutes(day, endMinutes);
+    return {
+        key: createDraftSlotKey(),
+        start_at: toLocalInputValue(start.toISOString()),
+        end_at: toLocalInputValue(end.toISOString()),
+        status,
+        notes,
+    };
+}
+
+function parseLocalInputDate(value?: string | null) {
+    const normalized = String(value || "").trim();
+    if (!normalized) return null;
+    const date = new Date(normalized);
+    return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function minutesOfDate(date: Date) {
+    return date.getHours() * 60 + date.getMinutes();
+}
+
+function sameLocalDate(left: Date, right: Date) {
+    return formatLocalDateValue(left) === formatLocalDateValue(right);
+}
+
+function rangeOverlaps(startA: number, endA: number, startB: number, endB: number) {
+    return startA < endB && startB < endA;
+}
+
+function buildAvailabilityDraftSlots(slots: InterviewAvailabilitySlot[]) {
+    return slots
+        .map((slot) => ({slot, status: normalizeAvailabilityDraftStatus(slot.status)}))
+        .filter((item) => item.slot.status === "available" || item.slot.status === "unavailable")
+        .map(({slot, status}) => ({
+            key: String(slot.id),
+            start_at: toLocalInputValue(slot.start_at),
+            end_at: toLocalInputValue(slot.end_at),
+            status,
+            notes: slot.notes || "",
+        }));
+}
+
+function serializeAvailabilityDraftSlots(slots: AvailabilityDraftSlot[]) {
+    return slots
+        .map((slot) => ({
+            start_at: String(slot.start_at || "").slice(0, 16),
+            end_at: String(slot.end_at || "").slice(0, 16),
+            status: normalizeAvailabilityDraftStatus(slot.status),
+            notes: String(slot.notes || "").trim(),
+        }))
+        .filter((slot) => slot.start_at || slot.end_at || slot.notes)
+        .sort((left, right) => `${left.start_at}|${left.end_at}|${left.status}|${left.notes}`.localeCompare(`${right.start_at}|${right.end_at}|${right.status}|${right.notes}`))
+        .map((slot) => `${slot.start_at}|${slot.end_at}|${slot.status}|${slot.notes}`)
+        .join("\n");
+}
+
+function draftSlotRange(slot: AvailabilityDraftSlot) {
+    const start = parseLocalInputDate(slot.start_at);
+    const end = parseLocalInputDate(slot.end_at);
+    if (!start || !end || end <= start || !sameLocalDate(start, end)) return null;
+    return {
+        dateKey: formatLocalDateValue(start),
+        startMinutes: minutesOfDate(start),
+        endMinutes: minutesOfDate(end),
+    };
+}
+
+function availabilitySlotRange(slot: InterviewAvailabilitySlot) {
+    const start = slot.start_at ? new Date(slot.start_at) : null;
+    const end = slot.end_at ? new Date(slot.end_at) : null;
+    if (!start || !end || Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start || !sameLocalDate(start, end)) {
+        return null;
+    }
+    return {
+        dateKey: formatLocalDateValue(start),
+        startMinutes: minutesOfDate(start),
+        endMinutes: minutesOfDate(end),
+    };
+}
+
+function formatCalendarDateLabel(date: Date, isZh: boolean) {
+    const monthDay = new Intl.DateTimeFormat(isZh ? "zh-CN" : "en-US", {month: "2-digit", day: "2-digit"}).format(date);
+    const weekday = new Intl.DateTimeFormat(isZh ? "zh-CN" : "en-US", {weekday: "short"}).format(date);
+    return `${monthDay} ${weekday}`;
+}
+
+function formatCalendarBlockRange(startMinutes: number, endMinutes: number) {
+    return `${formatTimeValue(startMinutes)}-${formatTimeValue(endMinutes)}`;
+}
+
+function calendarBlockHeight(startMinutes: number, endMinutes: number) {
+    const durationMinutes = endMinutes - startMinutes;
+    const rawHeight = (durationMinutes / 60) * AVAILABILITY_HOUR_HEIGHT - 4;
+    return Math.max(durationMinutes <= AVAILABILITY_CALENDAR_STEP_MINUTES ? 24 : 32, rawHeight);
+}
+
+function TruncatedTooltipText({
+    text,
+    children,
+    className,
+    tooltipClassName,
+}: {
+    text?: string | null;
+    children?: React.ReactNode;
+    className?: string;
+    tooltipClassName?: string;
+}) {
+    const content = String(text || "").trim();
+    const triggerRef = React.useRef<HTMLSpanElement | null>(null);
+    const [enabled, setEnabled] = React.useState(false);
+
+    const updateEnabled = React.useCallback(() => {
+        const node = triggerRef.current;
+        setEnabled(Boolean(node && (node.scrollWidth > node.clientWidth + 1 || node.scrollHeight > node.clientHeight + 1)));
+    }, []);
+
+    if (!content) {
+        return <span className={cn("block min-w-0 truncate", className)}>{children}</span>;
+    }
+
+    return (
+        <Tooltip delayDuration={100}>
+            <TooltipTrigger asChild>
+                <span
+                    ref={triggerRef}
+                    className={cn("block min-w-0 truncate", className)}
+                    onPointerEnter={updateEnabled}
+                    onFocus={updateEnabled}
+                >
+                    {children ?? content}
+                </span>
+            </TooltipTrigger>
+            {enabled ? (
+                <TooltipContent
+                    side="top"
+                    sideOffset={6}
+                    className={cn(
+                        "max-w-[360px] whitespace-normal break-words rounded-md bg-slate-950 px-2.5 py-1.5 text-xs font-medium leading-4 text-white shadow-lg dark:bg-slate-950 dark:text-white",
+                        tooltipClassName,
+                    )}
+                >
+                    {content}
+                </TooltipContent>
+            ) : null}
+        </Tooltip>
+    );
+}
+
 function TimeSelect({
     value,
     options,
@@ -218,6 +563,7 @@ function TimeSelect({
     onChange,
     formatOption,
     className,
+    buttonClassName,
 }: {
     value: string;
     options: string[];
@@ -226,6 +572,7 @@ function TimeSelect({
     onChange: (value: string) => void;
     formatOption?: (value: string) => React.ReactNode;
     className?: string;
+    buttonClassName?: string;
 }) {
     const [open, setOpen] = React.useState(false);
 
@@ -249,62 +596,122 @@ function TimeSelect({
                     "flex h-9 w-full items-center justify-between rounded-lg border border-gray-100 bg-gray-50 px-2.5 text-left text-sm outline-none transition hover:border-neutral-200 focus:border-[#171717] dark:border-slate-700 dark:bg-slate-900 dark:hover:border-slate-600 dark:focus:border-slate-500",
                     value ? "text-slate-800 dark:text-slate-100" : "text-slate-400 dark:text-slate-500",
                     disabled ? "cursor-not-allowed text-slate-300 hover:border-gray-100 dark:text-slate-600 dark:hover:border-slate-700" : "",
+                    buttonClassName,
                 )}
             >
-                <span>{value || placeholder}</span>
+                <TruncatedTooltipText text={value || placeholder}>{value || placeholder}</TruncatedTooltipText>
                 <Clock3 className="h-3.5 w-3.5 shrink-0 text-slate-300 dark:text-slate-500"/>
             </button>
             {open && !disabled ? (
                 <div className="absolute left-0 top-[calc(100%+4px)] z-30 max-h-56 w-full overflow-y-auto rounded-lg border border-gray-100 bg-white py-1 shadow-xl dark:border-slate-700 dark:bg-slate-950">
-                    {options.map((time) => (
-                        <button
-                            key={time}
-                            type="button"
-                            onMouseDown={(event) => event.preventDefault()}
-                            onClick={() => {
-                                onChange(time);
-                                setOpen(false);
-                            }}
-                            className={cn(
-                                "flex h-8 w-full items-center px-3 text-left text-sm transition",
-                                time === value
-                                    ? "bg-neutral-100 text-[#171717] dark:bg-slate-800 dark:text-slate-100"
-                                    : "text-slate-700 hover:bg-gray-50 dark:text-slate-300 dark:hover:bg-slate-900",
-                            )}
-                        >
-                            {formatOption ? formatOption(time) : time}
-                        </button>
-                    ))}
+                    {options.map((time) => {
+                        const optionContent = formatOption ? formatOption(time) : time;
+                        const optionText = typeof optionContent === "string" ? optionContent : time;
+                        return (
+                            <button
+                                key={time}
+                                type="button"
+                                onMouseDown={(event) => event.preventDefault()}
+                                onClick={() => {
+                                    onChange(time);
+                                    setOpen(false);
+                                }}
+                                className={cn(
+                                    "flex h-8 w-full min-w-0 items-center px-3 text-left text-sm transition",
+                                    time === value
+                                        ? "bg-neutral-100 text-[#171717] dark:bg-slate-800 dark:text-slate-100"
+                                        : "text-slate-700 hover:bg-gray-50 dark:text-slate-300 dark:hover:bg-slate-900",
+                                )}
+                            >
+                                <TruncatedTooltipText text={optionText}>{optionContent}</TruncatedTooltipText>
+                            </button>
+                        );
+                    })}
                 </div>
             ) : null}
         </div>
     );
 }
 
-function createDraftSlot(): AvailabilityDraftSlot {
-    const start = new Date();
-    start.setMinutes(0, 0, 0);
-    start.setHours(start.getHours() + 1);
-    const end = new Date(start.getTime() + 60 * 60 * 1000);
-    return {
-        key: typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
-        start_at: toLocalInputValue(start.toISOString()),
-        end_at: toLocalInputValue(end.toISOString()),
-    };
+function interviewRoundNameForIndex(roundIndex: number) {
+    if (roundIndex <= 1) return "初试";
+    if (roundIndex === 2) return "复试";
+    if (roundIndex === 3) return "终试";
+    return "加试";
 }
 
-function createScheduleForm(roundIndex = 1): ScheduleFormState {
+function interviewRoundIndexForName(roundName: string, fallbackIndex: number) {
+    const option = INTERVIEW_ROUND_OPTIONS.find((item) => item.value === roundName);
+    return option?.roundIndex || Math.max(4, fallbackIndex || 4);
+}
+
+function defaultScheduleSubject(candidateName?: string | null) {
+    const name = String(candidateName || "").trim();
+    return name ? `${name}的面试` : "候选人的面试";
+}
+
+function normalizeScheduleInterviewMethod(value?: string | null): InterviewMethod {
+    return value === "video" || value === "phone" ? value : "onsite";
+}
+
+function createScheduleForm(roundIndex = 1, candidateName?: string | null, candidatePhone?: string | null): ScheduleFormState {
+    const roundName = interviewRoundNameForIndex(roundIndex);
     return {
-        round_name: roundIndex <= 1 ? "初试" : `第 ${roundIndex} 轮面试`,
-        round_index: String(roundIndex),
+        subject: defaultScheduleSubject(candidateName),
+        round_name: roundName,
+        round_index: String(roundName === "加试" ? Math.max(4, roundIndex) : interviewRoundIndexForName(roundName, roundIndex)),
+        interview_method: "onsite",
         interviewer_user_code: "",
         interviewer_name: "",
         availability_slot_id: "",
         scheduled_at: "",
         duration_minutes: "60",
         location: "",
+        meeting_room: "",
+        video_tool: "腾讯会议",
         meeting_link: "",
+        contact_phone: String(candidatePhone || "").trim(),
         notes: "",
+        visible_sections: [...DEFAULT_INTERVIEW_VISIBLE_SECTIONS],
+    };
+}
+
+function createScheduleFormFromTask(task: InterviewTask): ScheduleFormState {
+    const schedule = task.schedule;
+    if (!schedule) {
+        const nextRoundIndex = Math.max(1, Number(task.next_round_index || 1));
+        const fallback = createScheduleForm(nextRoundIndex, task.candidate.name, task.candidate.phone);
+        const nextRoundName = String(task.next_round_name || "").trim();
+        return nextRoundName
+            ? {
+                ...fallback,
+                round_name: nextRoundName,
+                round_index: String(interviewRoundIndexForName(nextRoundName, nextRoundIndex)),
+            }
+            : fallback;
+    }
+    const roundName = schedule.round_name || interviewRoundNameForIndex(Number(schedule.round_index || 1));
+    const fallback = createScheduleForm(Number(schedule.round_index || 1), task.candidate.name, task.candidate.phone);
+    return {
+        ...fallback,
+        subject: String(schedule.subject || "").trim() || fallback.subject,
+        round_name: roundName,
+        round_index: String(schedule.round_index || interviewRoundIndexForName(roundName, Number(schedule.round_index || 1))),
+        interview_method: normalizeScheduleInterviewMethod(schedule.interview_method),
+        interviewer_user_code: String(schedule.interviewer_user_code || ""),
+        interviewer_name: String(schedule.interviewer_name || ""),
+        availability_slot_id: schedule.availability_slot_id ? String(schedule.availability_slot_id) : "",
+        scheduled_at: toLocalInputValue(schedule.scheduled_at),
+        duration_minutes: String(schedule.duration_minutes || fallback.duration_minutes),
+        location: String(schedule.location || ""),
+        meeting_room: String(schedule.meeting_room || ""),
+        video_tool: String(schedule.video_tool || "") || fallback.video_tool,
+        meeting_link: String(schedule.meeting_link || ""),
+        contact_phone: String(schedule.contact_phone || task.candidate.phone || "").trim(),
+        notes: String(schedule.notes || ""),
+        visible_sections: Array.isArray(schedule.visible_sections)
+            ? schedule.visible_sections
+            : [...DEFAULT_INTERVIEW_VISIBLE_SECTIONS],
     };
 }
 
@@ -401,8 +808,14 @@ function formatBytes(value?: number | null) {
 
 function isPdfResume(file?: ResumeFile | null, blob?: Blob | null) {
     const ext = String(file?.file_ext || "").toLowerCase();
+    const name = String(file?.original_name || "").toLowerCase();
     const mime = String(file?.mime_type || blob?.type || "").toLowerCase();
-    return ext.includes("pdf") || mime.includes("pdf");
+    return ext.includes("pdf") || name.endsWith(".pdf") || mime.includes("pdf");
+}
+
+async function isPdfBlob(blob: Blob) {
+    const header = new Uint8Array(await blob.slice(0, 5).arrayBuffer());
+    return String.fromCharCode(...header) === "%PDF-";
 }
 
 function InterviewResumePdfPreview({
@@ -419,31 +832,10 @@ function InterviewResumePdfPreview({
     onError: (message: string) => void;
 }) {
     const hostRef = React.useRef<HTMLDivElement | null>(null);
-    const [hostWidth, setHostWidth] = React.useState(0);
-
-    React.useEffect(() => {
-        const node = hostRef.current;
-        if (!node) return;
-
-        const updateWidth = () => {
-            const nextWidth = Math.floor(node.clientWidth);
-            setHostWidth((current) => Math.abs(current - nextWidth) > 2 ? nextWidth : current);
-        };
-        updateWidth();
-
-        if (typeof ResizeObserver === "undefined") {
-            window.addEventListener("resize", updateWidth);
-            return () => window.removeEventListener("resize", updateWidth);
-        }
-
-        const observer = new ResizeObserver(updateWidth);
-        observer.observe(node);
-        return () => observer.disconnect();
-    }, []);
 
     React.useEffect(() => {
         const host = hostRef.current;
-        if (!host || !blob || hostWidth <= 0) return;
+        if (!host || !blob) return;
 
         let cancelled = false;
         let loadingTask: PdfLoadingTask | null = null;
@@ -459,21 +851,47 @@ function InterviewResumePdfPreview({
                 onReady();
             }
         };
+        const measureHostWidth = () => Math.floor(host.clientWidth || host.parentElement?.clientWidth || 0);
+        const waitForHostWidth = async () => {
+            for (let attempt = 0; attempt < 10; attempt += 1) {
+                const width = measureHostWidth();
+                if (width > 0 || cancelled) {
+                    return width;
+                }
+                await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+            }
+            return measureHostWidth();
+        };
 
         clearHost();
 
         const renderPdf = async () => {
             const pdfjsLib = await import("pdfjs-dist/build/pdf.mjs") as PdfJsModule;
-            pdfjsLib.GlobalWorkerOptions.workerSrc = "/vendor/pdfjs/pdf.worker.min.mjs";
             const arrayBuffer = await blob.arrayBuffer();
             if (cancelled) return;
+            const measuredHostWidth = await waitForHostWidth();
+            if (cancelled) return;
+            if (measuredHostWidth <= 0) {
+                throw new Error(isZh ? "简历预览区域尚未准备好" : "Resume preview area is not ready");
+            }
 
+            const sourceBytes = new Uint8Array(arrayBuffer);
+            pdfjsLib.GlobalWorkerOptions.workerSrc = "/vendor/pdfjs/pdf.worker.min.mjs";
             loadingTask = pdfjsLib.getDocument({
-                data: new Uint8Array(arrayBuffer),
+                data: sourceBytes,
                 verbosity: 0,
+                useWorkerFetch: false,
             });
-            const pdf = await loadingTask.promise;
-            const pageHostWidth = Math.max(320, Math.min(hostWidth - 8, 820));
+            const pdf = await withPdfRenderTimeout(
+                loadingTask.promise,
+                isZh ? "PDF 文档加载超时" : "PDF document loading timed out",
+            );
+            if (cancelled) {
+                await pdf.destroy();
+                return;
+            }
+
+            const pageHostWidth = Math.max(320, Math.min(measuredHostWidth - 8, 760));
             const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
 
             for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
@@ -500,16 +918,24 @@ function InterviewResumePdfPreview({
                     pageNumber === 1 && "pt-0",
                     pageNumber === pdf.numPages && "pb-0",
                 );
-                pageShell.appendChild(canvas);
-                host.appendChild(pageShell);
 
-                await page.render({
+                const renderTask = page.render({
                     canvas,
                     canvasContext,
                     viewport,
                     transform: pixelRatio !== 1 ? [pixelRatio, 0, 0, pixelRatio, 0, 0] : undefined,
                     background: "#fff",
-                }).promise;
+                });
+                await withPdfRenderTimeout(
+                    renderTask.promise,
+                    isZh ? "PDF 页面渲染超时" : "PDF page rendering timed out",
+                );
+                if (cancelled) {
+                    page.cleanup();
+                    break;
+                }
+                pageShell.appendChild(canvas);
+                host.appendChild(pageShell);
                 page.cleanup();
 
                 if (pageNumber === 1) {
@@ -537,11 +963,11 @@ function InterviewResumePdfPreview({
                 void loadingTask.destroy().catch(() => undefined);
             }
         };
-    }, [blob, hostWidth, isZh, onError, onReady]);
+    }, [blob, isZh, onError, onReady]);
 
     return (
-        <div className="h-full overflow-auto bg-white">
-            <div ref={hostRef} aria-label={fileName} className="mx-auto min-h-full w-full bg-white px-4 py-5"/>
+        <div className="h-full overflow-auto bg-white [scrollbar-gutter:stable] [scrollbar-width:thin] [scrollbar-color:rgba(148,163,184,0.82)_transparent] [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 dark:[scrollbar-color:rgba(71,85,105,0.9)_transparent] dark:[&::-webkit-scrollbar-thumb]:bg-slate-700">
+            <div ref={hostRef} aria-label={fileName} className="mx-auto min-h-full w-full bg-white px-4 py-6"/>
         </div>
     );
 }
@@ -561,6 +987,7 @@ export function InterviewWorkbenchPage({
     onRefresh,
     onSubmitResult,
     onCreateSchedule,
+    onUpdateSchedule,
     onSaveAvailability,
 }: InterviewWorkbenchPageProps) {
     const {language} = useI18n();
@@ -575,12 +1002,17 @@ export function InterviewWorkbenchPage({
     const [selectedResumeFileId, setSelectedResumeFileId] = React.useState<number | null>(null);
     const [resumePreviewBlob, setResumePreviewBlob] = React.useState<Blob | null>(null);
     const [resumePreviewUrl, setResumePreviewUrl] = React.useState<string | null>(null);
+    const [resumePreviewFallback, setResumePreviewFallback] = React.useState(false);
+    const [resumePreviewDetectedPdf, setResumePreviewDetectedPdf] = React.useState(false);
     const [resumePreviewLoading, setResumePreviewLoading] = React.useState(false);
     const [resumePreviewReady, setResumePreviewReady] = React.useState(false);
     const [resumePreviewError, setResumePreviewError] = React.useState<string | null>(null);
     const [scheduleTask, setScheduleTask] = React.useState<InterviewTask | null>(null);
+    const [scheduleEditingId, setScheduleEditingId] = React.useState<number | null>(null);
     const [scheduleForm, setScheduleForm] = React.useState<ScheduleFormState>(() => createScheduleForm());
+    const [scheduleFormErrors, setScheduleFormErrors] = React.useState<Partial<Record<ScheduleFormErrorKey, string>>>({});
     const [scheduleDatePickerOpen, setScheduleDatePickerOpen] = React.useState(false);
+    const [scheduleSlotsOpen, setScheduleSlotsOpen] = React.useState(false);
     const [interviewerOptions, setInterviewerOptions] = React.useState<DepartmentReviewReviewerOption[]>([]);
     const [interviewerLoading, setInterviewerLoading] = React.useState(false);
     const [scheduleSlots, setScheduleSlots] = React.useState<InterviewAvailabilitySlot[]>([]);
@@ -589,20 +1021,54 @@ export function InterviewWorkbenchPage({
     const [commentBySchedule, setCommentBySchedule] = React.useState<Record<number, string>>({});
     const [submittingKey, setSubmittingKey] = React.useState<string | null>(null);
     const [draftSlots, setDraftSlots] = React.useState<AvailabilityDraftSlot[]>([]);
+    const [availabilityDialogOpen, setAvailabilityDialogOpen] = React.useState(false);
+    const [availabilityWeekStart, setAvailabilityWeekStart] = React.useState(() => startOfAvailabilityWeek(new Date()));
+    const [availabilityEditMode, setAvailabilityEditMode] = React.useState<AvailabilitySlotStatus>("available");
+    const [availabilityCloseConfirmOpen, setAvailabilityCloseConfirmOpen] = React.useState(false);
+    const [availabilityDragSelection, setAvailabilityDragSelection] = React.useState<AvailabilityDragSelection | null>(null);
+    const [availabilitySaveNotice, setAvailabilitySaveNotice] = React.useState<AvailabilitySaveNotice | null>(null);
+    const availabilityDragSelectionRef = React.useRef<AvailabilityDragSelection | null>(null);
+    const availabilityCloseTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
     const normalizedCurrentUserCode = React.useMemo(() => String(currentUserCode || "").trim(), [currentUserCode]);
     const showAvailabilityEditor = canSubmitInterviewResults && !canManageInterview;
+    const scheduleRequiredText = isZh ? "必填" : "Required";
+    const scheduleRequiredErrorClass = "border-rose-500 bg-rose-50/30 focus:border-rose-500 dark:border-rose-500 dark:bg-rose-950/10 dark:focus:border-rose-500";
+    const clearScheduleFormError = React.useCallback((field: ScheduleFormErrorKey) => {
+        setScheduleFormErrors((current) => {
+            if (!current[field]) return current;
+            const next = {...current};
+            delete next[field];
+            return next;
+        });
+    }, []);
+    const renderScheduleFormError = (field: ScheduleFormErrorKey) => (
+        scheduleFormErrors[field] ? <p className="mt-1 text-xs leading-4 text-rose-500">{scheduleFormErrors[field]}</p> : null
+    );
 
     React.useEffect(() => {
-        const editable = availabilitySlots
-            .filter((slot) => slot.status === "available")
-            .map((slot) => ({
-                key: String(slot.id),
-                start_at: toLocalInputValue(slot.start_at),
-                end_at: toLocalInputValue(slot.end_at),
-                notes: slot.notes || "",
-            }));
-        setDraftSlots(editable.length ? editable : [createDraftSlot()]);
+        setDraftSlots(buildAvailabilityDraftSlots(availabilitySlots));
     }, [availabilitySlots]);
+
+    React.useEffect(() => {
+        availabilityDragSelectionRef.current = availabilityDragSelection;
+    }, [availabilityDragSelection]);
+
+    React.useEffect(() => () => {
+        if (availabilityCloseTimerRef.current) {
+            clearTimeout(availabilityCloseTimerRef.current);
+        }
+    }, []);
+
+    const availabilityBaselineKey = React.useMemo(() => (
+        serializeAvailabilityDraftSlots(buildAvailabilityDraftSlots(availabilitySlots))
+    ), [availabilitySlots]);
+    const availabilityDraftKey = React.useMemo(() => serializeAvailabilityDraftSlots(draftSlots), [draftSlots]);
+    const availabilityDirty = availabilityBaselineKey !== availabilityDraftKey;
+    const availabilityWeekDays = React.useMemo(() => getAvailabilityWeekDays(availabilityWeekStart), [availabilityWeekStart]);
+    const availabilityMinWeekStart = React.useMemo(() => startOfAvailabilityWeek(new Date()), []);
+    const availabilityMaxWeekStart = React.useMemo(() => addDays(availabilityMinWeekStart, 7), [availabilityMinWeekStart]);
+    const bookedSlots = React.useMemo(() => availabilitySlots.filter((slot) => slot.status === "booked"), [availabilitySlots]);
+    const availableDraftSlots = React.useMemo(() => draftSlots.filter((slot) => slot.status === "available"), [draftSlots]);
 
     const tabs = React.useMemo(() => [
         {key: "todo" as const, label: isZh ? "待面试" : "To interview", count: counts.todo},
@@ -638,7 +1104,217 @@ export function InterviewWorkbenchPage({
         });
     }, [isZh, positionFilter, query, resultFilter, tasks]);
 
-    const bookedSlots = availabilitySlots.filter((slot) => slot.status === "booked");
+    const availabilityWeekLabel = React.useMemo(() => {
+        const weekEnd = addDays(availabilityWeekStart, 6);
+        return `${formatCalendarDateLabel(availabilityWeekStart, isZh)} - ${formatCalendarDateLabel(weekEnd, isZh)}`;
+    }, [availabilityWeekStart, isZh]);
+
+    const currentWeekDraftCount = React.useMemo(() => {
+        const dayKeys = new Set(availabilityWeekDays.map(formatLocalDateValue));
+        return draftSlots.filter((slot) => {
+            const range = draftSlotRange(slot);
+            return range ? dayKeys.has(range.dateKey) : false;
+        }).length;
+    }, [availabilityWeekDays, draftSlots]);
+
+    const currentWeekAvailableDraftCount = React.useMemo(() => {
+        const dayKeys = new Set(availabilityWeekDays.map(formatLocalDateValue));
+        return availableDraftSlots.filter((slot) => {
+            const range = draftSlotRange(slot);
+            return range ? dayKeys.has(range.dateKey) : false;
+        }).length;
+    }, [availabilityWeekDays, availableDraftSlots]);
+
+    const upcomingBookedSlots = React.useMemo(() => {
+        const now = new Date();
+        return [...bookedSlots]
+            .filter((slot) => {
+                const start = slot.start_at ? new Date(slot.start_at) : null;
+                return start && !Number.isNaN(start.getTime()) && start >= now;
+            })
+            .sort((left, right) => new Date(left.start_at || "").getTime() - new Date(right.start_at || "").getTime())
+            .slice(0, 4);
+    }, [bookedSlots]);
+
+    const resetAvailabilityDrafts = React.useCallback(() => {
+        setDraftSlots(buildAvailabilityDraftSlots(availabilitySlots));
+    }, [availabilitySlots]);
+
+    const requestCloseAvailabilityDialog = React.useCallback(() => {
+        if (availabilityDirty) {
+            setAvailabilityCloseConfirmOpen(true);
+            return;
+        }
+        setAvailabilityCloseConfirmOpen(false);
+        setAvailabilityDialogOpen(false);
+    }, [availabilityDirty]);
+
+    const openAvailabilityDialog = React.useCallback(() => {
+        if (availabilityCloseTimerRef.current) {
+            clearTimeout(availabilityCloseTimerRef.current);
+            availabilityCloseTimerRef.current = null;
+        }
+        setAvailabilityWeekStart(startOfAvailabilityWeek(new Date()));
+        setAvailabilityEditMode("available");
+        setAvailabilityCloseConfirmOpen(false);
+        setAvailabilitySaveNotice(null);
+        setAvailabilityDialogOpen(true);
+    }, []);
+
+    const handleAvailabilityDialogOpenChange = React.useCallback((open: boolean) => {
+        if (open) {
+            openAvailabilityDialog();
+            return;
+        }
+        requestCloseAvailabilityDialog();
+    }, [openAvailabilityDialog, requestCloseAvailabilityDialog]);
+
+    const discardAvailabilityDraftChanges = React.useCallback(() => {
+        resetAvailabilityDrafts();
+        setAvailabilityCloseConfirmOpen(false);
+        setAvailabilitySaveNotice(null);
+        setAvailabilityDialogOpen(false);
+    }, [resetAvailabilityDrafts]);
+
+    const removeAvailabilitySlot = React.useCallback((slotKey: string) => {
+        setDraftSlots((current) => current.filter((slot) => slot.key !== slotKey));
+        setAvailabilityCloseConfirmOpen(false);
+    }, []);
+
+    const commitAvailabilityRange = React.useCallback((day: Date, startMinutes: number, endMinutes: number, status: AvailabilitySlotStatus) => {
+        const rangeStart = Math.max(
+            AVAILABILITY_CALENDAR_START_MINUTES,
+            Math.min(startMinutes, AVAILABILITY_CALENDAR_END_MINUTES - AVAILABILITY_CALENDAR_STEP_MINUTES),
+        );
+        const rangeEnd = Math.max(
+            rangeStart + AVAILABILITY_CALENDAR_STEP_MINUTES,
+            Math.min(endMinutes, AVAILABILITY_CALENDAR_END_MINUTES),
+        );
+        const dateKey = formatLocalDateValue(day);
+
+        if (dateAtMinutes(day, rangeStart) < new Date()) {
+            setAvailabilitySaveNotice({type: "error", message: isZh ? "不能添加过去的时间段" : "Cannot add a past time range."});
+            return;
+        }
+
+        const bookedConflict = bookedSlots.some((slot) => {
+            const range = availabilitySlotRange(slot);
+            return range
+                ? range.dateKey === dateKey && rangeOverlaps(range.startMinutes, range.endMinutes, rangeStart, rangeEnd)
+                : false;
+        });
+
+        if (bookedConflict) {
+            setAvailabilitySaveNotice({type: "error", message: isZh ? "该时间段已被占用" : "This time range is booked."});
+            return;
+        }
+
+        const oppositeStatus = status === "available" ? "unavailable" : "available";
+        const oppositeConflict = draftSlots.some((slot) => {
+            if (slot.status !== oppositeStatus) return false;
+            const slotRange = draftSlotRange(slot);
+            return slotRange && slotRange.dateKey === dateKey
+                ? rangeOverlaps(slotRange.startMinutes, slotRange.endMinutes, rangeStart, rangeEnd)
+                : false;
+        });
+
+        if (oppositeConflict) {
+            setAvailabilitySaveNotice({
+                type: "error",
+                message: isZh ? "可面试时间和不可面试时间不能重叠" : "Available and unavailable time cannot overlap.",
+            });
+            return;
+        }
+
+        setAvailabilitySaveNotice(null);
+        setDraftSlots((current) => {
+            let mergedStart = rangeStart;
+            let mergedEnd = rangeEnd;
+            let mergedNotes = "";
+            const remaining: AvailabilityDraftSlot[] = [];
+
+            current.forEach((slot) => {
+                const slotRange = draftSlotRange(slot);
+                if (
+                    slot.status === status
+                    && slotRange
+                    && slotRange.dateKey === dateKey
+                    && rangeTouchesOrOverlaps(slotRange.startMinutes, slotRange.endMinutes, mergedStart, mergedEnd)
+                ) {
+                    mergedStart = Math.min(mergedStart, slotRange.startMinutes);
+                    mergedEnd = Math.max(mergedEnd, slotRange.endMinutes);
+                    if (!mergedNotes && slot.notes?.trim()) {
+                        mergedNotes = slot.notes.trim();
+                    }
+                    return;
+                }
+                remaining.push(slot);
+            });
+
+            return [
+                ...remaining,
+                createDraftSlotFromRange(day, mergedStart, mergedEnd, status, mergedNotes),
+            ].sort((left, right) => {
+                const leftDate = parseLocalInputDate(left.start_at);
+                const rightDate = parseLocalInputDate(right.start_at);
+                return (leftDate?.getTime() || 0) - (rightDate?.getTime() || 0);
+            });
+        });
+        setAvailabilityCloseConfirmOpen(false);
+    }, [bookedSlots, draftSlots, isZh]);
+
+    const startAvailabilityDrag = React.useCallback((day: Date, minutes: number) => {
+        const startMinutes = Math.max(
+            AVAILABILITY_CALENDAR_START_MINUTES,
+            Math.min(minutes, AVAILABILITY_CALENDAR_END_MINUTES - AVAILABILITY_CALENDAR_STEP_MINUTES),
+        );
+        const selection = {
+            dateKey: formatLocalDateValue(day),
+            day,
+            anchorMinutes: startMinutes,
+            currentMinutes: startMinutes,
+            mode: availabilityEditMode,
+        };
+        availabilityDragSelectionRef.current = selection;
+        setAvailabilityDragSelection(selection);
+        setAvailabilityCloseConfirmOpen(false);
+    }, [availabilityEditMode]);
+
+    const updateAvailabilityDrag = React.useCallback((day: Date, minutes: number) => {
+        const active = availabilityDragSelectionRef.current;
+        const dateKey = formatLocalDateValue(day);
+        if (!active || active.dateKey !== dateKey) return;
+        const nextSelection = {
+            ...active,
+            currentMinutes: clampAvailabilityMinutes(minutes),
+        };
+        availabilityDragSelectionRef.current = nextSelection;
+        setAvailabilityDragSelection(nextSelection);
+    }, []);
+
+    const finishAvailabilityDrag = React.useCallback(() => {
+        const active = availabilityDragSelectionRef.current;
+        if (!active) return;
+        const selectedRange = availabilityRangeFromSelection(active.anchorMinutes, active.currentMinutes);
+        availabilityDragSelectionRef.current = null;
+        setAvailabilityDragSelection(null);
+        commitAvailabilityRange(active.day, selectedRange.startMinutes, selectedRange.endMinutes, active.mode);
+    }, [commitAvailabilityRange]);
+
+    React.useEffect(() => {
+        if (!availabilityDragSelection) return;
+        const handlePointerUp = () => finishAvailabilityDrag();
+        const handlePointerCancel = () => {
+            availabilityDragSelectionRef.current = null;
+            setAvailabilityDragSelection(null);
+        };
+        window.addEventListener("pointerup", handlePointerUp);
+        window.addEventListener("pointercancel", handlePointerCancel);
+        return () => {
+            window.removeEventListener("pointerup", handlePointerUp);
+            window.removeEventListener("pointercancel", handlePointerCancel);
+        };
+    }, [availabilityDragSelection, finishAvailabilityDrag]);
 
     React.useEffect(() => {
         if (!selectedTask) {
@@ -655,9 +1331,12 @@ export function InterviewWorkbenchPage({
         setSelectedCandidateDetailError(null);
         setSelectedResumeFileId(null);
 
+        const detailParams = !canManageInterview && selectedTask.schedule?.id
+            ? `?${new URLSearchParams({schedule_id: String(selectedTask.schedule.id)}).toString()}`
+            : "";
         const detailPath = canManageInterview
             ? `/candidates/${selectedTask.candidate.id}`
-            : `/interviews/candidates/${selectedTask.candidate.id}`;
+            : `/interviews/candidates/${selectedTask.candidate.id}${detailParams}`;
         void recruitmentApi<CandidateDetail>(detailPath, {
             signal: abortController.signal,
         })
@@ -710,6 +1389,8 @@ export function InterviewWorkbenchPage({
 
         setResumePreviewBlob(null);
         setResumePreviewUrl(null);
+        setResumePreviewFallback(false);
+        setResumePreviewDetectedPdf(false);
         setResumePreviewLoading(false);
         setResumePreviewReady(false);
         setResumePreviewError(null);
@@ -719,9 +1400,12 @@ export function InterviewWorkbenchPage({
         }
 
         setResumePreviewLoading(true);
+        const downloadParams = !canManageInterview && selectedTask.schedule?.id
+            ? `?${new URLSearchParams({schedule_id: String(selectedTask.schedule.id)}).toString()}`
+            : "";
         const downloadPath = canManageInterview
             ? `/api/recruitment/resume-files/${selectedResumeFile.id}/download`
-            : `/api/recruitment/interviews/resume-files/${selectedResumeFile.id}/download`;
+            : `/api/recruitment/interviews/resume-files/${selectedResumeFile.id}/download${downloadParams}`;
         void authenticatedFetch(downloadPath, {
             method: "GET",
             cache: "no-store",
@@ -733,12 +1417,17 @@ export function InterviewWorkbenchPage({
                 }
                 return response.blob();
             })
-            .then((blob) => {
+            .then(async (blob) => {
+                if (abortController.signal.aborted) return;
+                const detectedPdf = isPdfResume(selectedResumeFile, blob) || await isPdfBlob(blob).catch(() => false);
                 if (abortController.signal.aborted) return;
                 objectUrl = URL.createObjectURL(blob);
                 setResumePreviewBlob(blob);
                 setResumePreviewUrl(objectUrl);
+                setResumePreviewFallback(false);
+                setResumePreviewDetectedPdf(detectedPdf);
                 setResumePreviewLoading(false);
+                setResumePreviewError(null);
             })
             .catch((error) => {
                 if (abortController.signal.aborted) return;
@@ -759,6 +1448,7 @@ export function InterviewWorkbenchPage({
 
     const openTaskDetail = React.useCallback((task: InterviewTask) => {
         setScheduleTask(null);
+        setScheduleEditingId(null);
         setSelectedTask(task);
     }, []);
 
@@ -775,6 +1465,16 @@ export function InterviewWorkbenchPage({
         }
         return !assignedUserCode || assignedUserCode === normalizedCurrentUserCode;
     }, [canSubmitInterviewResults, normalizedCurrentUserCode]);
+
+    const canEditTaskSchedule = React.useCallback((task: InterviewTask) => {
+        const status = task.schedule?.status;
+        return Boolean(
+            canManageInterview
+            && onUpdateSchedule
+            && task.schedule
+            && (!status || ["scheduled", "confirmed", "in_progress"].includes(status)),
+        );
+    }, [canManageInterview, onUpdateSchedule]);
 
     const resultLockMessage = React.useCallback((task: InterviewTask) => {
         const schedule = task.schedule;
@@ -800,9 +1500,12 @@ export function InterviewWorkbenchPage({
         if (!task.schedule || !canSubmitTaskResult(task)) return;
         const scheduleId = task.schedule.id;
         const key = `${scheduleId}:${result}`;
+        const roundName = String(task.schedule.round_name || "").trim();
+        const roundIndex = Number(task.schedule.round_index || (roundName ? interviewRoundIndexForName(roundName, 1) : 1) || 1);
+        const nextRoundName = result === "next_round" ? interviewRoundNameForIndex(roundIndex + 1) : undefined;
         setSubmittingKey(key);
         try {
-            await onSubmitResult(scheduleId, result, commentBySchedule[scheduleId] || "");
+            await onSubmitResult(scheduleId, result, commentBySchedule[scheduleId] || "", {next_round_name: nextRoundName});
             setCommentBySchedule((current) => ({...current, [scheduleId]: ""}));
         } catch (error) {
             toast.error(isZh ? `提交面试结果失败：${formatActionError(error)}` : `Failed to submit interview result: ${formatActionError(error)}`);
@@ -853,14 +1556,39 @@ export function InterviewWorkbenchPage({
     }, [isZh]);
 
     const openScheduleDrawer = React.useCallback((task: InterviewTask) => {
-        const nextRoundIndex = Math.max(1, Number(task.schedule?.round_index || 0) + (task.schedule ? 1 : 0));
         setScheduleTask(task);
+        setScheduleEditingId(null);
         setSelectedTask(null);
-        setScheduleForm(createScheduleForm(nextRoundIndex));
+        setScheduleForm(task.schedule
+            ? createScheduleForm(Math.max(1, Number(task.schedule.round_index || 0) + 1), task.candidate.name, task.candidate.phone)
+            : createScheduleFormFromTask(task));
+        setScheduleFormErrors({});
         setScheduleDatePickerOpen(false);
+        setScheduleSlotsOpen(false);
         setScheduleSlots([]);
         void loadInterviewers(task.candidate.org_code);
     }, [loadInterviewers]);
+
+    const openEditScheduleDrawer = React.useCallback((task: InterviewTask) => {
+        if (!task.schedule || !canEditTaskSchedule(task)) return;
+        setScheduleTask(task);
+        setScheduleEditingId(task.schedule.id);
+        setSelectedTask(null);
+        setScheduleForm(createScheduleFormFromTask(task));
+        setScheduleFormErrors({});
+        setScheduleDatePickerOpen(false);
+        setScheduleSlotsOpen(false);
+        setScheduleSlots([]);
+        void loadInterviewers(task.candidate.org_code);
+    }, [canEditTaskSchedule, loadInterviewers]);
+
+    const closeScheduleDrawer = React.useCallback(() => {
+        setScheduleTask(null);
+        setScheduleEditingId(null);
+        setScheduleFormErrors({});
+        setScheduleDatePickerOpen(false);
+        setScheduleSlotsOpen(false);
+    }, []);
 
     const applyScheduleSlot = React.useCallback((slotId: string) => {
         const slot = scheduleSlots.find((item) => String(item.id) === slotId);
@@ -878,7 +1606,16 @@ export function InterviewWorkbenchPage({
                 duration_minutes: String(duration),
             };
         });
+        setScheduleFormErrors((current) => {
+            if (!current.scheduled_date && !current.scheduled_start_time && !current.scheduled_end_time) return current;
+            const next = {...current};
+            delete next.scheduled_date;
+            delete next.scheduled_start_time;
+            delete next.scheduled_end_time;
+            return next;
+        });
         setScheduleDatePickerOpen(false);
+        setScheduleSlotsOpen(false);
     }, [scheduleSlots]);
 
     const selectedInterviewer = React.useMemo(() => (
@@ -891,42 +1628,139 @@ export function InterviewWorkbenchPage({
     }, [loadScheduleSlots, scheduleForm.interviewer_user_code, scheduleTask]);
 
     const saveAvailability = async () => {
-        const normalized = draftSlots
-            .map((slot) => ({
-                start_at: normalizeInputDate(slot.start_at),
-                end_at: normalizeInputDate(slot.end_at),
+        const normalized: Array<{start_at: string; end_at: string; status: AvailabilitySlotStatus; notes?: string}> = [];
+        const ranges: Array<{dateKey: string; startMinutes: number; endMinutes: number; status: AvailabilitySlotStatus}> = [];
+        setAvailabilitySaveNotice(null);
+
+        for (const slot of draftSlots) {
+            if (!slot.start_at && !slot.end_at && !slot.notes?.trim()) {
+                continue;
+            }
+            const status = normalizeAvailabilityDraftStatus(slot.status);
+            const start = parseLocalInputDate(slot.start_at);
+            const end = parseLocalInputDate(slot.end_at);
+            if (!start || !end) {
+                setAvailabilitySaveNotice({type: "error", message: isZh ? "请补全时间段的开始和结束时间" : "Complete start and end time."});
+                return;
+            }
+            if (end <= start) {
+                setAvailabilitySaveNotice({type: "error", message: isZh ? "结束时间必须晚于开始时间" : "End time must be later than start time."});
+                return;
+            }
+            if (!sameLocalDate(start, end)) {
+                setAvailabilitySaveNotice({type: "error", message: isZh ? "单个时间段需要在同一天内" : "Each time slot must stay within one day."});
+                return;
+            }
+            const range = {
+                dateKey: formatLocalDateValue(start),
+                startMinutes: minutesOfDate(start),
+                endMinutes: minutesOfDate(end),
+                status,
+            };
+            if (ranges.some((item) => item.dateKey === range.dateKey && rangeOverlaps(item.startMinutes, item.endMinutes, range.startMinutes, range.endMinutes))) {
+                setAvailabilitySaveNotice({type: "error", message: isZh ? "时间段不能相互重叠" : "Time slots cannot overlap."});
+                return;
+            }
+            if (bookedSlots.some((item) => {
+                const bookedRange = availabilitySlotRange(item);
+                return bookedRange
+                    ? bookedRange.dateKey === range.dateKey && rangeOverlaps(bookedRange.startMinutes, bookedRange.endMinutes, range.startMinutes, range.endMinutes)
+                    : false;
+            })) {
+                setAvailabilitySaveNotice({type: "error", message: isZh ? "时间段不能覆盖已占用时间" : "Time slots cannot overlap booked interviews."});
+                return;
+            }
+            ranges.push(range);
+            normalized.push({
+                start_at: start.toISOString(),
+                end_at: end.toISOString(),
+                status,
                 notes: slot.notes?.trim() || undefined,
-            }))
-            .filter((slot) => slot.start_at && slot.end_at);
-        await onSaveAvailability(normalized);
+            });
+        }
+        try {
+            await onSaveAvailability(normalized);
+            setAvailabilityCloseConfirmOpen(false);
+            setAvailabilitySaveNotice({type: "success", message: isZh ? "面试时间已保存" : "Interview time saved"});
+            if (availabilityCloseTimerRef.current) {
+                clearTimeout(availabilityCloseTimerRef.current);
+            }
+            availabilityCloseTimerRef.current = setTimeout(() => {
+                setAvailabilityDialogOpen(false);
+                setAvailabilitySaveNotice(null);
+                availabilityCloseTimerRef.current = null;
+            }, 650);
+        } catch (error) {
+            setAvailabilitySaveNotice({type: "error", message: isZh ? `保存面试时间失败：${formatActionError(error)}` : `Failed to save interview time: ${formatActionError(error)}`});
+        }
     };
 
     const submitSchedule = async () => {
-        if (!scheduleTask || !onCreateSchedule) return;
-        if (!scheduleForm.interviewer_user_code || !scheduleForm.scheduled_at || Number(scheduleForm.duration_minutes || 0) <= 0) {
-            toast.error(isZh ? "请选择面试官、时间和面试时长" : "Select interviewer, time, and duration.");
+        if (!scheduleTask) return;
+        const editingScheduleId = scheduleEditingId;
+        if (editingScheduleId ? !onUpdateSchedule : !onCreateSchedule) return;
+        const nextErrors: Partial<Record<ScheduleFormErrorKey, string>> = {};
+        if (!scheduleForm.subject.trim()) {
+            nextErrors.subject = scheduleRequiredText;
+        }
+        if (!scheduleForm.round_name.trim()) {
+            nextErrors.round_name = scheduleRequiredText;
+        }
+        if (!scheduleForm.interview_method) {
+            nextErrors.interview_method = scheduleRequiredText;
+        }
+        if (!scheduleForm.interviewer_user_code.trim()) {
+            nextErrors.interviewer_user_code = scheduleRequiredText;
+        }
+        if (!scheduleDatePart) {
+            nextErrors.scheduled_date = scheduleRequiredText;
+        }
+        if (!scheduleStartTimePart) {
+            nextErrors.scheduled_start_time = scheduleRequiredText;
+        }
+        if (!scheduleEndTimePart || Number(scheduleForm.duration_minutes || 0) <= 0) {
+            nextErrors.scheduled_end_time = scheduleRequiredText;
+        }
+        if (Object.keys(nextErrors).length > 0) {
+            setScheduleFormErrors(nextErrors);
             return;
         }
+        setScheduleFormErrors({});
         setScheduleSaving(true);
         try {
-            await onCreateSchedule({
-                candidate_id: scheduleTask.candidate.id,
+            const payload: InterviewSchedulePayload = {
+                subject: scheduleForm.subject.trim(),
                 round_name: scheduleForm.round_name || undefined,
                 round_index: scheduleForm.round_index ? Number(scheduleForm.round_index) : undefined,
+                interview_method: scheduleForm.interview_method,
                 interviewer_user_code: scheduleForm.interviewer_user_code,
                 interviewer_name: scheduleForm.interviewer_name || (selectedInterviewer ? reviewerLabel(selectedInterviewer) : undefined),
                 scheduled_at: scheduleForm.scheduled_at ? new Date(scheduleForm.scheduled_at).toISOString() : undefined,
                 duration_minutes: scheduleForm.duration_minutes ? Number(scheduleForm.duration_minutes) : undefined,
                 availability_slot_id: scheduleForm.availability_slot_id ? Number(scheduleForm.availability_slot_id) : undefined,
                 location: scheduleForm.location.trim() || undefined,
+                meeting_room: scheduleForm.meeting_room.trim() || undefined,
+                video_tool: scheduleForm.video_tool.trim() || undefined,
                 meeting_link: scheduleForm.meeting_link.trim() || undefined,
+                contact_phone: scheduleForm.contact_phone.trim() || undefined,
                 notes: scheduleForm.notes.trim() || undefined,
-                department_review_assignment_id: scheduleTask.schedule?.department_review_assignment_id || undefined,
-            });
-            setScheduleTask(null);
+                visible_sections: scheduleForm.visible_sections,
+            };
+            if (editingScheduleId) {
+                await onUpdateSchedule!(editingScheduleId, payload);
+            } else {
+                await onCreateSchedule!({
+                    candidate_id: scheduleTask.candidate.id,
+                    ...payload,
+                    department_review_assignment_id: scheduleTask.schedule?.department_review_assignment_id || undefined,
+                });
+            }
+            closeScheduleDrawer();
             await onRefresh();
         } catch (error) {
-            toast.error(isZh ? `安排面试失败：${formatActionError(error)}` : `Failed to schedule interview: ${formatActionError(error)}`);
+            toast.error(editingScheduleId
+                ? (isZh ? `保存面试失败：${formatActionError(error)}` : `Failed to update interview: ${formatActionError(error)}`)
+                : (isZh ? `安排面试失败：${formatActionError(error)}` : `Failed to schedule interview: ${formatActionError(error)}`));
         } finally {
             setScheduleSaving(false);
         }
@@ -987,8 +1821,7 @@ export function InterviewWorkbenchPage({
         selectedParseResult?.summary || null,
     ].filter((item): item is string => Boolean(String(item || "").trim())).slice(0, 3);
     const selectedConcerns = Array.isArray(selectedScore?.concerns) ? selectedScore.concerns.filter(Boolean).slice(0, 2) : [];
-    const selectedResumeIsPdf = isPdfResume(selectedResumeFile, resumePreviewBlob);
-    const selectedResumeRawText = selectedParseResult?.raw_text || "";
+    const selectedResumeIsPdf = resumePreviewDetectedPdf || isPdfResume(selectedResumeFile, resumePreviewBlob);
     const scheduleDateOptions = React.useMemo(() => buildDateOptions(35), []);
     const scheduleToday = todayDateValue();
     const scheduleDateTime = localDateTimeParts(scheduleForm.scheduled_at);
@@ -1015,6 +1848,177 @@ export function InterviewWorkbenchPage({
     const scheduleEndTimeSelectOptions = scheduleEndTimePart && !scheduleEndTimeOptions.includes(scheduleEndTimePart)
         ? [...scheduleEndTimeOptions, scheduleEndTimePart].sort((a, b) => (timeToMinutes(a) || 0) - (timeToMinutes(b) || 0))
         : scheduleEndTimeOptions;
+
+    const renderAvailabilityDayColumn = (day: Date) => {
+        const dayKey = formatLocalDateValue(day);
+        const draftBlocks = draftSlots
+            .map((slot) => ({slot, range: draftSlotRange(slot)}))
+            .filter((item): item is {slot: AvailabilityDraftSlot; range: NonNullable<ReturnType<typeof draftSlotRange>>} => Boolean(item.range && item.range.dateKey === dayKey));
+        const bookedBlocks = bookedSlots
+            .map((slot) => ({slot, range: availabilitySlotRange(slot)}))
+            .filter((item): item is {slot: InterviewAvailabilitySlot; range: NonNullable<ReturnType<typeof availabilitySlotRange>>} => Boolean(item.range && item.range.dateKey === dayKey));
+        const activeDragRange = availabilityDragSelection?.dateKey === dayKey
+            ? availabilityRangeFromSelection(availabilityDragSelection.anchorMinutes, availabilityDragSelection.currentMinutes)
+            : null;
+        const activeDragMode = availabilityDragSelection?.mode || availabilityEditMode;
+        const activeDragCompact = activeDragRange
+            ? activeDragRange.endMinutes - activeDragRange.startMinutes <= AVAILABILITY_CALENDAR_STEP_MINUTES
+            : false;
+
+        return (
+            <div
+                key={dayKey}
+                className="relative cursor-crosshair select-none border-l border-gray-100 bg-white dark:border-slate-800 dark:bg-slate-950"
+                style={{height: AVAILABILITY_CALENDAR_HEIGHT}}
+                onPointerDown={(event) => {
+                    if (event.button !== 0) return;
+                    const target = event.target instanceof HTMLElement ? event.target : null;
+                    if (target?.closest("[data-availability-delete]")) return;
+                    const minutes = availabilityMinutesFromPointer(event.clientY, event.currentTarget, "floor");
+                    if (dateAtMinutes(day, Math.min(minutes, AVAILABILITY_CALENDAR_END_MINUTES - AVAILABILITY_CALENDAR_STEP_MINUTES)) < new Date()) {
+                        setAvailabilitySaveNotice({type: "error", message: isZh ? "不能添加过去的时间段" : "Cannot add a past time range."});
+                        return;
+                    }
+                    event.preventDefault();
+                    startAvailabilityDrag(day, minutes);
+                }}
+                onPointerMove={(event) => {
+                    const active = availabilityDragSelectionRef.current;
+                    if (!active || active.dateKey !== dayKey) return;
+                    if (event.pointerType === "mouse" && event.buttons !== 1) return;
+                    updateAvailabilityDrag(day, availabilityMinutesFromPointer(event.clientY, event.currentTarget, "round"));
+                }}
+                onPointerUp={(event) => {
+                    const active = availabilityDragSelectionRef.current;
+                    if (!active || active.dateKey !== dayKey) return;
+                    event.preventDefault();
+                    finishAvailabilityDrag();
+                }}
+            >
+                {AVAILABILITY_CALENDAR_CELL_STARTS.map((minutes) => {
+                    const pastCell = dateAtMinutes(day, minutes) < new Date();
+                    return (
+                        <div
+                            key={`${dayKey}-${minutes}`}
+                            aria-label={`${formatCalendarDateLabel(day, isZh)} ${formatTimeValue(minutes)}`}
+                            className={cn(
+                                "absolute left-0 w-full border-t border-gray-100 text-left transition focus:outline-none dark:border-slate-800",
+                                pastCell
+                                    ? "cursor-not-allowed bg-slate-50/60 dark:bg-slate-900/50"
+                                    : availabilityEditMode === "available"
+                                        ? "hover:bg-emerald-50/60 focus:bg-emerald-50/80 dark:hover:bg-emerald-950/20 dark:focus:bg-emerald-950/30"
+                                        : "hover:bg-slate-100/70 focus:bg-slate-100/90 dark:hover:bg-slate-800/45 dark:focus:bg-slate-800/60",
+                            )}
+                            style={{
+                                top: ((minutes - AVAILABILITY_CALENDAR_START_MINUTES) / 60) * AVAILABILITY_HOUR_HEIGHT,
+                                height: (AVAILABILITY_CALENDAR_STEP_MINUTES / 60) * AVAILABILITY_HOUR_HEIGHT,
+                            }}
+                        />
+                    );
+                })}
+                {activeDragRange ? (
+                    <div
+                        className={cn(
+                            "pointer-events-none absolute left-1.5 right-1.5 z-10 rounded-md border border-dashed px-2 text-xs",
+                            activeDragMode === "available"
+                                ? "border-emerald-300 bg-emerald-100/55 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-200"
+                                : "border-slate-300 bg-slate-100/70 text-slate-700 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-200",
+                            activeDragCompact ? "py-1" : "py-1.5",
+                        )}
+                        style={{
+                            top: ((activeDragRange.startMinutes - AVAILABILITY_CALENDAR_START_MINUTES) / 60) * AVAILABILITY_HOUR_HEIGHT + 2,
+                            height: calendarBlockHeight(activeDragRange.startMinutes, activeDragRange.endMinutes),
+                        }}
+                    >
+                        <p className="truncate font-semibold">{formatCalendarBlockRange(activeDragRange.startMinutes, activeDragRange.endMinutes)}</p>
+                    </div>
+                ) : null}
+                {bookedBlocks.map(({slot, range}) => {
+                    const blockStart = Math.max(range.startMinutes, AVAILABILITY_CALENDAR_START_MINUTES);
+                    const blockEnd = Math.min(range.endMinutes, AVAILABILITY_CALENDAR_END_MINUTES);
+                    const compactBlock = range.endMinutes - range.startMinutes <= AVAILABILITY_CALENDAR_STEP_MINUTES;
+                    if (blockEnd <= blockStart) return null;
+                    return (
+                        <div
+                            key={`booked-${slot.id}`}
+                            className={cn(
+                                "absolute left-1.5 right-1.5 z-20 overflow-hidden rounded-md border border-neutral-200 bg-neutral-100 px-2 text-xs text-neutral-700 shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200",
+                                compactBlock ? "py-1" : "py-1.5",
+                            )}
+                            style={{
+                                top: ((blockStart - AVAILABILITY_CALENDAR_START_MINUTES) / 60) * AVAILABILITY_HOUR_HEIGHT + 2,
+                                height: calendarBlockHeight(blockStart, blockEnd),
+                            }}
+                        >
+                            <p className="truncate font-medium">{formatCalendarBlockRange(range.startMinutes, range.endMinutes)}</p>
+                            {!compactBlock ? (
+                                <p className="mt-0.5 truncate text-[11px] text-neutral-500 dark:text-slate-400">{isZh ? "已占用" : "Booked"}</p>
+                            ) : null}
+                        </div>
+                    );
+                })}
+                {draftBlocks.map(({slot, range}) => {
+                    const blockStart = Math.max(range.startMinutes, AVAILABILITY_CALENDAR_START_MINUTES);
+                    const blockEnd = Math.min(range.endMinutes, AVAILABILITY_CALENDAR_END_MINUTES);
+                    const compactBlock = range.endMinutes - range.startMinutes <= AVAILABILITY_CALENDAR_STEP_MINUTES;
+                    const isAvailableBlock = slot.status === "available";
+                    const editableBlock = slot.status === availabilityEditMode;
+                    if (blockEnd <= blockStart) return null;
+                    return (
+                        <div
+                            key={slot.key}
+                            className={cn(
+                                "absolute left-1.5 right-1.5 z-30 overflow-hidden rounded-md border px-2 text-xs shadow-sm",
+                                isAvailableBlock
+                                    ? "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900/70 dark:bg-emerald-950/40 dark:text-emerald-200"
+                                    : "border-slate-200 bg-slate-100 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200",
+                                compactBlock ? "py-1" : "py-1.5",
+                            )}
+                            style={{
+                                top: ((blockStart - AVAILABILITY_CALENDAR_START_MINUTES) / 60) * AVAILABILITY_HOUR_HEIGHT + 2,
+                                height: calendarBlockHeight(blockStart, blockEnd),
+                            }}
+                        >
+                            <div className={cn("h-full", editableBlock ? "pr-5" : "")}>
+                                <div className="min-w-0">
+                                    <p className="truncate font-semibold">{formatCalendarBlockRange(range.startMinutes, range.endMinutes)}</p>
+                                    {!compactBlock ? (
+                                        <p
+                                            className={cn(
+                                                "mt-0.5 truncate text-[11px]",
+                                                isAvailableBlock ? "text-emerald-700 dark:text-emerald-300" : "text-slate-500 dark:text-slate-300",
+                                            )}
+                                        >
+                                            {slot.notes || (isAvailableBlock ? (isZh ? "可面试" : "Available") : (isZh ? "不可面试" : "Unavailable"))}
+                                        </p>
+                                    ) : null}
+                                </div>
+                                {editableBlock ? (
+                                    <button
+                                        type="button"
+                                        data-availability-delete="true"
+                                        className={cn(
+                                            "absolute right-1.5 rounded hover:bg-white hover:text-rose-500 dark:hover:bg-slate-900 dark:hover:text-rose-300",
+                                            isAvailableBlock ? "text-emerald-500 dark:text-emerald-300" : "text-slate-500 dark:text-slate-300",
+                                            compactBlock ? "top-[2px] p-0" : "top-1 p-0.5",
+                                        )}
+                                        onPointerDown={(event) => event.stopPropagation()}
+                                        onClick={(event) => {
+                                            event.stopPropagation();
+                                            removeAvailabilitySlot(slot.key);
+                                        }}
+                                        aria-label={isAvailableBlock ? (isZh ? "删除可面试时间" : "Remove availability") : (isZh ? "删除不可面试时间" : "Remove unavailable time")}
+                                    >
+                                        <Trash2 className={cn(compactBlock ? "h-3 w-3" : "h-3.5 w-3.5")}/>
+                                    </button>
+                                ) : null}
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
+        );
+    };
 
     return (
         <div className="flex h-full min-h-0 flex-col bg-gray-50 px-5 py-4 text-slate-800 dark:bg-slate-950 dark:text-slate-300">
@@ -1189,7 +2193,19 @@ export function InterviewWorkbenchPage({
                                                                 )}
                                                             />
                                                             {lockMessage ? <p className="text-right text-xs text-slate-400 dark:text-slate-500">{lockMessage}</p> : null}
-                                                            {renderResultActions(task)}
+                                                            <div className="flex flex-wrap justify-end gap-1.5">
+                                                                {canEditTaskSchedule(task) ? (
+                                                                    <Button
+                                                                        size="sm"
+                                                                        className="h-7 rounded-md bg-[#2438ff] px-2 text-xs text-white hover:bg-[#1f31db]"
+                                                                        onClick={() => openEditScheduleDrawer(task)}
+                                                                    >
+                                                                        <PencilLine className="h-3.5 w-3.5"/>
+                                                                        {isZh ? "编辑面试" : "Edit interview"}
+                                                                    </Button>
+                                                                ) : null}
+                                                                {renderResultActions(task)}
+                                                            </div>
                                                         </>
                                                     )}
                                                 </div>
@@ -1205,63 +2221,34 @@ export function InterviewWorkbenchPage({
                 {showAvailabilityEditor ? (
                     <aside className="flex min-h-0 flex-col gap-4 overflow-auto">
                         <section className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950">
-                            <div className="flex items-center justify-between">
-                                <div>
-                                    <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{isZh ? "我的可面试时间" : "My availability"}</p>
-                                    <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">{isZh ? "招聘人事排期时会优先选择这些时间段" : "HR can schedule interviews in these slots."}</p>
+                            <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                    <div className="flex items-center gap-2">
+                                        <CalendarCheck className="h-4 w-4 text-[#171717] dark:text-slate-200"/>
+                                        <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{isZh ? "我的可面试时间" : "My availability"}</p>
+                                        {availabilityLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-300 dark:text-slate-500"/> : null}
+                                    </div>
+                                    <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">{isZh ? "招聘人事排期时会看到这些时间段" : "HR sees these slots when scheduling."}</p>
                                 </div>
-                                <Button variant="outline" size="sm" className="h-8 rounded-lg px-2.5 text-xs dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800" onClick={() => setDraftSlots((current) => [...current, createDraftSlot()])}>
-                                    <Plus className="h-3.5 w-3.5"/>
-                                    {isZh ? "添加" : "Add"}
+                                <Button variant="outline" size="sm" className="h-8 shrink-0 rounded-lg px-2.5 text-xs dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800" onClick={openAvailabilityDialog}>
+                                    <CalendarClock className="h-3.5 w-3.5"/>
+                                    {isZh ? "设置" : "Set"}
                                 </Button>
                             </div>
-                            <div className="mt-4 space-y-2">
-                                {draftSlots.map((slot, index) => (
-                                    <div key={slot.key} className="rounded-lg border border-gray-100 bg-gray-50 p-2 dark:border-slate-800 dark:bg-slate-900/70">
-                                        <div className="mb-1.5 flex items-center justify-between">
-                                            <span className="text-xs font-medium text-slate-600 dark:text-slate-300">{formatRange(normalizeInputDate(slot.start_at), normalizeInputDate(slot.end_at))}</span>
-                                            <button
-                                                type="button"
-                                                className="rounded-md p-1 text-slate-300 hover:bg-white hover:text-rose-500 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-rose-300"
-                                                onClick={() => setDraftSlots((current) => current.length > 1 ? current.filter((item) => item.key !== slot.key) : current)}
-                                                aria-label={isZh ? `删除第 ${index + 1} 个时间段` : `Remove slot ${index + 1}`}
-                                            >
-                                                <Trash2 className="h-3.5 w-3.5"/>
-                                            </button>
-                                        </div>
-                                        <div className="grid grid-cols-2 gap-1.5">
-                                            <label className="space-y-1">
-                                                <span className="text-[11px] text-slate-400 dark:text-slate-500">{isZh ? "开始" : "Start"}</span>
-                                                <Input
-                                                    type="datetime-local"
-                                                    value={slot.start_at}
-                                                    onChange={(event) => setDraftSlots((current) => current.map((item) => item.key === slot.key ? {...item, start_at: event.target.value} : item))}
-                                                    className="h-8 rounded-md border-gray-100 bg-white text-xs dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200"
-                                                />
-                                            </label>
-                                            <label className="space-y-1">
-                                                <span className="text-[11px] text-slate-400 dark:text-slate-500">{isZh ? "结束" : "End"}</span>
-                                                <Input
-                                                    type="datetime-local"
-                                                    value={slot.end_at}
-                                                    onChange={(event) => setDraftSlots((current) => current.map((item) => item.key === slot.key ? {...item, end_at: event.target.value} : item))}
-                                                    className="h-8 rounded-md border-gray-100 bg-white text-xs dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200"
-                                                />
-                                            </label>
-                                        </div>
-                                        <Input
-                                            value={slot.notes || ""}
-                                            onChange={(event) => setDraftSlots((current) => current.map((item) => item.key === slot.key ? {...item, notes: event.target.value} : item))}
-                                            placeholder={isZh ? "备注，例如：远程优先" : "Notes, e.g. remote preferred"}
-                                            className="mt-1.5 h-8 rounded-md border-gray-100 bg-white text-xs dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200 dark:placeholder:text-slate-500"
-                                        />
-                                    </div>
-                                ))}
+                            <div className="mt-4 grid grid-cols-3 divide-x divide-gray-100 rounded-lg border border-gray-100 bg-gray-50 text-center dark:divide-slate-800 dark:border-slate-800 dark:bg-slate-900/70">
+                                <div className="px-2 py-3">
+                                    <p className="text-lg font-semibold text-slate-900 dark:text-slate-100">{availableDraftSlots.length}</p>
+                                    <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">{isZh ? "可面试" : "Available"}</p>
+                                </div>
+                                <div className="px-2 py-3">
+                                    <p className="text-lg font-semibold text-slate-900 dark:text-slate-100">{currentWeekAvailableDraftCount}</p>
+                                    <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">{isZh ? "本周" : "This week"}</p>
+                                </div>
+                                <div className="px-2 py-3">
+                                    <p className="text-lg font-semibold text-slate-900 dark:text-slate-100">{bookedSlots.length}</p>
+                                    <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">{isZh ? "已占用" : "Booked"}</p>
+                                </div>
                             </div>
-                            <Button className="mt-3 h-9 w-full rounded-lg bg-[#171717] text-sm text-white hover:bg-[#262626] dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200" disabled={availabilitySaving} onClick={() => void saveAvailability()}>
-                                {availabilitySaving ? <Loader2 className="h-4 w-4 animate-spin"/> : null}
-                                {isZh ? "保存可面试时间" : "Save availability"}
-                            </Button>
                         </section>
 
                         <section className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950">
@@ -1269,14 +2256,14 @@ export function InterviewWorkbenchPage({
                                 <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{isZh ? "已占用时间" : "Booked slots"}</p>
                                 {availabilityLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-300 dark:text-slate-500"/> : null}
                             </div>
-                            <div className="mt-3 space-y-2">
-                                {bookedSlots.length ? bookedSlots.map((slot) => (
-                                    <div key={slot.id} className="rounded-lg border border-neutral-200 bg-neutral-100/60 px-3 py-2 dark:border-slate-700 dark:bg-slate-900/70">
+                            <div className="mt-3 divide-y divide-gray-100 dark:divide-slate-800">
+                                {upcomingBookedSlots.length ? upcomingBookedSlots.map((slot) => (
+                                    <div key={slot.id} className="py-2.5">
                                         <p className="text-xs font-medium text-slate-700 dark:text-slate-300">{formatRange(slot.start_at, slot.end_at)}</p>
-                                        <p className="mt-1 text-xs text-neutral-700 dark:text-slate-400">{isZh ? "已安排面试" : "Interview scheduled"}</p>
+                                        <p className="mt-0.5 text-[11px] text-neutral-700 dark:text-slate-400">{isZh ? "已安排面试" : "Interview scheduled"}</p>
                                     </div>
                                 )) : (
-                                    <p className="rounded-lg border border-dashed border-gray-200 px-3 py-6 text-center text-xs text-slate-400 dark:border-slate-700 dark:text-slate-500">
+                                    <p className="py-6 text-center text-xs text-slate-400 dark:text-slate-500">
                                         {isZh ? "暂无已占用时间" : "No booked slots"}
                                     </p>
                                 )}
@@ -1285,6 +2272,186 @@ export function InterviewWorkbenchPage({
                     </aside>
                 ) : null}
             </div>
+
+            <Dialog open={availabilityDialogOpen} onOpenChange={handleAvailabilityDialogOpenChange}>
+                <DialogContent className="flex h-[min(88vh,840px)] max-h-[88vh] flex-col overflow-hidden border-slate-200 bg-white p-0 text-slate-900 shadow-2xl dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100 sm:max-w-[1180px]">
+                    <DialogHeader className="shrink-0 border-b border-gray-100 px-6 py-4 pr-12 dark:border-slate-800">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div className="min-w-0">
+                                <DialogTitle className="flex items-center gap-2 text-base">
+                                    <CalendarClock className="h-4 w-4 text-[#171717] dark:text-slate-100"/>
+                                    {isZh ? "设置面试时间" : "Set interview time"}
+                                </DialogTitle>
+                                <DialogDescription className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                                    {isZh ? "HR 排期时会查看这些时间段" : "HR uses these slots when scheduling interviews."}
+                                </DialogDescription>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                {availabilityDirty ? (
+                                    <Badge variant="outline" className="h-7 rounded-md border-amber-200 bg-amber-50 text-xs text-amber-700 dark:border-amber-900/70 dark:bg-amber-950/30 dark:text-amber-200">
+                                        {isZh ? "未保存" : "Unsaved"}
+                                    </Badge>
+                                ) : null}
+                                {availabilityLoading ? <Loader2 className="h-4 w-4 animate-spin text-slate-300 dark:text-slate-500"/> : null}
+                            </div>
+                        </div>
+                    </DialogHeader>
+
+                    {availabilitySaveNotice ? (
+                        <div
+                            className={cn(
+                                "mx-6 mt-4 flex items-center gap-2 rounded-lg border px-4 py-3 text-sm",
+                                availabilitySaveNotice.type === "success"
+                                    ? "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900/70 dark:bg-emerald-950/30 dark:text-emerald-200"
+                                    : "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900/70 dark:bg-rose-950/30 dark:text-rose-200",
+                            )}
+                        >
+                            {availabilitySaveNotice.type === "success" ? <Check className="h-4 w-4 shrink-0"/> : <X className="h-4 w-4 shrink-0"/>}
+                            <span>{availabilitySaveNotice.message}</span>
+                        </div>
+                    ) : null}
+
+                    {availabilityCloseConfirmOpen ? (
+                        <div className="mx-6 mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-900/70 dark:bg-amber-950/30">
+                            <div className="min-w-0">
+                                <p className="text-sm font-medium text-amber-800 dark:text-amber-100">{isZh ? "面试时间尚未保存" : "Interview time changes are not saved"}</p>
+                                <p className="mt-0.5 text-xs text-amber-700 dark:text-amber-200">{isZh ? "关闭后本次修改不会生效。" : "Closing will discard the current edits."}</p>
+                            </div>
+                            <div className="flex shrink-0 items-center gap-2">
+                                <Button variant="outline" size="sm" className="h-8 rounded-lg border-amber-200 bg-white text-xs text-amber-800 hover:bg-amber-100 dark:border-amber-900/70 dark:bg-slate-950 dark:text-amber-100 dark:hover:bg-amber-950/40" onClick={() => setAvailabilityCloseConfirmOpen(false)}>
+                                    {isZh ? "继续编辑" : "Keep editing"}
+                                </Button>
+                                <Button variant="outline" size="sm" className="h-8 rounded-lg border-rose-200 bg-white text-xs text-rose-700 hover:bg-rose-50 dark:border-rose-900/70 dark:bg-slate-950 dark:text-rose-300 dark:hover:bg-rose-950/30" onClick={discardAvailabilityDraftChanges}>
+                                    {isZh ? "放弃更改" : "Discard"}
+                                </Button>
+                            </div>
+                        </div>
+                    ) : null}
+
+                    <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-6 pb-5 pt-4">
+                        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                            <div className="inline-flex rounded-full border border-gray-200 bg-white p-1 dark:border-slate-700 dark:bg-slate-900">
+                                {([
+                                    ["available", isZh ? "可面试时间" : "Available time"],
+                                    ["unavailable", isZh ? "不可面试时间" : "Unavailable time"],
+                                ] as Array<[AvailabilitySlotStatus, string]>).map(([mode, label]) => {
+                                    const active = availabilityEditMode === mode;
+                                    return (
+                                        <button
+                                            key={mode}
+                                            type="button"
+                                            className={cn(
+                                                "h-8 min-w-[128px] rounded-full px-4 text-sm transition",
+                                                active
+                                                    ? "bg-[#2438ff] font-medium text-white shadow-sm"
+                                                    : "text-slate-500 hover:bg-slate-50 hover:text-slate-800 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100",
+                                            )}
+                                            onClick={() => {
+                                                setAvailabilityEditMode(mode);
+                                                setAvailabilitySaveNotice(null);
+                                            }}
+                                        >
+                                            {label}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                            <p className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                                {isZh ? "请选择你的可面试时间，HR 在安排面试时可查看" : "Choose your interview time; HR can view it when scheduling."}
+                            </p>
+                        </div>
+                        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                            <div className="flex items-center gap-2">
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-8 w-8 rounded-lg p-0 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                                    disabled={availabilityWeekStart.getTime() <= availabilityMinWeekStart.getTime()}
+                                    onClick={() => setAvailabilityWeekStart((current) => addDays(current, -7))}
+                                    aria-label={isZh ? "上一周" : "Previous week"}
+                                >
+                                    <ChevronLeft className="h-4 w-4"/>
+                                </Button>
+                                <div className="min-w-[220px] text-sm font-medium text-slate-800 dark:text-slate-200">{availabilityWeekLabel}</div>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-8 w-8 rounded-lg p-0 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                                    disabled={availabilityWeekStart.getTime() >= availabilityMaxWeekStart.getTime()}
+                                    onClick={() => setAvailabilityWeekStart((current) => addDays(current, 7))}
+                                    aria-label={isZh ? "下一周" : "Next week"}
+                                >
+                                    <ChevronRight className="h-4 w-4"/>
+                                </Button>
+                            </div>
+                        </div>
+
+                        <div className="min-h-0 flex-1 overflow-auto rounded-xl border border-gray-100 bg-white dark:border-slate-800 dark:bg-slate-950">
+                            <div className="min-w-[920px]">
+                                <div
+                                    className="sticky top-0 z-40 grid border-b border-gray-100 bg-white dark:border-slate-800 dark:bg-slate-950"
+                                    style={{gridTemplateColumns: "56px repeat(7, minmax(120px, 1fr))"}}
+                                >
+                                    <div className="border-r border-gray-100 bg-gray-50 dark:border-slate-800 dark:bg-slate-900/70"/>
+                                    {availabilityWeekDays.map((day) => {
+                                        const dayKey = formatLocalDateValue(day);
+                                        const today = dayKey === scheduleToday;
+                                        return (
+                                            <div key={dayKey} className={cn("border-l border-gray-100 px-3 py-3 text-sm dark:border-slate-800", today ? "bg-neutral-100 text-[#171717] dark:bg-slate-900 dark:text-slate-100" : "bg-white text-slate-600 dark:bg-slate-950 dark:text-slate-300")}>
+                                                <div className="flex items-center justify-between gap-2">
+                                                    <span className="truncate font-medium">{today ? (isZh ? "今天" : "Today") : formatCalendarDateLabel(day, isZh)}</span>
+                                                    <span className="text-[11px] text-slate-400 dark:text-slate-500">
+                                                        {draftSlots.filter((slot) => draftSlotRange(slot)?.dateKey === dayKey).length}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                                <div
+                                    className="grid"
+                                    style={{gridTemplateColumns: "56px repeat(7, minmax(120px, 1fr))"}}
+                                >
+                                    <div className="relative border-r border-gray-100 bg-gray-50 dark:border-slate-800 dark:bg-slate-900/70" style={{height: AVAILABILITY_CALENDAR_HEIGHT}}>
+                                        {AVAILABILITY_CALENDAR_HOURS.map((minutes) => (
+                                            <div
+                                                key={minutes}
+                                                className="absolute right-2 text-[11px] text-slate-400 dark:text-slate-500"
+                                                style={{
+                                                    top: minutes === AVAILABILITY_CALENDAR_START_MINUTES
+                                                        ? 2
+                                                        : ((minutes - AVAILABILITY_CALENDAR_START_MINUTES) / 60) * AVAILABILITY_HOUR_HEIGHT - 7,
+                                                }}
+                                            >
+                                                {formatTimeValue(minutes)}
+                                            </div>
+                                        ))}
+                                    </div>
+                                    {availabilityWeekDays.map((day) => renderAvailabilityDayColumn(day))}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-gray-100 px-6 py-4 dark:border-slate-800">
+                        <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
+                            <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-emerald-100 ring-1 ring-emerald-200 dark:bg-emerald-950 dark:ring-emerald-900"/>{isZh ? "可面试" : "Available"}</span>
+                            <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-slate-100 ring-1 ring-slate-200 dark:bg-slate-800 dark:ring-slate-700"/>{isZh ? "不可面试" : "Unavailable"}</span>
+                            <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-neutral-100 ring-1 ring-neutral-200 dark:bg-slate-800 dark:ring-slate-700"/>{isZh ? "已占用" : "Booked"}</span>
+                            <span>{isZh ? `本周 ${currentWeekDraftCount} 段` : `${currentWeekDraftCount} this week`}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <Button variant="outline" className="rounded-lg dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800" onClick={requestCloseAvailabilityDialog}>
+                                {isZh ? "取消" : "Cancel"}
+                            </Button>
+                            <Button className="rounded-lg bg-[#171717] text-white hover:bg-[#262626] dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200" disabled={availabilitySaving || availabilitySaveNotice?.type === "success"} onClick={() => void saveAvailability()}>
+                                {availabilitySaving ? <Loader2 className="h-4 w-4 animate-spin"/> : null}
+                                {isZh ? "保存" : "Save"}
+                            </Button>
+                        </div>
+                    </div>
+                </DialogContent>
+            </Dialog>
 
             {selectedTask ? (
                 <div className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/25 px-4 py-5" onMouseDown={(event) => {
@@ -1404,13 +2571,13 @@ export function InterviewWorkbenchPage({
                                         </div>
                                     </div>
                                     <div className="relative h-[min(62vh,760px)] min-h-[520px] overflow-hidden bg-white dark:bg-slate-950">
-                                        {resumePreviewLoading || (resumePreviewBlob && selectedResumeIsPdf && !resumePreviewReady && !resumePreviewError) ? (
+                                        {resumePreviewLoading || ((resumePreviewBlob || resumePreviewUrl) && !resumePreviewReady) ? (
                                             <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-white/95 text-slate-500 dark:bg-slate-950/95 dark:text-slate-400">
                                                 <Loader2 className="h-7 w-7 animate-spin text-[#171717] dark:text-slate-100"/>
                                                 <span className="text-sm">{isZh ? "正在加载原始简历..." : "Loading resume..."}</span>
                                             </div>
                                         ) : null}
-                                        {resumePreviewBlob && selectedResumeIsPdf && !resumePreviewError ? (
+                                        {resumePreviewBlob && selectedResumeIsPdf && !resumePreviewFallback ? (
                                             <div className={cn("absolute inset-0 bg-white transition-opacity duration-150", resumePreviewReady ? "opacity-100" : "opacity-0")}>
                                                 <InterviewResumePdfPreview
                                                     blob={resumePreviewBlob}
@@ -1418,15 +2585,23 @@ export function InterviewWorkbenchPage({
                                                     isZh={isZh}
                                                     onReady={() => setResumePreviewReady(true)}
                                                     onError={(message) => {
+                                                        setResumePreviewFallback(true);
                                                         setResumePreviewReady(false);
                                                         setResumePreviewError(message);
                                                     }}
                                                 />
                                             </div>
-                                        ) : selectedResumeRawText ? (
-                                            <div className="h-full overflow-auto bg-white px-8 py-6 dark:bg-slate-950">
-                                                <pre className="whitespace-pre-wrap font-sans text-sm leading-7 text-slate-700 dark:text-slate-200">{selectedResumeRawText}</pre>
-                                            </div>
+                                        ) : resumePreviewUrl ? (
+                                            <iframe
+                                                src={`${resumePreviewUrl}#toolbar=0&navpanes=0&view=FitH&scrollbar=0`}
+                                                className={cn(
+                                                    "absolute -left-7 -top-1 h-[calc(100%+8px)] w-[calc(100%+56px)] border-0 bg-white transition-opacity duration-150",
+                                                    resumePreviewReady ? "opacity-100" : "opacity-0",
+                                                )}
+                                                style={{colorScheme: "light", backgroundColor: "#fff"}}
+                                                title={selectedResumeFile?.original_name || "Resume"}
+                                                onLoad={() => setResumePreviewReady(true)}
+                                            />
                                         ) : !resumePreviewLoading ? (
                                             <div className="flex h-full items-center justify-center px-6 text-center">
                                                 <div>
@@ -1470,6 +2645,15 @@ export function InterviewWorkbenchPage({
                                             <p className="flex items-center gap-2 break-all"><Video className="h-4 w-4 shrink-0 text-slate-300 dark:text-slate-500"/>{selectedTask.schedule?.meeting_link || (isZh ? "会议链接待定" : "Meeting link TBD")}</p>
                                         </div>
                                         {selectedTask.schedule?.notes ? <p className="rounded-lg bg-gray-50 px-3 py-2 text-xs leading-5 text-slate-500 dark:bg-slate-900 dark:text-slate-400">{selectedTask.schedule.notes}</p> : null}
+                                        {canEditTaskSchedule(selectedTask) ? (
+                                            <Button
+                                                className="mt-1 w-full rounded-lg bg-[#2438ff] text-white hover:bg-[#1f31db]"
+                                                onClick={() => openEditScheduleDrawer(selectedTask)}
+                                            >
+                                                <PencilLine className="h-4 w-4"/>
+                                                {isZh ? "编辑面试" : "Edit interview"}
+                                            </Button>
+                                        ) : null}
                                     </div>
                                 </div>
 
@@ -1494,7 +2678,7 @@ export function InterviewWorkbenchPage({
                                 ) : canManageInterview ? (
                                     <div className="mt-4 rounded-xl border border-neutral-200 bg-neutral-100/80 p-4 dark:border-slate-700 dark:bg-slate-900">
                                         <p className="text-sm font-medium text-neutral-900 dark:text-slate-100">{isZh ? "待安排面试" : "Needs scheduling"}</p>
-                                        <p className="mt-1 text-xs leading-5 text-neutral-700 dark:text-slate-300">{isZh ? "为候选人选择面试官和可面试时间后，面试官会在这里看到完整资料。" : "Schedule interviewer and time first."}</p>
+                                        <p className="mt-1 text-xs leading-5 text-neutral-700 dark:text-slate-300">{isZh ? "为候选人选择面试官和面试时间后，面试官会在这里看到完整资料。" : "Schedule interviewer and time first."}</p>
                                         <Button className="mt-3 w-full rounded-lg bg-[#171717] text-white hover:bg-[#262626] dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200" onClick={() => openScheduleDrawer(selectedTask)}>
                                             {isZh ? "安排面试" : "Schedule"}
                                             <ChevronRight className="h-4 w-4"/>
@@ -1509,16 +2693,18 @@ export function InterviewWorkbenchPage({
 
             {scheduleTask ? (
                 <div className="fixed inset-0 z-[95] flex justify-end bg-slate-950/25" onMouseDown={(event) => {
-                    if (event.target === event.currentTarget) setScheduleTask(null);
+                    if (event.target === event.currentTarget) closeScheduleDrawer();
                 }}>
-                    <aside className="h-full w-full max-w-[520px] overflow-auto bg-white shadow-2xl dark:bg-slate-950">
+                    <aside className="h-full w-full max-w-[640px] overflow-auto bg-white shadow-2xl dark:bg-slate-950">
                         <div className="sticky top-0 z-10 border-b border-gray-100 bg-white/95 px-5 py-4 backdrop-blur dark:border-slate-800 dark:bg-slate-950/95">
                             <div className="flex items-center justify-between">
                                 <div>
-                                    <p className="text-lg font-semibold text-slate-950 dark:text-slate-100">{isZh ? "安排面试" : "Schedule interview"}</p>
+                                    <p className="text-lg font-semibold text-slate-950 dark:text-slate-100">
+                                        {scheduleEditingId ? (isZh ? "编辑面试" : "Edit interview") : (isZh ? "安排面试" : "Schedule interview")}
+                                    </p>
                                     <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{scheduleTask.candidate.name} · {candidateTitle(scheduleTask, isZh)}</p>
                                 </div>
-                                <button type="button" className="rounded-full p-2 text-slate-400 hover:bg-gray-50 hover:text-slate-700 dark:text-slate-500 dark:hover:bg-slate-900 dark:hover:text-slate-200" onClick={() => setScheduleTask(null)}>
+                                <button type="button" className="rounded-full p-2 text-slate-400 hover:bg-gray-50 hover:text-slate-700 dark:text-slate-500 dark:hover:bg-slate-900 dark:hover:text-slate-200" onClick={closeScheduleDrawer}>
                                     <X className="h-5 w-5"/>
                                 </button>
                             </div>
@@ -1527,19 +2713,76 @@ export function InterviewWorkbenchPage({
                             <section className="rounded-xl border border-gray-100 p-4 dark:border-slate-800 dark:bg-slate-950">
                                 <p className="mb-3 text-sm font-semibold text-slate-900 dark:text-slate-100">{isZh ? "面试信息" : "Interview info"}</p>
                                 <div className="grid gap-3 sm:grid-cols-2">
-                                    <label className="space-y-1">
-                                        <span className="text-xs text-slate-400 dark:text-slate-500">{isZh ? "轮次名称" : "Round"}</span>
-                                        <Input value={scheduleForm.round_name} onChange={(event) => setScheduleForm((current) => ({...current, round_name: event.target.value}))} className="h-9 rounded-lg border-gray-100 bg-gray-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"/>
-                                    </label>
-                                    <label className="space-y-1">
-                                        <span className="text-xs text-slate-400 dark:text-slate-500">{isZh ? "第几轮" : "Round index"}</span>
-                                        <Input type="number" min={1} value={scheduleForm.round_index} onChange={(event) => setScheduleForm((current) => ({...current, round_index: event.target.value}))} className="h-9 rounded-lg border-gray-100 bg-gray-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"/>
+                                    <label className="space-y-1 sm:col-span-2">
+                                        <span className="text-xs text-slate-400 dark:text-slate-500"><span className="mr-0.5 text-rose-500">*</span>{isZh ? "面试主题" : "Subject"}</span>
+                                        <Input
+                                            value={scheduleForm.subject}
+                                            onChange={(event) => {
+                                                clearScheduleFormError("subject");
+                                                setScheduleForm((current) => ({...current, subject: event.target.value}));
+                                            }}
+                                            className={cn("h-9 rounded-lg border-gray-100 bg-gray-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200", scheduleFormErrors.subject && scheduleRequiredErrorClass)}
+                                        />
+                                        {renderScheduleFormError("subject")}
                                     </label>
                                     <label className="space-y-1 sm:col-span-2">
-                                        <span className="text-xs text-slate-400 dark:text-slate-500">{isZh ? "面试官" : "Interviewer"}</span>
+                                        <span className="text-xs text-slate-400 dark:text-slate-500"><span className="mr-0.5 text-rose-500">*</span>{isZh ? "面试轮次" : "Round"}</span>
+                                        <select
+                                            value={scheduleForm.round_name}
+                                            onChange={(event) => {
+                                                clearScheduleFormError("round_name");
+                                                const roundName = event.target.value;
+                                                setScheduleForm((current) => ({
+                                                    ...current,
+                                                    round_name: roundName,
+                                                    round_index: String(interviewRoundIndexForName(roundName, Number(current.round_index || 4))),
+                                                }));
+                                            }}
+                                            className={cn("h-9 w-full rounded-lg border border-gray-100 bg-gray-50 px-3 text-sm text-slate-700 outline-none focus:border-[#171717] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:border-slate-500", scheduleFormErrors.round_name && scheduleRequiredErrorClass)}
+                                        >
+                                            {INTERVIEW_ROUND_OPTIONS.map((option) => (
+                                                <option key={option.value} value={option.value}>
+                                                    {isZh ? option.labelZh : option.labelEn}
+                                                </option>
+                                            ))}
+                                        </select>
+                                        {renderScheduleFormError("round_name")}
+                                    </label>
+                                    <div className="space-y-1 sm:col-span-2">
+                                        <span className="text-xs text-slate-400 dark:text-slate-500"><span className="mr-0.5 text-rose-500">*</span>{isZh ? "面试方式" : "Method"}</span>
+                                        <div className={cn("grid grid-cols-3 gap-1.5 rounded-lg", scheduleFormErrors.interview_method && "border border-rose-500 bg-rose-50/30 p-1 dark:bg-rose-950/10")}>
+                                            {INTERVIEW_METHOD_OPTIONS.map((option) => {
+                                                const active = scheduleForm.interview_method === option.value;
+                                                const Icon = option.value === "onsite" ? Briefcase : option.value === "video" ? Video : Phone;
+                                                return (
+                                                    <button
+                                                        key={option.value}
+                                                        type="button"
+                                                        onClick={() => {
+                                                            clearScheduleFormError("interview_method");
+                                                            setScheduleForm((current) => ({...current, interview_method: option.value}));
+                                                        }}
+                                                        className={cn(
+                                                            "flex h-9 items-center justify-center gap-1.5 rounded-lg border px-2 text-xs transition",
+                                                            active
+                                                                ? "border-[#171717] bg-neutral-100 font-medium text-[#171717] dark:border-slate-500 dark:bg-slate-800 dark:text-slate-100"
+                                                                : "border-gray-100 bg-gray-50 text-slate-500 hover:border-neutral-200 hover:text-slate-800 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-slate-600",
+                                                        )}
+                                                    >
+                                                        <Icon className="h-3.5 w-3.5"/>
+                                                        <span className="truncate">{isZh ? option.labelZh : option.labelEn}</span>
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                        {renderScheduleFormError("interview_method")}
+                                    </div>
+                                    <label className="space-y-1 sm:col-span-2">
+                                        <span className="text-xs text-slate-400 dark:text-slate-500"><span className="mr-0.5 text-rose-500">*</span>{isZh ? "面试官" : "Interviewer"}</span>
                                         <select
                                             value={scheduleForm.interviewer_user_code}
                                             onChange={(event) => {
+                                                clearScheduleFormError("interviewer_user_code");
                                                 const reviewer = interviewerOptions.find((item) => item.user_code === event.target.value);
                                                 setScheduleForm((current) => ({
                                                     ...current,
@@ -1548,8 +2791,9 @@ export function InterviewWorkbenchPage({
                                                     availability_slot_id: "",
                                                     scheduled_at: "",
                                                 }));
+                                                setScheduleSlotsOpen(false);
                                             }}
-                                            className="h-9 w-full rounded-lg border border-gray-100 bg-gray-50 px-3 text-sm text-slate-700 outline-none focus:border-[#171717] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:border-slate-500"
+                                            className={cn("h-9 w-full rounded-lg border border-gray-100 bg-gray-50 px-3 text-sm text-slate-700 outline-none focus:border-[#171717] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:border-slate-500", scheduleFormErrors.interviewer_user_code && scheduleRequiredErrorClass)}
                                         >
                                             <option value="">{interviewerLoading ? (isZh ? "正在加载面试官..." : "Loading...") : (isZh ? "选择面试官" : "Select interviewer")}</option>
                                             {interviewerOptions.map((reviewer) => (
@@ -1558,103 +2802,140 @@ export function InterviewWorkbenchPage({
                                                 </option>
                                             ))}
                                         </select>
+                                        {renderScheduleFormError("interviewer_user_code")}
                                     </label>
                                 </div>
                             </section>
 
                             <section className="rounded-xl border border-gray-100 p-4 dark:border-slate-800 dark:bg-slate-950">
-                                <div className="mb-3 flex items-center justify-between">
-                                    <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{isZh ? "选择时间" : "Select time"}</p>
-                                    {scheduleSlotsLoading ? <Loader2 className="h-4 w-4 animate-spin text-slate-300 dark:text-slate-500"/> : null}
-                                </div>
-                                <div className="space-y-2">
-                                    {scheduleForm.interviewer_user_code && scheduleSlots.length > 0 ? scheduleSlots.map((slot) => {
-                                        const active = scheduleForm.availability_slot_id === String(slot.id);
-                                        return (
-                                            <button
-                                                key={slot.id}
-                                                type="button"
-                                                onClick={() => applyScheduleSlot(String(slot.id))}
-                                                className={cn(
-                                                    "flex w-full items-center justify-between rounded-lg border px-3 py-2 text-left text-sm transition",
-                                                    active
-                                                        ? "border-[#171717] bg-neutral-100 text-neutral-800 dark:border-slate-500 dark:bg-slate-800 dark:text-slate-100"
-                                                        : "border-gray-100 bg-gray-50 text-slate-600 hover:border-neutral-200 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-slate-600",
-                                                )}
-                                            >
-                                                <span>{formatRange(slot.start_at, slot.end_at)}</span>
-                                                <span className="text-xs text-slate-400 dark:text-slate-500">{slot.notes || (isZh ? "可面试" : "Available")}</span>
-                                            </button>
-                                        );
-                                    }) : (
-                                        <p className="rounded-lg border border-dashed border-gray-200 px-3 py-5 text-center text-xs text-slate-400 dark:border-slate-700 dark:text-slate-500">
-                                            {scheduleForm.interviewer_user_code
-                                                ? (isZh ? "该面试官暂无可选时间，可手动填写时间。" : "No available slots. You can set time manually.")
-                                                : (isZh ? "先选择面试官，再选择可面试时间。" : "Select interviewer first.")}
-                                        </p>
-                                    )}
-                                </div>
-                                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                                <p className="mb-3 text-sm font-semibold text-slate-900 dark:text-slate-100">{isZh ? "时间安排" : "Schedule time"}</p>
+                                <div className="grid gap-3 sm:grid-cols-2">
                                     <label className="relative space-y-1 sm:col-span-2">
-                                        <span className="text-xs text-slate-400 dark:text-slate-500">{isZh ? "日期时间" : "Date and time"}</span>
-                                        <div className="grid grid-cols-[minmax(0,1.35fr)_minmax(96px,0.8fr)_auto_minmax(96px,0.8fr)] items-center gap-2">
-                                            <button
-                                                type="button"
-                                                onClick={() => setScheduleDatePickerOpen((open) => !open)}
-                                                className={cn(
-                                                    "flex h-9 min-w-0 items-center justify-between rounded-lg border bg-gray-50 px-3 text-left text-sm outline-none transition hover:border-neutral-200 dark:bg-slate-900 dark:hover:border-slate-600",
-                                                    scheduleDatePart ? "border-gray-100 text-slate-800 dark:border-slate-700 dark:text-slate-100" : "border-gray-100 text-slate-400 dark:border-slate-700 dark:text-slate-500",
-                                                )}
-                                            >
-                                                <span className="truncate">{formatDateDisplay(scheduleDatePart, isZh)}</span>
-                                                <CalendarClock className="h-3.5 w-3.5 shrink-0 text-slate-300 dark:text-slate-500"/>
-                                            </button>
-                                            <TimeSelect
-                                                value={scheduleStartTimePart}
-                                                options={scheduleStartTimeOptions}
-                                                placeholder={isZh ? "开始" : "Start"}
-                                                onChange={(nextTime) => {
-                                                    const nextDate = scheduleDatePart || scheduleToday;
-                                                    const nextStartMinutes = timeToMinutes(nextTime);
-                                                    setScheduleForm((current) => {
-                                                        const desiredDuration = Math.max(15, Number(current.duration_minutes || 60));
-                                                        const nextDuration = nextStartMinutes == null
-                                                            ? desiredDuration
-                                                            : Math.max(1, Math.min(TIME_OPTION_END_MINUTES, nextStartMinutes + desiredDuration) - nextStartMinutes);
-                                                        return {
-                                                            ...current,
-                                                            scheduled_at: combineLocalDateTime(nextDate, nextTime),
-                                                            duration_minutes: String(nextDuration),
-                                                            availability_slot_id: "",
-                                                        };
-                                                    });
-                                                }}
-                                            />
-                                            <span className="text-sm text-slate-300 dark:text-slate-600">~</span>
-                                            <TimeSelect
-                                                value={scheduleEndTimePart}
-                                                disabled={!scheduleStartTimePart}
-                                                options={scheduleEndTimeSelectOptions}
-                                                placeholder={isZh ? "结束" : "End"}
-                                                formatOption={(time) => {
-                                                    const endMinutes = timeToMinutes(time);
-                                                    const duration = scheduleStartMinutes == null || endMinutes == null ? 0 : endMinutes - scheduleStartMinutes;
-                                                    return duration > 0 ? `${time}（${formatDurationText(duration, isZh)}）` : time;
-                                                }}
-                                                onChange={(nextTime) => {
-                                                    const endMinutes = timeToMinutes(nextTime);
-                                                    const startMinutes = timeToMinutes(scheduleStartTimePart);
-                                                    if (endMinutes == null || startMinutes == null || endMinutes <= startMinutes) {
-                                                        return;
-                                                    }
-                                                    setScheduleForm((current) => ({
-                                                        ...current,
-                                                        duration_minutes: String(endMinutes - startMinutes),
-                                                        availability_slot_id: "",
-                                                    }));
-                                                }}
-                                            />
+                                        <div className="flex items-center justify-between gap-3">
+                                            <span className="text-xs text-slate-400 dark:text-slate-500"><span className="mr-0.5 text-rose-500">*</span>{isZh ? "日期时间" : "Date and time"}</span>
+                                            <div className="flex shrink-0 items-center gap-1.5">
+                                                {scheduleSlotsLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-300 dark:text-slate-500"/> : null}
+                                                <button
+                                                    type="button"
+                                                    disabled={!scheduleForm.interviewer_user_code}
+                                                    onClick={(event) => {
+                                                        event.preventDefault();
+                                                        setScheduleSlotsOpen((open) => !open);
+                                                    }}
+                                                    className={cn(
+                                                        "text-xs font-medium text-[#2438ff] underline-offset-2 hover:underline disabled:cursor-not-allowed disabled:text-slate-300 disabled:no-underline dark:text-slate-200 dark:disabled:text-slate-600",
+                                                    )}
+                                                >
+                                                    {scheduleSlotsOpen ? (isZh ? "收起面试官日程" : "Hide interviewer calendar") : (isZh ? "查看面试官日程" : "View interviewer calendar")}
+                                                </button>
+                                            </div>
                                         </div>
+                                        <div className="grid grid-cols-[minmax(0,1fr)_132px_auto_152px] items-start gap-2">
+                                            <div className="min-w-0">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setScheduleDatePickerOpen((open) => !open)}
+                                                    className={cn(
+                                                        "flex h-9 min-w-0 items-center justify-between rounded-lg border bg-gray-50 px-3 text-left text-sm outline-none transition hover:border-neutral-200 dark:bg-slate-900 dark:hover:border-slate-600",
+                                                        scheduleDatePart ? "border-gray-100 text-slate-800 dark:border-slate-700 dark:text-slate-100" : "border-gray-100 text-slate-400 dark:border-slate-700 dark:text-slate-500",
+                                                        scheduleFormErrors.scheduled_date && scheduleRequiredErrorClass,
+                                                    )}
+                                                >
+                                                    <TruncatedTooltipText text={formatDateDisplay(scheduleDatePart, isZh)}>
+                                                        {formatDateDisplay(scheduleDatePart, isZh)}
+                                                    </TruncatedTooltipText>
+                                                    <CalendarClock className="h-3.5 w-3.5 shrink-0 text-slate-300 dark:text-slate-500"/>
+                                                </button>
+                                                {renderScheduleFormError("scheduled_date")}
+                                            </div>
+                                            <div className="min-w-0">
+                                                <TimeSelect
+                                                    value={scheduleStartTimePart}
+                                                    options={scheduleStartTimeOptions}
+                                                    placeholder={isZh ? "开始" : "Start"}
+                                                    buttonClassName={scheduleFormErrors.scheduled_start_time ? scheduleRequiredErrorClass : undefined}
+                                                    onChange={(nextTime) => {
+                                                        clearScheduleFormError("scheduled_date");
+                                                        clearScheduleFormError("scheduled_start_time");
+                                                        const nextDate = scheduleDatePart || scheduleToday;
+                                                        const nextStartMinutes = timeToMinutes(nextTime);
+                                                        setScheduleForm((current) => {
+                                                            const desiredDuration = Math.max(15, Number(current.duration_minutes || 60));
+                                                            const nextDuration = nextStartMinutes == null
+                                                                ? desiredDuration
+                                                                : Math.max(1, Math.min(TIME_OPTION_END_MINUTES, nextStartMinutes + desiredDuration) - nextStartMinutes);
+                                                            return {
+                                                                ...current,
+                                                                scheduled_at: combineLocalDateTime(nextDate, nextTime),
+                                                                duration_minutes: String(nextDuration),
+                                                                availability_slot_id: "",
+                                                            };
+                                                        });
+                                                    }}
+                                                />
+                                                {renderScheduleFormError("scheduled_start_time")}
+                                            </div>
+                                            <span className="pt-2 text-sm text-slate-300 dark:text-slate-600">~</span>
+                                            <div className="min-w-0">
+                                                <TimeSelect
+                                                    value={scheduleEndTimePart}
+                                                    disabled={!scheduleStartTimePart}
+                                                    options={scheduleEndTimeSelectOptions}
+                                                    placeholder={isZh ? "结束" : "End"}
+                                                    buttonClassName={scheduleFormErrors.scheduled_end_time ? scheduleRequiredErrorClass : undefined}
+                                                    formatOption={(time) => {
+                                                        const endMinutes = timeToMinutes(time);
+                                                        const duration = scheduleStartMinutes == null || endMinutes == null ? 0 : endMinutes - scheduleStartMinutes;
+                                                        return duration > 0 ? `${time}（${formatDurationText(duration, isZh)}）` : time;
+                                                    }}
+                                                    onChange={(nextTime) => {
+                                                        clearScheduleFormError("scheduled_end_time");
+                                                        const endMinutes = timeToMinutes(nextTime);
+                                                        const startMinutes = timeToMinutes(scheduleStartTimePart);
+                                                        if (endMinutes == null || startMinutes == null || endMinutes <= startMinutes) {
+                                                            return;
+                                                        }
+                                                        setScheduleForm((current) => ({
+                                                            ...current,
+                                                            duration_minutes: String(endMinutes - startMinutes),
+                                                            availability_slot_id: "",
+                                                        }));
+                                                    }}
+                                                />
+                                                {renderScheduleFormError("scheduled_end_time")}
+                                            </div>
+                                        </div>
+                                        {scheduleSlotsOpen ? (
+                                            <div className="mt-2 max-h-44 overflow-y-auto rounded-lg border border-gray-100 bg-gray-50 p-1.5 dark:border-slate-700 dark:bg-slate-900">
+                                                {scheduleForm.interviewer_user_code && scheduleSlots.length > 0 ? scheduleSlots.map((slot) => {
+                                                    const active = scheduleForm.availability_slot_id === String(slot.id);
+                                                    const slotLabel = formatRange(slot.start_at, slot.end_at);
+                                                    return (
+                                                        <button
+                                                            key={slot.id}
+                                                            type="button"
+                                                            onClick={() => applyScheduleSlot(String(slot.id))}
+                                                            className={cn(
+                                                                "flex h-8 w-full min-w-0 items-center rounded-md px-2.5 text-left text-xs transition",
+                                                                active
+                                                                    ? "bg-neutral-900 text-white dark:bg-slate-100 dark:text-slate-900"
+                                                                    : "text-slate-600 hover:bg-white hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100",
+                                                            )}
+                                                        >
+                                                            <TruncatedTooltipText text={slotLabel}>{slotLabel}</TruncatedTooltipText>
+                                                        </button>
+                                                    );
+                                                }) : (
+                                                    <p className="px-2.5 py-3 text-center text-xs text-slate-400 dark:text-slate-500">
+                                                        {scheduleSlotsLoading
+                                                            ? (isZh ? "正在加载面试官日程..." : "Loading interviewer calendar...")
+                                                            : scheduleForm.interviewer_user_code
+                                                                ? (isZh ? "该面试官暂无可选时间，可手动填写时间。" : "No available slots. You can set time manually.")
+                                                                : (isZh ? "先选择面试官，再查看日程。" : "Select interviewer first.")}
+                                                    </p>
+                                                )}
+                                            </div>
+                                        ) : null}
                                         {scheduleDatePickerOpen ? (
                                             <div className="absolute left-0 top-[64px] z-20 w-[360px] rounded-xl border border-gray-100 bg-white p-3 shadow-xl dark:border-slate-700 dark:bg-slate-950">
                                                 <div className="mb-2 flex items-center justify-between">
@@ -1663,6 +2944,9 @@ export function InterviewWorkbenchPage({
                                                         type="button"
                                                         className="text-xs text-[#171717] dark:text-slate-100"
                                                         onClick={() => {
+                                                            clearScheduleFormError("scheduled_date");
+                                                            clearScheduleFormError("scheduled_start_time");
+                                                            clearScheduleFormError("scheduled_end_time");
                                                             const nextTime = scheduleStartTimePart || "09:00";
                                                             setScheduleForm((current) => ({
                                                                 ...current,
@@ -1685,6 +2969,9 @@ export function InterviewWorkbenchPage({
                                                                 key={date}
                                                                 type="button"
                                                                 onClick={() => {
+                                                                    clearScheduleFormError("scheduled_date");
+                                                                    clearScheduleFormError("scheduled_start_time");
+                                                                    clearScheduleFormError("scheduled_end_time");
                                                                     const nextTime = scheduleStartTimePart || "09:00";
                                                                     setScheduleForm((current) => ({
                                                                         ...current,
@@ -1716,14 +3003,65 @@ export function InterviewWorkbenchPage({
                                             {scheduleStartTimePart ? (isZh ? `当前时长 ${formatDurationText(effectiveScheduleDurationMinutes, isZh)}` : `Duration ${formatDurationText(effectiveScheduleDurationMinutes, isZh)}`) : (isZh ? "先选日期和开始时间，再选择结束时间。" : "Select date and start time, then end time.")}
                                         </p>
                                     </label>
-                                    <label className="space-y-1">
-                                        <span className="text-xs text-slate-400 dark:text-slate-500">{isZh ? "地点" : "Location"}</span>
-                                        <Input value={scheduleForm.location} onChange={(event) => setScheduleForm((current) => ({...current, location: event.target.value}))} placeholder={isZh ? "会议室 / 线上" : "Room / remote"} className="h-9 rounded-lg border-gray-100 bg-gray-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:placeholder:text-slate-500"/>
-                                    </label>
-                                    <label className="space-y-1">
-                                        <span className="text-xs text-slate-400 dark:text-slate-500">{isZh ? "会议链接" : "Meeting link"}</span>
-                                        <Input value={scheduleForm.meeting_link} onChange={(event) => setScheduleForm((current) => ({...current, meeting_link: event.target.value}))} placeholder="https://" className="h-9 rounded-lg border-gray-100 bg-gray-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:placeholder:text-slate-500"/>
-                                    </label>
+                                    {scheduleForm.interview_method === "onsite" ? (
+                                        <>
+                                            <label className="space-y-1">
+                                                <span className="text-xs text-slate-400 dark:text-slate-500">{isZh ? "面试地点" : "Location"}</span>
+                                                <Input value={scheduleForm.location} onChange={(event) => setScheduleForm((current) => ({...current, location: event.target.value}))} placeholder={isZh ? "请输入详细地址" : "Address"} className="h-9 rounded-lg border-gray-100 bg-gray-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:placeholder:text-slate-500"/>
+                                            </label>
+                                            <label className="space-y-1">
+                                                <span className="text-xs text-slate-400 dark:text-slate-500">{isZh ? "会议室" : "Room"}</span>
+                                                <Input value={scheduleForm.meeting_room} onChange={(event) => setScheduleForm((current) => ({...current, meeting_room: event.target.value}))} placeholder={isZh ? "请选择或填写会议室" : "Room"} className="h-9 rounded-lg border-gray-100 bg-gray-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:placeholder:text-slate-500"/>
+                                            </label>
+                                        </>
+                                    ) : null}
+                                    {scheduleForm.interview_method === "video" ? (
+                                        <>
+                                            <label className="space-y-1">
+                                                <span className="text-xs text-slate-400 dark:text-slate-500">{isZh ? "视频工具" : "Video tool"}</span>
+                                                <select
+                                                    value={scheduleForm.video_tool}
+                                                    onChange={(event) => setScheduleForm((current) => ({...current, video_tool: event.target.value}))}
+                                                    className="h-9 w-full rounded-lg border border-gray-100 bg-gray-50 px-3 text-sm text-slate-700 outline-none focus:border-[#171717] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:border-slate-500"
+                                                >
+                                                    {INTERVIEW_VIDEO_TOOL_OPTIONS.map((tool) => (
+                                                        <option key={tool} value={tool}>{tool}</option>
+                                                    ))}
+                                                </select>
+                                            </label>
+                                            <label className="space-y-1">
+                                                <span className="text-xs text-slate-400 dark:text-slate-500">{isZh ? "会议链接/会议号" : "Meeting link / ID"}</span>
+                                                <Input value={scheduleForm.meeting_link} onChange={(event) => setScheduleForm((current) => ({...current, meeting_link: event.target.value}))} placeholder={isZh ? "请输入会议链接或会议号" : "Meeting link or ID"} className="h-9 rounded-lg border-gray-100 bg-gray-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:placeholder:text-slate-500"/>
+                                            </label>
+                                        </>
+                                    ) : null}
+                                    {scheduleForm.interview_method === "phone" ? (
+                                        <label className="space-y-1 sm:col-span-2">
+                                            <span className="text-xs text-slate-400 dark:text-slate-500">{isZh ? "联系电话" : "Contact phone"}</span>
+                                            <Input value={scheduleForm.contact_phone} onChange={(event) => setScheduleForm((current) => ({...current, contact_phone: event.target.value}))} placeholder={isZh ? "请输入联系电话" : "Phone"} className="h-9 rounded-lg border-gray-100 bg-gray-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:placeholder:text-slate-500"/>
+                                        </label>
+                                    ) : null}
+                                    <div className="space-y-2 sm:col-span-2">
+                                        <span className="text-xs text-slate-400 dark:text-slate-500">{isZh ? "可见内容" : "Visible content"}</span>
+                                        <div className="grid gap-2 sm:grid-cols-2">
+                                            {INTERVIEW_VISIBLE_SECTION_OPTIONS.map((option) => (
+                                                <label key={option.value} className="flex items-center gap-2 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
+                                                    <input
+                                                        type="checkbox"
+                                                        className="accent-[#171717] dark:accent-slate-100"
+                                                        checked={scheduleForm.visible_sections.includes(option.value)}
+                                                        onChange={() => setScheduleForm((current) => ({
+                                                            ...current,
+                                                            visible_sections: current.visible_sections.includes(option.value)
+                                                                ? current.visible_sections.filter((item) => item !== option.value)
+                                                                : [...current.visible_sections, option.value],
+                                                        }))}
+                                                    />
+                                                    <span>{isZh ? option.labelZh : option.labelEn}</span>
+                                                </label>
+                                            ))}
+                                        </div>
+                                    </div>
                                     <label className="space-y-1 sm:col-span-2">
                                         <span className="text-xs text-slate-400 dark:text-slate-500">{isZh ? "备注" : "Notes"}</span>
                                         <Textarea value={scheduleForm.notes} onChange={(event) => setScheduleForm((current) => ({...current, notes: event.target.value}))} className="min-h-[74px] resize-none rounded-lg border-gray-100 bg-gray-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:placeholder:text-slate-500"/>
@@ -1732,10 +3070,10 @@ export function InterviewWorkbenchPage({
                             </section>
                         </div>
                         <div className="sticky bottom-0 flex justify-end gap-2 border-t border-gray-100 bg-white/95 px-5 py-4 backdrop-blur dark:border-slate-800 dark:bg-slate-950/95">
-                            <Button variant="outline" className="rounded-lg dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800" onClick={() => setScheduleTask(null)}>{isZh ? "取消" : "Cancel"}</Button>
+                            <Button variant="outline" className="rounded-lg dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800" onClick={closeScheduleDrawer}>{isZh ? "取消" : "Cancel"}</Button>
                             <Button className="rounded-lg bg-[#171717] text-white hover:bg-[#262626] dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200" disabled={scheduleSaving} onClick={() => void submitSchedule()}>
                                 {scheduleSaving ? <Loader2 className="h-4 w-4 animate-spin"/> : null}
-                                {isZh ? "确认安排" : "Schedule"}
+                                {scheduleEditingId ? (isZh ? "保存修改" : "Save changes") : (isZh ? "确认安排" : "Schedule")}
                             </Button>
                         </div>
                     </aside>

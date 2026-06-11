@@ -281,15 +281,21 @@ export interface InterviewSchedule {
   candidate_id: number;
   position_id?: number | null;
   org_code?: string | null;
+  subject?: string | null;
   round_name: string;
   round_index?: number | null;
+  interview_method?: "onsite" | "video" | "phone" | string | null;
   interviewer_user_code?: string | null;
   interviewer_name?: string | null;
   scheduled_at?: string | null;
   duration_minutes?: number | null;
   location?: string | null;
+  meeting_room?: string | null;
+  video_tool?: string | null;
   meeting_link?: string | null;
+  contact_phone?: string | null;
   notes?: string | null;
+  visible_sections?: string[];
   availability_slot_id?: number | null;
   department_review_assignment_id?: number | null;
   notification_status?: string | null;
@@ -310,7 +316,7 @@ export interface InterviewAvailabilitySlot {
   org_code?: string | null;
   start_at?: string | null;
   end_at?: string | null;
-  status: "available" | "booked" | "cancelled" | string;
+  status: "available" | "unavailable" | "booked" | "cancelled" | string;
   schedule_id?: number | null;
   notes?: string | null;
   created_by?: string | null;
@@ -323,6 +329,10 @@ export interface InterviewTask {
   schedule?: InterviewSchedule | null;
   candidate: CandidateSummary;
   position?: PositionSummary | null;
+  next_round_index?: number | null;
+  next_round_name?: string | null;
+  last_completed_schedule?: InterviewSchedule | null;
+  interview_stage_reason?: string | null;
 }
 
 export interface InterviewTaskList {
