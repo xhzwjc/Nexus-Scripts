@@ -204,6 +204,42 @@ import {
     SearchField,
     SettingsEntry,
 } from "./components/SharedComponents";
+import {
+    BOSS_EDUCATION_OPTIONS,
+    BOSS_EXPERIENCE_OPTIONS,
+    BOSS_RECRUIT_TYPES,
+    BOSS_SALARY_K_OPTIONS,
+    BOSS_SALARY_MONTH_OPTIONS,
+    BossJobNameCascader,
+    BossJobTypeSelector,
+    bossJobPathSet,
+    bossJobTypeSet,
+    findClosestBossJob,
+    formatBossSalaryRange,
+    getBossSalaryMaxKOptions,
+    mergeBossMetaTag,
+    normalizeBossSalarySelection,
+    normalizeBossJobPath,
+    parseBossPositionMeta,
+    parseBossSalaryRange,
+    stripBossMetaTags,
+    type BossJobFlatItem,
+    type BossPositionMeta,
+    type BossRecommendedJob,
+    type BossRecommendedJobsPayload,
+} from "./components/BossJobCatalog";
+import {
+    RecruitmentFieldRow,
+    RecruitmentFormAnchorRail,
+    RecruitmentFormSection,
+    RecruitmentSegmentedGroup,
+    RecruitmentTextareaMeter,
+    RecruitmentToggleRow,
+    recruitmentFormControlClass,
+    recruitmentFormInputClass,
+    recruitmentFormShortControlClass,
+    recruitmentFormTextareaClass,
+} from "./components/RecruitmentForm";
 import {StructuredSkillEditor} from "./components/StructuredSkillEditor";
 import {CandidateRadarChart} from "./components/CandidateRadarChart";
 import {AssistantPage} from "./pages/AssistantPage";
@@ -396,13 +432,237 @@ type OrganizationSelectOption = {
     organization?: ScriptHubOrganizationDefinition;
 };
 
-type PositionFormErrors = Partial<Record<"orgCode" | "title" | "headcount", string>>;
+type PositionFormErrors = Partial<Record<
+    | "orgCode"
+    | "title"
+    | "employmentType"
+    | "keyRequirements"
+    | "jobType"
+    | "jobTypePath"
+    | "experience"
+    | "education"
+    | "salaryMinK"
+    | "salaryMaxK"
+    | "salaryMonths"
+    | "location"
+    | "headcount",
+    string
+>>;
 type SkillFormErrors = Partial<Record<"name" | "content" | "sortOrder", string>>;
 type LLMFormErrors = Partial<Record<"configKey" | "taskType" | "provider" | "modelName" | "maxConcurrent" | "maxQps" | "priority" | "extraConfigText", string>>;
 
 function normalizeRecruitmentOrgCode(value?: string | null) {
     const text = String(value || "").trim();
     return text || "group";
+}
+
+function buildBossPositionMeta(form: PositionFormState): BossPositionMeta {
+    return {
+        jobType: form.jobType.trim(),
+        jobTypePath: normalizeBossJobPath(form.jobTypePath),
+        experience: form.experience,
+        education: form.education,
+        salary: {
+            minK: form.salaryMinK,
+            maxK: form.salaryMaxK,
+            months: form.salaryMonths,
+        },
+        autoPublish: form.autoPublish,
+    };
+}
+
+function buildBossPositionJson(form: PositionFormState) {
+    return {
+        jobs: [
+            {
+                enabled: true,
+                jobName: form.title.trim(),
+                recruitType: form.employmentType.trim(),
+                jobDescription: form.keyRequirements.trim(),
+                jobType: form.jobType.trim(),
+                jobTypePath: normalizeBossJobPath(form.jobTypePath),
+                experience: form.experience,
+                education: form.education,
+                salary: {
+                    minK: form.salaryMinK,
+                    maxK: form.salaryMaxK,
+                    months: form.salaryMonths,
+                },
+                addressKeyword: form.location.trim(),
+                autoPublish: false,
+            },
+        ],
+    };
+}
+
+type BossJsonCopyResult =
+    | {ok: true; job: BossRecommendedJob}
+    | {ok: false; title: string; errors: string[]};
+
+function copyFailureTitle(position: PositionSummary) {
+    return position.title?.trim() || `岗位 ${position.id}`;
+}
+
+function buildBossJsonCopyJob(position: PositionSummary): BossJsonCopyResult {
+    const errors: string[] = [];
+    const jobName = position.title.trim();
+    const jobDescription = (position.key_requirements || "").trim();
+    const meta = parseBossPositionMeta(position.tags || []);
+    const metaPath = normalizeBossJobPath(meta.jobTypePath);
+    const validMetaPath = metaPath.length && bossJobPathSet.has(metaPath.join(" / ")) ? metaPath : null;
+    const closestJob = validMetaPath ? null : findClosestBossJob(meta.jobType || position.title);
+    const jobTypePath = validMetaPath || closestJob?.path || [];
+    const jobType = validMetaPath ? validMetaPath[2] : (closestJob?.third || "");
+    const parsedSalary = parseBossSalaryRange(position.salary_range);
+    const minK = Number.isFinite(meta.salary?.minK) ? Number(meta.salary?.minK) : Number(parsedSalary.minK);
+    const maxK = Number.isFinite(meta.salary?.maxK) ? Number(meta.salary?.maxK) : Number(parsedSalary.maxK);
+    const salaryMonths = BOSS_SALARY_MONTH_OPTIONS.includes(meta.salary?.months as typeof BOSS_SALARY_MONTH_OPTIONS[number])
+        ? meta.salary!.months
+        : parsedSalary.months;
+    const months = BOSS_SALARY_MONTH_OPTIONS.includes(salaryMonths as typeof BOSS_SALARY_MONTH_OPTIONS[number])
+        ? salaryMonths
+        : "";
+    const experience = BOSS_EXPERIENCE_OPTIONS.includes(meta.experience as typeof BOSS_EXPERIENCE_OPTIONS[number])
+        ? meta.experience!
+        : "不限";
+    const education = BOSS_EDUCATION_OPTIONS.includes(meta.education as typeof BOSS_EDUCATION_OPTIONS[number])
+        ? meta.education!
+        : "不限";
+    const addressKeyword = (position.location || "").trim();
+
+    if (!jobName) {
+        errors.push("职位名称为空");
+    }
+    if (!jobDescription) {
+        errors.push("职位描述为空");
+    }
+    if (!jobType || !bossJobTypeSet.has(jobType)) {
+        errors.push("缺少职位类型");
+    }
+    if (!jobTypePath.length || jobTypePath.length < 2 || !bossJobPathSet.has(jobTypePath.join(" / "))) {
+        errors.push("职位类型路径不合法");
+    }
+    if (!BOSS_EXPERIENCE_OPTIONS.includes(experience as typeof BOSS_EXPERIENCE_OPTIONS[number])) {
+        errors.push("经验要求不合法");
+    }
+    if (!BOSS_EDUCATION_OPTIONS.includes(education as typeof BOSS_EDUCATION_OPTIONS[number])) {
+        errors.push("学历要求不合法");
+    }
+    if (!Number.isFinite(minK)) {
+        errors.push("最低月薪不是数字");
+    }
+    if (!Number.isFinite(maxK)) {
+        errors.push("最高月薪不是数字");
+    }
+    if (Number.isFinite(minK) && Number.isFinite(maxK) && maxK < minK) {
+        errors.push("薪资范围错误");
+    }
+    if (!months) {
+        errors.push("薪资月数不合法");
+    }
+    if (!addressKeyword) {
+        errors.push("工作地址为空");
+    }
+
+    if (errors.length) {
+        return {ok: false, title: copyFailureTitle(position), errors};
+    }
+
+    return {
+        ok: true,
+        job: {
+            enabled: true,
+            jobName,
+            recruitType: "社招全职",
+            jobDescription,
+            jobType,
+            jobTypePath: jobTypePath as BossRecommendedJob["jobTypePath"],
+            experience,
+            education,
+            salary: {
+                minK,
+                maxK,
+                months,
+            },
+            addressKeyword,
+            autoPublish: false,
+        },
+    };
+}
+
+function buildBossJsonCopyPayload(positionsToCopy: PositionSummary[]): {ok: true; payload: BossRecommendedJobsPayload} | {ok: false; message: string} {
+    const results = positionsToCopy.map(buildBossJsonCopyJob);
+    const failures = results.filter((result): result is Extract<BossJsonCopyResult, {ok: false}> => !result.ok);
+    if (failures.length) {
+        const message = failures.length === 1
+            ? `无法复制：${failures[0].errors.join("、")}`
+            : `无法复制：${failures.map((failure) => `${failure.title} ${failure.errors.join("、")}`).join("；")}`;
+        return {ok: false, message};
+    }
+    return {
+        ok: true,
+        payload: {
+            jobs: results.map((result) => (result as Extract<BossJsonCopyResult, {ok: true}>).job),
+        },
+    };
+}
+
+async function writeTextToClipboard(text: string) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+        return;
+    }
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.style.position = "fixed";
+    textarea.style.left = "-9999px";
+    document.body.appendChild(textarea);
+    textarea.select();
+    document.execCommand("copy");
+    document.body.removeChild(textarea);
+}
+
+function resolveBossFieldsFromPosition(position: PositionSummary): Pick<
+    PositionFormState,
+    "jobType" | "jobTypePath" | "experience" | "education" | "salaryMinK" | "salaryMaxK" | "salaryMonths" | "autoPublish" | "tagsText"
+> {
+    const tags = position.tags || [];
+    const meta = parseBossPositionMeta(tags);
+    const inferredJob = meta.jobType ? findClosestBossJob(meta.jobType) : findClosestBossJob(position.title);
+    const inferredPath = normalizeBossJobPath(meta.jobTypePath).length
+        ? normalizeBossJobPath(meta.jobTypePath)
+        : (inferredJob?.path || []);
+    const parsedSalary = parseBossSalaryRange(position.salary_range);
+    const salary = meta.salary || parsedSalary;
+    const normalizedSalary = normalizeBossSalarySelection(
+        Number.isFinite(salary.minK) ? Number(salary.minK) : parsedSalary.minK,
+        Number.isFinite(salary.maxK) ? Number(salary.maxK) : parsedSalary.maxK,
+    );
+
+    return {
+        jobType: meta.jobType || inferredJob?.third || "",
+        jobTypePath: inferredPath,
+        experience: BOSS_EXPERIENCE_OPTIONS.includes(meta.experience as typeof BOSS_EXPERIENCE_OPTIONS[number])
+            ? meta.experience!
+            : "不限",
+        education: BOSS_EDUCATION_OPTIONS.includes(meta.education as typeof BOSS_EDUCATION_OPTIONS[number])
+            ? meta.education!
+            : "不限",
+        salaryMinK: normalizedSalary.minK,
+        salaryMaxK: normalizedSalary.maxK,
+        salaryMonths: BOSS_SALARY_MONTH_OPTIONS.includes(salary.months as typeof BOSS_SALARY_MONTH_OPTIONS[number])
+            ? salary.months
+            : parsedSalary.months,
+        autoPublish: Boolean(meta.autoPublish),
+        tagsText: joinTags(stripBossMetaTags(tags)),
+    };
+}
+
+function clearPositionFormLocationHash() {
+    if (typeof window === "undefined" || !window.location.hash.startsWith("#position-form-")) {
+        return;
+    }
+    window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
 }
 
 function buildOrganizationScopeRequestKey(session: ScriptHubSession | null) {
@@ -1462,187 +1722,6 @@ const PositionCandidatesView = React.memo(function PositionCandidatesView(props:
     );
 });
 
-// 人才库搜索组件
-function TalentPoolSearch({
-    positions,
-    onAssignCandidates,
-    activeOrgCodes,
-    orgCode,
-}: {
-    positions: PositionSummary[];
-    onAssignCandidates: (candidateIds: number[]) => void;
-    activeOrgCodes: string[];
-    orgCode?: string;
-}) {
-    const {language} = useI18n();
-    const isZh = language === "zh-CN";
-    const sessionUser = useMemo(() => getStoredScriptHubSession()?.user ?? null, []);
-    const businessRowFilterOptions = useMemo(() => ({
-        selfOnly: isSelfDataScope(sessionUser?.dataScope),
-        actorUserCode: sessionUser?.id || null,
-    }), [sessionUser?.dataScope, sessionUser?.id]);
-    const [searchQuery, setSearchQuery] = useState("");
-    const [talentPoolCandidates, setTalentPoolCandidates] = useState<CandidateSummary[]>([]);
-    const [loading, setLoading] = useState(false);
-    const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
-    const [showDropdown, setShowDropdown] = useState(false);
-
-    // 加载人才库候选人
-    const loadTalentPoolCandidates = useCallback(async () => {
-        setLoading(true);
-        try {
-            const query = buildQuery({
-                org_code: orgCode || undefined,
-            });
-            const response = await authenticatedFetch(`/api/recruitment/candidates/talent-pool${query}`);
-            const data = await response.json();
-            if (data.success && data.data) {
-                setTalentPoolCandidates(filterBusinessRowsByOrgCodes(data.data, activeOrgCodes, businessRowFilterOptions));
-            }
-        } catch (error) {
-            console.error("Failed to load talent pool candidates:", error);
-        } finally {
-            setLoading(false);
-        }
-    }, [activeOrgCodes, businessRowFilterOptions, orgCode]);
-
-    useEffect(() => {
-        setTalentPoolCandidates([]);
-        setSelectedIds(new Set());
-        setShowDropdown(false);
-    }, [activeOrgCodes, orgCode]);
-
-    // 搜索过滤
-    const filteredCandidates = useMemo(() => {
-        if (!searchQuery.trim()) return talentPoolCandidates.slice(0, 20); // 最多显示20个
-        const query = searchQuery.toLowerCase();
-        return talentPoolCandidates.filter(c =>
-            c.name.toLowerCase().includes(query) ||
-            c.phone?.toLowerCase().includes(query) ||
-            c.email?.toLowerCase().includes(query) ||
-            c.current_company?.toLowerCase().includes(query) ||
-            c.ai_match_position_title?.toLowerCase().includes(query)
-        ).slice(0, 20);
-    }, [talentPoolCandidates, searchQuery]);
-
-    // 切换选择
-    const toggleSelect = useCallback((id: number) => {
-        setSelectedIds(prev => {
-            const next = new Set(prev);
-            if (next.has(id)) {
-                next.delete(id);
-            } else {
-                next.add(id);
-            }
-            return next;
-        });
-    }, []);
-
-    // 确认选择
-    const handleConfirm = useCallback(() => {
-        if (selectedIds.size > 0) {
-            onAssignCandidates(Array.from(selectedIds));
-            setSelectedIds(new Set());
-            setShowDropdown(false);
-            setSearchQuery("");
-        }
-    }, [selectedIds, onAssignCandidates]);
-
-    return (
-        <div className="relative">
-            <div className="flex gap-2">
-                <Input
-                    value={searchQuery}
-                    onChange={(e) => {
-                        setSearchQuery(e.target.value);
-                        if (!showDropdown) {
-                            setShowDropdown(true);
-                            if (talentPoolCandidates.length === 0) {
-                                loadTalentPoolCandidates();
-                            }
-                        }
-                    }}
-                    onFocus={() => {
-                        setShowDropdown(true);
-                        if (talentPoolCandidates.length === 0) {
-                            loadTalentPoolCandidates();
-                        }
-                    }}
-                    placeholder={isZh ? "搜索人才库候选人..." : "Search talent pool candidates..."}
-                    className="flex-1"
-                />
-                {selectedIds.size > 0 && (
-                    <Button
-                        size="sm"
-                        onClick={handleConfirm}
-                        className="rounded-xl"
-                    >
-                        {isZh ? `已选 ${selectedIds.size} 人` : `Selected ${selectedIds.size}`}
-                    </Button>
-                )}
-            </div>
-
-            {/* 下拉列表 */}
-            {showDropdown && (
-                <div className="absolute z-50 mt-1 max-h-60 w-full overflow-auto rounded-xl border border-slate-200 bg-white shadow-lg dark:border-slate-800 dark:bg-slate-950">
-                    {loading ? (
-                        <div className="flex items-center justify-center p-4">
-                            <Loader2 className="h-4 w-4 animate-spin text-slate-400"/>
-                            <span className="ml-2 text-sm text-slate-500">{isZh ? "加载中..." : "Loading..."}</span>
-                        </div>
-                    ) : filteredCandidates.length === 0 ? (
-                        <div className="p-4 text-center text-sm text-slate-500">
-                            {isZh ? "人才库暂无候选人" : "No candidates in talent pool"}
-                        </div>
-                    ) : (
-                        filteredCandidates.map(candidate => (
-                            <div
-                                key={candidate.id}
-                                className={cn(
-                                    "flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-900",
-                                    selectedIds.has(candidate.id) && "bg-violet-50 dark:bg-violet-950/30"
-                                )}
-                                onClick={() => toggleSelect(candidate.id)}
-                            >
-                                <input
-                                    type="checkbox"
-                                    checked={selectedIds.has(candidate.id)}
-                                    onChange={() => toggleSelect(candidate.id)}
-                                    className="h-4 w-4 rounded border-slate-300"
-                                    onClick={(e) => e.stopPropagation()}
-                                />
-                                <div className="min-w-0 flex-1">
-                                    <div className="flex items-center gap-2">
-                                        <span className="font-medium text-slate-900 dark:text-slate-100">{candidate.name}</span>
-                                        {candidate.ai_match_position_title && (
-                                            <span className="text-xs text-violet-600 dark:text-violet-400">
-                                                <Sparkles className="inline h-3 w-3 mr-0.5"/>
-                                                {candidate.ai_match_position_title}
-                                            </span>
-                                        )}
-                                    </div>
-                                    <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-                                        {candidate.current_company && <span>{candidate.current_company}</span>}
-                                        {candidate.phone && <span>{candidate.phone}</span>}
-                                    </div>
-                                </div>
-                            </div>
-                        ))
-                    )}
-                </div>
-            )}
-
-            {/* 点击外部关闭下拉 */}
-            {showDropdown && (
-                <div
-                    className="fixed inset-0 z-40"
-                    onClick={() => setShowDropdown(false)}
-                />
-            )}
-        </div>
-    );
-}
-
 export default function RecruitmentAutomationContainer({onBack, initialPage}: RecruitmentAutomationContainerProps) {
     const {language} = useI18n();
     const isZh = language === "zh-CN";
@@ -1767,10 +1846,10 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         currentDepartment: isZh ? "当前部门范围" : "Department Scope",
         allVisibleDepartments: isZh ? "全部可见部门" : "All Visible Departments",
         organizationField: isZh ? "所属组织/公司" : "Organization / Company",
-        targetOrganization: isZh ? "落地组织/公司" : "Target Organization / Company",
-        chooseTargetOrganization: isZh ? "请选择落地组织/公司" : "Choose a target organization",
-        allVisibleCreateHint: isZh ? "当前范围包含多个可落地组织，请明确选择新岗位归属公司/部门。" : "The current scope contains multiple target organizations. Choose where this position belongs.",
-        allVisibleUploadHint: isZh ? "当前范围包含多个可落地组织，未关联岗位时必须选择简历落地公司/部门。" : "The current scope contains multiple target organizations. Choose a target organization when no position is linked.",
+        targetOrganization: isZh ? "组织/公司" : "Target Organization / Company",
+        chooseTargetOrganization: isZh ? "请选择组织/公司" : "Choose a target organization",
+        allVisibleCreateHint: isZh ? "当前范围包含多个组织，请明确选择新岗位归属公司/部门。" : "The current scope contains multiple target organizations. Choose where this position belongs.",
+        allVisibleUploadHint: isZh ? "当前范围包含多个组织，未关联岗位时必须选择简历归属公司/部门。" : "The current scope contains multiple target organizations. Choose a target organization when no position is linked.",
         openAssistantDrawer: isZh ? "打开 AI 助手" : "Open AI Assistant",
         manageSettings: isZh ? "管理设置" : "Management Settings",
         settingsSkillsTitle: isZh ? "评估方案管理" : "Assessment Plan Settings",
@@ -2223,6 +2302,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     }, [activePage, applyRecruitmentPageChange, initialPage]);
 
     useEffect(() => {
+        clearPositionFormLocationHash();
         syncRecruitmentActivePage(activePage);
     }, [activePage]);
 
@@ -2356,6 +2436,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const [positionQuery, setPositionQuery] = useState("");
     const [positionStatusFilter, setPositionStatusFilter] = useState("all");
     const deferredPositionQuery = useDeferredValue(positionQuery);
+    const [bossJsonCopyError, setBossJsonCopyError] = useState<string | null>(null);
 
     const [candidateQuery, setCandidateQuery] = useState("");
     const [candidateStatusFilter, setCandidateStatusFilter] = useState<string[]>([]);
@@ -3648,6 +3729,10 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
 
     useEffect(() => {
         selectedPositionIdRef.current = selectedPositionId;
+    }, [selectedPositionId]);
+
+    useEffect(() => {
+        setBossJsonCopyError(null);
     }, [selectedPositionId]);
 
     useEffect(() => {
@@ -7416,23 +7501,37 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             return;
         }
         try {
-            // 优先使用 Clipboard API（需要HTTPS或localhost）
-            if (navigator.clipboard && navigator.clipboard.writeText) {
-                await navigator.clipboard.writeText(currentPublishText);
-            } else {
-                // Fallback：使用临时 textarea（兼容HTTP环境）
-                const textarea = document.createElement("textarea");
-                textarea.value = currentPublishText;
-                textarea.style.position = "fixed";
-                textarea.style.left = "-9999px";
-                document.body.appendChild(textarea);
-                textarea.select();
-                document.execCommand("copy");
-                document.body.removeChild(textarea);
-            }
+            await writeTextToClipboard(currentPublishText);
             toast.success(recruitmentToast.copied("发布文案"));
         } catch (error) {
             toast.error(recruitmentToast.copyFailed(error instanceof Error ? error.message : recruitmentToast.unknownError));
+        }
+    }
+
+    async function copyBossJsonForCurrentPosition() {
+        const currentPosition = positionDetail?.position || (selectedPositionId ? positionMap.get(selectedPositionId) : null);
+        if (!currentPosition) {
+            const message = "无法复制：未选择岗位";
+            setBossJsonCopyError(message);
+            toast.error(message);
+            return;
+        }
+
+        const result = buildBossJsonCopyPayload([currentPosition]);
+        if (!result.ok) {
+            setBossJsonCopyError(result.message);
+            toast.error(result.message);
+            return;
+        }
+
+        try {
+            await writeTextToClipboard(JSON.stringify(result.payload, null, 2));
+            setBossJsonCopyError(null);
+            toast.success("BOSS 岗位 JSON 已复制");
+        } catch (error) {
+            const message = recruitmentToast.copyFailed(error instanceof Error ? error.message : recruitmentToast.unknownError);
+            setBossJsonCopyError(message);
+            toast.error(message);
         }
     }
 
@@ -7816,26 +7915,36 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         setPositionFormErrors({});
         setPositionFormSubmitError(null);
         setPositionDialogOpen(true);
+        navigateToRecruitmentPage("positions");
     }
 
     function openEditPosition() {
         if (!positionDetail?.position) {
             return;
         }
+        const bossFields = resolveBossFieldsFromPosition(positionDetail.position);
         setPositionDialogMode("edit");
         setPositionForm({
             orgCode: normalizeRecruitmentOrgCode(positionDetail.position.org_code),
             title: positionDetail.position.title,
             department: positionDetail.position.department || "",
             location: positionDetail.position.location || "",
-            employmentType: positionDetail.position.employment_type || "",
+            employmentType: positionDetail.position.employment_type || "社招全职",
+            jobType: bossFields.jobType,
+            jobTypePath: bossFields.jobTypePath,
+            experience: bossFields.experience,
+            education: bossFields.education,
+            salaryMinK: bossFields.salaryMinK,
+            salaryMaxK: bossFields.salaryMaxK,
+            salaryMonths: bossFields.salaryMonths,
             salaryRange: positionDetail.position.salary_range || "",
             headcount: String(positionDetail.position.headcount || 1),
             keyRequirements: positionDetail.position.key_requirements || "",
             bonusPoints: positionDetail.position.bonus_points || "",
             summary: positionDetail.position.summary || "",
             status: positionDetail.position.status || "draft",
-            tagsText: joinTags(positionDetail.position.tags),
+            tagsText: bossFields.tagsText,
+            autoPublish: bossFields.autoPublish,
             autoScreenOnUpload: Boolean(positionDetail.position.auto_screen_on_upload),
             autoAdvanceOnScreening: positionDetail.position.auto_advance_on_screening ?? true,
             autoMailEnabled: Boolean(positionDetail.position.auto_mail_enabled),
@@ -7856,6 +7965,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         setPositionFormErrors({});
         setPositionFormSubmitError(null);
         setPositionDialogOpen(true);
+        navigateToRecruitmentPage("positions");
     }
 
     function updatePositionFormField<K extends keyof PositionFormState>(field: K, value: PositionFormState[K]) {
@@ -7864,28 +7974,81 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             [field]: value,
         }));
         setPositionFormSubmitError(null);
-        if (field === "title") {
+        if (field in positionFormErrors) {
             setPositionFormErrors((current) => {
-                if (!current.title) return current;
+                const errorKey = field as keyof PositionFormErrors;
+                if (!current[errorKey]) return current;
                 const next = {...current};
-                delete next.title;
-                return next;
-            });
-        } else if (field === "headcount") {
-            setPositionFormErrors((current) => {
-                if (!current.headcount) return current;
-                const next = {...current};
-                delete next.headcount;
-                return next;
-            });
-        } else if (field === "orgCode") {
-            setPositionFormErrors((current) => {
-                if (!current.orgCode) return current;
-                const next = {...current};
-                delete next.orgCode;
+                delete next[errorKey];
                 return next;
             });
         }
+    }
+
+    function clearPositionFormErrors(keys: Array<keyof PositionFormErrors>) {
+        setPositionFormErrors((current) => {
+            let changed = false;
+            const next = {...current};
+            keys.forEach((key) => {
+                if (next[key]) {
+                    delete next[key];
+                    changed = true;
+                }
+            });
+            return changed ? next : current;
+        });
+    }
+
+    function applyBossJobSelection(item: BossJobFlatItem, options?: { syncTitle?: boolean }) {
+        setPositionForm((current) => ({
+            ...current,
+            title: options?.syncTitle === false ? current.title : item.third,
+            jobType: item.third,
+            jobTypePath: item.path,
+        }));
+        setPositionFormSubmitError(null);
+        clearPositionFormErrors(["title", "jobType", "jobTypePath"]);
+    }
+
+    function updateBossSalaryMinK(value: string) {
+        const nextMinK = Number(value);
+        setPositionForm((current) => {
+            const normalizedMinK = Number.isFinite(nextMinK) ? nextMinK : null;
+            const allowedMaxOptions = getBossSalaryMaxKOptions(normalizedMinK);
+            const currentMaxK = Number(current.salaryMaxK);
+            const nextMaxK = Number.isFinite(currentMaxK) && allowedMaxOptions.includes(currentMaxK)
+                ? current.salaryMaxK
+                : (allowedMaxOptions[0] ?? null);
+            return {
+                ...current,
+                salaryMinK: normalizedMinK,
+                salaryMaxK: nextMaxK,
+            };
+        });
+        setPositionFormSubmitError(null);
+        clearPositionFormErrors(["salaryMinK", "salaryMaxK"]);
+    }
+
+    function updateBossSalaryMaxK(value: string) {
+        const nextMaxK = Number(value);
+        updatePositionFormField("salaryMaxK", Number.isFinite(nextMaxK) ? nextMaxK : null);
+        clearPositionFormErrors(["salaryMaxK"]);
+    }
+
+    function appendJobDescriptionSection(title: string) {
+        const current = positionForm.keyRequirements.trimEnd();
+        const nextText = current.includes(`${title}：`)
+            ? current
+            : `${current ? `${current}\n\n` : ""}${title}：\n1. `;
+        updatePositionFormField("keyRequirements", nextText.slice(0, 5000));
+    }
+
+    function closePositionFormPage() {
+        setPositionDialogOpen(false);
+        setPositionFormErrors({});
+        setPositionFormSubmitError(null);
+        setPositionSubmitting(false);
+        clearPositionFormLocationHash();
     }
 
     function updatePositionSkillBinding(
@@ -7964,8 +8127,22 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                     <FilePlus2 className="mt-0.5 h-4 w-4 text-slate-500"/>
 	                        <span>
 	                            <span className="block text-sm font-semibold text-slate-900 dark:text-slate-100">{isZh ? "编辑招聘需求" : "Edit Request"}</span>
-	                            <span className="mt-0.5 block text-xs text-slate-500 dark:text-slate-400">{isZh ? "修改招聘需求与职位信息" : "Edit request and position information"}</span>
-	                        </span>
+                            <span className="mt-0.5 block text-xs text-slate-500 dark:text-slate-400">{isZh ? "修改招聘需求与职位信息" : "Edit request and position information"}</span>
+                        </span>
+                </button>
+                <button
+                    type="button"
+                    className="flex w-full items-start gap-3 rounded-xl px-3 py-2.5 text-left transition hover:bg-slate-50 dark:hover:bg-slate-900"
+                    onClick={() => {
+                        closePositionActionMenus();
+                        void copyBossJsonForCurrentPosition();
+                    }}
+                >
+                    <ClipboardCheck className="mt-0.5 h-4 w-4 text-slate-500"/>
+                    <span>
+                        <span className="block text-sm font-semibold text-slate-900 dark:text-slate-100">复制 BOSS JSON</span>
+                        <span className="mt-0.5 block text-xs text-slate-500 dark:text-slate-400">{isZh ? "复制当前岗位给招聘助手 Bot 使用" : "Copy current position JSON for the assistant bot"}</span>
+                    </span>
                 </button>
                 <div className="my-1 h-px bg-slate-100 dark:bg-slate-800"/>
                 <button
@@ -8264,6 +8441,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         const headcountText = form.headcount.trim();
         const headcountValue = Number(headcountText || "0");
         const orgCode = normalizeRecruitmentOrgCode(form.orgCode);
+        const jobTypePath = normalizeBossJobPath(form.jobTypePath);
 
         if (positionDialogMode === "create") {
             if (!form.orgCode.trim()) {
@@ -8273,19 +8451,71 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             }
         }
 
-	        if (!title) {
-	            errors.title = isZh ? "请输入需求/职位名称" : "Please enter a request / position title";
-	        } else if (title.length > 200) {
-	            errors.title = isZh ? "需求/职位名称不能超过 200 个字符" : "Request / position title cannot exceed 200 characters";
-	        }
+        if (!title) {
+            errors.title = isZh ? "请输入职位名称" : "Please enter the position name";
+        } else if (title.length > 200) {
+            errors.title = isZh ? "职位名称不能超过 200 个字符" : "Position name cannot exceed 200 characters";
+        }
 
-	        if (!headcountText) {
-	            errors.headcount = isZh ? "请输入需求人数" : "Please enter the required headcount";
-	        } else if (!/^\d+$/.test(headcountText)) {
-	            errors.headcount = isZh ? "需求人数只能填写正整数" : "Headcount must be a positive integer";
-	        } else if (!Number.isInteger(headcountValue) || headcountValue < 1 || headcountValue > 999) {
-	            errors.headcount = isZh ? "需求人数需在 1 到 999 之间" : "Headcount must be between 1 and 999";
-	        }
+        if (!form.employmentType.trim()) {
+            errors.employmentType = isZh ? "请选择招聘类型" : "Please choose the recruit type";
+        } else if (!BOSS_RECRUIT_TYPES.includes(form.employmentType as typeof BOSS_RECRUIT_TYPES[number])) {
+            errors.employmentType = isZh ? "招聘类型不在固定选项中" : "Recruit type is not an allowed option";
+        }
+
+        if (!form.keyRequirements.trim()) {
+            errors.keyRequirements = isZh ? "请填写职位描述" : "Please enter the job description";
+        }
+
+        if (!form.jobType.trim()) {
+            errors.jobType = isZh ? "请选择职位类型" : "Please choose the job type";
+        } else if (!bossJobTypeSet.has(form.jobType.trim())) {
+            errors.jobType = isZh ? "职位类型必须来自职位库" : "Job type must be selected from the catalog";
+        }
+
+        if (!jobTypePath.length) {
+            errors.jobTypePath = isZh ? "请选择完整职位类型路径" : "Please choose a complete job type path";
+        } else if (!bossJobPathSet.has(jobTypePath.join(" / "))) {
+            errors.jobTypePath = isZh ? "职位类型路径必须来自职位库" : "Job type path must be selected from the catalog";
+        }
+
+        if (!BOSS_EXPERIENCE_OPTIONS.includes(form.experience as typeof BOSS_EXPERIENCE_OPTIONS[number])) {
+            errors.experience = isZh ? "请选择有效经验要求" : "Please choose a valid experience option";
+        }
+
+        if (!BOSS_EDUCATION_OPTIONS.includes(form.education as typeof BOSS_EDUCATION_OPTIONS[number])) {
+            errors.education = isZh ? "请选择有效学历要求" : "Please choose a valid education option";
+        }
+
+        if (!Number.isFinite(form.salaryMinK)) {
+            errors.salaryMinK = isZh ? "请选择最低月薪" : "Please choose the minimum monthly salary";
+        } else if (!BOSS_SALARY_K_OPTIONS.includes(Number(form.salaryMinK))) {
+            errors.salaryMinK = isZh ? "最低月薪必须在 1k-250k 范围内" : "Minimum salary must be between 1k and 250k";
+        }
+
+        if (!Number.isFinite(form.salaryMaxK)) {
+            errors.salaryMaxK = isZh ? "请选择最高月薪" : "Please choose the maximum monthly salary";
+        }
+
+        if (Number.isFinite(form.salaryMinK) && Number.isFinite(form.salaryMaxK) && !getBossSalaryMaxKOptions(form.salaryMinK).includes(Number(form.salaryMaxK))) {
+            errors.salaryMaxK = isZh ? "最高月薪必须在最低月薪后的可选范围内" : "Maximum salary must be in the allowed range after minimum salary";
+        }
+
+        if (!BOSS_SALARY_MONTH_OPTIONS.includes(form.salaryMonths as typeof BOSS_SALARY_MONTH_OPTIONS[number])) {
+            errors.salaryMonths = isZh ? "请选择有效薪资月数" : "Please choose a valid salary month option";
+        }
+
+        if (!form.location.trim()) {
+            errors.location = isZh ? "请选择或填写工作地址" : "Please enter the work address";
+        }
+
+        if (!headcountText) {
+            errors.headcount = isZh ? "请输入招聘人数" : "Please enter the required headcount";
+        } else if (!/^\d+$/.test(headcountText)) {
+            errors.headcount = isZh ? "招聘人数只能填写正整数" : "Headcount must be a positive integer";
+        } else if (!Number.isInteger(headcountValue) || headcountValue < 1 || headcountValue > 999) {
+            errors.headcount = isZh ? "招聘人数需在 1 到 999 之间" : "Headcount must be between 1 and 999";
+        }
 
         return errors;
     }
@@ -8310,19 +8540,27 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         setPositionFormSubmitError(null);
         setPositionSubmitting(true);
 
+        const bossSalary = {
+            minK: positionForm.salaryMinK,
+            maxK: positionForm.salaryMaxK,
+            months: positionForm.salaryMonths,
+        };
+        const bossMeta = buildBossPositionMeta(positionForm);
+        const visibleTags = splitTags(positionForm.tagsText);
+
         const payload = {
             ...(positionDialogMode === "create" ? {org_code: normalizeRecruitmentOrgCode(positionForm.orgCode)} : {}),
             title: positionForm.title.trim(),
             department: positionForm.department.trim() || null,
             location: positionForm.location.trim() || null,
             employment_type: positionForm.employmentType.trim() || null,
-            salary_range: positionForm.salaryRange.trim() || null,
+            salary_range: formatBossSalaryRange(bossSalary) || positionForm.salaryRange.trim() || null,
             headcount: Number(positionForm.headcount || "1"),
             key_requirements: positionForm.keyRequirements.trim() || null,
             bonus_points: positionForm.bonusPoints.trim() || null,
             summary: positionForm.summary.trim() || null,
             status: positionForm.status,
-            tags: splitTags(positionForm.tagsText),
+            tags: mergeBossMetaTag(visibleTags, bossMeta),
             auto_screen_on_upload: positionForm.autoScreenOnUpload,
             auto_advance_on_screening: positionForm.autoAdvanceOnScreening,
             auto_mail_enabled: positionForm.autoMailEnabled,
@@ -8349,25 +8587,6 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 setSelectedPositionId(created.id);
                 targetPositionId = created.id;
                 toast.success(recruitmentToast.created(recruitmentToastEntities.position));
-
-                // 如果有选中的人才库候选人，批量分配到新创建的岗位
-                if (positionForm.pendingTalentPoolCandidates && positionForm.pendingTalentPoolCandidates.length > 0 && targetPositionId) {
-                    try {
-                        await batchBindPosition(positionForm.pendingTalentPoolCandidates, targetPositionId);
-                        toast.success(
-                            isZh
-                                ? `已将 ${positionForm.pendingTalentPoolCandidates.length} 位候选人分配到新岗位`
-                                : `Assigned ${positionForm.pendingTalentPoolCandidates.length} candidates to the new position`
-                        );
-                    } catch (assignError) {
-                        console.error("Failed to assign talent pool candidates:", assignError);
-                        toast.error(
-                            isZh
-                                ? `岗位创建成功，但分配候选人失败：${formatActionError(assignError)}`
-                                : `Position created, but failed to assign candidates: ${formatActionError(assignError)}`
-                        );
-                    }
-                }
             } else if (selectedPositionId) {
                 await recruitmentApi<PositionSummary>(`/positions/${selectedPositionId}`, {
                     method: "PATCH",
@@ -12198,6 +12417,544 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         });
     }, [positionCandidatesData, positionCandidateStatusFilter]);
 
+    function renderPositionFormPage() {
+        const maxSalaryOptions = getBossSalaryMaxKOptions(positionForm.salaryMinK);
+
+        return (
+            <div className="flex h-full min-h-0 flex-col bg-white dark:bg-slate-950">
+                <ScrollArea className="min-h-0 flex-1">
+                    <div className="mx-auto grid w-full max-w-[1120px] gap-8 px-5 pb-7 pt-[22px] md:px-8 lg:grid-cols-[minmax(0,1fr)_180px]">
+                        <div className="w-full max-w-[820px] space-y-[42px]">
+                            <div className="absolute left-[calc(50%+86px)] top-[18px] z-20 hidden -translate-x-1/2 lg:block">
+                                <button
+                                    type="button"
+                                    aria-label={isZh ? "关闭并返回岗位列表" : "Close and return to position list"}
+                                    className="flex h-9 w-9 items-center justify-center rounded-[4px] border border-transparent bg-white text-[#7f8c9c] transition hover:border-[#d8e1ea] hover:bg-[#f6f8fb] hover:text-[#1f2937] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#11aaa5]/20 dark:bg-slate-950 dark:text-slate-400 dark:hover:border-slate-700 dark:hover:bg-slate-900 dark:hover:text-slate-100"
+                                    onClick={closePositionFormPage}
+                                >
+                                    <X className="h-[18px] w-[18px]"/>
+                                </button>
+                            </div>
+                            <RecruitmentFormSection
+                                id="position-form-basic"
+                                index={1}
+                                title={isZh ? "职位基本信息" : "Basic Position Info"}
+                                description={isZh ? "职位发布成功后，招聘类型、职位名称、职位类型、工作城市，将无法修改" : "After publishing, recruit type, job name, job type, and city are locked."}
+                            >
+                                <div className="space-y-[24px]">
+                                    {positionDialogMode === "create" && showOrganizationFields && organizationSelectOptions.length > 1 ? (
+                                        <RecruitmentFieldRow
+                                            label={recruitmentUiText.targetOrganization}
+                                            error={positionFormErrors.orgCode}
+                                            hint={showOrganizationFields ? recruitmentUiText.allVisibleCreateHint : null}
+                                            required
+                                        >
+                                            <NativeSelect
+                                                className={cn(recruitmentFormInputClass, recruitmentFormControlClass)}
+                                                value={positionForm.orgCode}
+                                                onChange={(event) => updatePositionFormField("orgCode", event.target.value)}
+                                            >
+                                                <option value="">{recruitmentUiText.chooseTargetOrganization}</option>
+                                                {organizationSelectOptions.map((option) => (
+                                                    <option key={option.value} value={option.value}>{option.label}</option>
+                                                ))}
+                                            </NativeSelect>
+                                        </RecruitmentFieldRow>
+                                    ) : null}
+
+                                    <RecruitmentFieldRow label={isZh ? "公司" : "Company"}>
+                                        <div className="flex h-[34px] max-w-[500px] items-center text-[14px] leading-[20px] text-[#303846]">
+                                            {showOrganizationColumn ? getOrganizationLabel(positionForm.orgCode || activeCreateOrgCode) : (isZh ? "唐人·运营商/增值服务·唐人科技集团有限公司" : "Tang Ren Technology")}
+                                        </div>
+                                    </RecruitmentFieldRow>
+
+                                    <RecruitmentFieldRow label={isZh ? "部门" : "Department"}>
+                                        <Input
+                                            className={cn(recruitmentFormInputClass, recruitmentFormControlClass)}
+                                            value={positionForm.department}
+                                            maxLength={80}
+                                            onChange={(event) => updatePositionFormField("department", event.target.value.slice(0, 80))}
+                                            placeholder={isZh ? "请输入部门" : "Enter department"}
+                                        />
+                                    </RecruitmentFieldRow>
+
+                                    <RecruitmentFieldRow label={isZh ? "招聘类型" : "Recruit Type"} error={positionFormErrors.employmentType} required>
+                                        <RecruitmentSegmentedGroup
+                                            className={cn(recruitmentFormControlClass, "flex-nowrap max-[540px]:flex-wrap")}
+                                            buttonClassName="min-w-[116px] px-[14px] whitespace-nowrap"
+                                            value={positionForm.employmentType}
+                                            onChange={(value) => updatePositionFormField("employmentType", value)}
+                                            options={BOSS_RECRUIT_TYPES.map((value) => ({value, label: value}))}
+                                        />
+                                    </RecruitmentFieldRow>
+
+                                    <RecruitmentFieldRow label={isZh ? "职位名称" : "Job Name"} error={positionFormErrors.title} required>
+                                        <BossJobNameCascader
+                                            inputRef={positionTitleInputRef}
+                                            className={recruitmentFormControlClass}
+                                            value={positionForm.title}
+                                            onChange={(value) => updatePositionFormField("title", value)}
+                                            onSelect={(item) => applyBossJobSelection(item)}
+                                            placeholder={isZh ? "请填写职位名称，如“销售专员”" : "Enter a job name"}
+                                            error={positionFormErrors.title}
+                                        />
+                                    </RecruitmentFieldRow>
+
+                                    <RecruitmentFieldRow label={isZh ? "职位描述" : "Job Description"} error={positionFormErrors.keyRequirements} required>
+                                        <RecruitmentTextareaMeter value={positionForm.keyRequirements} maxLength={5000}>
+                                            <div className="flex flex-wrap items-center gap-2 px-[16px] pt-[10px] text-[12px] leading-[18px] text-[#8793a3]">
+                                                <span>{isZh ? "可选标题" : "Optional headings"}</span>
+                                                {["岗位职责", "任职要求", "岗位福利"].map((item) => (
+                                                    <button
+                                                        key={item}
+                                                        type="button"
+                                                        className="rounded-full bg-[#f1f5f9] px-3 py-1 text-[#303846] transition hover:bg-[#e7f8f6] hover:text-[#08918d]"
+                                                        onClick={() => appendJobDescriptionSection(item)}
+                                                    >
+                                                        {item}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                            <Textarea
+                                                className={cn(recruitmentFormTextareaClass, "min-h-[156px]")}
+                                                value={positionForm.keyRequirements}
+                                                maxLength={5000}
+                                                onChange={(event) => updatePositionFormField("keyRequirements", event.target.value.slice(0, 5000))}
+                                                rows={7}
+                                                placeholder={isZh ? "请勿填写QQ、微信、电话等联系方式及特殊符号、性别歧视词、违反劳动法相关内容，否则有可能会导致您的账号被封禁" : "Describe responsibilities and requirements."}
+                                            />
+                                        </RecruitmentTextareaMeter>
+                                    </RecruitmentFieldRow>
+
+                                    <RecruitmentFieldRow label={isZh ? "职位类型" : "Job Type"} error={positionFormErrors.jobType || positionFormErrors.jobTypePath} required>
+                                        <BossJobTypeSelector
+                                            className={recruitmentFormControlClass}
+                                            value={positionForm.jobType}
+                                            onSelect={(item) => applyBossJobSelection(item, {syncTitle: false})}
+                                            placeholder={isZh ? "选择职位类型" : "Select job type"}
+                                            error={positionFormErrors.jobType || positionFormErrors.jobTypePath}
+                                        />
+                                    </RecruitmentFieldRow>
+                                </div>
+                            </RecruitmentFormSection>
+
+                            <RecruitmentFormSection
+                                id="position-form-requirements"
+                                index={2}
+                                title={isZh ? "职位要求" : "Position Requirements"}
+                                description={isZh ? "我们将通过以下条件，为您精确推荐合适的牛人，请尽量详细填写" : "These conditions are used to recommend suitable candidates."}
+                            >
+                                <div className="space-y-[24px]">
+                                    <RecruitmentFieldRow label={isZh ? "经验" : "Experience"} error={positionFormErrors.experience} required>
+                                        <NativeSelect
+                                            className={cn(recruitmentFormInputClass, recruitmentFormShortControlClass)}
+                                            value={positionForm.experience}
+                                            onChange={(event) => updatePositionFormField("experience", event.target.value)}
+                                        >
+                                            {BOSS_EXPERIENCE_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
+                                        </NativeSelect>
+                                    </RecruitmentFieldRow>
+
+                                    <RecruitmentFieldRow label={isZh ? "学历" : "Education"} error={positionFormErrors.education} required>
+                                        <NativeSelect
+                                            className={cn(recruitmentFormInputClass, recruitmentFormShortControlClass)}
+                                            value={positionForm.education}
+                                            onChange={(event) => updatePositionFormField("education", event.target.value)}
+                                        >
+                                            {BOSS_EDUCATION_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
+                                        </NativeSelect>
+                                    </RecruitmentFieldRow>
+
+                                    <RecruitmentFieldRow label={isZh ? "薪资范围" : "Salary"} error={positionFormErrors.salaryMinK || positionFormErrors.salaryMaxK || positionFormErrors.salaryMonths} required>
+                                        <div className="flex flex-wrap items-center gap-[18px]">
+                                            <NativeSelect
+                                                className={cn(
+                                                    recruitmentFormInputClass,
+                                                    recruitmentFormShortControlClass,
+                                                    positionForm.salaryMinK == null && "text-[#c2cad4]",
+                                                )}
+                                                value={positionForm.salaryMinK == null ? "" : String(positionForm.salaryMinK)}
+                                                onChange={(event) => updateBossSalaryMinK(event.target.value)}
+                                            >
+                                                <option value="" disabled hidden>{isZh ? "最低月薪" : "Minimum"}</option>
+                                                {BOSS_SALARY_K_OPTIONS.map((value) => <option className="text-[#303846]" key={value} value={value}>{value}k</option>)}
+                                            </NativeSelect>
+                                            <NativeSelect
+                                                className={cn(
+                                                    recruitmentFormInputClass,
+                                                    recruitmentFormShortControlClass,
+                                                    positionForm.salaryMaxK == null && "text-[#c2cad4]",
+                                                )}
+                                                value={positionForm.salaryMaxK == null ? "" : String(positionForm.salaryMaxK)}
+                                                onChange={(event) => updateBossSalaryMaxK(event.target.value)}
+                                            >
+                                                <option value="" disabled hidden>{isZh ? "最高月薪" : "Maximum"}</option>
+                                                {maxSalaryOptions.map((value) => <option className="text-[#303846]" key={value} value={value}>{value}k</option>)}
+                                            </NativeSelect>
+                                            <NativeSelect
+                                                className={cn(recruitmentFormInputClass, recruitmentFormShortControlClass)}
+                                                value={positionForm.salaryMonths}
+                                                onChange={(event) => updatePositionFormField("salaryMonths", event.target.value)}
+                                            >
+                                                {BOSS_SALARY_MONTH_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
+                                            </NativeSelect>
+                                        </div>
+                                        <p className="mt-[6px] text-[12px] leading-[18px] text-[#05a7a2]">ⓘ 1k=1千元 10k=1万元</p>
+                                    </RecruitmentFieldRow>
+
+                                    <RecruitmentFieldRow label={isZh ? "职位关键词" : "Keywords"}>
+                                        <Input
+                                            className={cn(recruitmentFormInputClass, recruitmentFormControlClass)}
+                                            value={positionForm.tagsText}
+                                            maxLength={240}
+                                            onChange={(event) => updatePositionFormField("tagsText", event.target.value.slice(0, 240))}
+                                            placeholder={isZh ? "请输入关键词，多个用逗号分隔" : "Enter keywords, separated by commas"}
+                                        />
+                                    </RecruitmentFieldRow>
+
+                                    <RecruitmentFieldRow label={isZh ? "工作地址" : "Work Address"} error={positionFormErrors.location} required>
+                                        <Input
+                                            className={cn(recruitmentFormInputClass, recruitmentFormControlClass)}
+                                            value={positionForm.location}
+                                            maxLength={120}
+                                            onChange={(event) => updatePositionFormField("location", event.target.value.slice(0, 120))}
+                                            placeholder={isZh ? "请输入工作地址" : "Enter work address"}
+                                        />
+                                        <p className="mt-[6px] text-[12px] leading-[18px] text-[#8b98a8]">{isZh ? "请填写真实有效地址，若查实造假，将受到平台处罚。" : "Please provide a valid address."}</p>
+                                    </RecruitmentFieldRow>
+
+                                    <RecruitmentFieldRow label={isZh ? "招聘人数" : "Headcount"} error={positionFormErrors.headcount} required>
+                                        <Input
+                                            ref={positionHeadcountInputRef}
+                                            className={cn(recruitmentFormInputClass, recruitmentFormShortControlClass)}
+                                            type="text"
+                                            inputMode="numeric"
+                                            value={positionForm.headcount}
+                                            onChange={(event) => updatePositionFormField("headcount", event.target.value.replace(/[^\d]/g, "").slice(0, 3))}
+                                            placeholder="1 - 999"
+                                        />
+                                    </RecruitmentFieldRow>
+
+                                    <RecruitmentFieldRow label={isZh ? "补充信息" : "Supplement"}>
+                                        <div className="grid gap-[14px]">
+                                            <Textarea
+                                                className={cn(recruitmentFormTextareaClass, "min-h-[88px] max-w-[500px] rounded-[4px] border border-[#d5dee9] bg-white")}
+                                                value={positionForm.bonusPoints}
+                                                maxLength={2000}
+                                                onChange={(event) => updatePositionFormField("bonusPoints", event.target.value.slice(0, 2000))}
+                                                placeholder={isZh ? "加分项、行业背景、软性偏好等" : "Bonus points, industry background, soft preferences"}
+                                            />
+                                            <Textarea
+                                                className={cn(recruitmentFormTextareaClass, "min-h-[88px] max-w-[500px] rounded-[4px] border border-[#d5dee9] bg-white")}
+                                                value={positionForm.summary}
+                                                maxLength={4000}
+                                                onChange={(event) => updatePositionFormField("summary", event.target.value.slice(0, 4000))}
+                                                placeholder={isZh ? "岗位背景、团队目标或招聘策略" : "Role background, team goals, or recruiting strategy"}
+                                            />
+                                        </div>
+                                    </RecruitmentFieldRow>
+                                </div>
+                            </RecruitmentFormSection>
+
+                            <RecruitmentFormSection
+                                id="position-form-screening"
+                                index={3}
+                                title={isZh ? "职位设置" : "Position Settings"}
+                                description={isZh ? "配置初筛、评估方案和自动邮件，不影响前面的基础字段保存逻辑。" : "Configure screening, assessment plans, and mail automation."}
+                            >
+                                <RecruitmentFieldRow label={isZh ? "岗位状态" : "Status"}>
+                                    <RecruitmentSegmentedGroup
+                                        className={recruitmentFormControlClass}
+                                        value={positionForm.status}
+                                        onChange={(value) => updatePositionFormField("status", value)}
+                                        options={Object.entries(positionStatusLabels).map(([value, label]) => ({value, label}))}
+                                    />
+                                </RecruitmentFieldRow>
+
+                                <RecruitmentFieldRow label={recruitmentUiText.screeningConfig}>
+                                    <div className="space-y-4 rounded-[4px] border border-[#d8e1ea] bg-[#f8fbfb] px-4 py-4 dark:border-slate-700 dark:bg-slate-900/60">
+                                        <RecruitmentToggleRow
+                                            checked={positionForm.autoScreenOnUpload}
+                                            disabled={positionForm.screeningSkillIds.length === 0}
+                                            title={recruitmentUiText.uploadResumeAutoScreenHint}
+                                            onChange={(checked) => {
+                                                if (positionForm.screeningSkillIds.length === 0) {
+                                                    return;
+                                                }
+                                                updatePositionFormField("autoScreenOnUpload", checked);
+                                            }}
+                                        />
+                                        {positionForm.screeningSkillIds.length === 0 && (
+                                            <p className="text-xs text-amber-600 dark:text-amber-400">
+                                                {recruitmentUiText.uploadResumeAutoScreenHintNoSkill}
+                                            </p>
+                                        )}
+                                        <RecruitmentToggleRow
+                                            checked={positionForm.autoAdvanceOnScreening}
+                                            title={recruitmentUiText.autoAdvanceOnScreeningLabel}
+                                            onChange={(checked) => updatePositionFormField("autoAdvanceOnScreening", checked)}
+                                        />
+                                        <div className="rounded-[4px] border border-[#d8e1ea] bg-white p-4 dark:border-slate-700 dark:bg-slate-950/60">
+                                            <RecruitmentToggleRow
+                                                checked={positionForm.autoMailEnabled}
+                                                title={recruitmentUiText.autoMailPushTitle}
+                                                description={recruitmentUiText.autoMailPushDescription}
+                                                onChange={(checked) => updatePositionFormField("autoMailEnabled", checked)}
+                                            />
+                                            <div className={cn("mt-4 grid gap-4 lg:grid-cols-2", !positionForm.autoMailEnabled && "pointer-events-none opacity-40")}>
+                                                <RecruitmentToggleRow
+                                                    checked={positionForm.autoMailUsePositionRecipients}
+                                                    title={recruitmentUiText.positionSpecificRecipient}
+                                                    onChange={(checked) => updatePositionFormField("autoMailUsePositionRecipients", checked)}
+                                                />
+                                                <RecruitmentToggleRow
+                                                    checked={positionForm.autoMailUseGlobalRecipients}
+                                                    title={recruitmentUiText.globalDefaultRecipient}
+                                                    description={recruitmentUiText.globalDefaultRecipientHint}
+                                                    onChange={(checked) => updatePositionFormField("autoMailUseGlobalRecipients", checked)}
+                                                />
+                                            </div>
+                                            <div className={cn("mt-4 space-y-4", !positionForm.autoMailEnabled && "pointer-events-none opacity-40")}>
+                                                <div className="space-y-2">
+                                                    <p className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">{recruitmentUiText.positionSpecificRecipients}</p>
+                                                    <div className="flex flex-wrap gap-2">
+                                                        {mailRecipients.filter((recipient) => recipient.is_enabled).length ? mailRecipients.filter((recipient) => recipient.is_enabled).map((recipient) => (
+                                                            <button
+                                                                key={`auto-mail-to-page-${recipient.id}`}
+                                                                type="button"
+                                                                className={cn(
+                                                                    "rounded-full border px-3 py-2 text-xs transition",
+                                                                    positionForm.autoMailPositionRecipientIds.includes(recipient.id)
+                                                                        ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
+                                                                        : "border-slate-200 bg-white text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300",
+                                                                )}
+                                                                onClick={() => updatePositionFormField("autoMailPositionRecipientIds", toggleIdInList(positionForm.autoMailPositionRecipientIds, recipient.id))}
+                                                            >
+                                                                {recipient.name}
+                                                            </button>
+                                                        )) : <p className="text-sm text-slate-500 dark:text-slate-400">{recruitmentUiText.noRecipientsInMailCenter}</p>}
+                                                    </div>
+                                                </div>
+                                                <div className="grid gap-4 xl:grid-cols-2">
+                                                    <div className="space-y-2">
+                                                        <p className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">{recruitmentUiText.ccRecipients}</p>
+                                                        <div className="flex flex-wrap gap-2">
+                                                            {mailRecipients.filter((recipient) => recipient.is_enabled).length ? mailRecipients.filter((recipient) => recipient.is_enabled).map((recipient) => (
+                                                                <button
+                                                                    key={`auto-mail-cc-page-${recipient.id}`}
+                                                                    type="button"
+                                                                    className={cn(
+                                                                        "rounded-full border px-3 py-2 text-xs transition",
+                                                                        positionForm.autoMailCcRecipientIds.includes(recipient.id)
+                                                                            ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
+                                                                            : "border-slate-200 bg-white text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300",
+                                                                    )}
+                                                                    onClick={() => updatePositionFormField("autoMailCcRecipientIds", toggleIdInList(positionForm.autoMailCcRecipientIds, recipient.id))}
+                                                                >
+                                                                    {recipient.name}
+                                                                </button>
+                                                            )) : <p className="text-sm text-slate-500 dark:text-slate-400">{recruitmentUiText.noCCRecipients}</p>}
+                                                        </div>
+                                                    </div>
+                                                    <div className="space-y-2">
+                                                        <p className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">{recruitmentUiText.bccRecipients}</p>
+                                                        <div className="flex flex-wrap gap-2">
+                                                            {mailRecipients.filter((recipient) => recipient.is_enabled).length ? mailRecipients.filter((recipient) => recipient.is_enabled).map((recipient) => (
+                                                                <button
+                                                                    key={`auto-mail-bcc-page-${recipient.id}`}
+                                                                    type="button"
+                                                                    className={cn(
+                                                                        "rounded-full border px-3 py-2 text-xs transition",
+                                                                        positionForm.autoMailBccRecipientIds.includes(recipient.id)
+                                                                            ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
+                                                                            : "border-slate-200 bg-white text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300",
+                                                                    )}
+                                                                    onClick={() => updatePositionFormField("autoMailBccRecipientIds", toggleIdInList(positionForm.autoMailBccRecipientIds, recipient.id))}
+                                                                >
+                                                                    {recipient.name}
+                                                                </button>
+                                                            )) : <p className="text-sm text-slate-500 dark:text-slate-400">{recruitmentUiText.noBCCRecipients}</p>}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <p className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">{recruitmentUiText.allowedAutoMailStatuses}</p>
+                                                    <div className="flex flex-wrap gap-2">
+                                                        {(metadata?.candidate_statuses || []).map((option) => (
+                                                            <button
+                                                                key={`auto-mail-status-page-${option.value}`}
+                                                                type="button"
+                                                                className={cn(
+                                                                    "rounded-full border px-3 py-2 text-xs transition",
+                                                                    positionForm.autoMailAllowedCandidateStatuses.includes(option.value)
+                                                                        ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
+                                                                        : "border-slate-200 bg-white text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300",
+                                                                )}
+                                                                onClick={() => updatePositionFormField(
+                                                                    "autoMailAllowedCandidateStatuses",
+                                                                    positionForm.autoMailAllowedCandidateStatuses.includes(option.value)
+                                                                        ? positionForm.autoMailAllowedCandidateStatuses.filter((item) => item !== option.value)
+                                                                        : [...positionForm.autoMailAllowedCandidateStatuses, option.value],
+                                                                )}
+                                                            >
+                                                                {localizeCandidateStatusValue(option.value, option.label)}
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                                <div className="grid gap-4 lg:grid-cols-2">
+                                                    <Field label={recruitmentUiText.reservedTemplateId}>
+                                                        <Input
+                                                            className={cn(recruitmentFormInputClass, recruitmentFormControlClass)}
+                                                            value={positionForm.autoMailTemplateId}
+                                                            placeholder={recruitmentUiText.reservedTemplatePlaceholder}
+                                                            onChange={(event) => updatePositionFormField("autoMailTemplateId", event.target.value)}
+                                                        />
+                                                    </Field>
+                                                    <Field label={recruitmentUiText.dedupMode}>
+                                                        <NativeSelect
+                                                            className={cn(recruitmentFormInputClass, recruitmentFormControlClass)}
+                                                            value={positionForm.autoMailDedupMode}
+                                                            onChange={(event) => updatePositionFormField("autoMailDedupMode", event.target.value)}
+                                                        >
+                                                            <option value="once_per_candidate_per_status">{recruitmentUiText.dedupOncePerCandidatePerStatus}</option>
+                                                            <option value="once_per_candidate">{recruitmentUiText.dedupOncePerCandidate}</option>
+                                                            <option value="allow_repeat">{recruitmentUiText.allowRepeatSending}</option>
+                                                        </NativeSelect>
+                                                    </Field>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div className="space-y-3">
+                                            <div className="rounded-[4px] border border-slate-200/80 bg-slate-50/70 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/50">
+                                                <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{recruitmentUiText.skillsAutomation}</p>
+                                                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{recruitmentUiText.autoMailSkillBindingHint}</p>
+                                            </div>
+                                            {([
+                                                ["jdSkillIds", positionSkillFieldConfig.jdSkillIds],
+                                                ["screeningSkillIds", positionSkillFieldConfig.screeningSkillIds],
+                                                ["interviewSkillIds", positionSkillFieldConfig.interviewSkillIds],
+                                            ] as const).map(([formKey, config]) => {
+                                                const skillChoices = positionSkillChoicesByField[formKey];
+                                                const isExpanded = positionSkillSectionExpanded[formKey];
+                                                const hasSelected = (positionForm[formKey] as number[]).length > 0;
+                                                return (
+                                                    <div key={formKey} className="rounded-[4px] border border-slate-200/80 bg-white px-4 py-4 dark:border-slate-800 dark:bg-slate-950/50">
+                                                        <div className="flex flex-wrap items-start justify-between gap-3">
+                                                            <div className="space-y-1">
+                                                                <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{config.label}</p>
+                                                                <p className="text-xs text-slate-500 dark:text-slate-400">
+                                                                    {hasSelected
+                                                                        ? `${config.selectedPrefix}${selectedPositionSkillText[formKey]}`
+                                                                        : (isZh ? "当前未绑定，系统将自动使用该类型的内置通用基座。" : "No plan selected. The system will fall back to the built-in base for this task.")}
+                                                                </p>
+                                                            </div>
+                                                            <div className="flex items-center gap-2">
+                                                                <Button
+                                                                    type="button"
+                                                                    variant="outline"
+                                                                    size="sm"
+                                                                    title={isZh ? `新建${config.label}` : `Create ${config.label}`}
+                                                                    onClick={() => openSkillEditorForPosition(config.taskKind, formKey)}
+                                                                >
+                                                                    <Plus className="h-4 w-4"/>
+                                                                </Button>
+                                                                <Button
+                                                                    type="button"
+                                                                    variant="ghost"
+                                                                    size="sm"
+                                                                    className="gap-1"
+                                                                    onClick={() => setPositionSkillSectionExpanded((current) => ({
+                                                                        ...current,
+                                                                        [formKey]: !current[formKey],
+                                                                    }))}
+                                                                >
+                                                                    {isExpanded ? <ChevronUp className="h-4 w-4"/> : <ChevronDown className="h-4 w-4"/>}
+                                                                    {isExpanded ? (isZh ? "收起" : "Collapse") : (isZh ? "展开选择" : "Choose")}
+                                                                </Button>
+                                                            </div>
+                                                        </div>
+                                                        {isExpanded ? (
+                                                            <div className="mt-4 space-y-3">
+                                                                <div className="max-w-md">
+                                                                    <Input
+                                                                        className={cn(recruitmentFormInputClass, recruitmentFormControlClass)}
+                                                                        value={positionSkillSearch}
+                                                                        placeholder={config.placeholder}
+                                                                        onChange={(event) => setPositionSkillSearch(event.target.value)}
+                                                                    />
+                                                                </div>
+                                                                <div className="flex flex-wrap gap-2">
+                                                                    {skillChoices.length ? skillChoices.map((skill: RecruitmentSkill) => (
+                                                                        <button
+                                                                            key={`${formKey}-${skill.id}`}
+                                                                            type="button"
+                                                                            className={cn(
+                                                                                "rounded-full border px-3 py-2 text-xs transition",
+                                                                                (positionForm[formKey] as number[]).includes(skill.id)
+                                                                                    ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
+                                                                                    : "border-slate-200 bg-white text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300",
+                                                                            )}
+                                                                            onClick={() => updatePositionSkillBinding(formKey, toggleSingleSkillId(positionForm[formKey] as number[], skill.id), {expandSection: true})}
+                                                                        >
+                                                                            {skill.name}
+                                                                        </button>
+                                                                    )) : (
+                                                                        <p className="text-xs text-slate-400">{recruitmentUiText.noSkillsAvailable}</p>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                        ) : null}
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                </RecruitmentFieldRow>
+                            </RecruitmentFormSection>
+
+                            <div className="flex items-center justify-center gap-3 pb-8 pt-1">
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    className="h-[34px] min-w-[80px] rounded-[4px] border-[#d8e1ea] bg-white text-[14px] font-normal text-[#1f2937] shadow-none hover:bg-[#f6f8fb]"
+                                    onClick={closePositionFormPage}
+                                >
+                                    {recruitmentUiText.cancelButton}
+                                </Button>
+                                <Button
+                                    type="button"
+                                    className="h-[34px] min-w-[74px] rounded-[4px] bg-[#06b6b2] px-6 text-[14px] font-normal text-white shadow-none hover:bg-[#059f9b]"
+                                    disabled={positionSubmitting}
+                                    onClick={() => void submitPosition()}
+                                >
+                                    {positionSubmitting
+                                        ? recruitmentUiText.savingPosition
+                                        : (isZh ? "保存" : "Save")}
+                                </Button>
+                            </div>
+
+                            {positionFormSubmitError ? (
+                                <p className="pb-8 text-center text-[12px] leading-[18px] text-[#e11d48]" role="alert">
+                                    {positionFormSubmitError}
+                                </p>
+                            ) : null}
+                        </div>
+                        <div className="hidden lg:block">
+                            <RecruitmentFormAnchorRail
+                                items={[
+                                    {href: "#position-form-basic", label: isZh ? "职位信息" : "Basic Info"},
+                                    {href: "#position-form-requirements", label: isZh ? "职位要求" : "Requirements"},
+                                    {href: "#position-form-screening", label: isZh ? "职位设置" : "Settings"},
+                                ]}
+                            />
+                        </div>
+                    </div>
+                </ScrollArea>
+            </div>
+        );
+    }
+
     function renderPositionsPage() {
         return (
             <div
@@ -12470,9 +13227,23 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                                             <NotebookText className="mr-1 h-3.5 w-3.5"/>
                                                             {isZh ? "面试题" : "Interview Q"}
                                                         </Button>
+                                                        <Button
+                                                            size="sm"
+                                                            variant="outline"
+                                                            className="h-7 rounded-xl px-2.5 text-xs"
+                                                            onClick={() => void copyBossJsonForCurrentPosition()}
+                                                        >
+                                                            <ClipboardCheck className="mr-1 h-3.5 w-3.5"/>
+                                                            复制 BOSS JSON
+                                                        </Button>
                                                     </div>
                                                 </div>
                                             </div>
+                                            {bossJsonCopyError ? (
+                                                <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs leading-5 text-rose-700 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-200" role="alert">
+                                                    {bossJsonCopyError}
+                                                </div>
+                                            ) : null}
 
                                             {/* ② AI 生成区 */}
                                             <div className="rounded-2xl border border-slate-200/80 bg-white/70 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-950/60">
@@ -13541,7 +14312,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                         {candidatesPageNode}
                     </div>
                     <div className={cn("h-full min-h-0 px-3 py-3", activePage !== "positions" && "hidden")}>
-                        {positionsPageNode}
+                        {positionDialogOpen ? renderPositionFormPage() : positionsPageNode}
                     </div>
                     <div className={cn("h-full min-h-0 px-3 py-3", activePage !== "audit" && "hidden")}>
                         {auditPageNode}
@@ -13626,432 +14397,6 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                         <DialogDescription>{recruitmentUiText.assistantPanelDescription}</DialogDescription>
                     </DialogHeader>
                     {renderAssistantConsole(assistantDisplayMode)}
-                </DialogContent>
-            </Dialog>
-
-            <Dialog open={positionDialogOpen} onOpenChange={(open) => {
-                setPositionDialogOpen(open);
-                if (!open) {
-                    setPositionFormErrors({});
-                    setPositionFormSubmitError(null);
-                    setPositionSubmitting(false);
-                }
-            }}>
-                <DialogContent
-                    className="flex h-[min(90vh,860px)] max-h-[90vh] flex-col overflow-hidden p-0"
-                    style={{
-                        width: "min(760px, calc(100vw - 32px))",
-                        maxWidth: "min(760px, calc(100vw - 32px))",
-                    }}
-                >
-                    <DialogHeader className="shrink-0 border-b border-slate-200 bg-white px-8 py-4 text-left dark:border-slate-800 dark:bg-slate-950">
-                        <DialogTitle className="text-lg font-semibold text-slate-950 dark:text-slate-50">
-                            {positionDialogMode === "create" ? (isZh ? "新建需求" : "New Request") : (isZh ? "编辑需求" : "Edit Request")}
-                        </DialogTitle>
-                        <DialogDescription className="sr-only">
-                            {positionDialogMode === "create" ? recruitmentUiText.positionDialogNew : recruitmentUiText.positionDialogEdit}
-                        </DialogDescription>
-                    </DialogHeader>
-                    <ScrollArea className="min-h-0 flex-1 bg-white dark:bg-slate-950">
-                        <div className="px-8 py-7">
-                            <div className="space-y-6">
-                                <div id="position-form-request" className="scroll-mt-4 space-y-4">
-                                    <div className="flex items-center gap-2">
-                                        <span className="h-4 w-0.5 rounded-full bg-[#171717]"/>
-                                        <p className="text-base font-semibold text-slate-950 dark:text-slate-50">{isZh ? "基本信息" : "Basic Info"}</p>
-                                    </div>
-                                    <div className="grid gap-4 md:grid-cols-2">
-                                {positionDialogMode === "create" && showOrganizationFields && organizationSelectOptions.length > 1 ? (
-                                    <Field label={recruitmentUiText.targetOrganization} error={positionFormErrors.orgCode} className="md:col-span-2">
-                                        <NativeSelect
-                                            value={positionForm.orgCode}
-                                            onChange={(event) => updatePositionFormField("orgCode", event.target.value)}
-                                        >
-                                            <option value="">{recruitmentUiText.chooseTargetOrganization}</option>
-                                            {organizationSelectOptions.map((option) => (
-                                                <option key={option.value} value={option.value}>{option.label}</option>
-                                            ))}
-                                        </NativeSelect>
-                                        {showOrganizationFields ? (
-                                            <p className="text-xs leading-5 text-slate-500 dark:text-slate-400">{recruitmentUiText.allVisibleCreateHint}</p>
-                                        ) : null}
-                                    </Field>
-                                ) : null}
-                                <Field label={recruitmentUiText.positionName} error={positionFormErrors.title}>
-                                    <Input
-                                        ref={positionTitleInputRef}
-                                        value={positionForm.title}
-                                        maxLength={200}
-                                        onChange={(event) => updatePositionFormField("title", event.target.value.slice(0, 200))}
-                                    />
-                                </Field>
-                                <Field label={recruitmentUiText.department}><Input value={positionForm.department}
-                                                           maxLength={120}
-                                                           onChange={(event) => updatePositionFormField("department", event.target.value.slice(0, 120))}/></Field>
-                                <Field label={recruitmentUiText.location}><Input value={positionForm.location}
-                                                           maxLength={120}
-                                                           onChange={(event) => updatePositionFormField("location", event.target.value.slice(0, 120))}/></Field>
-                                <Field label={recruitmentUiText.employmentType}><Input value={positionForm.employmentType}
-                                                               maxLength={120}
-                                                               onChange={(event) => updatePositionFormField("employmentType", event.target.value.slice(0, 120))}/></Field>
-                                <Field label={recruitmentUiText.salaryRange}><Input value={positionForm.salaryRange}
-                                                               maxLength={120}
-                                                               onChange={(event) => updatePositionFormField("salaryRange", event.target.value.slice(0, 120))}/></Field>
-                                <Field label={recruitmentUiText.headcount} error={positionFormErrors.headcount}>
-                                    <Input
-                                        ref={positionHeadcountInputRef}
-                                        type="text"
-                                        inputMode="numeric"
-                                        value={positionForm.headcount}
-                                        onChange={(event) => updatePositionFormField("headcount", event.target.value.replace(/[^\d]/g, "").slice(0, 3))}
-                                        placeholder="1 - 999"
-                                    />
-                                </Field>
-                                <Field label={recruitmentUiText.positionStatus}>
-                                    <NativeSelect value={positionForm.status}
-                                                  onChange={(event) => updatePositionFormField("status", event.target.value)}>
-                                        {Object.entries(positionStatusLabels).map(([value, label]) => (
-                                            <option key={value} value={value}>{label}</option>
-                                        ))}
-                                    </NativeSelect>
-                                </Field>
-                                <Field label={recruitmentUiText.tags}><Input value={positionForm.tagsText}
-                                                           maxLength={240}
-                                                           onChange={(event) => updatePositionFormField("tagsText", event.target.value.slice(0, 240))} placeholder={recruitmentUiText.tagsPlaceholder}/></Field>
-	                                <div id="position-form-position" className="scroll-mt-4 md:col-span-2 flex items-center gap-2 border-t border-slate-100 pt-5 dark:border-slate-800">
-                                    <span className="h-4 w-0.5 rounded-full bg-[#171717]"/>
-                                    <p className="text-base font-semibold text-slate-950 dark:text-slate-50">{isZh ? "职责要求" : "Requirements"}</p>
-                                </div>
-                                <Field label={recruitmentUiText.keyRequirements}><Textarea value={positionForm.keyRequirements}
-                                                                  maxLength={2000}
-                                                                  onChange={(event) => updatePositionFormField("keyRequirements", event.target.value.slice(0, 2000))} rows={4}/></Field>
-	                                <Field label={recruitmentUiText.bonusPoints}><Textarea value={positionForm.bonusPoints}
-	                                                                maxLength={2000}
-	                                                                onChange={(event) => updatePositionFormField("bonusPoints", event.target.value.slice(0, 2000))} rows={4}/></Field>
-	                                {/* 从人才库检索候选人 */}
-	                                {positionDialogMode === "create" && (
-                                        <>
-	                                            <div id="position-form-talent" className="scroll-mt-4 md:col-span-2 flex items-center gap-2 border-t border-slate-100 pt-5 dark:border-slate-800">
-                                                <span className="h-4 w-0.5 rounded-full bg-[#171717]"/>
-                                                <p className="text-base font-semibold text-slate-950 dark:text-slate-50">{isZh ? "候选人匹配" : "Candidate Matching"}</p>
-                                            </div>
-                                            <Field
-                                                label={isZh ? "从人才库检索（可选）" : "Search from Talent Pool (Optional)"}
-                                                className="md:col-span-2"
-                                            >
-                                                <TalentPoolSearch
-                                                    positions={positions}
-                                                    activeOrgCodes={activeBusinessOrgCodes}
-                                                    orgCode={selectedDepartmentScope !== ALL_COMPANY_DEPARTMENTS_VALUE ? selectedDepartmentScope : undefined}
-                                                    onAssignCandidates={(candidateIds) => {
-                                                        setPositionForm(prev => ({
-                                                            ...prev,
-                                                            pendingTalentPoolCandidates: candidateIds
-                                                        }));
-                                                    }}
-                                                />
-                                            </Field>
-                                        </>
-	                                )}
-	                                <div id="position-form-screening" className="scroll-mt-4 md:col-span-2 flex items-center gap-2 border-t border-slate-100 pt-5 dark:border-slate-800">
-                                    <span className="h-4 w-0.5 rounded-full bg-[#171717]"/>
-                                    <p className="text-base font-semibold text-slate-950 dark:text-slate-50">{isZh ? "筛选与评估" : "Screening"}</p>
-                                </div>
-                                <Field label={recruitmentUiText.screeningConfig} className="md:col-span-2">
-                                    <div
-                                        className="space-y-4 rounded-2xl border border-slate-200/80 bg-slate-50/70 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/60">
-                                        <label
-                                            className={cn(
-                                                "flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200",
-                                                positionForm.screeningSkillIds.length === 0 && "opacity-50 cursor-not-allowed"
-                                            )}>
-                                            <input
-                                                type="checkbox"
-                                                checked={positionForm.autoScreenOnUpload}
-                                                disabled={positionForm.screeningSkillIds.length === 0}
-                                                onChange={(event) => {
-                                                    if (positionForm.screeningSkillIds.length === 0) {
-                                                        return;
-                                                    }
-                                                    updatePositionFormField("autoScreenOnUpload", event.target.checked);
-                                                }}
-                                            />
-                                            {recruitmentUiText.uploadResumeAutoScreenHint}
-                                        </label>
-                                        {positionForm.screeningSkillIds.length === 0 && (
-                                            <p className="text-xs text-amber-600 dark:text-amber-400">
-                                                {recruitmentUiText.uploadResumeAutoScreenHintNoSkill}
-                                            </p>
-                                        )}
-                                        <label
-                                            className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
-                                            <input
-                                                type="checkbox"
-                                                checked={positionForm.autoAdvanceOnScreening}
-                                                onChange={(event) => updatePositionFormField("autoAdvanceOnScreening", event.target.checked)}
-                                            />
-                                            {recruitmentUiText.autoAdvanceOnScreeningLabel}
-                                        </label>
-                                        <div className="rounded-2xl border border-slate-200/80 bg-white/80 p-4 dark:border-slate-800 dark:bg-slate-950/60">
-                                            <div className="flex flex-wrap items-start justify-between gap-3">
-                                                <div>
-                                                    <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{recruitmentUiText.autoMailPushTitle}</p>
-                                                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                                                        {recruitmentUiText.autoMailPushDescription}
-                                                    </p>
-                                                </div>
-                                                <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
-                                                    <input
-                                                        type="checkbox"
-                                                        checked={positionForm.autoMailEnabled}
-                                                        onChange={(event) => updatePositionFormField("autoMailEnabled", event.target.checked)}
-                                                    />
-                                                    {recruitmentUiText.autoMailEnableToggle}
-                                                </label>
-                                            </div>
-                                            <div className={cn("mt-4 grid gap-4 lg:grid-cols-2", !positionForm.autoMailEnabled && "pointer-events-none opacity-40")}>
-                                                <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
-                                                    <input
-                                                        type="checkbox"
-                                                        checked={positionForm.autoMailUsePositionRecipients}
-                                                        onChange={(event) => updatePositionFormField("autoMailUsePositionRecipients", event.target.checked)}
-                                                    />
-                                                    {recruitmentUiText.positionSpecificRecipient}
-                                                </label>
-                                                <label className="flex items-start gap-2 text-sm text-slate-700 dark:text-slate-200">
-                                                    <input
-                                                        type="checkbox"
-                                                        className="mt-0.5 shrink-0"
-                                                        checked={positionForm.autoMailUseGlobalRecipients}
-                                                        onChange={(event) => updatePositionFormField("autoMailUseGlobalRecipients", event.target.checked)}
-                                                    />
-                                                    <span>
-                                                        {recruitmentUiText.globalDefaultRecipient}
-                                                        <span className="ml-1 text-xs text-slate-400 dark:text-slate-500">{recruitmentUiText.globalDefaultRecipientHint}</span>
-                                                    </span>
-                                                </label>
-                                            </div>
-                                            <div className="mt-4 space-y-4">
-                                                <div className="space-y-2">
-                                                    <p className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">{recruitmentUiText.positionSpecificRecipients}</p>
-                                                    <div className="flex flex-wrap gap-2">
-                                                        {mailRecipients.filter((recipient) => recipient.is_enabled).length ? mailRecipients.filter((recipient) => recipient.is_enabled).map((recipient) => (
-                                                            <button
-                                                                key={`auto-mail-to-${recipient.id}`}
-                                                                type="button"
-                                                                className={cn(
-                                                                    "rounded-full border px-3 py-2 text-xs transition",
-                                                                    positionForm.autoMailPositionRecipientIds.includes(recipient.id)
-                                                                        ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
-                                                                        : "border-slate-200 bg-white text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300",
-                                                                )}
-                                                                onClick={() => updatePositionFormField("autoMailPositionRecipientIds", toggleIdInList(positionForm.autoMailPositionRecipientIds, recipient.id))}
-                                                            >
-                                                                {recipient.name}
-                                                            </button>
-                                                        )) : <p className="text-sm text-slate-500 dark:text-slate-400">{recruitmentUiText.noRecipientsInMailCenter}</p>}
-                                                    </div>
-                                                </div>
-                                                <div className="grid gap-4 xl:grid-cols-2">
-                                                    <div className="space-y-2">
-                                                        <p className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">{recruitmentUiText.ccRecipients}</p>
-                                                        <div className="flex flex-wrap gap-2">
-                                                            {mailRecipients.filter((recipient) => recipient.is_enabled).length ? mailRecipients.filter((recipient) => recipient.is_enabled).map((recipient) => (
-                                                                <button
-                                                                    key={`auto-mail-cc-${recipient.id}`}
-                                                                    type="button"
-                                                                    className={cn(
-                                                                        "rounded-full border px-3 py-2 text-xs transition",
-                                                                        positionForm.autoMailCcRecipientIds.includes(recipient.id)
-                                                                            ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
-                                                                            : "border-slate-200 bg-white text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300",
-                                                                    )}
-                                                                    onClick={() => updatePositionFormField("autoMailCcRecipientIds", toggleIdInList(positionForm.autoMailCcRecipientIds, recipient.id))}
-                                                                >
-                                                                    {recipient.name}
-                                                                </button>
-                                                            )) : <p className="text-sm text-slate-500 dark:text-slate-400">{recruitmentUiText.noCCRecipients}</p>}
-                                                        </div>
-                                                    </div>
-                                                    <div className="space-y-2">
-                                                        <p className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">{recruitmentUiText.bccRecipients}</p>
-                                                        <div className="flex flex-wrap gap-2">
-                                                            {mailRecipients.filter((recipient) => recipient.is_enabled).length ? mailRecipients.filter((recipient) => recipient.is_enabled).map((recipient) => (
-                                                                <button
-                                                                    key={`auto-mail-bcc-${recipient.id}`}
-                                                                    type="button"
-                                                                    className={cn(
-                                                                        "rounded-full border px-3 py-2 text-xs transition",
-                                                                        positionForm.autoMailBccRecipientIds.includes(recipient.id)
-                                                                            ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
-                                                                            : "border-slate-200 bg-white text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300",
-                                                                    )}
-                                                                    onClick={() => updatePositionFormField("autoMailBccRecipientIds", toggleIdInList(positionForm.autoMailBccRecipientIds, recipient.id))}
-                                                                >
-                                                                    {recipient.name}
-                                                                </button>
-                                                            )) : <p className="text-sm text-slate-500 dark:text-slate-400">{recruitmentUiText.noBCCRecipients}</p>}
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                                <div className="space-y-2">
-                                                    <p className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">{recruitmentUiText.allowedAutoMailStatuses}</p>
-                                                    <div className="flex flex-wrap gap-2">
-                                                        {(metadata?.candidate_statuses || []).map((option) => (
-                                                            <button
-                                                                key={`auto-mail-status-${option.value}`}
-                                                                type="button"
-                                                                className={cn(
-                                                                    "rounded-full border px-3 py-2 text-xs transition",
-                                                                    positionForm.autoMailAllowedCandidateStatuses.includes(option.value)
-                                                                        ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
-                                                                        : "border-slate-200 bg-white text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300",
-                                                                )}
-                                                                onClick={() => updatePositionFormField(
-                                                                    "autoMailAllowedCandidateStatuses",
-                                                                    positionForm.autoMailAllowedCandidateStatuses.includes(option.value)
-                                                                        ? positionForm.autoMailAllowedCandidateStatuses.filter((item) => item !== option.value)
-                                                                        : [...positionForm.autoMailAllowedCandidateStatuses, option.value],
-                                                                )}
-                                                            >
-                                                                {localizeCandidateStatusValue(option.value, option.label)}
-                                                            </button>
-                                                        ))}
-                                                    </div>
-                                                </div>
-                                                <div className="grid gap-4 lg:grid-cols-2">
-                                                    <Field label={recruitmentUiText.reservedTemplateId}>
-                                                        <Input
-                                                            value={positionForm.autoMailTemplateId}
-                                                            placeholder={recruitmentUiText.reservedTemplatePlaceholder}
-                                                            onChange={(event) => updatePositionFormField("autoMailTemplateId", event.target.value)}
-                                                        />
-                                                    </Field>
-                                                    <Field label={recruitmentUiText.dedupMode}>
-                                                        <NativeSelect
-                                                            value={positionForm.autoMailDedupMode}
-                                                            onChange={(event) => updatePositionFormField("autoMailDedupMode", event.target.value)}
-                                                        >
-                                                            <option value="once_per_candidate_per_status">{recruitmentUiText.dedupOncePerCandidatePerStatus}</option>
-                                                            <option value="once_per_candidate">{recruitmentUiText.dedupOncePerCandidate}</option>
-                                                            <option value="allow_repeat">{recruitmentUiText.allowRepeatSending}</option>
-                                                        </NativeSelect>
-                                                    </Field>
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <div className="space-y-3">
-                                            <div className="rounded-2xl border border-slate-200/80 bg-slate-50/70 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/50">
-                                                <div className="space-y-1">
-                                                    <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{recruitmentUiText.skillsAutomation}</p>
-                                                    <p className="text-xs text-slate-500 dark:text-slate-400">
-                                                        {recruitmentUiText.autoMailSkillBindingHint}
-                                                    </p>
-                                                </div>
-                                            </div>
-                                            {([
-                                                ["jdSkillIds", positionSkillFieldConfig.jdSkillIds],
-                                                ["screeningSkillIds", positionSkillFieldConfig.screeningSkillIds],
-                                                ["interviewSkillIds", positionSkillFieldConfig.interviewSkillIds],
-                                            ] as const).map(([formKey, config]) => {
-                                                const skillChoices = positionSkillChoicesByField[formKey];
-                                                const isExpanded = positionSkillSectionExpanded[formKey];
-                                                const hasSelected = (positionForm[formKey] as number[]).length > 0;
-                                                return (
-                                                    <div key={formKey} className="rounded-2xl border border-slate-200/80 bg-white px-4 py-4 dark:border-slate-800 dark:bg-slate-950/50">
-                                                        <div className="flex flex-wrap items-start justify-between gap-3">
-                                                            <div className="space-y-1">
-                                                                <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{config.label}</p>
-                                                                <p className="text-xs text-slate-500 dark:text-slate-400">
-                                                                    {hasSelected
-                                                                        ? `${config.selectedPrefix}${selectedPositionSkillText[formKey]}`
-                                                                        : (isZh
-                                                                            ? "当前未绑定，系统将自动使用该类型的内置通用基座。"
-                                                                            : "No plan selected. The system will fall back to the built-in base for this task.")}
-                                                                </p>
-                                                            </div>
-                                                            <div className="flex items-center gap-2">
-                                                                <Button
-                                                                    type="button"
-                                                                    variant="outline"
-                                                                    size="sm"
-                                                                    title={isZh ? `新建${config.label}` : `Create ${config.label}`}
-                                                                    onClick={() => openSkillEditorForPosition(config.taskKind, formKey)}
-                                                                >
-                                                                    <Plus className="h-4 w-4"/>
-                                                                </Button>
-                                                                <Button
-                                                                    type="button"
-                                                                    variant="ghost"
-                                                                    size="sm"
-                                                                    className="gap-1"
-                                                                    onClick={() => setPositionSkillSectionExpanded((current) => ({
-                                                                        ...current,
-                                                                        [formKey]: !current[formKey],
-                                                                    }))}
-                                                                >
-                                                                    {isExpanded ? <ChevronUp className="h-4 w-4"/> : <ChevronDown className="h-4 w-4"/>}
-                                                                    {isExpanded ? (isZh ? "收起" : "Collapse") : (isZh ? "展开选择" : "Choose")}
-                                                                </Button>
-                                                            </div>
-                                                        </div>
-                                                        {isExpanded ? (
-                                                            <div className="mt-4 space-y-3">
-                                                                <div className="max-w-md">
-                                                                    <Input
-                                                                        value={positionSkillSearch}
-                                                                        placeholder={config.placeholder}
-                                                                        onChange={(event) => setPositionSkillSearch(event.target.value)}
-                                                                    />
-                                                                </div>
-                                                                <div className="flex flex-wrap gap-2">
-                                                                    {skillChoices.length ? skillChoices.map((skill: RecruitmentSkill) => (
-                                                                        <button
-                                                                            key={`${formKey}-${skill.id}`}
-                                                                            type="button"
-                                                                            className={cn(
-                                                                                "rounded-full border px-3 py-2 text-xs transition",
-                                                                                (positionForm[formKey] as number[]).includes(skill.id)
-                                                                                    ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
-                                                                                    : "border-slate-200 bg-white text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300",
-                                                                            )}
-                                                                            onClick={() => updatePositionSkillBinding(formKey, toggleSingleSkillId(positionForm[formKey] as number[], skill.id), {expandSection: true})}
-                                                                        >
-                                                                            {skill.name}
-                                                                        </button>
-                                                                    )) : (
-                                                                        <p className="text-xs text-slate-400">{recruitmentUiText.noSkillsAvailable}</p>
-                                                                    )}
-                                                                </div>
-                                                            </div>
-                                                        ) : null}
-                                                    </div>
-                                                );
-                                            })}
-                                        </div>
-                                    </div>
-                                </Field>
-                            </div>
-                                <div id="position-form-summary" className="scroll-mt-4">
-			                            <Field label={isZh ? "职位摘要" : recruitmentUiText.positionSummary}>
-		                                <Textarea value={positionForm.summary}
-		                                          maxLength={4000}
-		                                          onChange={(event) => updatePositionFormField("summary", event.target.value.slice(0, 4000))} rows={5}/>
-		                            </Field>
-	                                </div>
-		                        </div>
-	                        </div>
-                        </div>
-		                    </ScrollArea>
-                    <DialogFooter className="shrink-0 items-center justify-between gap-3 border-t border-slate-200 bg-white px-8 py-3 dark:border-slate-800 dark:bg-slate-950 sm:justify-between">
-                        <div className="min-h-5 flex-1 text-sm text-red-600 dark:text-red-400">
-                            {positionFormSubmitError ?? ""}
-                        </div>
-                        <Button variant="outline" onClick={() => setPositionDialogOpen(false)}>{recruitmentUiText.cancelButton}</Button>
-                        <Button disabled={positionSubmitting} onClick={() => void submitPosition()}>
-                            {positionSubmitting ? recruitmentUiText.savingPosition : (isZh ? "保存" : "Save")}
-                        </Button>
-                    </DialogFooter>
                 </DialogContent>
             </Dialog>
 

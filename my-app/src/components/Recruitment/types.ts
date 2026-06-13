@@ -31,6 +31,13 @@ export type PositionFormState = {
     department: string;
     location: string;
     employmentType: string;
+    jobType: string;
+    jobTypePath: [string, string, string] | [];
+    experience: string;
+    education: string;
+    salaryMinK: number | null;
+    salaryMaxK: number | null;
+    salaryMonths: string;
     salaryRange: string;
     headcount: string;
     keyRequirements: string;
@@ -38,6 +45,7 @@ export type PositionFormState = {
     summary: string;
     status: string;
     tagsText: string;
+    autoPublish: boolean;
     autoScreenOnUpload: boolean;
     autoAdvanceOnScreening: boolean;
     autoMailEnabled: boolean;
@@ -52,7 +60,6 @@ export type PositionFormState = {
     jdSkillIds: number[];
     screeningSkillIds: number[];
     interviewSkillIds: number[];
-    pendingTalentPoolCandidates?: number[]; // 从人才库选中的候选人ID列表
 };
 
 export type SkillTaskKind = "jd" | "screening" | "interview";
