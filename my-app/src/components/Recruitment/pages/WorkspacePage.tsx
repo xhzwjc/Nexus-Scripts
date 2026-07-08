@@ -8,7 +8,6 @@ import {
     CalendarDays,
     CheckCircle2,
     ClipboardCheck,
-    Clock,
     FileSearch,
     Loader2,
     NotebookText,
@@ -101,6 +100,11 @@ type TodoTileProps = {
 
 const WORKSPACE_INTERVIEW_TODO_STATUS_VALUES = [...INTERVIEW_TODO_STATUS_VALUES];
 const WORKSPACE_INTERVIEW_QUESTION_STATUS_VALUES = ["screening_passed", ...INTERVIEW_TODO_STATUS_VALUES];
+const WORKSPACE_PENDING_SCREENING_STATUS_VALUES = ["new_imported", "pending_screening", "screening_failed"];
+const WORKSPACE_PENDING_DECISION_STATUS_VALUES = ["pending_offer", "offer_sent"];
+const WORKSPACE_PASSED_STATUS_VALUES = ["screening_passed", "interview_passed", "offer_sent", "hired"];
+// 与后端 rejected_count 的统计口径保持一致（recruitment_service_impl.get_recruitment_funnel）
+const WORKSPACE_REJECTED_STATUS_VALUES = ["screening_failed", "screening_rejected", "interview_first_rejected", "interview_second_rejected"];
 
 function TodoTile({title, value, description, icon: Icon, tone = "default", onClick}: TodoTileProps) {
     const toneClass = {
@@ -245,14 +249,10 @@ export function WorkspacePage({
         screeningPassedDesc: isZh ? "可继续推进面试" : "Ready for next steps",
         talentPoolDesc: isZh ? "沉淀可复用人才" : "Reusable candidates",
         rejectedDesc: isZh ? "保留淘汰原因和记录" : "Reasons and records kept",
-        processRhythm: isZh ? "流程节奏" : "Process Rhythm",
-        processRhythmDesc: isZh ? "用现有数据替代空日程，优先看今天要推进的环节。" : "Current workflow numbers without empty calendar space.",
         positionProgress: isZh ? "岗位进展" : "Position Progress",
         positionProgressDesc: isZh ? "按最近更新展示招聘中岗位。" : "Recently updated open positions.",
         todayWork: isZh ? "今日要处理" : "Today",
         todayWorkDesc: isZh ? "按业务动作聚合，不展示技术字段。" : "Grouped by business actions.",
-        schedule: isZh ? "招聘日程" : "Recruiting Schedule",
-        scheduleDesc: isZh ? "本周流程提醒" : "This week's workflow reminders",
         searchImport: isZh ? "搜索与导入" : "Search & Import",
         recentRequests: isZh ? "最近招聘需求" : "Recent Requests",
         quickActions: isZh ? "快捷入口" : "Shortcuts",
@@ -311,7 +311,7 @@ export function WorkspacePage({
             description: tr.pendingScreeningDesc,
             icon: FileSearch,
             tone: "amber" as const,
-            onClick: () => openCandidates(["new_imported", "pending_screening", "screening_failed"]),
+            onClick: () => openCandidates(WORKSPACE_PENDING_SCREENING_STATUS_VALUES),
         },
         {
             title: tr.screeningPassed,
@@ -319,7 +319,7 @@ export function WorkspacePage({
             description: tr.screeningPassedDesc,
             icon: CheckCircle2,
             tone: "green" as const,
-            onClick: () => openCandidates(["screening_passed", "interview_passed", "offer_sent", "hired"]),
+            onClick: () => openCandidates(WORKSPACE_PASSED_STATUS_VALUES),
         },
         {
             title: tr.pendingInterview,
@@ -342,23 +342,16 @@ export function WorkspacePage({
     const quickActions: WorkspaceAction[] = [
         {title: tr.createRequest, description: tr.activeRequestsDesc, icon: Plus, onClick: openCreatePosition},
         {title: tr.uploadResume, description: tr.uploadResumeDesc, icon: Upload, onClick: () => setResumeUploadOpen(true)},
-        {title: tr.batchScreening, description: tr.batchScreeningDesc, icon: ClipboardCheck, onClick: () => openCandidates(["new_imported", "pending_screening", "screening_failed"])},
+        {title: tr.batchScreening, description: tr.batchScreeningDesc, icon: ClipboardCheck, onClick: () => openCandidates(WORKSPACE_PENDING_SCREENING_STATUS_VALUES)},
         {title: tr.generateJd, description: tr.generateJdDesc, icon: Wand2, onClick: () => setActivePage("positions")},
         {title: tr.interviewQuestions, description: tr.interviewQuestionsDesc, icon: NotebookText, onClick: () => openCandidates(WORKSPACE_INTERVIEW_QUESTION_STATUS_VALUES)},
     ];
 
     const todayWorkItems = [
-        {title: tr.pendingScreening, count: stats.todo.pendingScreening, icon: FileSearch, statuses: ["new_imported", "pending_screening", "screening_failed"]},
+        {title: tr.pendingScreening, count: stats.todo.pendingScreening, icon: FileSearch, statuses: WORKSPACE_PENDING_SCREENING_STATUS_VALUES},
         {title: tr.pendingInterview, count: stats.todo.pendingInterview, icon: CalendarDays, statuses: WORKSPACE_INTERVIEW_TODO_STATUS_VALUES},
-        {title: tr.pendingDecision, count: stats.todo.pendingDecision, icon: CheckCircle2, statuses: ["pending_offer", "offer_sent"]},
+        {title: tr.pendingDecision, count: stats.todo.pendingDecision, icon: CheckCircle2, statuses: WORKSPACE_PENDING_DECISION_STATUS_VALUES},
         {title: tr.todayNew, count: todayNewResumes, icon: Upload, page: "candidates" as RecruitmentPage},
-    ];
-
-    const scheduleItems = [
-        {label: tr.todayNew, count: todayNewResumes, icon: Upload, page: "candidates" as RecruitmentPage},
-        {label: tr.pendingInterview, count: stats.todo.pendingInterview, icon: CalendarDays, statuses: WORKSPACE_INTERVIEW_TODO_STATUS_VALUES},
-        {label: tr.pendingDecision, count: stats.todo.pendingDecision, icon: Clock, statuses: ["pending_offer", "offer_sent"]},
-        {label: tr.rejected, count: rejectedTotal, icon: ClipboardCheck, statuses: ["rejected", "eliminated"]},
     ];
 
     const handleSearchSubmit = (event: React.FormEvent<HTMLFormElement>) => {
@@ -438,25 +431,6 @@ export function WorkspacePage({
                                         <span className="truncate text-sm font-medium text-slate-900 dark:text-slate-100">{title}</span>
                                     </span>
                                     <span className="shrink-0 text-xl font-semibold tabular-nums text-slate-950 dark:text-slate-50">{count}</span>
-                                </button>
-                            ))}
-                        </div>
-                    </WorkspacePanel>
-
-                    <WorkspacePanel title={tr.processRhythm} description={tr.processRhythmDesc}>
-                        <div className="grid gap-2 md:grid-cols-4">
-                            {scheduleItems.map(({label, count, icon: Icon, page, statuses}) => (
-                                <button
-                                    key={label}
-                                    type="button"
-                                    className="rounded-md border border-slate-200 bg-white px-3 py-3 text-left transition hover:border-[#171717]/40 hover:bg-[#171717]/5 dark:border-slate-800 dark:bg-slate-950 dark:hover:bg-slate-900"
-                                    onClick={() => page ? setActivePage(page) : openCandidates(statuses)}
-                                >
-                                    <div className="flex items-center justify-between gap-3">
-                                        <Icon className="h-4 w-4 text-slate-500"/>
-                                        <span className="text-xl font-semibold tabular-nums text-slate-950 dark:text-slate-50">{count}</span>
-                                    </div>
-                                    <p className="mt-2 truncate text-sm text-slate-600 dark:text-slate-300">{label}</p>
                                 </button>
                             ))}
                         </div>
@@ -562,10 +536,10 @@ export function WorkspacePage({
                     <WorkspacePanel title={tr.savedFilters}>
                         <div className="grid grid-cols-2 gap-2">
                             {[
-                                {label: tr.pendingScreening, value: stats.todo.pendingScreening, statuses: ["new_imported", "pending_screening", "screening_failed"]},
+                                {label: tr.pendingScreening, value: stats.todo.pendingScreening, statuses: WORKSPACE_PENDING_SCREENING_STATUS_VALUES},
                                 {label: tr.pendingInterview, value: stats.todo.pendingInterview, statuses: WORKSPACE_INTERVIEW_TODO_STATUS_VALUES},
                                 {label: tr.talentPool, value: funnelData?.talent_pool_count || 0, page: "talent-pool" as RecruitmentPage},
-                                {label: tr.rejected, value: rejectedTotal, statuses: ["rejected", "eliminated"]},
+                                {label: tr.rejected, value: rejectedTotal, statuses: WORKSPACE_REJECTED_STATUS_VALUES},
                             ].map((item) => (
                                 <button
                                     key={item.label}
