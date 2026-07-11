@@ -157,3 +157,13 @@
 - ✅ 解决策略：
   - 新增环境变量时，必须同步检查并更新 `docker-compose.yml` 的 `environment` 列表
   - 如果是敏感变量，需提醒用户在生产环境 Dashboard/Secrets 中配置
+---
+
+## M015｜dev server 运行期间执行 next build 导致白屏
+- 🧠 AI 行为：为验证打包产物，在 `next dev`（端口 3000）仍在运行时直接执行 `next build`
+- 💥 后果：两者共用 `.next` 目录，build 覆盖 dev 的运行时产物，dev server 静态资源全部 404，页面白屏
+- 🛑 禁止行为：
+  - ❌ dev server 运行时在同一目录执行 `next build`
+- ✅ 解决策略：
+  - 构建验证前先确认 3000 端口 dev 进程状态；如需构建，先停 dev 或征得同意
+  - 若已发生：停掉 dev 进程 → 删除 `.next` → 重新 `npm run dev`

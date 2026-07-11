@@ -71,7 +71,7 @@ export function RecruitmentFieldRow({
             <div className="min-w-0">
                 {children}
                 {hint ? <p className="mt-[6px] text-[12px] leading-[18px] text-[#8b98a8] dark:text-slate-500">{hint}</p> : null}
-                {error ? <p className="mt-[6px] text-[12px] leading-[18px] text-[#e11d48] dark:text-rose-300">{error}</p> : null}
+                {error ? <p data-recruitment-field-error className="mt-[6px] text-[12px] leading-[18px] text-[#e11d48] dark:text-rose-300">{error}</p> : null}
             </div>
         </div>
     );

@@ -46,6 +46,7 @@ type RecruitmentUiLocale = {
     screeningTaskStageLabels: Record<string, string>;
     skillResolutionSourceLabels: Record<string, string>;
     resumeMailDispatchStatusLabels: Record<string, string>;
+    candidateSourceLabels: Record<string, string>;
     objectLabels: {
         candidate: string;
         position: string;
@@ -137,6 +138,10 @@ const zhRecruitmentUiLocale: RecruitmentUiLocale = {
         skipped_no_recipients: "跳过：无有效收件人",
         skipped_no_sender: "跳过：无可用发件箱",
     },
+    candidateSourceLabels: {
+        manual_upload: "手动上传",
+        unknown: "未知来源",
+    },
     objectLabels: {
         candidate: "候选人",
         position: "岗位",
@@ -226,6 +231,10 @@ const enRecruitmentUiLocale: RecruitmentUiLocale = {
         skipped_duplicate_blocked: "Skipped: duplicate delivery blocked",
         skipped_no_recipients: "Skipped: no valid recipients",
         skipped_no_sender: "Skipped: no sender available",
+    },
+    candidateSourceLabels: {
+        manual_upload: "Manual Upload",
+        unknown: "Unknown",
     },
     objectLabels: {
         candidate: "Candidate",
@@ -1275,6 +1284,15 @@ export function labelForScreeningTaskStage(stage?: string | null) {
 export function labelForSkillResolutionSource(source?: string | null) {
     const locale = getRecruitmentUiLocale();
     return locale.skillResolutionSourceLabels[source || ""] || source || locale.skillResolutionSourceLabels.default;
+}
+
+export function labelForCandidateSource(source?: string | null) {
+    const normalized = String(source || "").trim();
+    if (!normalized) {
+        return "-";
+    }
+    const locale = getRecruitmentUiLocale();
+    return locale.candidateSourceLabels[normalized] || normalized;
 }
 
 export function isToday(value?: string | null) {

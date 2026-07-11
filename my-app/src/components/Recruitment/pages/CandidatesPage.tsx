@@ -119,6 +119,7 @@ import {
     formatSkillNames,
     formatSkillSnapshotNames,
     formatStructuredValue,
+    labelForCandidateSource,
     labelForCandidateStatus,
     labelForMemorySource,
     labelForProvider,
@@ -755,6 +756,20 @@ const SCORE_SUGGESTED_STATUS_VALUES = new Set(["screening_passed", "talent_pool"
 const SMOOTH_VERTICAL_SCROLLBAR_CLASS = "[scrollbar-gutter:stable] [scrollbar-width:thin] [scrollbar-color:rgba(148,163,184,0.82)_transparent] [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 dark:[scrollbar-color:rgba(71,85,105,0.9)_transparent] dark:[&::-webkit-scrollbar-thumb]:bg-slate-700";
 const POSITION_SCOPE_SCROLLBAR_CLASS = "[scrollbar-width:thin] [scrollbar-color:transparent_transparent] hover:[scrollbar-color:rgba(100,116,139,0.52)_transparent] [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-transparent hover:[&::-webkit-scrollbar-thumb]:bg-slate-400/70 dark:hover:[scrollbar-color:rgba(71,85,105,0.62)_transparent] dark:hover:[&::-webkit-scrollbar-thumb]:bg-slate-600/70";
 
+// AI 匹配度按分层配色：高-绿 / 中-琥珀 / 低-玫红，便于列表一眼分层
+function matchPercentToneClass(percent: number | null | undefined) {
+    if (percent == null) {
+        return "text-slate-400 dark:text-slate-500";
+    }
+    if (percent >= 70) {
+        return "text-emerald-600 dark:text-emerald-300";
+    }
+    if (percent >= 40) {
+        return "text-amber-600 dark:text-amber-400";
+    }
+    return "text-rose-600 dark:text-rose-300";
+}
+
 type CandidateRowProps = {
     candidate: CandidateSummary;
     isSelected: boolean;
@@ -975,7 +990,9 @@ const CandidateRow = React.memo(function CandidateRow({
                             }}
                             className="flex items-center p-2 whitespace-nowrap"
                         >
-                            {formatPercent(resolveCandidateSummaryMatchPercent(candidate))}
+                            <span className={cn("font-medium tabular-nums", matchPercentToneClass(resolveCandidateSummaryMatchPercent(candidate)))}>
+                                {formatPercent(resolveCandidateSummaryMatchPercent(candidate))}
+                            </span>
                         </div>
                     );
                 }
@@ -1023,7 +1040,7 @@ const CandidateRow = React.memo(function CandidateRow({
                             }}
                             className="flex min-w-0 items-center p-2"
                         >
-                            <HoverRevealText text={candidate.source || "-"} className="text-xs text-slate-600 dark:text-slate-300"/>
+                            <HoverRevealText text={labelForCandidateSource(candidate.source)} className="text-xs text-slate-600 dark:text-slate-300"/>
                         </div>
                     );
                 }
@@ -1129,9 +1146,9 @@ const CandidateApplicantCard = React.memo(function CandidateApplicantCard({
     const displayCandidateName = nameLooksLikeOriginalFile
         ? (isZh ? "未解析候选人" : "Unparsed Candidate")
         : (candidateNameText || (isZh ? "未命名候选人" : "Unnamed Candidate"));
+    // 学历/经验由中间栏（educationSummaryText/experienceSummaryText）展示，这里只保留身份与城市，避免同卡重复
     const profileText = [
         candidate.age ? `${candidate.age}${tr.ageSuffix}` : "",
-        candidate.education,
         candidate.city,
         candidate.expected_city ? `${isZh ? "期望" : "Expect"} ${candidate.expected_city}` : "",
     ].filter(Boolean).join(" · ");
@@ -1208,7 +1225,7 @@ const CandidateApplicantCard = React.memo(function CandidateApplicantCard({
         })
         : "";
     const sourceTimeText = [
-        candidate.source || "-",
+        labelForCandidateSource(candidate.source),
         candidate.updated_at ? formatDateTime(candidate.updated_at) : "",
     ].filter(Boolean).join("  |  ");
     const educationSummaryText = [
@@ -1220,11 +1237,11 @@ const CandidateApplicantCard = React.memo(function CandidateApplicantCard({
         candidate.current_company || positionLabel,
         candidate.years_of_experience,
     ].filter(Boolean).join(" · ") || positionLabel;
-    const recommendedSummaryText = candidate.ai_potential_position
+    // 底部提示条只承载卡片其他区域没有的信息：状态原因、转岗建议。无内容时整条隐藏，避免逐卡重复套话。
+    const potentialTransferText = candidate.ai_potential_position
         ? `${isZh ? "建议转岗" : "Suggested transfer"}：${candidate.ai_potential_position}`
-        : (aiPositionLabel ? `${isZh ? "AI 推荐" : "AI recommendation"}：${aiPositionLabel}` : positionSourceLabel);
-    const actionSummaryText = statusReasonText
-        || (isZh ? "该应聘者已进入当前筛选流程，可继续处理。" : "Candidate is in the current screening flow and can be processed.");
+        : "";
+    const fitBannerText = [statusReasonText, potentialTransferText].filter(Boolean).join(" · ");
     const showPassAction = displayStatus !== "screening_passed";
     const showRejectAction = displayStatus !== "screening_rejected";
     const fitBannerClassName = cn(
@@ -1338,7 +1355,7 @@ const CandidateApplicantCard = React.memo(function CandidateApplicantCard({
                             <span className="text-slate-400">{isZh ? "应聘岗位" : "Applied"}</span>
                             <span className="truncate font-semibold text-[var(--tr-ink)]">{positionLabel}</span>
                             <span className="text-slate-400">{isZh ? "渠道" : "Source"}</span>
-                            <span className="truncate text-[var(--tr-ink-muted)]">{candidate.source || "-"}</span>
+                            <span className="truncate text-[var(--tr-ink-muted)]">{labelForCandidateSource(candidate.source)}</span>
                             <span className="text-slate-400">{isZh ? "投递时间" : "Submitted"}</span>
                             <span className="truncate text-[var(--tr-ink-muted)]">{candidate.updated_at ? formatDateTime(candidate.updated_at) : "-"}</span>
                             <span className="text-slate-400">{isZh ? "业务筛选" : "Workflow"}</span>
@@ -1350,7 +1367,7 @@ const CandidateApplicantCard = React.memo(function CandidateApplicantCard({
                         <div className="ml-auto flex w-fit max-w-full flex-col items-stretch space-y-2 2xl:space-y-3">
                             <div className="flex h-8 w-full min-w-0 items-center justify-between gap-2 rounded-md bg-slate-50 px-2 text-xs font-semibold text-[var(--tr-ink)] dark:bg-slate-900 2xl:px-3">
                                 <span>{isZh ? "AI 匹配度" : "AI Match"}</span>
-                                <span className="text-[15px] text-[var(--tr-blue)]">{matchPercent != null ? formatPercent(matchPercent) : "--"}</span>
+                                <span className={cn("text-[15px] tabular-nums", matchPercentToneClass(matchPercent))}>{matchPercent != null ? formatPercent(matchPercent) : "--"}</span>
                             </div>
                             <p className="text-left text-xs font-medium text-[var(--tr-ink-muted)]">{isZh ? "候选人处理" : "Candidate actions"}</p>
                             <div className="flex min-w-0 flex-nowrap items-center gap-1.5 overflow-visible" onClick={(event) => event.stopPropagation()}>
@@ -1372,18 +1389,11 @@ const CandidateApplicantCard = React.memo(function CandidateApplicantCard({
                     </div>
                 </div>
 
-                <div className={fitBannerClassName}>
-                    <div className="flex min-w-0 items-center gap-2">
-                        <span className="shrink-0 rounded border border-current/20 bg-white/70 px-2 py-0.5 font-semibold dark:bg-slate-950/40">
-                            {fitLabel}
-                        </span>
-                        <span className="min-w-0 truncate">
-                            {actionSummaryText}
-                            {recommendedSummaryText ? ` ${recommendedSummaryText}` : ""}
-                        </span>
+                {fitBannerText ? (
+                    <div className={fitBannerClassName}>
+                        <span className="min-w-0 truncate" title={fitBannerText}>{fitBannerText}</span>
                     </div>
-                    <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-70"/>
-                </div>
+                ) : null}
             </div>
         </div>
     );

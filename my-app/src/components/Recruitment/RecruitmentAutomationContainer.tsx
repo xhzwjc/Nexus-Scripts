@@ -1,6 +1,7 @@
 "use client";
 
 import React, {useCallback, useDeferredValue, useEffect, useMemo, useRef, startTransition, useState} from "react";
+import nextDynamic from "next/dynamic";
 import {
     ArrowLeft,
     Bot,
@@ -241,17 +242,63 @@ import {
     recruitmentFormTextareaClass,
 } from "./components/RecruitmentForm";
 import {StructuredSkillEditor} from "./components/StructuredSkillEditor";
-import {CandidateRadarChart} from "./components/CandidateRadarChart";
 import {AssistantPage} from "./pages/AssistantPage";
-import {AuditPage} from "./pages/AuditPage";
-import {CandidatesPage} from "./pages/CandidatesPage";
-import {MailSettingsPage} from "./pages/MailSettingsPage";
 import {ModelSettingsPage} from "./pages/ModelSettingsPage";
-import {InterviewWorkbenchPage} from "./pages/InterviewWorkbenchPage";
-import {ReviewWorkbenchPage} from "./pages/ReviewWorkbenchPage";
 import {SkillSettingsPage} from "./pages/SkillSettingsPage";
-import {TalentPoolPage} from "./pages/TalentPoolPage";
 import {WorkspacePage} from "./pages/WorkspacePage";
+
+function PageChunkLoading() {
+    return (
+        <div className="flex h-full min-h-[240px] items-center justify-center">
+            <Loader2 className="h-5 w-5 animate-spin text-slate-400"/>
+        </div>
+    );
+}
+
+type KeepAliveFreezeProps = {
+    frozen: boolean;
+    children: React.ReactNode;
+};
+
+// keep-alive 页面隐藏期间跳过整棵子树的 React reconciliation（memo 比较器在 frozen 时判定"未变化"），
+// 恢复可见的那次渲染会立刻使用最新内容。组件全程保持挂载：内部 state、滚动位置、effect 均不受影响。
+const KeepAliveFreeze = React.memo(
+    function KeepAliveFreeze({children}: KeepAliveFreezeProps) {
+        return <>{children}</>;
+    },
+    (previousProps, nextProps) => nextProps.frozen && previousProps.frozen,
+);
+
+// 表单里的胶囊多选按钮（收件人/抄送/密送/候选人状态/评估方案共用同一视觉）
+function TogglePillButton({active, onClick, children}: {
+    active: boolean;
+    onClick: () => void;
+    children: React.ReactNode;
+}) {
+    return (
+        <button
+            type="button"
+            className={cn(
+                "rounded-full border px-3 py-2 text-xs transition",
+                active
+                    ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
+                    : "border-slate-200 bg-white text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300",
+            )}
+            onClick={onClick}
+        >
+            {children}
+        </button>
+    );
+}
+
+// 大体量页面与 recharts 图表按需加载，从招聘模块主 chunk 中拆出，首次进入该页时才下载对应代码。
+const AuditPage = nextDynamic(() => import("./pages/AuditPage").then((mod) => mod.AuditPage), {loading: PageChunkLoading, ssr: false});
+const CandidatesPage = nextDynamic(() => import("./pages/CandidatesPage").then((mod) => mod.CandidatesPage), {loading: PageChunkLoading, ssr: false});
+const MailSettingsPage = nextDynamic(() => import("./pages/MailSettingsPage").then((mod) => mod.MailSettingsPage), {loading: PageChunkLoading, ssr: false});
+const InterviewWorkbenchPage = nextDynamic(() => import("./pages/InterviewWorkbenchPage").then((mod) => mod.InterviewWorkbenchPage), {loading: PageChunkLoading, ssr: false});
+const ReviewWorkbenchPage = nextDynamic(() => import("./pages/ReviewWorkbenchPage").then((mod) => mod.ReviewWorkbenchPage), {loading: PageChunkLoading, ssr: false});
+const TalentPoolPage = nextDynamic(() => import("./pages/TalentPoolPage").then((mod) => mod.TalentPoolPage), {loading: PageChunkLoading, ssr: false});
+const CandidateRadarChart = nextDynamic(() => import("./components/CandidateRadarChart").then((mod) => mod.CandidateRadarChart), {loading: PageChunkLoading, ssr: false});
 import { useOptimizedStats, useCachedListData, useCachedObjectData, useTaskSSE, type TaskSSEEvent } from "./hooks";
 import {
     INTERVIEW_REJECTED_STATUS_VALUES,
@@ -2200,6 +2247,9 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
 
     const [activePage, setActivePage] = useState<RecruitmentPage>(initialPage || "workspace");
     const activePageRef = useRef<RecruitmentPage>(initialPage || "workspace");
+    // 记录访问过的 keep-alive 页面：candidates/positions/audit 首次访问后才挂载（挂载后保持,以保留滚动位置与选中状态）
+    const visitedKeepAlivePagesRef = useRef<Set<RecruitmentPage>>(new Set([initialPage || "workspace"]));
+    visitedKeepAlivePagesRef.current.add(activePage);
     const recruitmentPageHistoryRef = useRef<RecruitmentPage[]>([initialPage || "workspace"]);
     const lastInitialPageRef = useRef<RecruitmentPage | null>(null);
     const taskSSEPageActive = (
@@ -2420,6 +2470,10 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const [mailSenderConfigs, setMailSenderConfigs] = useState<RecruitmentMailSenderConfig[]>([]);
     const [allMailRecipients, setAllMailRecipients] = useState<RecruitmentMailRecipient[]>([]);
     const [mailRecipients, setMailRecipients] = useState<RecruitmentMailRecipient[]>([]);
+    const enabledMailRecipients = useMemo(
+        () => mailRecipients.filter((recipient) => recipient.is_enabled),
+        [mailRecipients],
+    );
     const [allResumeMailDispatches, setAllResumeMailDispatches] = useState<RecruitmentResumeMailDispatch[]>([]);
     const [resumeMailDispatches, setResumeMailDispatches] = useState<RecruitmentResumeMailDispatch[]>([]);
     const [mailAutoPushGlobalConfig, setMailAutoPushGlobalConfig] = useState<RecruitmentMailAutoPushGlobalConfig>({
@@ -2566,6 +2620,9 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const [interviewGenerating, setInterviewGenerating] = useState(false);
     const [positionDeleting, setPositionDeleting] = useState(false);
     const [positionDeleteConfirmOpen, setPositionDeleteConfirmOpen] = useState(false);
+    // 招聘需求表单打开时的初始快照，用于关闭前的脏数据检测（JSON 序列化对比，字段顺序由初始对象决定且后续 spread 更新不改变顺序）
+    const positionFormInitialSnapshotRef = useRef<string | null>(null);
+    const [positionFormCloseConfirmOpen, setPositionFormCloseConfirmOpen] = useState(false);
     const [candidateDeleteTarget, setCandidateDeleteTarget] = useState<CandidateSummary | null>(null);
     const [candidateDeleting, setCandidateDeleting] = useState(false);
     const [candidateDeleteError, setCandidateDeleteError] = useState<string | null>(null);
@@ -7906,10 +7963,12 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
 
     function openCreatePosition() {
         setPositionDialogMode("create");
-        setPositionForm({
+        const nextForm: PositionFormState = {
             ...emptyPositionForm(),
             orgCode: showOrganizationFields ? "" : activeCreateOrgCode,
-        });
+        };
+        setPositionForm(nextForm);
+        positionFormInitialSnapshotRef.current = JSON.stringify(nextForm);
         setPositionSkillSearch("");
         setPositionSkillSectionExpanded(DEFAULT_POSITION_SKILL_SECTION_EXPANDED_STATE);
         setPositionFormErrors({});
@@ -7924,7 +7983,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         }
         const bossFields = resolveBossFieldsFromPosition(positionDetail.position);
         setPositionDialogMode("edit");
-        setPositionForm({
+        const nextForm: PositionFormState = {
             orgCode: normalizeRecruitmentOrgCode(positionDetail.position.org_code),
             title: positionDetail.position.title,
             department: positionDetail.position.department || "",
@@ -7959,7 +8018,9 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             jdSkillIds: (positionDetail.position.jd_skill_ids || []).slice(0, 1),
             screeningSkillIds: (positionDetail.position.screening_skill_ids || []).slice(0, 1),
             interviewSkillIds: (positionDetail.position.interview_skill_ids || []).slice(0, 1),
-        });
+        };
+        setPositionForm(nextForm);
+        positionFormInitialSnapshotRef.current = JSON.stringify(nextForm);
         setPositionSkillSearch("");
         setPositionSkillSectionExpanded(DEFAULT_POSITION_SKILL_SECTION_EXPANDED_STATE);
         setPositionFormErrors({});
@@ -8045,10 +8106,23 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
 
     function closePositionFormPage() {
         setPositionDialogOpen(false);
+        setPositionFormCloseConfirmOpen(false);
         setPositionFormErrors({});
         setPositionFormSubmitError(null);
         setPositionSubmitting(false);
+        positionFormInitialSnapshotRef.current = null;
         clearPositionFormLocationHash();
+    }
+
+    // 关闭前脏数据保护：有未保存修改时先弹确认，防止误点关闭丢失长文本输入
+    function requestClosePositionFormPage() {
+        const snapshot = positionFormInitialSnapshotRef.current;
+        const isDirty = snapshot !== null && JSON.stringify(positionForm) !== snapshot;
+        if (isDirty && !positionSubmitting) {
+            setPositionFormCloseConfirmOpen(true);
+            return;
+        }
+        closePositionFormPage();
     }
 
     function updatePositionSkillBinding(
@@ -8532,7 +8606,10 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 }
                 if (nextErrors.headcount) {
                     positionHeadcountInputRef.current?.focus();
+                    return;
                 }
+                // 其余字段报错时，把第一条错误提示滚动到视野中央，避免长表单里用户看不到红字
+                document.querySelector("[data-recruitment-field-error]")?.scrollIntoView({behavior: "smooth", block: "center"});
             });
             return;
         }
@@ -12430,7 +12507,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                     type="button"
                                     aria-label={isZh ? "关闭并返回岗位列表" : "Close and return to position list"}
                                     className="flex h-9 w-9 items-center justify-center rounded-[4px] border border-transparent bg-white text-[#7f8c9c] transition hover:border-[#d8e1ea] hover:bg-[#f6f8fb] hover:text-[#1f2937] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#11aaa5]/20 dark:bg-slate-950 dark:text-slate-400 dark:hover:border-slate-700 dark:hover:bg-slate-900 dark:hover:text-slate-100"
-                                    onClick={closePositionFormPage}
+                                    onClick={requestClosePositionFormPage}
                                 >
                                     <X className="h-[18px] w-[18px]"/>
                                 </button>
@@ -12439,7 +12516,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                 id="position-form-basic"
                                 index={1}
                                 title={isZh ? "职位基本信息" : "Basic Position Info"}
-                                description={isZh ? "职位发布成功后，招聘类型、职位名称、职位类型、工作城市，将无法修改" : "After publishing, recruit type, job name, job type, and city are locked."}
+                                description={isZh ? "职位名称与职位类型将用于 AI 岗位匹配和简历初筛，请准确填写" : "Job name and job type drive AI position matching and resume screening, so keep them accurate."}
                             >
                                 <div className="space-y-[24px]">
                                     {positionDialogMode === "create" && showOrganizationFields && organizationSelectOptions.length > 1 ? (
@@ -12463,7 +12540,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                     ) : null}
 
                                     <RecruitmentFieldRow label={isZh ? "公司" : "Company"}>
-                                        <div className="flex h-[34px] max-w-[500px] items-center text-[14px] leading-[20px] text-[#303846]">
+                                        <div className="flex h-[34px] max-w-[500px] items-center text-[14px] leading-[20px] text-[#303846] dark:text-slate-200">
                                             {showOrganizationColumn ? getOrganizationLabel(positionForm.orgCode || activeCreateOrgCode) : (isZh ? "唐人·运营商/增值服务·唐人科技集团有限公司" : "Tang Ren Technology")}
                                         </div>
                                     </RecruitmentFieldRow>
@@ -12521,7 +12598,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                                 maxLength={5000}
                                                 onChange={(event) => updatePositionFormField("keyRequirements", event.target.value.slice(0, 5000))}
                                                 rows={7}
-                                                placeholder={isZh ? "请勿填写QQ、微信、电话等联系方式及特殊符号、性别歧视词、违反劳动法相关内容，否则有可能会导致您的账号被封禁" : "Describe responsibilities and requirements."}
+                                                placeholder={isZh ? "请描述岗位职责、任职要求与福利待遇。这段内容会作为 JD 生成与 AI 初筛评估的依据。" : "Describe responsibilities, requirements, and benefits. This content feeds JD generation and AI screening."}
                                             />
                                         </RecruitmentTextareaMeter>
                                     </RecruitmentFieldRow>
@@ -12542,7 +12619,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                 id="position-form-requirements"
                                 index={2}
                                 title={isZh ? "职位要求" : "Position Requirements"}
-                                description={isZh ? "我们将通过以下条件，为您精确推荐合适的牛人，请尽量详细填写" : "These conditions are used to recommend suitable candidates."}
+                                description={isZh ? "以下条件将用于 AI 初筛评分与人才库匹配，请尽量详细填写" : "These conditions are used for AI screening scores and talent pool matching."}
                             >
                                 <div className="space-y-[24px]">
                                     <RecruitmentFieldRow label={isZh ? "经验" : "Experience"} error={positionFormErrors.experience} required>
@@ -12599,7 +12676,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                                 {BOSS_SALARY_MONTH_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
                                             </NativeSelect>
                                         </div>
-                                        <p className="mt-[6px] text-[12px] leading-[18px] text-[#05a7a2]">ⓘ 1k=1千元 10k=1万元</p>
+                                        <p className="mt-[6px] text-[12px] leading-[18px] text-[#05a7a2] dark:text-teal-300">ⓘ 1k=1千元 10k=1万元</p>
                                     </RecruitmentFieldRow>
 
                                     <RecruitmentFieldRow label={isZh ? "职位关键词" : "Keywords"}>
@@ -12620,7 +12697,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                             onChange={(event) => updatePositionFormField("location", event.target.value.slice(0, 120))}
                                             placeholder={isZh ? "请输入工作地址" : "Enter work address"}
                                         />
-                                        <p className="mt-[6px] text-[12px] leading-[18px] text-[#8b98a8]">{isZh ? "请填写真实有效地址，若查实造假，将受到平台处罚。" : "Please provide a valid address."}</p>
+                                        <p className="mt-[6px] text-[12px] leading-[18px] text-[#8b98a8] dark:text-slate-500">{isZh ? "请填写真实办公地址，将用于面试安排与候选人沟通。" : "Enter the real office address; it is used for interview scheduling and candidate communication."}</p>
                                     </RecruitmentFieldRow>
 
                                     <RecruitmentFieldRow label={isZh ? "招聘人数" : "Headcount"} error={positionFormErrors.headcount} required>
@@ -12718,20 +12795,14 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                                 <div className="space-y-2">
                                                     <p className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">{recruitmentUiText.positionSpecificRecipients}</p>
                                                     <div className="flex flex-wrap gap-2">
-                                                        {mailRecipients.filter((recipient) => recipient.is_enabled).length ? mailRecipients.filter((recipient) => recipient.is_enabled).map((recipient) => (
-                                                            <button
+                                                        {enabledMailRecipients.length ? enabledMailRecipients.map((recipient) => (
+                                                            <TogglePillButton
                                                                 key={`auto-mail-to-page-${recipient.id}`}
-                                                                type="button"
-                                                                className={cn(
-                                                                    "rounded-full border px-3 py-2 text-xs transition",
-                                                                    positionForm.autoMailPositionRecipientIds.includes(recipient.id)
-                                                                        ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
-                                                                        : "border-slate-200 bg-white text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300",
-                                                                )}
+                                                                active={positionForm.autoMailPositionRecipientIds.includes(recipient.id)}
                                                                 onClick={() => updatePositionFormField("autoMailPositionRecipientIds", toggleIdInList(positionForm.autoMailPositionRecipientIds, recipient.id))}
                                                             >
                                                                 {recipient.name}
-                                                            </button>
+                                                            </TogglePillButton>
                                                         )) : <p className="text-sm text-slate-500 dark:text-slate-400">{recruitmentUiText.noRecipientsInMailCenter}</p>}
                                                     </div>
                                                 </div>
@@ -12739,40 +12810,28 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                                     <div className="space-y-2">
                                                         <p className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">{recruitmentUiText.ccRecipients}</p>
                                                         <div className="flex flex-wrap gap-2">
-                                                            {mailRecipients.filter((recipient) => recipient.is_enabled).length ? mailRecipients.filter((recipient) => recipient.is_enabled).map((recipient) => (
-                                                                <button
+                                                            {enabledMailRecipients.length ? enabledMailRecipients.map((recipient) => (
+                                                                <TogglePillButton
                                                                     key={`auto-mail-cc-page-${recipient.id}`}
-                                                                    type="button"
-                                                                    className={cn(
-                                                                        "rounded-full border px-3 py-2 text-xs transition",
-                                                                        positionForm.autoMailCcRecipientIds.includes(recipient.id)
-                                                                            ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
-                                                                            : "border-slate-200 bg-white text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300",
-                                                                    )}
+                                                                    active={positionForm.autoMailCcRecipientIds.includes(recipient.id)}
                                                                     onClick={() => updatePositionFormField("autoMailCcRecipientIds", toggleIdInList(positionForm.autoMailCcRecipientIds, recipient.id))}
                                                                 >
                                                                     {recipient.name}
-                                                                </button>
+                                                                </TogglePillButton>
                                                             )) : <p className="text-sm text-slate-500 dark:text-slate-400">{recruitmentUiText.noCCRecipients}</p>}
                                                         </div>
                                                     </div>
                                                     <div className="space-y-2">
                                                         <p className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">{recruitmentUiText.bccRecipients}</p>
                                                         <div className="flex flex-wrap gap-2">
-                                                            {mailRecipients.filter((recipient) => recipient.is_enabled).length ? mailRecipients.filter((recipient) => recipient.is_enabled).map((recipient) => (
-                                                                <button
+                                                            {enabledMailRecipients.length ? enabledMailRecipients.map((recipient) => (
+                                                                <TogglePillButton
                                                                     key={`auto-mail-bcc-page-${recipient.id}`}
-                                                                    type="button"
-                                                                    className={cn(
-                                                                        "rounded-full border px-3 py-2 text-xs transition",
-                                                                        positionForm.autoMailBccRecipientIds.includes(recipient.id)
-                                                                            ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
-                                                                            : "border-slate-200 bg-white text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300",
-                                                                    )}
+                                                                    active={positionForm.autoMailBccRecipientIds.includes(recipient.id)}
                                                                     onClick={() => updatePositionFormField("autoMailBccRecipientIds", toggleIdInList(positionForm.autoMailBccRecipientIds, recipient.id))}
                                                                 >
                                                                     {recipient.name}
-                                                                </button>
+                                                                </TogglePillButton>
                                                             )) : <p className="text-sm text-slate-500 dark:text-slate-400">{recruitmentUiText.noBCCRecipients}</p>}
                                                         </div>
                                                     </div>
@@ -12781,15 +12840,9 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                                     <p className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">{recruitmentUiText.allowedAutoMailStatuses}</p>
                                                     <div className="flex flex-wrap gap-2">
                                                         {(metadata?.candidate_statuses || []).map((option) => (
-                                                            <button
+                                                            <TogglePillButton
                                                                 key={`auto-mail-status-page-${option.value}`}
-                                                                type="button"
-                                                                className={cn(
-                                                                    "rounded-full border px-3 py-2 text-xs transition",
-                                                                    positionForm.autoMailAllowedCandidateStatuses.includes(option.value)
-                                                                        ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
-                                                                        : "border-slate-200 bg-white text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300",
-                                                                )}
+                                                                active={positionForm.autoMailAllowedCandidateStatuses.includes(option.value)}
                                                                 onClick={() => updatePositionFormField(
                                                                     "autoMailAllowedCandidateStatuses",
                                                                     positionForm.autoMailAllowedCandidateStatuses.includes(option.value)
@@ -12798,19 +12851,12 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                                                 )}
                                                             >
                                                                 {localizeCandidateStatusValue(option.value, option.label)}
-                                                            </button>
+                                                            </TogglePillButton>
                                                         ))}
                                                     </div>
                                                 </div>
                                                 <div className="grid gap-4 lg:grid-cols-2">
-                                                    <Field label={recruitmentUiText.reservedTemplateId}>
-                                                        <Input
-                                                            className={cn(recruitmentFormInputClass, recruitmentFormControlClass)}
-                                                            value={positionForm.autoMailTemplateId}
-                                                            placeholder={recruitmentUiText.reservedTemplatePlaceholder}
-                                                            onChange={(event) => updatePositionFormField("autoMailTemplateId", event.target.value)}
-                                                        />
-                                                    </Field>
+                                                    {/* 邮件模板功能落地前,预留模板ID 字段暂不对用户展示;字段值仍随表单读写,历史数据不受影响 */}
                                                     <Field label={recruitmentUiText.dedupMode}>
                                                         <NativeSelect
                                                             className={cn(recruitmentFormInputClass, recruitmentFormControlClass)}
@@ -12886,19 +12932,13 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                                                 </div>
                                                                 <div className="flex flex-wrap gap-2">
                                                                     {skillChoices.length ? skillChoices.map((skill: RecruitmentSkill) => (
-                                                                        <button
+                                                                        <TogglePillButton
                                                                             key={`${formKey}-${skill.id}`}
-                                                                            type="button"
-                                                                            className={cn(
-                                                                                "rounded-full border px-3 py-2 text-xs transition",
-                                                                                (positionForm[formKey] as number[]).includes(skill.id)
-                                                                                    ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
-                                                                                    : "border-slate-200 bg-white text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300",
-                                                                            )}
+                                                                            active={(positionForm[formKey] as number[]).includes(skill.id)}
                                                                             onClick={() => updatePositionSkillBinding(formKey, toggleSingleSkillId(positionForm[formKey] as number[], skill.id), {expandSection: true})}
                                                                         >
                                                                             {skill.name}
-                                                                        </button>
+                                                                        </TogglePillButton>
                                                                     )) : (
                                                                         <p className="text-xs text-slate-400">{recruitmentUiText.noSkillsAvailable}</p>
                                                                     )}
@@ -12917,8 +12957,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                 <Button
                                     type="button"
                                     variant="outline"
-                                    className="h-[34px] min-w-[80px] rounded-[4px] border-[#d8e1ea] bg-white text-[14px] font-normal text-[#1f2937] shadow-none hover:bg-[#f6f8fb]"
-                                    onClick={closePositionFormPage}
+                                    className="h-[34px] min-w-[80px] rounded-[4px] border-[#d8e1ea] bg-white text-[14px] font-normal text-[#1f2937] shadow-none hover:bg-[#f6f8fb] dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-900"
+                                    onClick={requestClosePositionFormPage}
                                 >
                                     {recruitmentUiText.cancelButton}
                                 </Button>
@@ -14306,17 +14346,29 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             </div>
 
             <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
-                    {/* candidates/positions/audit 保持挂载，用 hidden 控制 */}
-                    {/* 原因：这三个页面有列表滚动位置、选中状态需要保持 */}
-                    <div className={cn("h-full min-h-0 px-3 py-3", activePage !== "candidates" && "hidden")}>
-                        {candidatesPageNode}
-                    </div>
-                    <div className={cn("h-full min-h-0 px-3 py-3", activePage !== "positions" && "hidden")}>
-                        {positionDialogOpen ? renderPositionFormPage() : positionsPageNode}
-                    </div>
-                    <div className={cn("h-full min-h-0 px-3 py-3", activePage !== "audit" && "hidden")}>
-                        {auditPageNode}
-                    </div>
+                    {/* candidates/positions/audit 首次访问后保持挂载，用 hidden 控制 */}
+                    {/* 原因：这三个页面有列表滚动位置、选中状态需要保持；未访问前不挂载以加快模块进入速度 */}
+                    {visitedKeepAlivePagesRef.current.has("candidates") ? (
+                        <div className={cn("h-full min-h-0 px-3 py-3", activePage !== "candidates" && "hidden")}>
+                            <KeepAliveFreeze frozen={activePage !== "candidates"}>
+                                {candidatesPageNode}
+                            </KeepAliveFreeze>
+                        </div>
+                    ) : null}
+                    {visitedKeepAlivePagesRef.current.has("positions") || positionDialogOpen ? (
+                        <div className={cn("h-full min-h-0 px-3 py-3", activePage !== "positions" && "hidden")}>
+                            <KeepAliveFreeze frozen={activePage !== "positions"}>
+                                {positionDialogOpen ? renderPositionFormPage() : positionsPageNode}
+                            </KeepAliveFreeze>
+                        </div>
+                    ) : null}
+                    {visitedKeepAlivePagesRef.current.has("audit") ? (
+                        <div className={cn("h-full min-h-0 px-3 py-3", activePage !== "audit" && "hidden")}>
+                            <KeepAliveFreeze frozen={activePage !== "audit"}>
+                                {auditPageNode}
+                            </KeepAliveFreeze>
+                        </div>
+                    ) : null}
 
                     {/* 以下改为条件渲染，切换时重新挂载，无需保持状态 */}
                     {activePage === "talent-pool" && canViewTalentPool && (
@@ -14700,6 +14752,27 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 }
             }}>
                 {resumeUploadDialogBody}
+            </Dialog>
+
+            <Dialog open={positionFormCloseConfirmOpen} onOpenChange={setPositionFormCloseConfirmOpen}>
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>{isZh ? "有未保存的修改" : "Unsaved changes"}</DialogTitle>
+                        <DialogDescription>
+                            {isZh
+                                ? "当前招聘需求表单还有未保存的内容，离开后将丢失这些修改。"
+                                : "This hiring request form has unsaved changes. Leaving now will discard them."}
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setPositionFormCloseConfirmOpen(false)}>
+                            {isZh ? "继续编辑" : "Keep editing"}
+                        </Button>
+                        <Button variant="destructive" onClick={closePositionFormPage}>
+                            {isZh ? "放弃修改并离开" : "Discard and leave"}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
             </Dialog>
 
             <Dialog open={positionDeleteConfirmOpen} onOpenChange={setPositionDeleteConfirmOpen}>
@@ -15535,7 +15608,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
 
                             <Field label={recruitmentUiText.selectInternalRecipients}>
                                 <div className="grid gap-3 md:grid-cols-2">
-                                    {mailRecipients.filter((recipient) => recipient.is_enabled).length ? mailRecipients.filter((recipient) => recipient.is_enabled).map((recipient) => (
+                                    {enabledMailRecipients.length ? enabledMailRecipients.map((recipient) => (
                                         <label key={recipient.id}
                                                className="flex items-start gap-3 rounded-2xl border border-slate-200/80 px-4 py-4 text-sm dark:border-slate-800">
                                             <input
