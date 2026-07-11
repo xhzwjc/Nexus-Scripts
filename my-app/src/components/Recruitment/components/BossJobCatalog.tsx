@@ -464,7 +464,7 @@ function BossJobDropdown({
     } = useCascadeState(true);
 
     return (
-        <div className={cn("absolute left-0 top-full z-50 mt-[6px] w-[660px] overflow-hidden rounded-[4px] border border-[#d5dee9] bg-white shadow-[0_18px_45px_-22px_rgba(15,23,42,0.45)] dark:border-slate-700 dark:bg-slate-950", className)}>
+        <div className={cn("absolute left-0 top-full z-50 mt-[6px] w-[660px] overflow-hidden rounded-[4px] border border-[#D6D8DD] bg-white shadow-[0_8px_24px_rgba(14,17,20,0.16)] dark:border-slate-700 dark:bg-slate-950", className)}>
             <div className="border-b border-[#eef2f6] p-[10px] dark:border-slate-800">
                 <div className="relative">
                     <Search className="pointer-events-none absolute left-[10px] top-1/2 h-4 w-4 -translate-y-1/2 text-[#9aa6b2]"/>
@@ -472,7 +472,7 @@ function BossJobDropdown({
                         value={localQuery}
                         onChange={(event) => setLocalQuery(event.target.value)}
                         placeholder="搜索职位名称"
-                        className="h-[32px] rounded-[4px] border-[#d5dee9] pl-[32px] text-[13px] shadow-none focus-visible:ring-[#11aaa5]/15"
+                        className="h-[32px] rounded-[4px] border-[#D6D8DD] pl-[32px] text-[13px] shadow-none focus-visible:border-[#1E3BFA] focus-visible:ring-[#1E3BFA]/15"
                     />
                 </div>
             </div>
@@ -482,7 +482,7 @@ function BossJobDropdown({
                         <button
                             key={`${item.first}-${item.second}-${item.third}`}
                             type="button"
-                            className="flex w-full items-center justify-between gap-3 px-[14px] py-[8px] text-left text-[14px] leading-[20px] text-[#253040] hover:bg-[#f3fbfb]"
+                            className="flex w-full items-center justify-between gap-3 px-[14px] py-[8px] text-left text-[14px] leading-[20px] text-[#33353D] hover:bg-[#F7F8FA]"
                             onClick={() => onSelect(item)}
                         >
                             <span className="font-medium">{item.third}</span>
@@ -503,7 +503,7 @@ function BossJobDropdown({
                                 onClick={() => setActiveFirst(category.name)}
                                 className={cn(
                                     "block w-full px-[14px] py-[8px] text-left transition",
-                                    activeFirst === category.name ? "bg-[#e7f8f6] text-[#08918d]" : "text-[#253040] hover:bg-[#f7fbfb]",
+                                    activeFirst === category.name ? "bg-[#1E3BFA]/5 text-[#0F23D9]" : "text-[#33353D] hover:bg-[#F7F8FA]",
                                 )}
                             >
                                 {category.name}
@@ -519,7 +519,7 @@ function BossJobDropdown({
                                 onClick={() => setActiveSecond(group.name)}
                                 className={cn(
                                     "block w-full px-[14px] py-[8px] text-left transition",
-                                    activeSecond === group.name ? "bg-[#e7f8f6] text-[#08918d]" : "text-[#253040] hover:bg-[#f7fbfb]",
+                                    activeSecond === group.name ? "bg-[#1E3BFA]/5 text-[#0F23D9]" : "text-[#33353D] hover:bg-[#F7F8FA]",
                                 )}
                             >
                                 {group.name}
@@ -531,7 +531,7 @@ function BossJobDropdown({
                             <button
                                 key={job}
                                 type="button"
-                                className="block w-full px-[14px] py-[8px] text-left text-[#253040] transition hover:bg-[#f3fbfb] hover:text-[#08918d]"
+                                className="block w-full px-[14px] py-[8px] text-left text-[#33353D] transition hover:bg-[#F7F8FA] hover:text-[#0F23D9]"
                                 onClick={() => {
                                     if (!activeCategory || !activeGroup) {
                                         return;
@@ -591,7 +591,7 @@ export function BossJobNameCascader({
                 }}
                 onFocus={() => setOpen(true)}
                 placeholder={placeholder}
-                className={cn("h-[34px] rounded-[4px] border-[#d5dee9] px-[12px] text-[14px] font-normal leading-[20px] text-[#303846] shadow-none placeholder:text-[#c2cad4] focus-visible:border-[#11aaa5] focus-visible:ring-2 focus-visible:ring-[#11aaa5]/15", error && "border-[#ef4444] focus-visible:border-[#ef4444] focus-visible:ring-[#ef4444]/15")}
+                className={cn("h-[34px] rounded-[4px] border-[#D6D8DD] px-[12px] text-[14px] font-normal leading-[20px] text-[#33353D] shadow-none placeholder:text-[#B0B2B8] focus-visible:border-[#1E3BFA] focus-visible:ring-2 focus-visible:ring-[#1E3BFA]/15", error && "border-[#F53F3F] focus-visible:border-[#F53F3F] focus-visible:ring-[#F53F3F]/15")}
             />
             {open ? <BossJobDropdown query={value} onSelect={handleSelect}/> : null}
         </div>
@@ -624,7 +624,7 @@ export function BossJobTypeSelector({
             <button
                 type="button"
                 className={cn(
-                    "flex h-[34px] w-full items-center justify-between gap-2 rounded-[4px] border border-[#d5dee9] bg-white px-[12px] text-left text-[14px] leading-[20px] text-[#303846] transition hover:border-[#11aaa5] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#11aaa5]/15",
+                    "flex h-[34px] w-full items-center justify-between gap-2 rounded-[4px] border border-[#D6D8DD] bg-white px-[12px] text-left text-[14px] leading-[20px] text-[#33353D] transition hover:border-[#1E3BFA] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1E3BFA]/15",
                     !value && "text-[#c2cad4]",
                     error && "border-[#ef4444] focus-visible:ring-[#ef4444]/15",
                 )}

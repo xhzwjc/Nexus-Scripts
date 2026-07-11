@@ -5,10 +5,10 @@ import React from "react";
 import {cn} from "@/lib/utils";
 
 export const recruitmentFormInputClass =
-    "h-[34px] rounded-[4px] border-[#d5dee9] bg-white px-[12px] text-[14px] font-normal leading-[20px] text-[#303846] shadow-none placeholder:text-[#c2cad4] focus-visible:border-[#11aaa5] focus-visible:ring-2 focus-visible:ring-[#11aaa5]/15 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus-visible:border-teal-400 dark:focus-visible:ring-teal-400/20";
+    "h-[34px] rounded-[4px] border-[#E6E7EB] bg-white px-[12px] text-[13px] font-normal leading-[20px] text-[#0E1114] shadow-none placeholder:text-[#B0B2B8] focus-visible:border-[#1E3BFA] focus-visible:ring-2 focus-visible:ring-[#1E3BFA]/10 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus-visible:border-blue-400 dark:focus-visible:ring-blue-400/20";
 
 export const recruitmentFormTextareaClass =
-    "min-h-[168px] resize-y border-0 bg-transparent px-[16px] py-[12px] text-[14px] font-normal leading-[26px] text-[#303846] shadow-none placeholder:text-[#c2cad4] focus-visible:ring-0 dark:bg-transparent dark:text-slate-100 dark:placeholder:text-slate-500";
+    "min-h-[168px] resize-y border-0 bg-transparent px-[16px] py-[12px] text-[13px] font-normal leading-[24px] text-[#0E1114] shadow-none placeholder:text-[#B0B2B8] focus-visible:ring-0 dark:bg-transparent dark:text-slate-100 dark:placeholder:text-slate-500";
 
 export const recruitmentFormControlClass = "w-full max-w-[500px]";
 
@@ -30,19 +30,19 @@ export function RecruitmentFormSection({
     className?: string;
 }) {
     return (
-        <section id={id} className={cn("scroll-mt-6", className)}>
-            <div className="mb-[24px] flex items-start gap-[10px]">
-                <div className="w-[20px] shrink-0 text-right text-[32px] font-medium leading-[34px] text-[#0fa7a2] dark:text-teal-300">
+        <section id={id} className={cn("scroll-mt-6 rounded-[8px] border border-[#EBEEF5] bg-white p-5 shadow-[0_1px_2px_rgba(14,17,20,0.03)] dark:border-slate-800 dark:bg-slate-950 sm:p-6", className)}>
+            <div className="mb-5 flex items-start gap-3 border-b border-[#F2F3F5] pb-4 dark:border-slate-800">
+                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[6px] bg-[#1E3BFA] text-[12px] font-semibold text-white">
                     {index}
                 </div>
-                <div className="min-w-0 pt-[1px]">
-                    <h3 className="text-[20px] font-semibold leading-[26px] text-[#1f2937] dark:text-slate-50">{title}</h3>
+                <div className="min-w-0">
+                    <h3 className="text-[16px] font-semibold leading-6 text-[#0E1114] dark:text-slate-50">{title}</h3>
                     {description ? (
-                        <p className="mt-[3px] text-[12px] leading-[18px] text-[#8b98a8] dark:text-slate-400">{description}</p>
+                        <p className="mt-0.5 text-[11px] leading-[18px] text-[#86888F] dark:text-slate-400">{description}</p>
                     ) : null}
                 </div>
             </div>
-            <div className="space-y-[24px] pl-0 sm:pl-[35px]">{children}</div>
+            <div className="space-y-5">{children}</div>
         </section>
     );
 }
@@ -63,14 +63,14 @@ export function RecruitmentFieldRow({
     required?: boolean;
 }) {
     return (
-        <div className={cn("grid min-w-0 gap-y-[6px] sm:grid-cols-[84px_minmax(0,1fr)] sm:items-start sm:gap-x-[10px]", className)}>
-            <div className="whitespace-nowrap pt-[7px] text-[14px] leading-[20px] text-[#8793a3] dark:text-slate-400 sm:text-right">
+        <div className={cn("grid min-w-0 gap-y-1.5 sm:grid-cols-[106px_minmax(0,1fr)] sm:items-start sm:gap-x-3", className)}>
+            <div className="whitespace-nowrap pt-[7px] text-[12px] leading-[20px] text-[#33353D] dark:text-slate-400 sm:text-right">
                 {required ? <span className="mr-0.5 text-[#ef4444]" aria-hidden="true">*</span> : null}
                 {label}
             </div>
             <div className="min-w-0">
                 {children}
-                {hint ? <p className="mt-[6px] text-[12px] leading-[18px] text-[#8b98a8] dark:text-slate-500">{hint}</p> : null}
+                {hint ? <p className="mt-[6px] text-[11px] leading-[18px] text-[#86888F] dark:text-slate-500">{hint}</p> : null}
                 {error ? <p data-recruitment-field-error className="mt-[6px] text-[12px] leading-[18px] text-[#e11d48] dark:text-rose-300">{error}</p> : null}
             </div>
         </div>
@@ -101,10 +101,10 @@ export function RecruitmentSegmentedGroup({
                         disabled={option.disabled}
                         onClick={() => onChange(option.value)}
                         className={cn(
-                            "h-[34px] min-w-[116px] rounded-[4px] border px-[18px] text-[14px] font-medium leading-[20px] transition disabled:cursor-not-allowed disabled:opacity-50",
+                            "h-[34px] min-w-[116px] rounded-[4px] border px-[18px] text-[12px] font-medium leading-[20px] transition disabled:cursor-not-allowed disabled:opacity-50",
                             active
-                                ? "border-[#c6f0ed] bg-[#e7f8f6] text-[#08918d] dark:border-teal-700/70 dark:bg-teal-950/40 dark:text-teal-200"
-                                : "border-[#d8e1ea] bg-white text-[#1f2937] hover:border-[#b8deda] hover:bg-[#f5fbfa] dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200 dark:hover:border-teal-700/70 dark:hover:bg-slate-900",
+                                ? "border-[#1E3BFA] bg-[#1E3BFA]/5 text-[#1E3BFA] dark:border-blue-500 dark:bg-blue-950/40 dark:text-blue-200"
+                                : "border-[#E6E7EB] bg-white text-[#33353D] hover:border-[#1E3BFA]/40 hover:bg-[#F7F8FA] dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200 dark:hover:border-blue-700 dark:hover:bg-slate-900",
                             buttonClassName,
                         )}
                     >
@@ -130,9 +130,9 @@ export function RecruitmentTextareaMeter({
     className?: string;
 }) {
     return (
-        <div className={cn("w-full max-w-[500px] rounded-[4px] border border-[#d5dee9] bg-white focus-within:border-[#11aaa5] focus-within:ring-2 focus-within:ring-[#11aaa5]/15 dark:border-slate-700 dark:bg-slate-950 dark:focus-within:border-teal-400 dark:focus-within:ring-teal-400/20", className)}>
+        <div className={cn("w-full max-w-[500px] rounded-[4px] border border-[#E6E7EB] bg-white focus-within:border-[#1E3BFA] focus-within:ring-2 focus-within:ring-[#1E3BFA]/10 dark:border-slate-700 dark:bg-slate-950 dark:focus-within:border-blue-400 dark:focus-within:ring-blue-400/20", className)}>
             {children}
-            <div className="flex min-h-[32px] items-center justify-between gap-3 px-[16px] pb-[8px] text-[12px] leading-[18px] text-[#8b98a8] dark:text-slate-500">
+            <div className="flex min-h-[32px] items-center justify-between gap-3 px-[16px] pb-[8px] text-[11px] leading-[18px] text-[#86888F] dark:text-slate-500">
                 <span className="min-w-0 truncate">{helper}</span>
                 <span className={cn("shrink-0 tabular-nums", value.length >= maxLength ? "text-[#e11d48]" : "")}>
                     {value.length}/{maxLength}
@@ -163,22 +163,22 @@ export function RecruitmentToggleRow({
             disabled={disabled}
             onClick={() => onChange(!checked)}
             className={cn(
-                "flex w-full items-start justify-between gap-4 rounded-[4px] border border-[#d8e1ea] bg-white px-[14px] py-[10px] text-left transition dark:border-slate-700 dark:bg-slate-950",
+                "flex w-full items-start justify-between gap-4 rounded-[6px] border border-[#E6E7EB] bg-white px-[14px] py-[10px] text-left transition dark:border-slate-700 dark:bg-slate-950",
                 disabled
                     ? "cursor-not-allowed opacity-50"
-                    : "hover:border-[#b8deda] hover:bg-[#f7fbfb] dark:hover:border-teal-700/70 dark:hover:bg-slate-900",
+                    : "hover:border-[#1E3BFA]/40 hover:bg-[#F7F8FA] dark:hover:border-blue-700 dark:hover:bg-slate-900",
             )}
         >
             <span className="min-w-0">
-                <span className="block text-[14px] font-medium leading-[20px] text-[#1f2937] dark:text-slate-100">{title}</span>
+                <span className="block text-[12px] font-medium leading-[20px] text-[#0E1114] dark:text-slate-100">{title}</span>
                 {description ? (
-                    <span className="mt-[4px] block text-[12px] leading-[18px] text-[#8b98a8] dark:text-slate-500">{description}</span>
+                    <span className="mt-[4px] block text-[11px] leading-[18px] text-[#86888F] dark:text-slate-500">{description}</span>
                 ) : null}
             </span>
             <span
                 className={cn(
                     "mt-0.5 flex h-5 w-9 shrink-0 items-center rounded-full p-0.5 transition",
-                    checked ? "bg-[#0fa7a2]" : "bg-[#d8e1ea] dark:bg-slate-700",
+                    checked ? "bg-[#1E3BFA]" : "bg-[#E6E7EB] dark:bg-slate-700",
                 )}
             >
                 <span
@@ -288,8 +288,8 @@ export function RecruitmentFormAnchorRail({
                         className={cn(
                             "block w-full border-l-2 px-3 py-2 text-left transition",
                             active
-                                ? "border-[#0fa7a2] text-[#0fa7a2] dark:text-teal-300"
-                                : "border-transparent text-[#7b8794] hover:border-[#b8deda] hover:text-[#1f2937] dark:text-slate-400 dark:hover:text-slate-200",
+                                ? "border-[#1E3BFA] text-[#1E3BFA] dark:text-blue-300"
+                                : "border-transparent text-[#86888F] hover:border-[#1E3BFA]/40 hover:text-[#33353D] dark:text-slate-400 dark:hover:text-slate-200",
                         )}
                     >
                         {item.label}

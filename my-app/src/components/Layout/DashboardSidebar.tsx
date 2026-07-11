@@ -390,7 +390,7 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
                         disabled: true,
                     })}
 
-                    <div className={cn('flex pt-2', collapsed ? 'justify-center' : 'justify-start px-2')}>
+                    <div className={cn('flex pt-2', collapsed ? 'justify-center' : 'justify-end px-2')}>
                         <Tooltip>
                             <TooltipTrigger asChild>
                                 <button

@@ -66,6 +66,7 @@ function DebouncedInput({
     return (
         <Input
             {...props}
+            className={cn("rounded-[6px] border-[#D6D8DD] shadow-none focus-visible:border-[#1E3BFA] focus-visible:ring-[#1E3BFA]/15", props.className)}
             value={local}
             onChange={(e) => setLocal(e.target.value)}
             onBlur={() => {
@@ -95,6 +96,7 @@ function DebouncedTextarea({
     return (
         <Textarea
             {...props}
+            className={cn("rounded-[6px] border-[#D6D8DD] shadow-none focus-visible:border-[#1E3BFA] focus-visible:ring-[#1E3BFA]/15", props.className)}
             value={local}
             onChange={(e) => setLocal(e.target.value)}
             onBlur={() => {
@@ -272,12 +274,12 @@ const AiGeneratedContentPreview = React.memo(function AiGeneratedContentPreview(
     }, [content, scrollToLatest]);
 
     return (
-        <div className="mt-4 rounded-xl border border-white/80 bg-white/80 p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950/70">
+        <div className="mt-4 rounded-[8px] border border-[#EBEEF5] bg-white p-4 shadow-none dark:border-slate-800 dark:bg-slate-950/70">
             <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
                     <span className={cn(
                         "inline-flex h-2 w-2 rounded-full",
-                        aiGenerating ? "animate-pulse bg-violet-500" : "bg-emerald-500",
+                        aiGenerating ? "animate-pulse bg-[#1E3BFA]" : "bg-emerald-500",
                     )} />
                     <span>
                         {aiGenerating
@@ -288,7 +290,7 @@ const AiGeneratedContentPreview = React.memo(function AiGeneratedContentPreview(
                 {autoFollowPaused ? (
                     <button
                         type="button"
-                        className="rounded-full border border-violet-200 bg-white px-2.5 py-1 text-xs font-medium text-violet-700 transition hover:border-violet-300 hover:bg-violet-50 dark:border-violet-900 dark:bg-slate-900 dark:text-violet-300 dark:hover:border-violet-700"
+                        className="rounded-[6px] border border-[#1E3BFA]/25 bg-white px-2.5 py-1 text-xs font-medium text-[#0F23D9] transition hover:border-[#1E3BFA] hover:bg-[#1E3BFA]/5 dark:border-blue-900 dark:bg-slate-900 dark:text-blue-300"
                         onClick={scrollToLatest}
                     >
                         {isZh ? "回到最新" : "Jump to latest"}
@@ -297,7 +299,7 @@ const AiGeneratedContentPreview = React.memo(function AiGeneratedContentPreview(
             </div>
             <div
                 ref={contentRef}
-                className="mt-3 max-h-[320px] min-h-[180px] overflow-y-auto whitespace-pre-wrap rounded-lg bg-slate-50/80 px-3 py-3 text-base leading-relaxed text-slate-700 dark:bg-slate-900/70 dark:text-slate-200"
+                className="mt-3 max-h-[320px] min-h-[180px] overflow-y-auto whitespace-pre-wrap rounded-[6px] bg-[#F7F8FA] px-3 py-3 text-base leading-relaxed text-[#33353D] dark:bg-slate-900/70 dark:text-slate-200"
                 onScroll={handleScroll}
             >
                 {content || (isZh ? "请稍候，实时内容将在这里继续更新..." : "Please wait. Live content will continue updating here...")}
@@ -594,11 +596,11 @@ export function StructuredSkillEditor({
                 setTab(v);
             }} className="flex flex-col flex-1 min-h-0">
                 {aiAppliedNotice ? (
-                    <div className="mb-2 flex items-center justify-between gap-3 rounded-full border border-emerald-200 bg-emerald-50/70 px-3 py-1.5 text-sm text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/20 dark:text-emerald-200">
+                    <div className="mb-2 flex items-center justify-between gap-3 rounded-[6px] border border-emerald-200 bg-emerald-50/70 px-3 py-1.5 text-sm text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/20 dark:text-emerald-200">
                         <p className="truncate">{aiAppliedNotice}</p>
                         <button
                             type="button"
-                            className="shrink-0 rounded-full p-0.5 text-emerald-700 transition hover:bg-emerald-100 dark:text-emerald-200 dark:hover:bg-emerald-900/40"
+                            className="shrink-0 rounded-[4px] p-0.5 text-emerald-700 transition hover:bg-emerald-100 dark:text-emerald-200 dark:hover:bg-emerald-900/40"
                             onClick={() => setAiAppliedNotice(null)}
                             aria-label="Dismiss AI success notice"
                         >
@@ -606,10 +608,10 @@ export function StructuredSkillEditor({
                         </button>
                     </div>
                 ) : null}
-                <TabsList className="w-full justify-start shrink-0">
-                    <TabsTrigger value="structured">{t.recruitment.skillTabsStructured}</TabsTrigger>
-                    <TabsTrigger value="advanced">{t.recruitment.skillTabsAdvanced}</TabsTrigger>
-                    <TabsTrigger value="ai">{t.recruitment.skillTabsAi}</TabsTrigger>
+                <TabsList className="h-auto w-full shrink-0 justify-start rounded-none border-b border-[#F2F3F5] bg-transparent p-0">
+                    <TabsTrigger value="structured" className="rounded-none border-x-0 border-t-0 border-b-2 border-transparent px-4 py-2 shadow-none data-[state=active]:border-b-[#1E3BFA] data-[state=active]:bg-transparent data-[state=active]:text-[#0F23D9] data-[state=active]:shadow-none">{t.recruitment.skillTabsStructured}</TabsTrigger>
+                    <TabsTrigger value="advanced" className="rounded-none border-x-0 border-t-0 border-b-2 border-transparent px-4 py-2 shadow-none data-[state=active]:border-b-[#1E3BFA] data-[state=active]:bg-transparent data-[state=active]:text-[#0F23D9] data-[state=active]:shadow-none">{t.recruitment.skillTabsAdvanced}</TabsTrigger>
+                    <TabsTrigger value="ai" className="rounded-none border-x-0 border-t-0 border-b-2 border-transparent px-4 py-2 shadow-none data-[state=active]:border-b-[#1E3BFA] data-[state=active]:bg-transparent data-[state=active]:text-[#0F23D9] data-[state=active]:shadow-none">{t.recruitment.skillTabsAi}</TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="structured" className="flex-1 min-h-0 overflow-y-auto pr-1 mt-3 space-y-5">
@@ -636,10 +638,10 @@ export function StructuredSkillEditor({
                                     key={kind}
                                     type="button"
                                     className={cn(
-                                        "rounded-full border px-3 py-1.5 text-xs transition",
+                                        "rounded-[6px] border px-3 py-1.5 text-xs transition",
                                         form.taskTypes.includes(kind)
-                                            ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
-                                            : "border-slate-200 bg-white text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300",
+                                            ? "border-[#1E3BFA] bg-[#1E3BFA] text-white"
+                                            : "border-[#E6E7EB] bg-white text-[#33353D] hover:bg-[#F7F8FA] dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300",
                                     )}
                                     onClick={() => updateForm("taskTypes", form.taskTypes.includes(kind) ? [] : [kind])}
                                 >
@@ -769,10 +771,10 @@ export function StructuredSkillEditor({
                                     key={kind}
                                     type="button"
                                     className={cn(
-                                        "rounded-full border px-3 py-1.5 text-xs transition",
+                                        "rounded-[6px] border px-3 py-1.5 text-xs transition",
                                         form.taskTypes.includes(kind)
-                                            ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
-                                            : "border-slate-200 bg-white text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300",
+                                            ? "border-[#1E3BFA] bg-[#1E3BFA] text-white"
+                                            : "border-[#E6E7EB] bg-white text-[#33353D] hover:bg-[#F7F8FA] dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300",
                                     )}
                                     onClick={() => updateForm("taskTypes", form.taskTypes.includes(kind) ? [] : [kind])}
                                 >
@@ -783,7 +785,7 @@ export function StructuredSkillEditor({
                     </div>
                     <div className="space-y-1.5">
                         <Label>{t.recruitment.skillContent} {t.recruitment.required}</Label>
-                        <Textarea value={advancedContent} onChange={(e) => setAdvancedContent(e.target.value)} className="min-h-[400px] font-mono text-xs" />
+                        <Textarea value={advancedContent} onChange={(e) => setAdvancedContent(e.target.value)} className="min-h-[400px] rounded-[6px] border-[#D6D8DD] font-mono text-xs shadow-none focus-visible:border-[#1E3BFA] focus-visible:ring-[#1E3BFA]/15" />
                     </div>
                     <div className="grid gap-4 md:grid-cols-3">
                         <div className="space-y-1.5">
@@ -803,7 +805,7 @@ export function StructuredSkillEditor({
 
                 <TabsContent value="ai" className="flex-1 min-h-0 overflow-y-auto pr-1 mt-3 space-y-4">
                     {showAiStreamingPhase && (
-                        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50/90 p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950/60">
+                        <div className="overflow-hidden rounded-[8px] border border-[#EBEEF5] bg-white p-4 shadow-none dark:border-slate-800 dark:bg-slate-950/60">
                             <div className="flex items-center justify-between gap-3">
                                 <div>
                                     <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
@@ -816,7 +818,7 @@ export function StructuredSkillEditor({
                                     </p>
                                 </div>
                                 {streamProgressVisible ? (
-                                    <div className="rounded-full bg-white px-3 py-1 text-xs font-medium text-violet-700 shadow-sm dark:bg-slate-900 dark:text-violet-300">
+                                    <div className="rounded-[6px] bg-[#1E3BFA]/5 px-3 py-1 text-xs font-medium text-[#0F23D9] shadow-none dark:bg-slate-900 dark:text-blue-300">
                                         {streamProgressPercent}%
                                     </div>
                                 ) : null}
@@ -824,7 +826,7 @@ export function StructuredSkillEditor({
                             {streamProgressVisible ? (
                                 <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-200/80 dark:bg-slate-800/80">
                                     <div
-                                        className="h-full rounded-full bg-gradient-to-r from-violet-500 via-purple-500 to-emerald-400 transition-all duration-500"
+                                        className="h-full rounded-full bg-[#1E3BFA] transition-all duration-500"
                                         style={{ width: `${streamProgressPercent}%` }}
                                     />
                                 </div>
@@ -836,7 +838,7 @@ export function StructuredSkillEditor({
                             />
                         </div>
                     )}
-                    <div className="rounded-2xl border border-slate-200 bg-white/80 p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950/60">
+                    <div className="rounded-[8px] border border-[#EBEEF5] bg-white p-4 shadow-none dark:border-slate-800 dark:bg-slate-950/60">
                         <button
                             type="button"
                             className="flex w-full items-center justify-between gap-3 text-left"
@@ -858,11 +860,12 @@ export function StructuredSkillEditor({
                             <div className="mt-4 space-y-3">
                                 <div className="space-y-1.5">
                                     <Label>{t.recruitment.skillRoleName} {t.recruitment.required}</Label>
-                                    <Input value={aiRoleName} onChange={(e) => setAiRoleName(e.target.value)} placeholder={t.recruitment.placeholderRoleName} />
+                                    <Input className="rounded-[6px] border-[#D6D8DD] shadow-none focus-visible:border-[#1E3BFA] focus-visible:ring-[#1E3BFA]/15" value={aiRoleName} onChange={(e) => setAiRoleName(e.target.value)} placeholder={t.recruitment.placeholderRoleName} />
                                 </div>
                                 <div className="space-y-1.5">
                                     <Label>{t.recruitment.aiGenerationNotes}</Label>
                                     <Textarea
+                                        className="rounded-[6px] border-[#D6D8DD] shadow-none focus-visible:border-[#1E3BFA] focus-visible:ring-[#1E3BFA]/15"
                                         rows={showAiStreamingPhase ? 2 : 4}
                                         value={aiExtraRequirements}
                                         onChange={(e) => setAiExtraRequirements(e.target.value)}
@@ -879,14 +882,14 @@ export function StructuredSkillEditor({
                                     {aiGenerating ? (
                                         <Button
                                             variant="outline"
-                                            className="border-rose-300 bg-rose-50 text-rose-700 shadow-sm hover:bg-rose-100 hover:text-rose-800 dark:border-rose-800 dark:bg-rose-950/30 dark:text-rose-200 dark:hover:bg-rose-950/50"
+                                            className="rounded-[6px] border-rose-300 bg-rose-50 text-rose-700 shadow-none hover:bg-rose-100 hover:text-rose-800 dark:border-rose-800 dark:bg-rose-950/30 dark:text-rose-200 dark:hover:bg-rose-950/50"
                                             onClick={() => onStopGeneration?.()}
                                         >
                                             <Square className="h-4 w-4 mr-1" />
                                             {isZh ? "停止生成" : "Stop"}
                                         </Button>
                                     ) : (
-                                        <Button onClick={() => void handleGenerate()} disabled={!aiRoleName.trim()}>
+                                        <Button className="rounded-[6px] bg-[#1E3BFA] text-white shadow-none hover:bg-[#0F23D9]" onClick={() => void handleGenerate()} disabled={!aiRoleName.trim()}>
                                             <Sparkles className="h-4 w-4 ml-1" />
                                             {showAiStreamingPhase ? (isZh ? "重新生成" : "Regenerate") : t.recruitment.aiGenerate}
                                         </Button>
@@ -896,12 +899,11 @@ export function StructuredSkillEditor({
                         ) : null}
                     </div>
                     {showAiWaitingPhase && (
-                        <div className="overflow-hidden rounded-2xl border border-violet-200 bg-[radial-gradient(circle_at_top_left,_rgba(124,58,237,0.18),_transparent_45%),linear-gradient(135deg,rgba(248,250,252,0.98),rgba(245,245,245,0.92))] p-4 dark:border-violet-900 dark:bg-[radial-gradient(circle_at_top_left,_rgba(124,58,237,0.18),_transparent_45%),linear-gradient(135deg,rgba(2,6,23,0.95),rgba(15,23,42,0.92))]">
+                        <div className="overflow-hidden rounded-[8px] border border-[#EBEEF5] bg-[#F7F8FA] p-4 shadow-none dark:border-slate-800 dark:bg-slate-950/60">
                             <div className="flex items-start gap-4">
-                                <div className="relative mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white/85 shadow-sm dark:bg-slate-900/75">
-                                    <span className="absolute inset-0 animate-ping rounded-full bg-violet-400/25 dark:bg-violet-500/20" />
-                                    <span className="absolute inset-1 animate-pulse rounded-full border border-violet-200/80 dark:border-violet-700/70" />
-                                    <Sparkles className="relative h-5 w-5 text-violet-600 dark:text-violet-300" />
+                                <div className="relative mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-[6px] bg-[#1E3BFA]/5 shadow-none dark:bg-blue-950/30">
+                                    <span className="absolute inset-1 animate-pulse rounded-[5px] border border-[#1E3BFA]/20 dark:border-blue-800" />
+                                    <Sparkles className="relative h-5 w-5 text-[#1E3BFA] dark:text-blue-300" />
                                 </div>
                                 <div className="space-y-3">
                                     <div>
@@ -909,8 +911,8 @@ export function StructuredSkillEditor({
                                         <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">{aiLoadingMessages[aiLoadingIndex]}</p>
                                     </div>
                                     <div className="grid gap-2 sm:grid-cols-2">
-                                        <div className="h-2.5 rounded-full bg-violet-200/80 animate-pulse dark:bg-violet-800/70" />
-                                        <div className="h-2.5 rounded-full bg-purple-100/90 animate-pulse dark:bg-slate-800/80" />
+                                        <div className="h-2.5 rounded-full bg-[#1E3BFA]/20 animate-pulse dark:bg-blue-900/70" />
+                                        <div className="h-2.5 rounded-full bg-[#1E3BFA]/10 animate-pulse dark:bg-slate-800/80" />
                                         <div className="h-2.5 rounded-full bg-emerald-100/80 animate-pulse dark:bg-slate-800/80" />
                                         <div className="h-2.5 rounded-full bg-slate-200/80 animate-pulse dark:bg-slate-800/80" />
                                     </div>
@@ -922,7 +924,7 @@ export function StructuredSkillEditor({
                         </div>
                     )}
                     {!aiGeneratedContent && !aiGenerating && (
-                        <div className="rounded-lg border border-dashed p-8 text-center text-slate-400">
+                        <div className="rounded-[8px] border border-dashed border-[#EBEEF5] bg-[#F7F8FA] p-8 text-center text-[#86888F]">
                             {t.recruitment.skillAiEmptyHint}
                         </div>
                     )}
@@ -934,8 +936,8 @@ export function StructuredSkillEditor({
             )}
 
             <div className="flex items-center justify-end gap-2 pt-3 border-t mt-3 shrink-0">
-                <Button variant="outline" onClick={onCancel} disabled={submitting}>{t.common.cancel}</Button>
-                <Button onClick={() => void handleSubmit()} disabled={submitting || !canSave}>
+                <Button variant="outline" className="rounded-[6px]" onClick={onCancel} disabled={submitting}>{t.common.cancel}</Button>
+                <Button className="rounded-[6px] bg-[#1E3BFA] text-white shadow-none hover:bg-[#0F23D9] disabled:bg-[#B0B2B8]" onClick={() => void handleSubmit()} disabled={submitting || !canSave}>
                     {submitting ? t.common.saving : editingSkillId ? t.recruitment.skillUpdate : t.recruitment.skillCreate}
                 </Button>
             </div>

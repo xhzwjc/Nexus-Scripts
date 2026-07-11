@@ -30,7 +30,7 @@ export function HoverRevealText({
             </TooltipTrigger>
             <TooltipContent
                 className={cn(
-                    "max-w-md whitespace-pre-wrap break-all rounded-xl border border-slate-200/80 bg-slate-950 px-3 py-2 text-slate-50 shadow-xl dark:border-slate-700 dark:bg-slate-100 dark:text-slate-900",
+                    "max-w-md whitespace-pre-wrap break-all rounded-[6px] border border-[#EBEEF5] bg-[#0E1114] px-3 py-2 text-white shadow-[0_8px_24px_rgba(14,17,20,0.16)] dark:border-slate-700 dark:bg-slate-100 dark:text-slate-900",
                     tooltipClassName,
                 )}
             >
@@ -65,7 +65,7 @@ export function NativeSelect(props: React.SelectHTMLAttributes<HTMLSelectElement
         <select
             {...props}
             className={cn(
-                "border-input focus-visible:border-ring focus-visible:ring-ring/50 dark:bg-input/30 flex h-9 w-full rounded-md border bg-transparent px-3 py-1 text-sm text-foreground shadow-xs outline-none transition-[color,box-shadow] focus-visible:ring-[3px]",
+                "flex h-[34px] w-full rounded-[6px] border border-[#D6D8DD] bg-white px-3 py-1 text-sm text-[#33353D] shadow-none outline-none transition-[border-color,box-shadow] focus-visible:border-[#1E3BFA] focus-visible:ring-2 focus-visible:ring-[#1E3BFA]/15 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100",
                 props.className,
             )}
         />
@@ -255,7 +255,7 @@ export function SectionNavButton({
     return (
         <Tooltip>
             <TooltipTrigger asChild>{buttonNode}</TooltipTrigger>
-            <TooltipContent side="right" className="rounded-xl px-3 py-2 text-xs">
+            <TooltipContent side="right" className="rounded-[6px] px-3 py-2 text-xs">
                 {title}
             </TooltipContent>
         </Tooltip>
@@ -274,7 +274,7 @@ export function SettingsEntry({
     return (
         <button
             type="button"
-            className="w-full rounded-2xl px-4 py-4 text-left transition hover:bg-slate-50 dark:hover:bg-slate-900"
+            className="w-full rounded-[8px] px-4 py-4 text-left transition hover:bg-[#F7F8FA] dark:hover:bg-slate-900"
             onClick={onClick}
         >
             <p className="font-medium text-slate-900 dark:text-slate-100">{title}</p>
@@ -295,9 +295,9 @@ export function MiniStat({label, value}: { label: string; value: number }) {
 export function InfoTile({label, value}: { label: string; value: string }) {
     return (
         <div
-            className="min-w-0 overflow-hidden rounded-2xl border border-slate-200/80 bg-slate-50/70 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/60">
-            <p className="text-xs font-medium uppercase tracking-wide text-slate-400">{label}</p>
-            <p className="mt-2 break-words text-sm leading-6 text-slate-700 [overflow-wrap:anywhere] dark:text-slate-200">{value}</p>
+            className="min-w-0 overflow-hidden rounded-[6px] border border-[#EBEEF5] bg-[#F7F8FA] px-4 py-3.5 dark:border-slate-800 dark:bg-slate-900/60">
+            <p className="text-[11px] font-normal text-[#86888F] dark:text-slate-400">{label}</p>
+            <p className="mt-1.5 break-words text-[13px] leading-5 text-[#33353D] [overflow-wrap:anywhere] dark:text-slate-200">{value}</p>
         </div>
     );
 }
@@ -306,7 +306,7 @@ export function LoadingCard({label}: { label: string }) {
     return (
         <div className="flex min-h-[320px] flex-1 items-center justify-center">
             <div
-                className="flex items-center gap-2 rounded-2xl border border-dashed border-slate-200 px-4 py-8 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
+                className="flex items-center gap-2 rounded-[8px] border border-dashed border-[#D6D8DD] px-4 py-8 text-sm text-[#86888F] dark:border-slate-800 dark:text-slate-400">
                 <Loader2 className="h-4 w-4 animate-spin"/>
                 {label}
             </div>
@@ -318,7 +318,7 @@ export function LoadingPanel({label}: { label: string }) {
     return (
         <div className="flex h-full min-h-[320px] items-center justify-center">
             <div
-                className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-5 py-3 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300">
+                className="flex items-center gap-2 rounded-[8px] border border-[#EBEEF5] bg-white px-5 py-3 text-sm text-[#33353D] dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300">
                 <Loader2 className="h-4 w-4 animate-spin"/>
                 {label}
             </div>
@@ -335,7 +335,7 @@ export function EmptyState({
 }) {
     return (
         <div
-            className="rounded-[22px] border border-dashed border-slate-200 px-5 py-8 text-center dark:border-slate-800">
+            className="rounded-[8px] border border-dashed border-[#D6D8DD] bg-[#F7F8FA]/60 px-5 py-8 text-center dark:border-slate-800 dark:bg-slate-900/30">
             <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{title}</p>
             <p className="mt-2 text-sm leading-6 text-slate-500 dark:text-slate-400">{description}</p>
         </div>
