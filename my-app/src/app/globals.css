@@ -50,6 +50,31 @@
 }
 
 :root {
+  /* AI Recruitment redesign tokens — extracted from the reference prototype */
+  --ats-primary: #1e3bfa;
+  --ats-link: #0f23d9;
+  --ats-text-primary: #0e1114;
+  --ats-text-body: #0f1014;
+  --ats-text-secondary: #33353d;
+  --ats-nav-text: #33383d;
+  --ats-text-tertiary: #86888f;
+  --ats-text-placeholder: #b0b2b8;
+  --ats-border-control: #e6e7eb;
+  --ats-border-card: #ebeef5;
+  --ats-border-subtle: #f2f3f5;
+  --ats-surface-subtle: #f7f8fa;
+  --ats-surface-hover: #f8f8f9;
+  --ats-success: #0cc991;
+  --ats-success-strong: #0a9c71;
+  --ats-warning: #ffab24;
+  --ats-warning-strong: #d48806;
+  --ats-danger: #f53f3f;
+  --ats-info: #2e9cff;
+  --ats-purple: #7b61ff;
+  --ats-overlay: rgba(14, 17, 20, 0.45);
+  --ats-shadow-popover: 0 8px 24px rgba(14, 17, 20, 0.12);
+  --ats-shadow-dialog: 0 8px 24px rgba(14, 17, 20, 0.16);
+
   --font-geist-sans: "Alimama Agile", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
   --font-geist-mono: "SFMono-Regular", "SF Mono", "JetBrains Mono", "Menlo", "Monaco", "Consolas", monospace;
   --radius: 0.625rem;

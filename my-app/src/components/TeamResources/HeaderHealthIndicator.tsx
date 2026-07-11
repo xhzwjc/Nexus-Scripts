@@ -44,6 +44,7 @@ interface HeaderHealthIndicatorProps {
     userKey?: string;
     isFreshLogin?: boolean; // 标记是否是新登录（而不是浏览器刷新）
     onHealthChange?: (state: HealthCheckState) => void;
+    compact?: boolean;
 }
 
 const envLabels: Record<Environment, string> = {
@@ -98,7 +99,7 @@ function parseUsableCachedResult(raw: string | null, userKey?: string): HealthCh
     }
 }
 
-export function HeaderHealthIndicator({ hasPermission, userKey, isFreshLogin, onHealthChange }: HeaderHealthIndicatorProps) {
+export function HeaderHealthIndicator({ hasPermission, userKey, isFreshLogin, onHealthChange, compact = false }: HeaderHealthIndicatorProps) {
     const { t } = useI18n();
     const tr = t.headerHealth;
 
@@ -524,6 +525,20 @@ export function HeaderHealthIndicator({ hasPermission, userKey, isFreshLogin, on
 
     // 初始化或正在检测时，统一显示检测中，避免把 idle 误显示为“全部健康”
     if (isIdle || isLoading) {
+        if (compact) {
+            const checkingLabel = isLoading ? `${tr.checking} ${state.checkedEnvs}/${state.totalEnvs}` : tr.checking;
+            return (
+                <div
+                    className="dashboard-header-health-status"
+                    title={checkingLabel}
+                    role="status"
+                    aria-live="polite"
+                    aria-label={checkingLabel}
+                >
+                    <RefreshCw className="h-4 w-4 animate-spin text-[#2E9CFF]" />
+                </div>
+            );
+        }
         return (
             <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 dark:bg-blue-900/20 rounded-full border border-blue-200 dark:border-blue-800">
                 <RefreshCw className="w-3.5 h-3.5 text-blue-500 animate-spin" />
@@ -536,6 +551,19 @@ export function HeaderHealthIndicator({ hasPermission, userKey, isFreshLogin, on
 
     // 检测出错：显示重试按钮
     if (isError) {
+        if (compact) {
+            return (
+                <button
+                    type="button"
+                    className="dashboard-header-health-button"
+                    onClick={handleRetry}
+                    title={tr.retryTooltip}
+                    aria-label={tr.retryTooltip}
+                >
+                    <ShieldAlert className="h-4 w-4 text-[#D48806]" />
+                </button>
+            );
+        }
         return (
             <button
                 className="flex items-center gap-2 px-3 py-1.5 bg-yellow-50 dark:bg-yellow-900/20 rounded-full border border-yellow-200 dark:border-yellow-800 hover:bg-yellow-100 dark:hover:bg-yellow-900/30 transition-colors"
@@ -554,22 +582,24 @@ export function HeaderHealthIndicator({ hasPermission, userKey, isFreshLogin, on
         return (
             <div className="relative" ref={containerRef}>
                 <button
-                    className={`flex items-center gap-2 px-3 py-1.5 rounded-full border transition-colors shrink-0 whitespace-nowrap ${expiredCount > 0
+                    className={compact ? 'dashboard-header-health-button' : `flex items-center gap-2 px-3 py-1.5 rounded-full border transition-colors shrink-0 whitespace-nowrap ${expiredCount > 0
                         ? 'bg-destructive/10 border-destructive/20 hover:bg-destructive/20'
                         : 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800 hover:bg-yellow-100 dark:hover:bg-yellow-900/30'
                         }`}
                     onClick={() => setExpanded(!expanded)}
+                    title={compact ? `${state.issues.length}${tr.issues}` : undefined}
+                    aria-label={compact ? `${state.issues.length}${tr.issues}` : undefined}
                 >
                     {expiredCount > 0 ? (
                         <ShieldX className="w-3.5 h-3.5 text-destructive" />
                     ) : (
                         <ShieldAlert className="w-3.5 h-3.5 text-yellow-600 dark:text-yellow-400" />
                     )}
-                    <span className={`text-xs font-medium ${expiredCount > 0 ? 'text-destructive' : 'text-yellow-700 dark:text-yellow-300'
+                    <span className={`${compact ? 'sr-only' : 'text-xs font-medium'} ${expiredCount > 0 ? 'text-destructive' : 'text-yellow-700 dark:text-yellow-300'
                         }`}>
                         {state.issues.length}{tr.issues}
                     </span>
-                    {expanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                    {!compact ? (expanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />) : null}
                 </button>
 
                 {/* 下拉详情 */}
@@ -629,12 +659,14 @@ export function HeaderHealthIndicator({ hasPermission, userKey, isFreshLogin, on
     return (
         <div className="relative" ref={containerRef}>
             <button
-                className="flex items-center gap-2 px-3 py-1.5 bg-green-50 dark:bg-green-900/20 rounded-full border border-green-200 dark:border-green-800 hover:bg-green-100 dark:hover:bg-green-900/30 transition-colors"
+                className={compact ? 'dashboard-header-health-button' : 'flex items-center gap-2 px-3 py-1.5 bg-green-50 dark:bg-green-900/20 rounded-full border border-green-200 dark:border-green-800 hover:bg-green-100 dark:hover:bg-green-900/30 transition-colors'}
                 onClick={() => setExpanded(!expanded)}
+                title={compact ? tr.allHealthy : undefined}
+                aria-label={compact ? tr.allHealthy : undefined}
             >
                 <ShieldCheck className="w-3.5 h-3.5 text-green-600 dark:text-green-400" />
-                <span className="text-xs text-green-700 dark:text-green-300">{tr.allHealthy}</span>
-                {expanded ? <ChevronUp className="w-3 h-3 text-green-600 dark:text-green-400" /> : <ChevronDown className="w-3 h-3 text-green-600 dark:text-green-400" />}
+                <span className={compact ? 'sr-only' : 'text-xs text-green-700 dark:text-green-300'}>{tr.allHealthy}</span>
+                {!compact ? (expanded ? <ChevronUp className="w-3 h-3 text-green-600 dark:text-green-400" /> : <ChevronDown className="w-3 h-3 text-green-600 dark:text-green-400" />) : null}
             </button>
 
             {expanded && (

@@ -8,11 +8,12 @@ import {
     ClipboardCheck,
     FolderKanban,
     History,
-    LogOut,
+    Home,
     PanelLeft,
     ScanLine,
     ScrollText,
     Server,
+    Settings2,
     Shield,
     Sparkles,
     Users,
@@ -32,24 +33,46 @@ import type { User, ViewType } from '@/lib/types';
 
 interface SidebarProps {
     currentView: string;
+    selectedSystem: string;
     setCurrentView: (view: ViewType) => void;
     setSelectedSystem: (sys: string) => void;
     setScriptQuery: (q: string) => void;
-    setShowLogoutConfirm: (show: boolean) => void;
     setRecruitmentInitialPage?: (page: string) => void;
     currentUser: User | null;
 }
 
+type RecruitmentSidebarItem = {
+    key: string;
+    page: string;
+    label: string;
+    icon: React.ReactNode;
+    activePages?: string[];
+};
+
 const SIDEBAR_PINNED_STORAGE_KEY = 'scripts.dashboard.sidebarPinned';
 const SIDEBAR_COMPACT_WIDTH = 72;
-const SIDEBAR_EXPANDED_WIDTH = 216;
+const SIDEBAR_EXPANDED_WIDTH = 268;
+const CM_PERMISSION_KEYS = [
+    'settlement',
+    'commission',
+    'balance',
+    'task-automation',
+    'sms_operations_center',
+    'tax-reporting',
+    'tax-calculation',
+    'settlement-sim',
+    'payment-stats',
+    'delivery-tool',
+    'biz-scene',
+    'biz-task',
+];
 
 export const DashboardSidebar: React.FC<SidebarProps> = ({
     currentView,
+    selectedSystem,
     setCurrentView,
     setSelectedSystem,
     setScriptQuery,
-    setShowLogoutConfirm,
     setRecruitmentInitialPage,
     currentUser,
 }) => {
@@ -72,31 +95,44 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
     const sidebarShellWidth = sidebarPinned ? SIDEBAR_EXPANDED_WIDTH : SIDEBAR_COMPACT_WIDTH;
     const sidebarPanelWidth = sidebarExpanded ? SIDEBAR_EXPANDED_WIDTH : SIDEBAR_COMPACT_WIDTH;
     const sidebarPreviewExpanded = !sidebarPinned && hoverExpanded;
-    const pinButtonLabel = sidebarPinned ? '取消固定导航' : '固定导航';
+    const pinButtonLabel = sidebarPinned
+        ? (language === 'zh-CN' ? '收起导航' : 'Collapse navigation')
+        : (language === 'zh-CN' ? '固定展开导航' : 'Pin expanded navigation');
+    const permissions = currentUser?.permissions || {};
 
-    // AI 招聘模块权限
-    const canAccessRecruitment = Boolean(currentUser?.permissions?.['ai-recruitment']);
+    const canAccessRecruitment = Boolean(permissions['ai-recruitment']);
     const useGroupedRecruitmentMenu = currentUser?.recruitmentMenuGrouped !== false;
-    const canManagePosition = Boolean(currentUser?.permissions?.['recruitment-position-manage']);
-    const canManageCandidate = Boolean(currentUser?.permissions?.['recruitment-candidate-manage']);
-    const canViewTalentPool = Boolean(currentUser?.permissions?.['recruitment-talent-pool-view']);
-    const canViewRecruitmentAssistant = Boolean(currentUser?.permissions?.['recruitment-assistant-view']);
-    const canManageReview = Boolean(currentUser?.permissions?.['recruitment-review-manage']);
-    const canManageInterview = Boolean(currentUser?.permissions?.['recruitment-interview-manage']);
+    const canManagePosition = Boolean(permissions['recruitment-position-manage']);
+    const canManageCandidate = Boolean(permissions['recruitment-candidate-manage']);
+    const canViewTalentPool = Boolean(permissions['recruitment-talent-pool-view']);
+    const canViewRecruitmentAssistant = Boolean(permissions['recruitment-assistant-view']);
+    const canManageReview = Boolean(permissions['recruitment-review-manage']);
+    const canManageInterview = Boolean(permissions['recruitment-interview-manage']);
     const canUseRecruitmentWorkspace = Boolean(
-        currentUser?.permissions?.['recruitment-dashboard-view']
-        || currentUser?.permissions?.['recruitment-process-execute']
+        permissions['recruitment-dashboard-view']
+        || permissions['recruitment-process-execute']
         || canManagePosition
         || canManageCandidate
-        || currentUser?.permissions?.['recruitment-log-view']
+        || permissions['recruitment-log-view']
     );
-    const canUseReviewWorkbench = Boolean(currentUser?.permissions?.['recruitment-review-view'] || currentUser?.permissions?.['recruitment-review-act']);
+    const canUseReviewWorkbench = Boolean(permissions['recruitment-review-view'] || permissions['recruitment-review-act']);
     const canUseInterviewWorkbench = Boolean(
-        currentUser?.permissions?.['recruitment-interview-view']
-        || currentUser?.permissions?.['recruitment-interview-act']
+        permissions['recruitment-interview-view']
+        || permissions['recruitment-interview-act']
         || canManageInterview
     );
-    const canViewLog = Boolean(currentUser?.permissions?.['recruitment-log-view']);
+    const canViewLog = Boolean(permissions['recruitment-log-view']);
+    const canUseSkillSettings = Boolean(permissions['recruitment-skill-view'] || permissions['recruitment-skill-manage']);
+    const canUseModelSettings = Boolean(permissions['recruitment-llm-config-view'] || permissions['recruitment-llm-config-manage']);
+    const canUseMailSettings = Boolean(
+        permissions['recruitment-mail-view']
+        || permissions['recruitment-mail-config-manage']
+        || permissions['recruitment-mail-sender-manage']
+    );
+    const canUseRecruitmentSettings = canUseSkillSettings || canUseModelSettings || canUseMailSettings;
+    const recruitmentSettingsTarget = canUseSkillSettings
+        ? 'settings-skills'
+        : (canUseModelSettings ? 'settings-models' : 'settings-mail');
     const inRecruitmentView = currentView === 'ai-recruitment';
     const reviewWorkbenchLabel = canManageReview
         ? t.nav.aiRecruitmentReviewWorkbench
@@ -110,10 +146,9 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
         window.localStorage.setItem(SIDEBAR_PINNED_STORAGE_KEY, sidebarPinned ? 'true' : 'false');
     }, [sidebarPinned]);
 
-    // 监听来自 RecruitmentAutomationContainer 的页面切换事件
     React.useEffect(() => {
-        const handler = (e: Event) => {
-            setActiveRecruitmentPage(resolveRecruitmentPageDetail((e as CustomEvent).detail));
+        const handler = (event: Event) => {
+            setActiveRecruitmentPage(resolveRecruitmentPageDetail((event as CustomEvent).detail));
         };
         recruitmentNavBus.addEventListener('navigate', handler);
         recruitmentNavBus.addEventListener('page-sync', handler);
@@ -123,25 +158,37 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
         };
     }, []);
 
-    // 离开 AI 招聘时重置展开状态和选中子项；挂载时若已在 AI 招聘也重置（热更新后同步）
     React.useEffect(() => {
-        const isEntering = currentView === 'ai-recruitment';
-        if (!isEntering) {
-            setAiRecruitmentExpanded(false);
-            setActiveRecruitmentPage(null);
+        if (currentView === 'ai-recruitment') {
+            if (useGroupedRecruitmentMenu) setAiRecruitmentExpanded(true);
+            return;
         }
-    }, [currentView]);
+        setAiRecruitmentExpanded(false);
+        setActiveRecruitmentPage(null);
+    }, [currentView, useGroupedRecruitmentMenu]);
 
-    const recruitmentSubItems = [
-        ...(canUseRecruitmentWorkspace ? [{ key: 'workspace', label: t.nav.aiRecruitmentWorkspace, icon: <FolderKanban className="h-4 w-4" /> }] : []),
-        ...(canManagePosition ? [{ key: 'positions', label: t.nav.aiRecruitmentPositions, icon: <BriefcaseBusiness className="h-4 w-4" /> }] : []),
-        ...(canManageCandidate ? [{ key: 'candidates', label: t.nav.aiRecruitmentCandidates, icon: <Users className="h-4 w-4" /> }] : []),
-        ...(canUseReviewWorkbench ? [{ key: 'review-workbench', label: reviewWorkbenchLabel, icon: <ClipboardCheck className="h-4 w-4" /> }] : []),
-        ...(canUseInterviewWorkbench ? [{ key: 'interviews', label: interviewWorkbenchLabel, icon: <CalendarCheck className="h-4 w-4" /> }] : []),
-        ...(canViewTalentPool ? [{ key: 'talent-pool', label: t.nav.aiRecruitmentTalentPool, icon: <Users className="h-4 w-4" /> }] : []),
-        ...(canViewLog ? [{ key: 'audit', label: t.nav.aiRecruitmentAudit, icon: <History className="h-4 w-4" /> }] : []),
-        ...(canViewRecruitmentAssistant ? [{ key: 'assistant', label: t.nav.aiRecruitmentAssistant, icon: <Bot className="h-4 w-4" /> }] : []),
+    const recruitmentSubItems: RecruitmentSidebarItem[] = [
+        ...(canUseRecruitmentWorkspace ? [{ key: 'workspace', page: 'workspace', label: t.nav.aiRecruitmentWorkspace, icon: <FolderKanban className="h-[18px] w-[18px]"/> }] : []),
+        ...(canManagePosition ? [{ key: 'positions', page: 'positions', label: t.nav.aiRecruitmentPositions, icon: <BriefcaseBusiness className="h-[18px] w-[18px]"/> }] : []),
+        ...(canManageCandidate ? [{ key: 'candidates', page: 'candidates', label: t.nav.aiRecruitmentCandidates, icon: <Users className="h-[18px] w-[18px]"/> }] : []),
+        ...(canViewTalentPool ? [{ key: 'talent-pool', page: 'talent-pool', label: t.nav.aiRecruitmentTalentPool, icon: <Users className="h-[18px] w-[18px]"/> }] : []),
+        ...(canUseInterviewWorkbench ? [{ key: 'interviews', page: 'interviews', label: interviewWorkbenchLabel, icon: <CalendarCheck className="h-[18px] w-[18px]"/> }] : []),
+        ...(canUseReviewWorkbench ? [{ key: 'review-workbench', page: 'review-workbench', label: reviewWorkbenchLabel, icon: <ClipboardCheck className="h-[18px] w-[18px]"/> }] : []),
+        ...(canViewLog ? [{ key: 'audit', page: 'audit', label: t.nav.aiRecruitmentAudit, icon: <History className="h-[18px] w-[18px]"/> }] : []),
+        ...(canViewRecruitmentAssistant ? [{ key: 'assistant', page: 'assistant', label: t.nav.aiRecruitmentAssistant, icon: <Bot className="h-[18px] w-[18px]"/> }] : []),
+        ...(canUseRecruitmentSettings ? [{
+            key: 'settings',
+            page: recruitmentSettingsTarget,
+            activePages: ['settings-skills', 'settings-models', 'settings-mail'],
+            label: language === 'zh-CN' ? '设置' : 'Settings',
+            icon: <Settings2 className="h-[18px] w-[18px]"/>,
+        }] : []),
     ];
+
+    const isRecruitmentItemActive = (item: RecruitmentSidebarItem) => (
+        inRecruitmentView
+        && (item.activePages || [item.page]).includes(String(activeRecruitmentPage || ''))
+    );
 
     const openRecruitmentPage = (page: string) => {
         setRecruitmentInitialPage?.(page);
@@ -150,13 +197,13 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
         navigateToRecruitmentPage(page);
     };
 
-    const navItemClass = (active: boolean, disabled = false) =>
-        cn(
-            'sidebar-nav-item',
-            active ? 'active' : '',
-            disabled ? 'disabled' : '',
-            collapsed ? 'justify-center px-0 gap-0' : '',
-        );
+    const navItemClass = (active: boolean, disabled = false, expanded = false) => cn(
+        'sidebar-nav-item',
+        active && 'active',
+        disabled && 'disabled',
+        expanded && 'expanded',
+        collapsed && 'justify-center gap-0 px-0',
+    );
 
     const renderNavItem = ({
         active,
@@ -173,29 +220,30 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
         onClick?: () => void;
         disabled?: boolean;
     }) => (
-        <div
+        <button
+            type="button"
             className={navItemClass(active, disabled)}
             onClick={disabled ? undefined : onClick}
             title={title || label}
+            disabled={disabled}
+            aria-current={active ? 'page' : undefined}
         >
             {icon}
-            {!collapsed ? <span>{label}</span> : null}
-        </div>
+            {!collapsed ? <span className="truncate">{label}</span> : null}
+        </button>
     );
 
     const toggleSidebarPinned = () => {
         setSidebarPinned((current) => {
             const next = !current;
-            if (next) {
-                setHoverExpanded(false);
-            }
+            if (next) setHoverExpanded(false);
             return next;
         });
     };
 
     return (
         <div
-            className="dashboard-sidebar-shell relative h-screen shrink-0"
+            className="dashboard-sidebar-shell relative h-full shrink-0"
             style={{ width: sidebarShellWidth }}
             onMouseEnter={() => {
                 if (!sidebarPinned) setHoverExpanded(true);
@@ -206,206 +254,152 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
         >
             <aside
                 className={cn(
-                    'dashboard-sidebar absolute left-0 top-0 z-30 h-screen flex flex-col overflow-hidden border-r border-[var(--sidebar-border)] py-5 shadow-sm',
-                    collapsed ? 'px-3' : 'px-4',
+                    'dashboard-sidebar absolute left-0 top-0 z-30 flex h-full flex-col overflow-hidden border-r border-[#F7F8FA] py-[16px]',
+                    collapsed ? 'px-[12px]' : 'px-[20px]',
                     collapsed && 'collapsed',
                     sidebarPreviewExpanded && 'preview-expanded',
                 )}
                 style={{ width: sidebarPanelWidth }}
             >
-                <div className={cn('mb-6 flex shrink-0 items-center', collapsed ? 'justify-center px-0' : 'gap-2.5 px-3')}>
-                    <img src="/logo.png" alt="Logo" className="h-11 w-auto object-contain" />
-                </div>
+                <ScrollArea className="min-h-0 flex-1">
+                    <nav className="space-y-1 pb-4" aria-label={language === 'zh-CN' ? '主导航' : 'Primary navigation'}>
+                        {renderNavItem({
+                            active: currentView === 'home' || currentView === 'welcome',
+                            label: homeNavLabel,
+                            icon: <Home className="h-[18px] w-[18px]" strokeWidth={1.8}/>,
+                            onClick: () => setCurrentView(homeNavView),
+                        })}
 
-                <div className="flex min-h-0 flex-1 flex-col">
-                    <ScrollArea className={cn('min-h-0 flex-1', collapsed ? 'pr-0' : 'pr-1')}>
-                        <div className="space-y-6 pb-4">
-                            <div>
-                                <nav className="space-y-1">
-                                    {renderNavItem({
-                                        active: currentView === 'home' || currentView === 'welcome',
-                                        label: homeNavLabel,
-                                        icon: (
-                                            <div className={`flex h-5 w-5 items-center justify-center ${currentView === 'home' || currentView === 'welcome' ? 'text-[var(--tr-red)]' : 'text-current'}`}>
-                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-                                                    <path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z" />
-                                                </svg>
-                                            </div>
-                                        ),
-                                        onClick: () => setCurrentView(homeNavView),
-                                    })}
-                                    {currentUser?.permissions &&
-                                     ['settlement', 'commission', 'balance', 'task-automation',
-                                      'sms_operations_center', 'tax-reporting', 'tax-calculation',
-                                      'settlement-sim', 'payment-stats', 'delivery-tool', 'biz-scene', 'biz-task'
-                                     ].some(p => currentUser.permissions[p])
-                                        ? renderNavItem({
-                                            active: currentView === 'system',
-                                            label: t.nav.cmTools,
-                                            icon: <Wrench className="h-[18px] w-[18px]" />,
-                                            onClick: () => {
-                                                setSelectedSystem('chunmiao');
-                                                setScriptQuery('');
-                                                setCurrentView('system');
-                                            },
-                                        })
-                                        : null}
-                                    {currentUser?.permissions['ocr-tool']
-                                        ? renderNavItem({
-                                            active: currentView === 'ocr-tool',
-                                            label: t.nav.ocrTool,
-                                            icon: <ScanLine className="h-[18px] w-[18px]" />,
-                                            onClick: () => setCurrentView('ocr-tool'),
-                                        })
-                                        : null}
-                                    {currentUser?.permissions['server-monitoring']
-                                        ? renderNavItem({
-                                            active: currentView === 'ops-center',
-                                            label: t.nav.opsCenter,
-                                            icon: <Server className="h-[18px] w-[18px]" />,
-                                            onClick: () => setCurrentView('ops-center'),
-                                        })
-                                        : null}
-                                    {currentUser?.permissions['team-resources']
-                                        ? renderNavItem({
-                                            active: currentView === 'team-resources',
-                                            label: t.nav.teamResources,
-                                            icon: <Users className="h-[18px] w-[18px]" />,
-                                            onClick: () => setCurrentView('team-resources'),
-                                        })
-                                        : null}
-                                    {currentUser?.permissions['ai-resources']
-                                        ? renderNavItem({
-                                            active: currentView === 'ai-resources',
-                                            label: t.nav.aiResources,
-                                            icon: <Sparkles className="h-[18px] w-[18px]" />,
-                                            onClick: () => setCurrentView('ai-resources'),
-                                        })
-                                        : null}
-                                    {currentUser?.permissions['agent-chat']
-                                        ? renderNavItem({
-                                            active: currentView === 'agent-chat',
-                                            label: t.agentChat.navLabel,
-                                            icon: <Bot className="h-[18px] w-[18px]" />,
-                                            onClick: () => setCurrentView('agent-chat'),
-                                        })
-                                        : null}
-                                    {canAccessRecruitment && useGroupedRecruitmentMenu ? (
-                                        <div className="space-y-1">
-                                            <div
-                                                className={navItemClass(inRecruitmentView || Boolean(activeRecruitmentPage) || aiRecruitmentExpanded)}
-                                                onClick={() => {
-                                                    if (collapsed) {
-                                                        setHoverExpanded(true);
-                                                        return;
-                                                    }
-                                                    setAiRecruitmentExpanded((expanded) => !expanded);
-                                                }}
-                                                title={t.nav.aiRecruitment}
+                        {CM_PERMISSION_KEYS.some((permission) => permissions[permission]) ? renderNavItem({
+                            active: (currentView === 'system' || currentView === 'script') && selectedSystem !== 'haoshi',
+                            label: t.nav.cmTools,
+                            icon: <Wrench className="h-[18px] w-[18px]"/>,
+                            onClick: () => {
+                                setSelectedSystem('chunmiao');
+                                setScriptQuery('');
+                                setCurrentView('system');
+                            },
+                        }) : null}
+
+                        {permissions['ocr-tool'] ? renderNavItem({
+                            active: currentView === 'ocr-tool',
+                            label: t.nav.ocrTool,
+                            icon: <ScanLine className="h-[18px] w-[18px]"/>,
+                            onClick: () => setCurrentView('ocr-tool'),
+                        }) : null}
+
+                        {permissions['server-monitoring'] ? renderNavItem({
+                            active: currentView === 'ops-center',
+                            label: t.nav.opsCenter,
+                            icon: <Server className="h-[18px] w-[18px]"/>,
+                            onClick: () => setCurrentView('ops-center'),
+                        }) : null}
+
+                        {permissions['team-resources'] ? renderNavItem({
+                            active: currentView === 'team-resources',
+                            label: t.nav.teamResources,
+                            icon: <Users className="h-[18px] w-[18px]"/>,
+                            onClick: () => setCurrentView('team-resources'),
+                        }) : null}
+
+                        {permissions['ai-resources'] ? renderNavItem({
+                            active: currentView === 'ai-resources',
+                            label: t.nav.aiResources,
+                            icon: <Sparkles className="h-[18px] w-[18px]"/>,
+                            onClick: () => setCurrentView('ai-resources'),
+                        }) : null}
+
+                        {permissions['agent-chat'] ? renderNavItem({
+                            active: currentView === 'agent-chat',
+                            label: t.agentChat.navLabel,
+                            icon: <Bot className="h-[18px] w-[18px]"/>,
+                            onClick: () => setCurrentView('agent-chat'),
+                        }) : null}
+
+                        {canAccessRecruitment && useGroupedRecruitmentMenu ? (
+                            <div className="space-y-1">
+                                <button
+                                    type="button"
+                                    className={navItemClass((collapsed || !aiRecruitmentExpanded) && inRecruitmentView, false, aiRecruitmentExpanded && !collapsed)}
+                                    onClick={() => {
+                                        if (collapsed) {
+                                            setHoverExpanded(true);
+                                            setAiRecruitmentExpanded(true);
+                                            return;
+                                        }
+                                        setAiRecruitmentExpanded((expanded) => !expanded);
+                                    }}
+                                    title={t.nav.aiRecruitment}
+                                    aria-expanded={aiRecruitmentExpanded}
+                                >
+                                    <BriefcaseBusiness className="h-[18px] w-[18px]"/>
+                                    {!collapsed ? <span className="truncate">{t.nav.aiRecruitment}</span> : null}
+                                    {!collapsed ? <ChevronDown className={cn('ml-auto h-3.5 w-3.5 transition-transform', aiRecruitmentExpanded && 'rotate-180')}/> : null}
+                                </button>
+
+                                {!collapsed && aiRecruitmentExpanded ? (
+                                    <div className="sidebar-recruitment-subnav space-y-1 pl-3">
+                                        {recruitmentSubItems.map((item) => (
+                                            <button
+                                                key={item.key}
+                                                type="button"
+                                                className={cn('sidebar-nav-item sidebar-nav-subitem', isRecruitmentItemActive(item) && 'active')}
+                                                onClick={() => openRecruitmentPage(item.page)}
+                                                aria-current={isRecruitmentItemActive(item) ? 'page' : undefined}
                                             >
-                                                <BriefcaseBusiness className="h-[18px] w-[18px]" />
-                                                {!collapsed ? <span>{t.nav.aiRecruitment}</span> : null}
-                                                {!collapsed ? <ChevronDown className={cn('ml-auto h-3.5 w-3.5 transition-transform', aiRecruitmentExpanded && 'rotate-180')} /> : null}
-                                            </div>
-                                            {!collapsed && aiRecruitmentExpanded && (
-                                                <div className="ml-3 space-y-0.5 border-l border-slate-200 pl-3 dark:border-slate-700">
-                                                    {recruitmentSubItems.map((item) => (
-                                                        <div
-                                                            key={item.key}
-                                                            className={cn(
-                                                                'flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors',
-                                                                activeRecruitmentPage === item.key
-                                                                    ? 'bg-[var(--tr-red-soft)] font-medium text-[var(--tr-red)] dark:bg-slate-800 dark:text-slate-100'
-                                                                    : 'text-slate-600 hover:bg-[var(--tr-red-soft)] hover:text-[var(--tr-red)] dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200',
-                                                            )}
-                                                            onClick={() => openRecruitmentPage(item.key)}
-                                                        >
-                                                            <span className="h-[18px] w-[18px]">{item.icon}</span>
-                                                            <span>{item.label}</span>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            )}
-                                        </div>
-                                    ) : null}
-                                    {canAccessRecruitment && !useGroupedRecruitmentMenu
-                                        ? recruitmentSubItems.map((item) => (
-                                            <React.Fragment key={item.key}>
-                                                {renderNavItem({
-                                                    active: inRecruitmentView && activeRecruitmentPage === item.key,
-                                                    label: item.label,
-                                                    icon: item.icon,
-                                                    onClick: () => openRecruitmentPage(item.key),
-                                                })}
-                                            </React.Fragment>
-                                        ))
-                                        : null}
-                                    {currentUser?.permissions['rbac-manage']
-                                        ? renderNavItem({
-                                            active: currentView === 'access-control',
-                                            label: t.nav.accessControl,
-                                            icon: <Shield className="h-[18px] w-[18px]" />,
-                                            onClick: () => setCurrentView('access-control'),
-                                        })
-                                        : null}
-                                </nav>
-                            </div>
-
-                            <div className="space-y-3">
-                                {!collapsed ? (
-                                    <p className="px-3 text-[11px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
-                                        {t.nav.support}
-                                    </p>
+                                                {item.icon}
+                                                <span className="truncate">{item.label}</span>
+                                            </button>
+                                        ))}
+                                    </div>
                                 ) : null}
-                                <nav className="space-y-1">
-                                    {renderNavItem({
-                                        active: currentView === 'help',
-                                        label: t.nav.helpCenter,
-                                        icon: <CircleHelp className="h-[18px] w-[18px]" />,
-                                        onClick: () => setCurrentView('help'),
-                                    })}
-                                    {renderNavItem({
-                                        active: false,
-                                        label: t.nav.systemLogs,
-                                        icon: <ScrollText className="h-[18px] w-[18px]" />,
-                                        disabled: true,
-                                    })}
-                                </nav>
                             </div>
+                        ) : null}
 
-                            <div className="space-y-3">
-                                {!collapsed ? (
-                                    <p className="px-3 text-[11px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
-                                        {t.nav.account}
-                                    </p>
-                                ) : null}
-                                <nav className="space-y-1">
-                                    {renderNavItem({
-                                        active: false,
-                                        label: t.nav.logout,
-                                        icon: <LogOut className="h-[18px] w-[18px]" />,
-                                        onClick: () => setShowLogoutConfirm(true),
-                                    })}
-                                </nav>
-                            </div>
-                        </div>
-                    </ScrollArea>
+                        {canAccessRecruitment && !useGroupedRecruitmentMenu ? recruitmentSubItems.map((item) => (
+                            <React.Fragment key={item.key}>
+                                {renderNavItem({
+                                    active: isRecruitmentItemActive(item),
+                                    label: item.label,
+                                    icon: item.icon,
+                                    onClick: () => openRecruitmentPage(item.page),
+                                })}
+                            </React.Fragment>
+                        )) : null}
 
-                    <div className={cn('mt-3 flex shrink-0', collapsed ? 'justify-end pb-6 pr-1' : 'justify-end pb-2')}>
+                        {permissions['rbac-manage'] ? renderNavItem({
+                            active: currentView === 'access-control',
+                            label: t.nav.accessControl,
+                            icon: <Shield className="h-[18px] w-[18px]"/>,
+                            onClick: () => setCurrentView('access-control'),
+                        }) : null}
+                    </nav>
+                </ScrollArea>
+
+                <div className="shrink-0 space-y-1 border-t border-[#F2F3F5] pt-3 dark:border-slate-800">
+                    {renderNavItem({
+                        active: currentView === 'help',
+                        label: t.nav.helpCenter,
+                        icon: <CircleHelp className="h-[18px] w-[18px]"/>,
+                        onClick: () => setCurrentView('help'),
+                    })}
+                    {renderNavItem({
+                        active: false,
+                        label: t.nav.systemLogs,
+                        icon: <ScrollText className="h-[18px] w-[18px]"/>,
+                        disabled: true,
+                    })}
+
+                    <div className={cn('flex pt-2', collapsed ? 'justify-center' : 'justify-start px-2')}>
                         <Tooltip>
                             <TooltipTrigger asChild>
                                 <button
                                     type="button"
                                     onClick={toggleSidebarPinned}
-                                    className={cn(
-                                        'dashboard-sidebar-pin-button inline-flex h-8 w-8 items-center justify-center rounded-md border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50',
-                                        sidebarPinned
-                                            ? 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:border-blue-900/60 dark:bg-blue-950/40 dark:text-blue-200'
-                                            : 'border-transparent bg-transparent text-[var(--text-secondary)] hover:border-[var(--sidebar-border)] hover:bg-[var(--sidebar-accent)] hover:text-[var(--text-primary)]',
-                                    )}
+                                    className="dashboard-sidebar-pin-button inline-flex h-8 w-8 items-center justify-center rounded-md text-[#86888F] transition hover:bg-[rgba(176,178,184,0.1)] hover:text-[#1E3BFA] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1E3BFA]/25"
                                     aria-label={pinButtonLabel}
                                 >
-                                    <PanelLeft className="h-4 w-4" />
+                                    <PanelLeft className={cn('h-[18px] w-[18px] transition-transform', !sidebarPinned && 'rotate-180')} strokeWidth={1.8}/>
                                 </button>
                             </TooltipTrigger>
                             <TooltipContent

@@ -483,7 +483,7 @@ function AppContent() {
 
     // ============== 主布局 ==============
     return (
-        <div className="colorful-background flex h-screen overflow-hidden text-slate-600 font-sans relative">
+        <div className="colorful-background dashboard-shell flex h-screen flex-col overflow-hidden text-slate-600 font-sans relative">
             {/* <ClothBackground /> */}
             {/* 锁屏遮罩 */}
             {isLocked && (
@@ -504,41 +504,46 @@ function AppContent() {
             <Toaster richColors position="top-right" visibleToasts={2} />
 
 
-            <DashboardSidebar
+            <DashHeader
+                homeSearchQuery={homeSearchQuery}
+                setHomeSearchQuery={setHomeSearchQuery}
+                showSearchResults={showSearchResults}
+                setShowSearchResults={setShowSearchResults}
+                searchResults={searchResults}
                 currentView={currentView}
+                selectedSystem={selectedSystem}
                 setCurrentView={setCurrentView}
-                setSelectedSystem={setSelectedSystem}
-                setScriptQuery={setScriptQuery}
-                setShowLogoutConfirm={setShowLogoutConfirm}
-                setRecruitmentInitialPage={setRecruitmentInitialPage}
+                handleLock={handleLock}
+                onLogoutRequest={() => setShowLogoutConfirm(true)}
                 currentUser={currentUser}
+                setSelectedSystem={setSelectedSystem}
+                setSelectedScript={setSelectedScript}
+                setScriptQuery={setScriptQuery}
+                setRecruitmentInitialPage={setRecruitmentInitialPage}
+                now={now}
+                weather={weather}
+                weatherRefreshing={weatherRefreshing}
+                weatherLocationLabel={weatherLocationLabel}
+                onRefreshWeather={() => refreshWeather()}
+                hasHealthPermission={!!currentUser?.permissions['cert-health']}
+                userKey={userKey}
+                isFreshLogin={isFreshLogin}
+                onHealthChange={setHealthCheckState}
             />
 
-            <div className="flex-1 flex flex-col min-w-0 h-full relative z-0">
-                <DashHeader
-                    homeSearchQuery={homeSearchQuery}
-                    setHomeSearchQuery={setHomeSearchQuery}
-                    showSearchResults={showSearchResults}
-                    setShowSearchResults={setShowSearchResults}
-                    searchResults={searchResults}
+            <div className="flex min-h-0 flex-1">
+                <DashboardSidebar
+                    currentView={currentView}
+                    selectedSystem={selectedSystem}
                     setCurrentView={setCurrentView}
-                    handleLock={handleLock}
-                    currentUser={currentUser}
                     setSelectedSystem={setSelectedSystem}
-                    setSelectedScript={setSelectedScript}
                     setScriptQuery={setScriptQuery}
-                    now={now}
-                    weather={weather}
-                    weatherRefreshing={weatherRefreshing}
-                    weatherLocationLabel={weatherLocationLabel}
-                    onRefreshWeather={() => refreshWeather()}
-                    hasHealthPermission={!!currentUser?.permissions['cert-health']}
-                    userKey={userKey}
-                    isFreshLogin={isFreshLogin}
-                    onHealthChange={setHealthCheckState}
+                    setRecruitmentInitialPage={setRecruitmentInitialPage}
+                    currentUser={currentUser}
                 />
 
-                <main className={`flex-1 overflow-y-auto overflow-x-hidden relative scrollbar-hide ${currentView === 'help' || currentView === 'ai-recruitment' ? 'p-0' : 'px-2 py-6'}`}>
+                <div className="relative z-0 flex h-full min-w-0 flex-1 flex-col">
+                    <main className={`flex-1 overflow-y-auto overflow-x-hidden relative scrollbar-hide ${currentView === 'help' || currentView === 'ai-recruitment' ? 'p-0' : 'px-2 py-6'}`}>
                         {currentView === 'home' && renderHomeContent()}
                         {currentView === 'welcome' && renderWelcomeContent()}
                         {currentView === 'system' && renderSystemContent()}
@@ -588,6 +593,7 @@ function AppContent() {
                             </div>
                         )}
                     </main>
+                </div>
             </div>
 
             <ConfirmDialog
