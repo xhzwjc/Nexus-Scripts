@@ -298,7 +298,6 @@ const MailSettingsPage = nextDynamic(() => import("./pages/MailSettingsPage").th
 const InterviewWorkbenchPage = nextDynamic(() => import("./pages/InterviewWorkbenchPage").then((mod) => mod.InterviewWorkbenchPage), {loading: PageChunkLoading, ssr: false});
 const ReviewWorkbenchPage = nextDynamic(() => import("./pages/ReviewWorkbenchPage").then((mod) => mod.ReviewWorkbenchPage), {loading: PageChunkLoading, ssr: false});
 const TalentPoolPage = nextDynamic(() => import("./pages/TalentPoolPage").then((mod) => mod.TalentPoolPage), {loading: PageChunkLoading, ssr: false});
-const CandidateRadarChart = nextDynamic(() => import("./components/CandidateRadarChart").then((mod) => mod.CandidateRadarChart), {loading: PageChunkLoading, ssr: false});
 import { useOptimizedStats, useCachedListData, useCachedObjectData, useTaskSSE, type TaskSSEEvent } from "./hooks";
 import {
     INTERVIEW_REJECTED_STATUS_VALUES,
@@ -2357,6 +2356,11 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const [positionCandidateSearch, setPositionCandidateSearch] = useState("");
     const [positionCandidateStatusFilter, setPositionCandidateStatusFilter] = useState<string>("__all__");
     const [talentPoolCandidateDetailOpen, setTalentPoolCandidateDetailOpen] = useState(false);
+    const [talentPoolDetailAssignOpen, setTalentPoolDetailAssignOpen] = useState(false);
+    const [talentPoolDetailAssignPositionId, setTalentPoolDetailAssignPositionId] = useState("");
+    const [talentPoolDetailAssigning, setTalentPoolDetailAssigning] = useState(false);
+    const [talentPoolDetailReidentifyConfirmOpen, setTalentPoolDetailReidentifyConfirmOpen] = useState(false);
+    const [talentPoolDetailAction, setTalentPoolDetailAction] = useState<"reidentify" | "cancel-match" | null>(null);
 
     const [positionCandidatesData, setPositionCandidatesData] = useState<CandidateSummary[]>([]);
     const [positionCandidatesLoading, setPositionCandidatesLoading] = useState(false);
@@ -3802,12 +3806,17 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     useEffect(() => {
         if (activePage !== "talent-pool") {
             setTalentPoolCandidateDetailOpen(false);
+            setTalentPoolDetailAssignOpen(false);
+            setTalentPoolDetailReidentifyConfirmOpen(false);
+            setTalentPoolDetailAction(null);
         }
     }, [activePage]);
 
     useEffect(() => {
         if (activePage === "talent-pool" && !selectedCandidateId) {
             setTalentPoolCandidateDetailOpen(false);
+            setTalentPoolDetailAssignOpen(false);
+            setTalentPoolDetailReidentifyConfirmOpen(false);
         }
     }, [activePage, selectedCandidateId]);
 
@@ -6108,7 +6117,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 return normalizedData;
             }
             setCandidateDetail(normalizedData);
-            if (!options?.skipChatContextSave && !reviewAssignmentId) {
+            if (canViewRecruitmentAssistant && !options?.skipChatContextSave && !reviewAssignmentId) {
                 const nextPositionId = normalizedData.candidate.position_id ?? null;
                 if (
                     normalizedData.candidate.id !== (chatContext.candidate_id ?? null)
@@ -7634,29 +7643,14 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
 
     const handleTalentPoolCandidateSelect = useCallback((candidateId: number) => {
         setCandidateDetailReviewContext(null);
+        setTalentPoolDetailAssignOpen(false);
+        setTalentPoolDetailAssignPositionId("");
+        setTalentPoolDetailReidentifyConfirmOpen(false);
+        setTalentPoolDetailAction(null);
         setSelectedCandidateId(candidateId);
         selectedCandidateIdRef.current = candidateId;
         setTalentPoolCandidateDetailOpen(true);
     }, []);
-
-    const handleViewResume = useCallback(async (candidateId: number) => {
-        // Use cached resume_files if we already have detail for this candidate
-        if (candidateDetail?.candidate.id === candidateId && candidateDetail?.resume_files?.length) {
-            await openResumeFile(candidateDetail.resume_files[0], false);
-            return;
-        }
-        // Otherwise fetch candidate detail to get resume_files
-        try {
-            const data = await recruitmentApi<CandidateDetail>(`/candidates/${candidateId}`);
-            if (data?.resume_files?.length) {
-                await openResumeFile(data.resume_files[0], false);
-            } else {
-                toast.error(recruitmentUiText.noCandidates || "No resume found");
-            }
-        } catch (error) {
-            toast.error(recruitmentToast.resumeOpenedFailed(error instanceof Error ? error.message : recruitmentToast.unknownError));
-        }
-    }, [candidateDetail]);
 
     const handlePositionCandidateSearchChange = useCallback((v: string) => {
         setPositionCandidateSearch(v);
@@ -7666,270 +7660,396 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         setPositionQuery(v);
     }, []);
 
-    function renderSharedCandidateDrawerContent(onClose: () => void) {
-        const isTalentPoolDetail = activePage === "talent-pool" && talentPoolCandidateDetailOpen;
+    function closeTalentPoolCandidateDetail() {
+        setTalentPoolCandidateDetailOpen(false);
+        setTalentPoolDetailAssignOpen(false);
+        setTalentPoolDetailAssignPositionId("");
+        setTalentPoolDetailReidentifyConfirmOpen(false);
+        setTalentPoolDetailAction(null);
+        setCandidateDetailReviewContext(null);
+    }
+
+    async function reidentifyTalentPoolCandidates(candidateIds: number[]) {
+        const uniqueIds = Array.from(new Set(candidateIds.filter((candidateId) => Number.isFinite(candidateId))));
+        if (!uniqueIds.length) {
+            return {matched_count: 0, total_candidates: 0, message: ""};
+        }
+        const result = await triggerAIPositionMatch(uniqueIds);
+        if ((result.total_candidates || 0) > 0) {
+            uniqueIds.forEach((candidateId) => {
+                const snapshot: Partial<CandidateSummary> = {id: candidateId, status: "matching"};
+                syncRealtimeCandidateLists(snapshot);
+                applyCandidateDetailSnapshot(snapshot);
+            });
+            void loadTalentPoolCandidates({silent: true});
+        }
+        return result;
+    }
+
+    async function cancelTalentPoolCandidateMatch(candidateId: number) {
+        try {
+            const result = await recruitmentApi<{
+                cancelled?: boolean;
+                status?: string;
+                message?: string;
+                candidate_snapshot?: Partial<CandidateSummary> | null;
+            }>(`/candidates/${candidateId}/cancel-match`, {method: "POST"});
+            const snapshot = result?.candidate_snapshot || {id: candidateId, status: result?.status || "unmatched"};
+            syncRealtimeCandidateLists(snapshot);
+            applyCandidateDetailSnapshot(snapshot);
+            void loadTalentPoolCandidates({silent: true});
+            return true;
+        } catch (error) {
+            console.warn("Failed to cancel match, refreshing talent pool state:", error);
+            await loadTalentPoolCandidates({silent: true});
+            try {
+                await loadCandidateDetail(candidateId, {silent: true, force: true, skipChatContextSave: true});
+            } catch {
+                // 刷新详情失败时保留当前抽屉数据，列表状态仍以服务端为准。
+            }
+            toast.info(isZh ? "匹配状态已更新" : "Match status updated");
+            return false;
+        }
+    }
+
+    async function runTalentPoolDetailReidentify() {
+        const candidateId = candidateDetail?.candidate.id;
+        if (!candidateId || !canManageCandidate || talentPoolDetailAction) {
+            return;
+        }
+        setTalentPoolDetailAction("reidentify");
+        try {
+            const result = await reidentifyTalentPoolCandidates([candidateId]);
+            if ((result.total_candidates || 0) > 0) {
+                toast.success(isZh ? `已重新触发 AI 岗位识别：${candidateDetail?.candidate.name || "候选人"}` : `AI position matching restarted for ${candidateDetail?.candidate.name || "candidate"}`);
+                closeTalentPoolCandidateDetail();
+            } else {
+                toast.info(result.message || (isZh ? "当前人才无需重新识别" : "This talent does not need re-identification"));
+            }
+        } catch (error) {
+            toast.error(isZh ? `重新识别失败：${formatActionError(error)}` : `Failed to re-identify: ${formatActionError(error)}`);
+        } finally {
+            setTalentPoolDetailAction(null);
+        }
+    }
+
+    function requestTalentPoolDetailReidentify() {
+        const candidate = candidateDetail?.candidate;
+        if (!candidate || !canManageCandidate || resolveTalentPoolDisplayStatus(candidate) === "matching") {
+            return;
+        }
+        const reason = String(candidate.talent_pool_reason || "").trim().toLowerCase();
+        if (reason !== "unmatched_by_ai" && reason !== "ai_error") {
+            setTalentPoolDetailReidentifyConfirmOpen(true);
+            return;
+        }
+        void runTalentPoolDetailReidentify();
+    }
+
+    async function runTalentPoolDetailCancelMatch() {
+        const candidateId = candidateDetail?.candidate.id;
+        if (!candidateId || !canManageCandidate || talentPoolDetailAction) {
+            return;
+        }
+        setTalentPoolDetailAction("cancel-match");
+        const cancelled = await cancelTalentPoolCandidateMatch(candidateId);
+        if (cancelled) {
+            toast.success(isZh ? "已停止 AI 岗位识别" : "AI position matching stopped");
+        }
+        setTalentPoolDetailAction(null);
+    }
+
+    function openTalentPoolDetailAssignment() {
+        const candidate = candidateDetail?.candidate;
+        if (!candidate || !canManageCandidate || resolveTalentPoolDisplayStatus(candidate) === "matching") {
+            return;
+        }
+        setTalentPoolDetailAssignPositionId(candidate.ai_match_position_id ? String(candidate.ai_match_position_id) : "");
+        setTalentPoolDetailAssignOpen(true);
+    }
+
+    async function submitTalentPoolDetailAssignment() {
+        const candidateId = candidateDetail?.candidate.id;
+        const positionId = Number(talentPoolDetailAssignPositionId);
+        if (!candidateId || !Number.isFinite(positionId) || positionId <= 0 || !canManageCandidate || talentPoolDetailAssigning) {
+            return;
+        }
+        setTalentPoolDetailAssigning(true);
+        try {
+            await batchBindPosition([candidateId], positionId, {skipSelectedDetailRefresh: true});
+            setTalentPoolDetailAssignOpen(false);
+            setTalentPoolCandidateDetailOpen(false);
+            setTalentPoolDetailAssignPositionId("");
+            setSelectedCandidateId(null);
+            selectedCandidateIdRef.current = null;
+            setCandidateDetail(null);
+        } catch {
+            // batchBindPosition 已展示服务端错误；保留弹窗供用户重试。
+        } finally {
+            setTalentPoolDetailAssigning(false);
+        }
+    }
+
+    function renderTalentPoolCandidateDrawerContent() {
         if (
             candidateDetailLoading
             || (selectedCandidateId && candidateDetail?.candidate.id !== selectedCandidateId)
         ) {
-            return <LoadingPanel label={isZh ? "加载中..." : "Loading..."} />;
+            return (
+                <div className="flex h-full items-center justify-center gap-2 text-[12px] text-[#86888F]">
+                    <Loader2 className="h-4 w-4 animate-spin text-[#1E3BFA]"/>
+                    {isZh ? "正在加载人才详情…" : "Loading talent details…"}
+                </div>
+            );
         }
         if (!candidateDetail) {
             return (
-                <div className="flex h-full items-center justify-center px-6 text-sm text-slate-500 dark:text-slate-400">
-                    {isZh ? "暂无候选人详情" : "Candidate details are not available yet"}
+                <div className="flex h-full flex-col items-center justify-center gap-2 px-8 text-center">
+                    <FileText className="h-7 w-7 text-[#B0B2B8]"/>
+                    <p className="text-[13px] font-medium text-[#33353D]">{isZh ? "暂无人才详情" : "Talent details are unavailable"}</p>
+                    <p className="text-[12px] text-[#86888F]">{isZh ? "请关闭后重新选择人才" : "Close the drawer and select the talent again"}</p>
                 </div>
             );
         }
 
         const c = candidateDetail.candidate;
-        const score = candidateDetail.score;
-        const resumeFiles = candidateDetail.resume_files || [];
-        const statusHistory = candidateDetail.status_history || [];
-        const candidateDisplayStatus = isTalentPoolDetail ? resolveTalentPoolDisplayStatus(c) : resolveCandidateDisplayStatus(c);
-        const talentPoolSourceStageText = (() => {
-            const reason = String(c.talent_pool_reason || "").trim().toLowerCase();
-            if (!isTalentPoolDetail) {
-                return null;
+        const displayStatus = resolveTalentPoolDisplayStatus(c);
+        const reason = String(c.talent_pool_reason || "").trim().toLowerCase();
+        const sourceStage = (() => {
+            if (displayStatus === "matching") return isZh ? "AI 岗位识别中" : "AI position matching";
+            if (reason === "unmatched_by_ai") return isZh ? "AI 未识别岗位" : "AI unmatched";
+            if (reason === "ai_error") return isZh ? "AI 识别异常" : "AI error";
+            if (reason === "auto_archived") return isZh ? "初筛完成后入库" : "Archived after screening";
+            if (reason === "moved_by_hr") {
+                return c.talent_pool_source_status
+                    ? labelForCandidateStatus(c.talent_pool_source_status)
+                    : (isZh ? "手动归入人才库" : "Moved to talent pool");
             }
-            if (candidateDisplayStatus === "matching") {
-                return null;
+            return isZh ? "历史人才库数据" : "Legacy talent pool record";
+        })();
+        const badge = (() => {
+            if (displayStatus === "matching") {
+                return {label: isZh ? "识别中" : "Matching", background: "rgba(46,156,255,0.10)", color: "#2E9CFF"};
             }
-            if (reason === "unmatched_by_ai") {
-                return isZh ? "AI 未识别岗位" : "AI Unmatched";
+            if (reason === "unmatched_by_ai" || reason === "ai_error") {
+                return {label: isZh ? "待处理" : "Pending", background: "rgba(255,171,36,0.12)", color: "#D48806"};
+            }
+            if (c.ai_match_position_id && c.ai_match_position_title) {
+                return {label: isZh ? "AI 识别" : "AI Match", background: "rgba(30,59,250,0.08)", color: "#1E3BFA"};
+            }
+            return {label: isZh ? "人才库中" : "In Talent Pool", background: "rgba(12,201,145,0.10)", color: "#0A9C71"};
+        })();
+        const enteredAt = c.talent_pool_moved_at || c.created_at || c.updated_at || null;
+        const profileMeta = [c.years_of_experience, c.education, c.city].filter(Boolean).join(" · ") || (isZh ? "资料待完善" : "Profile incomplete");
+        const avatarColors = ["#1E3BFA", "#2E9CFF", "#0CC991", "#7B61FF", "#FFAB24", "#F53F3F"];
+        const avatarColor = avatarColors[Math.abs(c.id) % avatarColors.length];
+        const tags = Array.isArray(c.tags) ? c.tags.filter(Boolean) : [];
+        const sanitizedAiReason = sanitizeCandidateFacingErrorText(c.ai_match_reason || "", {
+            context: resolveCandidateFacingErrorContext("ai_position_match"),
+            language,
+        });
+        const confidence = c.ai_match_confidence == null
+            ? null
+            : Math.round(c.ai_match_confidence <= 1 ? c.ai_match_confidence * 100 : c.ai_match_confidence);
+        const aiSummary = (() => {
+            if (displayStatus === "matching") {
+                return isZh ? "AI 正在识别该人才与当前开放岗位的匹配关系，结果会实时更新。" : "AI is matching this talent against current open positions. Results update in real time.";
             }
             if (reason === "ai_error") {
-                return isZh ? "AI 识别异常" : "AI Error";
+                return sanitizedAiReason || (isZh ? "AI 解析或岗位识别过程出现异常，建议重新识别或手动分配岗位。" : "AI parsing or position matching failed. Re-identify or assign a position manually.");
             }
-            if (reason === "auto_archived") {
-                return isZh ? "初筛完成后入库" : "Archived After Screening";
+            if (reason === "unmatched_by_ai") {
+                return sanitizedAiReason || (isZh ? "未在当前开放岗位中找到合适匹配，可重新识别或手动分配岗位。" : "No suitable open position was found. Re-identify or assign one manually.");
             }
-            if (reason === "moved_by_hr") {
-                return c.talent_pool_source_status ? labelForCandidateStatus(c.talent_pool_source_status) : (isZh ? "手动归入人才库" : "Moved To Talent Pool");
+            if (c.ai_match_position_title) {
+                const confidenceText = confidence == null ? "" : (isZh ? `，匹配置信度 ${confidence}%` : ` with ${confidence}% confidence`);
+                return (isZh ? `AI 识别该人才与「${c.ai_match_position_title}」匹配度较高${confidenceText}。` : `AI identified a strong match with “${c.ai_match_position_title}”${confidenceText}.`) + (sanitizedAiReason ? ` ${sanitizedAiReason}` : "");
             }
-            return isZh ? "历史人才库数据" : "Legacy Talent Pool Record";
+            return isZh ? "该人才已进入人才库，可结合来源阶段和简历信息继续分配岗位或重新识别。" : "This talent is in the pool and can be assigned or re-identified using the source stage and resume details.";
         })();
+        const sourceLabels: Record<string, string> = isZh ? {
+            manual_upload: "手动上传",
+            boss_zhipin: "Boss直聘",
+            liepin: "猎聘",
+            headhunter: "猎头推荐",
+            other: "其他渠道",
+        } : {
+            manual_upload: "Manual upload",
+            boss_zhipin: "Boss Zhipin",
+            liepin: "Liepin",
+            headhunter: "Headhunter",
+            other: "Other",
+        };
+        const basicFields = [
+            {label: isZh ? "工作年限" : "Experience", value: c.years_of_experience},
+            {label: isZh ? "学历" : "Education", value: c.education},
+            {label: isZh ? "所在城市" : "Current City", value: c.city},
+            {label: isZh ? "来源阶段" : "Source Stage", value: sourceStage},
+            {label: isZh ? "手机" : "Phone", value: c.phone},
+            {label: isZh ? "邮箱" : "Email", value: c.email},
+            {label: isZh ? "当前公司" : "Company", value: c.current_company},
+            {label: isZh ? "期望城市" : "Expected City", value: c.expected_city},
+            {label: isZh ? "年龄" : "Age", value: c.age != null ? String(c.age) : null},
+            {label: isZh ? "人才编号" : "Talent ID", value: c.candidate_code},
+            {label: isZh ? "简历来源" : "Resume Source", value: sourceLabels[c.source || ""] || c.source_detail || c.source},
+            {label: isZh ? "识别岗位" : "Matched Position", value: c.ai_match_position_title || c.screened_position_title},
+        ];
+        const resumeFiles = candidateDetail.resume_files || [];
+        const currentResume = resumeFiles.find((file) => file.id === c.latest_resume_file_id) || resumeFiles[0] || null;
+        const resumeSummary = candidateDetail.parse_result?.summary || c.note_summary || c.notes || (isZh ? "暂无简历摘要，打开原始简历可查看完整内容。" : "No resume summary is available. Open the original resume for full details.");
+        const score = candidateDetail.score;
+        const statusHistory = candidateDetail.status_history || [];
+        const hasMoreDetails = Boolean(score || resumeFiles.length > 1 || statusHistory.length);
+        const actionPending = talentPoolDetailAction !== null || talentPoolDetailAssigning;
 
         return (
-            <div className="flex h-full min-h-0 flex-col">
-                <div className="flex items-center justify-between border-b border-slate-200/80 bg-slate-50/60 px-4 py-3.5 dark:border-slate-800 dark:bg-slate-900/40">
-                    <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">{c.name}</p>
-                        <p className="mt-0.5 text-[11px] text-slate-500">{c.candidate_code}</p>
+            <div className="flex h-full min-h-0 flex-col bg-white font-[Inter,'PingFang_SC','Microsoft_YaHei',sans-serif] text-[#0E1114]">
+                <div className="flex shrink-0 items-start justify-between border-b border-[#F2F3F5] px-7 py-5">
+                    <div className="flex min-w-0 items-center gap-3.5">
+                        <span className="flex h-[46px] w-[46px] shrink-0 items-center justify-center rounded-full text-[15px] font-medium text-white" style={{backgroundColor: avatarColor}}>
+                            {String(c.name || "?").trim().slice(0, 1)}
+                        </span>
+                        <div className="min-w-0">
+                            <div className="flex min-w-0 items-center gap-2.5">
+                                <h2 className="truncate text-[18px] font-semibold leading-6 text-[#0E1114]">{c.name || `ID:${c.id}`}</h2>
+                                <span className="inline-flex h-[22px] shrink-0 items-center rounded-[4px] px-2 text-[12px]" style={{backgroundColor: badge.background, color: badge.color}}>{badge.label}</span>
+                            </div>
+                            <p className="mt-1 truncate text-[12px] text-[#86888F]">{profileMeta} · {isZh ? "入库" : "Added"} {enteredAt ? formatDateTime(enteredAt) : "—"}</p>
+                        </div>
                     </div>
-                    <button
-                        type="button"
-                        className="rounded-[6px] p-1.5 text-slate-400 hover:bg-[#F7F8FA] hover:text-[#33353D] dark:hover:bg-slate-800"
-                        onClick={onClose}
-                    >
+                    <button type="button" aria-label={isZh ? "关闭人才详情" : "Close talent details"} className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-[4px] text-[#86888F] hover:bg-[#F7F8FA] hover:text-[#33353D]" onClick={closeTalentPoolCandidateDetail} disabled={actionPending}>
                         <X className="h-4 w-4"/>
                     </button>
                 </div>
-                <div className="min-h-0 flex-1 overflow-y-auto space-y-5 p-4">
-                    <div className="flex flex-wrap items-center gap-2">
-                        <Badge className={cn("rounded-full border", statusBadgeClass("candidate", candidateDisplayStatus))}>
-                            {labelForCandidateStatus(candidateDisplayStatus)}
-                        </Badge>
-                        {talentPoolSourceStageText ? (
-                            <Badge variant="outline" className="rounded-full">
-                                {`${isZh ? "来源阶段" : "Source Stage"}：${talentPoolSourceStageText}`}
-                            </Badge>
+
+                <div className="flex min-h-0 flex-1 flex-col gap-[22px] overflow-y-auto px-7 py-6">
+                    <section className="flex flex-col gap-2.5 rounded-[10px] bg-[#F7F8FA] px-[18px] py-4">
+                        <h3 className="flex items-center gap-1.5 text-[13px] font-semibold text-[#0E1114]">
+                            <Sparkles className="h-3.5 w-3.5 text-[#1E3BFA]"/>
+                            {isZh ? "AI 识别结果" : "AI Recognition"}
+                        </h3>
+                        <p className="text-[12px] leading-[1.7] text-[#33353D]">{aiSummary}</p>
+                        {c.ai_potential_position ? (
+                            <p className="text-[12px] leading-[1.7] text-[#33353D]">
+                                <span className="font-medium text-[#0A9C71]">{isZh ? "转岗潜力" : "Potential move"}：{c.ai_potential_position}</span>
+                                {c.ai_potential_reason ? ` · ${c.ai_potential_reason}` : ""}
+                            </p>
                         ) : null}
-                        <Badge variant="outline" className="rounded-full">
-                            {isZh ? "匹配度" : "Match"} {formatPercent(c.match_percent)}
-                        </Badge>
-                        {c.position_title && (
-                            <Badge variant="outline" className="rounded-full">
-                                {c.position_title}
-                            </Badge>
-                        )}
-                    </div>
-                    <div className="space-y-1.5 text-sm">
-                        <p className="mb-2 text-[11px] font-medium uppercase tracking-wider text-slate-400">{isZh ? "基本信息" : "Basic Info"}</p>
-                        {[
-                            { label: isZh ? "手机号" : "Phone", value: c.phone },
-                            { label: isZh ? "邮箱" : "Email", value: c.email },
-                            { label: isZh ? "所在城市" : "Current City", value: c.city },
-                            { label: isZh ? "期望城市" : "Expected City", value: c.expected_city },
-                            { label: isZh ? "年龄" : "Age", value: c.age != null ? String(c.age) : null },
-                            { label: isZh ? "公司" : "Company", value: c.current_company },
-                            { label: isZh ? "工作年限" : "Experience", value: c.years_of_experience },
-                            { label: isZh ? "学历" : "Education", value: c.education },
-                            { label: isZh ? "来源" : "Source", value: c.source },
-                        ].filter((field) => field.value).map((field) => (
-                            <div key={field.label} className="flex items-center justify-between gap-4">
-                                <span className="text-slate-500">{field.label}</span>
-                                <span className="text-right font-medium text-slate-900 dark:text-slate-100">{field.value}</span>
+                        {tags.length ? (
+                            <div className="flex flex-wrap gap-2">
+                                {tags.map((tag) => <span key={tag} className="inline-flex h-[22px] items-center rounded-[4px] bg-[rgba(30,59,250,0.06)] px-2 text-[11px] text-[#1E3BFA]">{tag}</span>)}
                             </div>
-                        ))}
-                    </div>
-                    {(c.screened_position_title || c.ai_match_position_title || c.ai_potential_position) ? (
-                        <div className="rounded-[8px] border border-[#1E3BFA]/15 bg-[#1E3BFA]/5 px-3 py-2 text-xs text-[#0F23D9] dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-200">
-                            {c.screened_position_title ? (
-                                <div className="font-medium">{`${isZh ? "初筛岗位" : "Screening Position"}：${c.screened_position_title}`}</div>
-                            ) : null}
-                            {c.ai_match_position_title ? (
-                                <div className={c.screened_position_title ? "mt-1" : "font-medium"}>{`${isZh ? "AI 主匹配岗位" : "AI Primary Match"}：${c.ai_match_position_title}`}</div>
-                            ) : null}
-                            {c.ai_match_position_title && c.ai_match_reason ? (
-                                <div className="mt-1 text-[#0F23D9] dark:text-blue-200/80">
-                                    {sanitizeCandidateFacingErrorText(c.ai_match_reason, {
-                                        context: resolveCandidateFacingErrorContext("ai_position_match"),
-                                        language,
-                                    })}
+                        ) : null}
+                    </section>
+
+                    <section className="flex flex-col gap-3">
+                        <h3 className="text-[14px] font-semibold text-[#0E1114]">{isZh ? "基本信息" : "Basic Information"}</h3>
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-2.5 text-[12px]">
+                            {basicFields.map((field) => (
+                                <div key={field.label} className="flex min-w-0 gap-2.5">
+                                    <span className="w-16 shrink-0 text-[#B0B2B8]">{field.label}</span>
+                                    <span className="min-w-0 break-words text-[#0F1014]">{field.value || "—"}</span>
                                 </div>
+                            ))}
+                        </div>
+                    </section>
+
+                    <section className="flex flex-col gap-3">
+                        <div className="flex items-center justify-between gap-4">
+                            <h3 className="text-[14px] font-semibold text-[#0E1114]">{isZh ? "简历摘要" : "Resume Summary"}</h3>
+                            {currentResume && canViewRecruitmentDashboard ? (
+                                <button type="button" className="shrink-0 text-[12px] text-[#0F23D9] hover:text-[#1E3BFA]" onClick={() => void openResumeFile(currentResume, false)}>{isZh ? "查看原始简历" : "View Original Resume"}</button>
+                            ) : currentResume ? (
+                                <span className="shrink-0 text-[11px] text-[#B0B2B8]">{isZh ? "无原始简历查看权限" : "No permission to view original"}</span>
                             ) : null}
-                            {c.ai_potential_position ? (
-                                <div className={c.screened_position_title || c.ai_match_position_title ? "mt-2 border-t border-[#1E3BFA]/15 pt-2 dark:border-blue-900/70" : ""}>
-                                    <div className="font-medium">{`${isZh ? "转岗潜力方向" : "Potential Transition"}：${c.ai_potential_position}`}</div>
-                                    {c.ai_potential_reason ? (
-                                        <div className="mt-1 text-[#0F23D9] dark:text-blue-200/80">{c.ai_potential_reason}</div>
-                                    ) : null}
+                        </div>
+                        <div className="rounded-[10px] border border-[#EBEEF5] p-4 text-[12px] leading-[1.9] text-[#33353D]">
+                            <p className="whitespace-pre-wrap break-words">{resumeSummary}</p>
+                            {currentResume ? (
+                                <div className="mt-3 flex items-center gap-2 border-t border-[#F2F3F5] pt-3 text-[11px] text-[#86888F]">
+                                    <FileText className="h-3.5 w-3.5 shrink-0 text-[#F53F3F]"/>
+                                    <span className="min-w-0 flex-1 truncate">{currentResume.original_name}</span>
+                                    <span className="shrink-0">{currentResume.parse_status}</span>
                                 </div>
                             ) : null}
                         </div>
-                    ) : null}
-                    {score && score.dimensions && score.dimensions.length > 0 && (
-                        <div className="space-y-2">
-                            <p className="text-[11px] font-medium uppercase tracking-wider text-slate-400">{isZh ? "综合能力概览" : "Competency Overview"}</p>
-                            <CandidateRadarChart
-                                dimensions={score.dimensions}
-                                radarScores={score.radar_scores}
-                                isZh={isZh}
-                                mode="aggregated"
-                                uiText={{
-                                    scoreDetails: isZh ? "评分详情" : "Score Details",
-                                    coreSkills: isZh ? "核心能力" : "Core Competencies",
-                                    otherSkills: isZh ? "其他维度" : "Other Dimensions",
-                                    noData: isZh ? "AI 尚未完成维度评分" : "No evaluation data",
-                                    benchmark: isZh ? "岗位基准线" : "Benchmark",
-                                }}
-                            />
-                            <p className="mt-4 text-[11px] font-medium uppercase tracking-wider text-slate-400">{isZh ? "各维度得分" : "Dimension Scores"}</p>
-                            <CandidateRadarChart
-                                dimensions={score.dimensions}
-                                isZh={isZh}
-                                mode="individual"
-                                uiText={{
-                                    scoreDetails: isZh ? "评分详情" : "Score Details",
-                                    coreSkills: isZh ? "核心能力" : "Core Competencies",
-                                    otherSkills: isZh ? "其他维度" : "Other Dimensions",
-                                    noData: isZh ? "AI 尚未完成维度评分" : "No evaluation data",
-                                    benchmark: isZh ? "岗位基准线" : "Benchmark",
-                                }}
-                            />
-                            <div className="space-y-3">
-                                {score.dimensions.map((dim, index) => (
-                                    <div
-                                        key={index}
-                                        data-dim-reason={dim.label || `维度${index + 1}`}
-                                        className="rounded-lg border border-slate-100 bg-slate-50/50 p-3 dark:border-slate-800 dark:bg-slate-900/30"
-                                    >
-                                        <div className="mb-1 flex items-center justify-between">
-                                            <span className="text-xs font-semibold text-slate-700 dark:text-slate-200">
-                                                {dim.label || `维度${index + 1}`}
-                                            </span>
-                                            <div className="flex items-center gap-2 font-mono text-[11px] text-slate-400">
-                                                <span>{dim.score ?? "-"}/{dim.max_score ?? "-"}</span>
-                                                {dim.is_inferred && (
-                                                    <Badge variant="outline" className="h-3.5 bg-slate-100 px-1 py-0 text-[9px]">
-                                                        {isZh ? "推断" : "Inf"}
-                                                    </Badge>
-                                                )}
-                                            </div>
+                    </section>
+
+                    {hasMoreDetails ? (
+                        <details className="group rounded-[10px] border border-[#EBEEF5] bg-white">
+                            <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-3 text-[13px] font-medium text-[#33353D] hover:bg-[#F8F8F9]">
+                                <span>{isZh ? "更多人才资料" : "More Talent Details"}</span>
+                                <ChevronDown className="h-3.5 w-3.5 text-[#86888F] transition-transform group-open:rotate-180"/>
+                            </summary>
+                            <div className="space-y-4 border-t border-[#F2F3F5] px-4 py-4">
+                                {score ? (
+                                    <div className="space-y-2.5">
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-[12px] font-semibold text-[#0E1114]">{isZh ? "AI 评估" : "AI Assessment"}</span>
+                                            <span className="text-[12px] font-semibold tabular-nums text-[#1E3BFA]">{score.total_score ?? "—"}/{score.total_score_scale ?? "—"}</span>
                                         </div>
-                                        {dim.reason ? (
-                                            <p className="text-xs leading-relaxed text-slate-600 dark:text-slate-400">
-                                                {dim.reason}
-                                            </p>
+                                        {score.recommendation ? <p className="text-[12px] leading-5 text-[#33353D]">{score.recommendation}</p> : null}
+                                        {score.advantages?.length ? <p className="text-[11px] leading-5 text-[#0A9C71]">{isZh ? "优势" : "Strengths"}：{score.advantages.join("；")}</p> : null}
+                                        {score.concerns?.length ? <p className="text-[11px] leading-5 text-[#D48806]">{isZh ? "风险" : "Risks"}：{score.concerns.join("；")}</p> : null}
+                                        {score.dimensions?.length ? (
+                                            <div className="grid grid-cols-2 gap-2">
+                                                {score.dimensions.map((dimension, index) => (
+                                                    <div key={`${dimension.label || "dimension"}-${index}`} className="rounded-[6px] bg-[#F7F8FA] px-3 py-2 text-[11px]">
+                                                        <div className="flex items-center justify-between gap-2 text-[#33353D]"><span className="truncate">{dimension.label || (isZh ? `维度 ${index + 1}` : `Dimension ${index + 1}`)}</span><span className="shrink-0 tabular-nums text-[#1E3BFA]">{dimension.score ?? "—"}/{dimension.max_score ?? "—"}</span></div>
+                                                        {dimension.reason ? <p className="mt-1 line-clamp-2 leading-[18px] text-[#86888F]" title={dimension.reason}>{dimension.reason}</p> : null}
+                                                    </div>
+                                                ))}
+                                            </div>
                                         ) : null}
                                     </div>
-                                ))}
+                                ) : null}
+                                {resumeFiles.length > 1 ? (
+                                    <div className="space-y-2">
+                                        <span className="text-[12px] font-semibold text-[#0E1114]">{isZh ? "全部简历文件" : "All Resume Files"}</span>
+                                        {resumeFiles.map((resumeFile) => (
+                                            <button key={resumeFile.id} type="button" disabled={!canViewRecruitmentDashboard} className="flex w-full items-center gap-2 rounded-[6px] border border-[#F2F3F5] px-3 py-2 text-left text-[11px] hover:bg-[#F8F8F9] disabled:cursor-default" onClick={() => void openResumeFile(resumeFile, false)}>
+                                                <FileText className="h-3.5 w-3.5 shrink-0 text-[#F53F3F]"/>
+                                                <span className="min-w-0 flex-1 truncate text-[#33353D]">{resumeFile.original_name}</span>
+                                                <span className="shrink-0 text-[#86888F]">{resumeFile.parse_status}</span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                ) : null}
+                                {statusHistory.length ? (
+                                    <div className="space-y-2">
+                                        <span className="text-[12px] font-semibold text-[#0E1114]">{isZh ? "状态记录" : "Status History"}</span>
+                                        {statusHistory.slice(0, 8).map((item) => (
+                                            <div key={item.id} className="grid grid-cols-[118px_1fr] gap-3 text-[11px] leading-[18px]">
+                                                <span className="tabular-nums text-[#B0B2B8]">{item.created_at ? formatDateTime(item.created_at) : "—"}</span>
+                                                <span className="min-w-0 text-[#33353D]">{item.from_status ? labelForCandidateStatus(item.from_status) : "—"} → {labelForCandidateStatus(item.to_status)}{item.reason ? ` · ${item.reason}` : ""}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : null}
                             </div>
-                        </div>
-                    )}
-                    {score && (score.advantages?.length || score.concerns?.length || score.recommendation) ? (
-                        <div className="space-y-2">
-                            {score.advantages && score.advantages.length > 0 ? (
-                                <div>
-                                    <p className="text-[11px] text-emerald-600 dark:text-emerald-400">{isZh ? "优势" : "Advantages"}</p>
-                                    <ul className="mt-1 space-y-0.5">
-                                        {score.advantages.map((item, index) => (
-                                            <li key={index} className="text-xs text-slate-600 dark:text-slate-400">{"· "}{item}</li>
-                                        ))}
-                                    </ul>
-                                </div>
-                            ) : null}
-                            {score.concerns && score.concerns.length > 0 ? (
-                                <div>
-                                    <p className="text-[11px] text-amber-600 dark:text-amber-400">{isZh ? "风险" : "Concerns"}</p>
-                                    <ul className="mt-1 space-y-0.5">
-                                        {score.concerns.map((item, index) => (
-                                            <li key={index} className="text-xs text-slate-600 dark:text-slate-400">{"· "}{item}</li>
-                                        ))}
-                                    </ul>
-                                </div>
-                            ) : null}
-                            {score.recommendation ? (
-                                <div>
-                                    <p className="text-[11px] text-slate-400">{isZh ? "推荐意见" : "Recommendation"}</p>
-                                    <p className="mt-0.5 text-xs text-slate-600 dark:text-slate-400">{score.recommendation}</p>
-                                </div>
-                            ) : null}
-                        </div>
-                    ) : null}
-                    {resumeFiles.length > 0 ? (
-                        <div className="space-y-1.5">
-                            <p className="text-[11px] font-medium uppercase tracking-wider text-slate-400">{isZh ? "简历文件" : "Resumes"}</p>
-                            {resumeFiles.map((resumeFile) => (
-                                <div
-                                    key={resumeFile.id}
-                                    onClick={() => void openResumeFile(resumeFile, false)}
-                                    className="group flex cursor-pointer items-center gap-2 rounded-lg border border-slate-100 px-3 py-2 text-xs transition-colors hover:border-[#D4D4D4] hover:bg-[#F5F5F5] dark:border-slate-800 dark:hover:border-neutral-700 dark:hover:bg-neutral-900/20"
-                                >
-                                    <FileText className="h-4 w-4 shrink-0 text-red-500" />
-                                    <span className="min-w-0 flex-1 truncate text-slate-700 dark:text-slate-300">{resumeFile.original_name}</span>
-                                    <Badge variant="outline" className={cn("shrink-0 text-[10px]", resumeFile.parse_status === "completed" ? "text-emerald-600" : "text-slate-400")}>
-                                        {resumeFile.parse_status}
-                                    </Badge>
-                                    <Eye className="h-3.5 w-3.5 shrink-0 text-slate-400 opacity-0 transition-opacity group-hover:opacity-100" />
-                                </div>
-                            ))}
-                        </div>
-                    ) : null}
-                    {statusHistory.length > 0 ? (
-                        <div className="space-y-1.5">
-                            <p className="text-[11px] font-medium uppercase tracking-wider text-slate-400">{isZh ? "状态变更" : "Status History"}</p>
-                            {statusHistory.slice(0, 8).map((item) => (
-                                <div key={item.id} className="flex items-center gap-2 text-xs">
-                                    <span className="text-slate-400">{item.created_at ? formatDateTime(item.created_at) : ""}</span>
-                                    <span className="text-slate-500">{item.from_status ? labelForCandidateStatus(item.from_status) : "-"}</span>
-                                    <span className="text-slate-300">{"→"}</span>
-                                    <span className="font-medium text-slate-700 dark:text-slate-300">{labelForCandidateStatus(item.to_status)}</span>
-                                    {item.reason ? <span className="truncate text-slate-400">{item.reason}</span> : null}
-                                </div>
-                            ))}
-                        </div>
+                        </details>
                     ) : null}
                 </div>
-                <div className="shrink-0 border-t border-slate-200/80 p-3 dark:border-slate-800">
-                    <Button
-                        size="sm"
-                        variant="outline"
-                        className="w-full rounded-lg"
-                        onClick={() => {
-                            const candidateId = selectedCandidateId;
-                            onClose();
-                            if (candidateId) {
-                                candidatePageTargetCandidateIdRef.current = candidateId;
-                                setCandidateDetailReviewContext(null);
-                                setSelectedCandidateId(candidateId);
-                            }
-                            navigateToRecruitmentPage("candidates");
-                        }}
-                    >
-                        {recruitmentUiText.viewInCandidatePage}
-                    </Button>
+
+                <div className="flex h-[68px] shrink-0 items-center gap-3 border-t border-[#F2F3F5] px-7">
+                    <span className="text-[12px] text-[#86888F]">{displayStatus === "matching" ? (isZh ? "AI 正在识别岗位，结果会实时更新" : "AI matching is in progress and updates in real time") : (isZh ? "分配岗位后候选人将进入对应岗位的招聘流程" : "After assignment, this talent enters the position recruitment flow")}</span>
+                    <div className="flex-1"/>
+                    {canManageCandidate && displayStatus === "matching" ? (
+                        <button type="button" className="inline-flex h-9 shrink-0 items-center rounded-[6px] border border-[rgba(245,63,63,0.32)] px-[18px] text-[13px] text-[#F53F3F] hover:bg-[rgba(245,63,63,0.05)] disabled:cursor-not-allowed disabled:opacity-50" onClick={() => void runTalentPoolDetailCancelMatch()} disabled={actionPending}>
+                            {talentPoolDetailAction === "cancel-match" ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin"/> : <Square className="mr-1.5 h-3.5 w-3.5"/>}
+                            {isZh ? "停止匹配" : "Stop Matching"}
+                        </button>
+                    ) : canManageCandidate ? (
+                        <>
+                            <button type="button" className="inline-flex h-9 shrink-0 items-center rounded-[6px] border border-[#E6E7EB] px-[18px] text-[13px] text-[#33353D] hover:border-[#1E3BFA]/40 hover:text-[#1E3BFA] disabled:cursor-not-allowed disabled:opacity-50" onClick={requestTalentPoolDetailReidentify} disabled={actionPending}>
+                                {talentPoolDetailAction === "reidentify" ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin"/> : <RotateCcw className="mr-1.5 h-3.5 w-3.5"/>}
+                                {isZh ? "重新识别" : "Re-identify"}
+                            </button>
+                            <button type="button" className="inline-flex h-9 shrink-0 items-center rounded-[6px] bg-[#1E3BFA] px-5 text-[13px] text-white hover:bg-[#0F23D9] disabled:cursor-not-allowed disabled:opacity-50" onClick={openTalentPoolDetailAssignment} disabled={actionPending}>
+                                {isZh ? "分配岗位" : "Assign Position"}
+                            </button>
+                        </>
+                    ) : null}
                 </div>
             </div>
         );
@@ -10910,7 +11030,11 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         }
     }
 
-    async function batchBindPosition(candidateIds: number[], positionId: number | null) {
+    async function batchBindPosition(
+        candidateIds: number[],
+        positionId: number | null,
+        options?: {skipSelectedDetailRefresh?: boolean},
+    ) {
         if (!candidateIds.length) {
             return;
         }
@@ -10927,7 +11051,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             );
             removeCandidateIdsFromSelection(candidateIds);
             await Promise.all([loadCandidates(), refreshCandidateStats(), loadTalentPoolCandidates()]);
-            if (selectedCandidateId && candidateIds.includes(selectedCandidateId)) {
+            if (!options?.skipSelectedDetailRefresh && selectedCandidateId && candidateIds.includes(selectedCandidateId)) {
                 await loadCandidateDetail(selectedCandidateId);
             }
         } catch (error) {
@@ -14037,7 +14161,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                     actReview: canActReview,
                     manageReview: canManageReview,
                     viewInterview: canViewInterview || canActInterview || canManageInterview,
-                    manageInterview: canActInterview || canManageInterview,
+                    manageInterview: canManageInterview,
                     viewSkill: canViewSkill,
                     bindSkill: canBindSkill,
                     sendMail: canSendMail,
@@ -14303,46 +14427,14 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                         talentPoolPageIndexRef.current = 0;
                         await loadTalentPoolCandidates({ query: nextQuery });
                     }}
-                    onReIdentify={async (candidateId) => {
-                        const result = await triggerAIPositionMatch([candidateId]);
-                        if ((result.total_candidates || 0) > 0) {
-                            setAllTalentPoolCandidates(prev => prev.map(c =>
-                                c.id === candidateId ? { ...c, status: "matching" } : c
-                            ));
-                            void loadTalentPoolCandidates({ silent: true });
-                        }
-                    }}
+                    onReIdentify={canManageCandidate ? async (candidateId) => {
+                        await reidentifyTalentPoolCandidates([candidateId]);
+                    } : undefined}
                     onBatchReIdentify={canManageCandidate ? async (candidateIds) => {
-                        const result = await triggerAIPositionMatch(candidateIds);
-                        if ((result.total_candidates || 0) > 0) {
-                            const idSet = new Set(candidateIds);
-                            setAllTalentPoolCandidates(prev => prev.map((candidate) => (
-                                idSet.has(candidate.id) ? { ...candidate, status: "matching" } : candidate
-                            )));
-                            void loadTalentPoolCandidates({ silent: true });
-                        }
+                        await reidentifyTalentPoolCandidates(candidateIds);
                     } : undefined}
                     onCancelMatch={canManageCandidate ? async (candidateId) => {
-                        try {
-                            const result = await recruitmentApi<{
-                                cancelled?: boolean;
-                                status?: string;
-                                message?: string;
-                                candidate_snapshot?: Partial<CandidateSummary> | null;
-                            }>(`/candidates/${candidateId}/cancel-match`, { method: "POST" });
-                            if (result?.candidate_snapshot) {
-                                syncRealtimeCandidateLists(result.candidate_snapshot);
-                                return;
-                            }
-                            setAllTalentPoolCandidates(prev => prev.map(c =>
-                                c.id === candidateId ? { ...c, status: result?.status || "unmatched" } : c
-                            ));
-                            void loadTalentPoolCandidates({ silent: true });
-                        } catch (error) {
-                            console.warn("Failed to cancel match, refreshing talent pool state:", error);
-                            await loadTalentPoolCandidates({ silent: true });
-                            toast.info(isZh ? "匹配状态已更新" : "Match status updated");
-                        }
+                        await cancelTalentPoolCandidateMatch(candidateId);
                     } : undefined}
                     canManageCandidates={canManageCandidate}
                     preferredStatFilter={talentPoolPreferredStatFilter}
@@ -14771,21 +14863,83 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             <Dialog
                 open={activePage === "talent-pool" && talentPoolCandidateDetailOpen}
                 onOpenChange={(open) => {
-                    if (!open) {
-                        setTalentPoolCandidateDetailOpen(false);
-                        setCandidateDetailReviewContext(null);
+                    if (!open && !talentPoolDetailAssigning && !talentPoolDetailAction) {
+                        closeTalentPoolCandidateDetail();
                     }
                 }}
             >
-                <DialogContent className="left-auto right-0 top-0 h-dvh max-h-none w-[min(760px,100vw)] max-w-none translate-x-0 translate-y-0 gap-0 overflow-hidden rounded-none border-y-0 border-r-0 border-l border-[#EBEEF5] bg-white p-0 shadow-[-8px_0_24px_rgba(14,17,20,0.12)] sm:max-w-none [&_[data-slot=dialog-close]]:hidden">
+                <DialogContent showCloseButton={false} className="left-auto right-0 top-0 h-dvh max-h-none w-[min(720px,100vw)] max-w-none translate-x-0 translate-y-0 gap-0 overflow-hidden rounded-none border-y-0 border-r-0 border-l border-[#EBEEF5] bg-white p-0 shadow-[-8px_0_24px_rgba(14,17,20,0.12)] sm:max-w-none">
                     <DialogHeader className="sr-only">
                         <DialogTitle>{isZh ? "人才详情" : "Talent Details"}</DialogTitle>
                         <DialogDescription>{isZh ? "查看人才库候选人的完整资料" : "View the complete talent pool candidate profile"}</DialogDescription>
                     </DialogHeader>
-                    {renderSharedCandidateDrawerContent(() => {
-                        setTalentPoolCandidateDetailOpen(false);
-                        setCandidateDetailReviewContext(null);
-                    })}
+                    {renderTalentPoolCandidateDrawerContent()}
+                </DialogContent>
+            </Dialog>
+
+            <Dialog
+                open={activePage === "talent-pool" && talentPoolCandidateDetailOpen && talentPoolDetailAssignOpen}
+                onOpenChange={(open) => {
+                    if (!talentPoolDetailAssigning) {
+                        setTalentPoolDetailAssignOpen(open);
+                    }
+                }}
+            >
+                <DialogContent className="gap-0 overflow-hidden rounded-[8px] border-[#EBEEF5] bg-white p-0 text-[#0E1114] shadow-[0_8px_24px_rgba(14,17,20,0.16)] sm:max-w-[480px]">
+                    <DialogHeader className="gap-1 border-b border-[#F2F3F5] px-6 pb-3.5 pr-14 pt-[18px] text-left">
+                        <DialogTitle className="text-[16px] font-semibold text-[#0E1114]">{isZh ? "分配岗位" : "Assign Position"}</DialogTitle>
+                        <DialogDescription className="text-[12px] leading-5 text-[#86888F]">
+                            {isZh ? `为「${candidateDetail?.candidate.name || "当前人才"}」选择目标岗位，确认后将进入该岗位的招聘流程。` : `Choose a target position for ${candidateDetail?.candidate.name || "this talent"}. The talent will enter that recruitment flow after confirmation.`}
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="px-6 py-5">
+                        <Select value={talentPoolDetailAssignPositionId} onValueChange={setTalentPoolDetailAssignPositionId} disabled={talentPoolDetailAssigning}>
+                            <SelectTrigger className="h-10 rounded-[6px] border-[#E6E7EB] bg-white text-[13px] shadow-none focus:border-[#1E3BFA] focus:ring-[#1E3BFA]/10">
+                                <SelectValue placeholder={isZh ? "请选择目标岗位" : "Select a target position"}/>
+                            </SelectTrigger>
+                            <SelectContent>
+                                {positions.map((position) => <SelectItem key={position.id} value={String(position.id)}>{position.title}</SelectItem>)}
+                            </SelectContent>
+                        </Select>
+                        {!positions.length ? <p className="mt-2 text-[12px] text-[#F53F3F]">{isZh ? "暂无可分配岗位，请先创建或启用岗位。" : "No assignable position is available. Create or activate a position first."}</p> : null}
+                    </div>
+                    <DialogFooter className="h-16 items-center gap-3 border-t border-[#F2F3F5] px-6 sm:justify-end">
+                        <Button variant="outline" className="h-9 rounded-[6px] border-[#E6E7EB] px-4 shadow-none" onClick={() => setTalentPoolDetailAssignOpen(false)} disabled={talentPoolDetailAssigning}>{isZh ? "取消" : "Cancel"}</Button>
+                        <Button className="h-9 rounded-[6px] bg-[#1E3BFA] px-4 text-white shadow-none hover:bg-[#0F23D9]" onClick={() => void submitTalentPoolDetailAssignment()} disabled={!talentPoolDetailAssignPositionId || talentPoolDetailAssigning}>
+                            {talentPoolDetailAssigning ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin"/> : null}
+                            {isZh ? "确认分配" : "Confirm Assignment"}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            <Dialog
+                open={activePage === "talent-pool" && talentPoolCandidateDetailOpen && talentPoolDetailReidentifyConfirmOpen}
+                onOpenChange={(open) => {
+                    if (talentPoolDetailAction !== "reidentify") {
+                        setTalentPoolDetailReidentifyConfirmOpen(open);
+                    }
+                }}
+            >
+                <DialogContent className="gap-0 overflow-hidden rounded-[8px] border-[#EBEEF5] bg-white p-0 text-[#0E1114] shadow-[0_8px_24px_rgba(14,17,20,0.16)] sm:max-w-[520px]">
+                    <DialogHeader className="gap-1 border-b border-[#F2F3F5] px-6 pb-3.5 pr-14 pt-[18px] text-left">
+                        <DialogTitle className="text-[16px] font-semibold text-[#0E1114]">{isZh ? "确认重新识别岗位" : "Confirm Re-identification"}</DialogTitle>
+                        <DialogDescription className="text-[12px] leading-5 text-[#86888F]">
+                            {isZh ? `将重新识别「${candidateDetail?.candidate.name || "当前人才"}」与开放岗位的匹配关系。` : `AI will re-identify open-position matches for ${candidateDetail?.candidate.name || "this talent"}.`}
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="px-6 py-5">
+                        <div className="rounded-[6px] border border-[rgba(255,171,36,0.35)] bg-[rgba(255,171,36,0.08)] px-3 py-2 text-[12px] leading-5 text-[#D48806]">
+                            {isZh ? "当前人才并非“未匹配”或“识别异常”状态。重新识别会覆盖现有岗位识别结果，请确认后继续。" : "This talent is not unmatched or in an AI error state. Re-identification replaces the current position match result."}
+                        </div>
+                    </div>
+                    <DialogFooter className="h-16 items-center gap-3 border-t border-[#F2F3F5] px-6 sm:justify-end">
+                        <Button variant="outline" className="h-9 rounded-[6px] border-[#E6E7EB] px-4 shadow-none" onClick={() => setTalentPoolDetailReidentifyConfirmOpen(false)} disabled={talentPoolDetailAction === "reidentify"}>{isZh ? "取消" : "Cancel"}</Button>
+                        <Button className="h-9 rounded-[6px] bg-[#1E3BFA] px-4 text-white shadow-none hover:bg-[#0F23D9]" onClick={() => void runTalentPoolDetailReidentify()} disabled={talentPoolDetailAction === "reidentify"}>
+                            {talentPoolDetailAction === "reidentify" ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin"/> : <RotateCcw className="mr-1.5 h-4 w-4"/>}
+                            {isZh ? "确认重新识别" : "Confirm Re-identification"}
+                        </Button>
+                    </DialogFooter>
                 </DialogContent>
             </Dialog>
 
