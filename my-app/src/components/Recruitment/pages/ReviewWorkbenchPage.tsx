@@ -563,7 +563,7 @@ export function ReviewWorkbenchPage({
                             const dueTimestamp = parseTimestamp(batch.due_at);
                             const dueColor = dueTimestamp !== null && dueTimestamp < Date.now() && actionable ? "#F53F3F" : batch.due_at ? "#86888F" : "#B0B2B8";
                             return (
-                                <article key={assignment.id} className="grid min-h-[84px] grid-cols-[300px_minmax(300px,1fr)_280px_220px] items-center border-b border-[#EBEEF5] transition-colors hover:bg-[#F8F8F9]">
+                                <article key={assignment.id} className="grid min-h-[104px] grid-cols-[300px_minmax(300px,1fr)_280px_220px] items-center border-b border-[#EBEEF5] py-2.5 transition-colors hover:bg-[#F8F8F9]">
                                     <div className="flex min-w-0 items-center gap-3 pl-3 pr-5">
                                         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[13px] font-medium text-white" style={{background: AVATAR_COLORS[candidate.id % AVATAR_COLORS.length]}}>
                                             {(candidate.name || "?").trim().charAt(0) || "?"}

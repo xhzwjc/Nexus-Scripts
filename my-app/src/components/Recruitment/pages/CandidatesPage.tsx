@@ -3117,6 +3117,7 @@ function CandidateFilterBar({
 }
 
 type CandidatesPageProps = {
+    pageActive: boolean;
     permissions: CandidatePagePermissions;
     panelClass?: string;
     candidateFilterSummary: string;
@@ -3273,6 +3274,7 @@ type CandidatesPageProps = {
 };
 
 export function CandidatesPage({
+    pageActive,
     permissions,
     panelClass = defaultPanelClass,
     candidateFilterSummary,
@@ -5317,7 +5319,7 @@ export function CandidatesPage({
 
                 <Dialog
                     modal={false}
-                    open={selectedCandidateId !== null}
+                    open={pageActive && selectedCandidateId !== null}
                     onOpenChange={(open) => {
                         if (!open) {
                             setSelectedCandidateId(null);

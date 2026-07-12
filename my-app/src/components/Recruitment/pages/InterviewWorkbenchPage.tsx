@@ -1027,6 +1027,7 @@ export function InterviewWorkbenchPage({
     const [scheduleEditingId, setScheduleEditingId] = React.useState<number | null>(null);
     const [scheduleForm, setScheduleForm] = React.useState<ScheduleFormState>(() => createScheduleForm());
     const [scheduleFormErrors, setScheduleFormErrors] = React.useState<Partial<Record<ScheduleFormErrorKey, string>>>({});
+    const [scheduleSubmitError, setScheduleSubmitError] = React.useState<string | null>(null);
     const [scheduleDatePickerOpen, setScheduleDatePickerOpen] = React.useState(false);
     const [scheduleSlotsOpen, setScheduleSlotsOpen] = React.useState(false);
     const [interviewerOptions, setInterviewerOptions] = React.useState<DepartmentReviewReviewerOption[]>([]);
@@ -1608,6 +1609,7 @@ export function InterviewWorkbenchPage({
             ? createScheduleForm(Math.max(1, Number(task.schedule.round_index || 0) + 1), task.candidate.name, task.candidate.phone)
             : createScheduleFormFromTask(task));
         setScheduleFormErrors({});
+        setScheduleSubmitError(null);
         setScheduleDatePickerOpen(false);
         setScheduleSlotsOpen(false);
         setScheduleSlots([]);
@@ -1621,6 +1623,7 @@ export function InterviewWorkbenchPage({
         setSelectedTask(null);
         setScheduleForm(createScheduleFormFromTask(task));
         setScheduleFormErrors({});
+        setScheduleSubmitError(null);
         setScheduleDatePickerOpen(false);
         setScheduleSlotsOpen(false);
         setScheduleSlots([]);
@@ -1631,6 +1634,7 @@ export function InterviewWorkbenchPage({
         setScheduleTask(null);
         setScheduleEditingId(null);
         setScheduleFormErrors({});
+        setScheduleSubmitError(null);
         setScheduleDatePickerOpen(false);
         setScheduleSlotsOpen(false);
     }, []);
@@ -1768,9 +1772,11 @@ export function InterviewWorkbenchPage({
         }
         if (Object.keys(nextErrors).length > 0) {
             setScheduleFormErrors(nextErrors);
+            setScheduleSubmitError(null);
             return;
         }
         setScheduleFormErrors({});
+        setScheduleSubmitError(null);
         setScheduleSaving(true);
         try {
             const payload: InterviewSchedulePayload = {
@@ -1803,7 +1809,7 @@ export function InterviewWorkbenchPage({
             closeScheduleDrawer();
             await onRefresh();
         } catch (error) {
-            toast.error(editingScheduleId
+            setScheduleSubmitError(editingScheduleId
                 ? (isZh ? `保存面试失败：${formatActionError(error)}` : `Failed to update interview: ${formatActionError(error)}`)
                 : (isZh ? `安排面试失败：${formatActionError(error)}` : `Failed to schedule interview: ${formatActionError(error)}`));
         } finally {
@@ -3132,12 +3138,20 @@ export function InterviewWorkbenchPage({
                                 </div>
                             </section>
                         </div>
-                        <div className="flex h-16 shrink-0 items-center justify-end gap-2 border-t border-[#F2F3F5] bg-white px-6">
-                            <Button variant="outline" className="h-9 rounded-md border-[#E6E7EB] bg-white px-4 text-sm font-normal text-[#33353D] shadow-none hover:bg-[#F7F8FA]" onClick={closeScheduleDrawer}>{isZh ? "取消" : "Cancel"}</Button>
-                            <Button className="h-9 rounded-md bg-[#1E3BFA] px-4 text-sm text-white shadow-none hover:bg-[#0F23D9]" disabled={scheduleSaving} onClick={() => void submitSchedule()}>
-                                {scheduleSaving ? <Loader2 className="h-4 w-4 animate-spin"/> : null}
-                                {scheduleEditingId ? (isZh ? "保存修改" : "Save changes") : (isZh ? "确认安排" : "Schedule")}
-                            </Button>
+                        <div className="shrink-0 border-t border-[#F2F3F5] bg-white px-6 py-3">
+                            {scheduleSubmitError ? (
+                                <div role="alert" aria-live="assertive" className="mb-3 flex items-start gap-2 rounded-md border border-[rgba(245,63,63,0.28)] bg-[rgba(245,63,63,0.06)] px-3 py-2.5 text-xs leading-5 text-[#C53030]">
+                                    <Info className="mt-0.5 h-4 w-4 shrink-0"/>
+                                    <span className="min-w-0 break-words">{scheduleSubmitError}</span>
+                                </div>
+                            ) : null}
+                            <div className="flex items-center justify-end gap-2">
+                                <Button variant="outline" className="h-9 rounded-md border-[#E6E7EB] bg-white px-4 text-sm font-normal text-[#33353D] shadow-none hover:bg-[#F7F8FA]" onClick={closeScheduleDrawer}>{isZh ? "取消" : "Cancel"}</Button>
+                                <Button className="h-9 rounded-md bg-[#1E3BFA] px-4 text-sm text-white shadow-none hover:bg-[#0F23D9]" disabled={scheduleSaving} onClick={() => void submitSchedule()}>
+                                    {scheduleSaving ? <Loader2 className="h-4 w-4 animate-spin"/> : null}
+                                    {scheduleEditingId ? (isZh ? "保存修改" : "Save changes") : (isZh ? "确认安排" : "Schedule")}
+                                </Button>
+                            </div>
                         </div>
                     </aside>
                 </div>,

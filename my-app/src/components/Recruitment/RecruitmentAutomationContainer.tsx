@@ -3814,6 +3814,21 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         }
     }, [activePage]);
 
+    const previousCandidatePageActiveRef = useRef(activePage === "candidates");
+    useEffect(() => {
+        const wasCandidatePageActive = previousCandidatePageActiveRef.current;
+        previousCandidatePageActiveRef.current = activePage === "candidates";
+        if (!wasCandidatePageActive || activePage === "candidates") {
+            return;
+        }
+        candidatePageTargetCandidateIdRef.current = null;
+        selectedCandidateIdRef.current = null;
+        checkedDuplicateCandidateIdRef.current = null;
+        setSelectedCandidateId(null);
+        setCandidateDetail(null);
+        setCandidateDetailReviewContext(null);
+    }, [activePage]);
+
     useEffect(() => {
         if (activePage === "talent-pool" && !selectedCandidateId) {
             setTalentPoolCandidateDetailOpen(false);
@@ -14200,6 +14215,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         const allPositionCandidateCount = candidateScopeTotal;
         return (
             <CandidatesPage
+                pageActive={activePage === "candidates"}
                 permissions={{
                     manageCandidate: canManageCandidate,
                     executeProcess: canExecuteProcess,
@@ -14664,6 +14680,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             candidateProcessLogsExpanded, interviewRoundName, interviewCustomRequirements,
             interviewSkillSelectionDirty, selectedInterviewSkillIds,
             candidateDetailReviewContext,
+            activePage,
         ]
     );
 
