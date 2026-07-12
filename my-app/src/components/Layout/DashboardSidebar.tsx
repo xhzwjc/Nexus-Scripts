@@ -130,9 +130,9 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
         || permissions['recruitment-mail-sender-manage']
     );
     const canUseRecruitmentSettings = canUseSkillSettings || canUseModelSettings || canUseMailSettings;
-    const recruitmentSettingsTarget = canUseSkillSettings
-        ? 'settings-skills'
-        : (canUseModelSettings ? 'settings-models' : 'settings-mail');
+    const recruitmentSettingsTarget = canUseMailSettings
+        ? 'settings-mail'
+        : (canUseModelSettings ? 'settings-models' : 'settings-skills');
     const inRecruitmentView = currentView === 'ai-recruitment';
     const reviewWorkbenchLabel = canManageReview
         ? t.nav.aiRecruitmentReviewWorkbench

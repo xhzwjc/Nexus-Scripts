@@ -1,17 +1,12 @@
 "use client";
 
 import React from "react";
-import {Plus, Sparkles} from "lucide-react";
+import {Plus, Search, Sparkles} from "lucide-react";
 
 import type {RecruitmentSkill} from "@/lib/recruitment-api";
 import {useI18n} from "@/lib/i18n";
 import {cn} from "@/lib/utils";
-import {Badge} from "@/components/ui/badge";
 import {Button} from "@/components/ui/button";
-import {
-    Card,
-    CardContent,
-} from "@/components/ui/card";
 import {
     Dialog,
     DialogContent,
@@ -22,11 +17,10 @@ import {
 import {Input} from "@/components/ui/input";
 
 import {EmptyState, LoadingPanel} from "../components/SharedComponents";
-import {formatDateTime, shortText} from "../utils";
+import {formatDateTime, parseSkillContent, shortText} from "../utils";
 import type {SkillTaskKind} from "../types";
 
 type SkillSettingsPageProps = {
-    panelClass: string;
     skillsLoading: boolean;
     skills: RecruitmentSkill[];
     canManageSkill: boolean;
@@ -37,8 +31,13 @@ type SkillSettingsPageProps = {
     setSkillDeleteTarget: (skill: RecruitmentSkill) => void;
 };
 
+const taskTone: Record<string, string> = {
+    screening: "bg-[rgba(30,59,250,0.08)] text-[#1E3BFA]",
+    jd: "bg-[rgba(12,201,145,0.1)] text-[#0B9F75]",
+    interview: "bg-[rgba(255,171,36,0.12)] text-[#D48806]",
+};
+
 export function SkillSettingsPage({
-    panelClass,
     skillsLoading,
     skills,
     canManageSkill,
@@ -48,9 +47,10 @@ export function SkillSettingsPage({
     toggleSkill,
     setSkillDeleteTarget,
 }: SkillSettingsPageProps) {
-    const { t } = useI18n();
+    const {t, language} = useI18n();
+    const isZh = language === "zh-CN";
     const [query, setQuery] = React.useState("");
-    const [taskFilter, setTaskFilter] = React.useState<"all" | "jd" | "screening" | "interview">("all");
+    const [taskFilter, setTaskFilter] = React.useState<"all" | SkillTaskKind>("all");
     const [createDialogOpen, setCreateDialogOpen] = React.useState(false);
     const taskTypeLabels = React.useMemo<Record<SkillTaskKind, string>>(() => ({
         screening: t.recruitment.taskTypeScreening,
@@ -61,199 +61,153 @@ export function SkillSettingsPage({
         const normalizedQuery = query.trim().toLowerCase();
         return skills.filter((skill) => {
             const matchesTask = taskFilter === "all" || skill.task_types?.includes(taskFilter);
-            const haystack = [
-                skill.name,
-                skill.description,
-                skill.bound_position_title,
-                ...(skill.tags || []),
-            ]
+            const haystack = [skill.name, skill.description, skill.bound_position_title, ...(skill.tags || [])]
                 .filter(Boolean)
                 .join(" ")
                 .toLowerCase();
-            const matchesQuery = !normalizedQuery || haystack.includes(normalizedQuery);
-            return matchesTask && matchesQuery;
+            return matchesTask && (!normalizedQuery || haystack.includes(normalizedQuery));
         }).sort((left, right) => {
-            const leftTime = left.created_at ? new Date(left.created_at).getTime() : 0;
-            const rightTime = right.created_at ? new Date(right.created_at).getTime() : 0;
-            if (leftTime !== rightTime) {
-                return rightTime - leftTime;
-            }
-            return right.id - left.id;
+            const leftTime = new Date(left.updated_at || left.created_at || 0).getTime();
+            const rightTime = new Date(right.updated_at || right.created_at || 0).getTime();
+            return rightTime - leftTime || right.id - left.id;
         });
     }, [query, skills, taskFilter]);
     const createOptions = React.useMemo(() => ([
-        {
-            kind: "screening" as const,
-            title: t.recruitment.taskTypeScreening,
-            description: "进入维度配置流程，适合做初筛评分规则。",
-        },
-        {
-            kind: "jd" as const,
-            title: t.recruitment.taskTypeJd,
-            description: "使用轻量表单，快速维护 JD 分析方案。",
-        },
-        {
-            kind: "interview" as const,
-            title: t.recruitment.taskTypeInterview,
-            description: "使用轻量表单，快速维护面试题评估方案。",
-        },
-    ]), [t.recruitment.taskTypeInterview, t.recruitment.taskTypeJd, t.recruitment.taskTypeScreening]);
+        {kind: "screening" as const, title: isZh ? "初筛评估方案" : "Screening Assessment", description: isZh ? "用于简历初筛评分：维度、满分与硬性要求" : "Define scoring dimensions, weights, and hard requirements."},
+        {kind: "jd" as const, title: isZh ? "JD 分析方案" : "JD Analysis", description: isZh ? "约束 JD 生成的结构、语气与必备栏目" : "Guide the structure and tone of generated job descriptions."},
+        {kind: "interview" as const, title: isZh ? "面试题评估方案" : "Interview Question Plan", description: isZh ? "控制面试题模块划分与出题重点" : "Control interview question sections and evaluation focus."},
+    ]), [isZh]);
 
     return (
-        <div className="space-y-6">
-            <Card className={panelClass}>
-                <CardContent className="flex flex-wrap items-center justify-between gap-3 px-6 py-6">
-                    <div>
-                        <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{t.common.skillsBelongToAdminSettings || "Assessment plans belong to admin settings"}</p>
-                        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{t.common.skillsSettingsHint || "This entry lives inside management settings so the main workspace stays focused."}</p>
+        <section aria-labelledby="settings-skills-title">
+            <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
+                <div className="flex min-w-0 flex-wrap items-baseline gap-x-4 gap-y-1">
+                    <h1 id="settings-skills-title" className="text-[18px] font-semibold leading-7 text-[#0E1114] dark:text-white">
+                        {isZh ? "评估方案管理" : "Assessment Plan Management"}
+                    </h1>
+                    <p className="text-[12px] leading-5 text-[#B0B2B8] dark:text-slate-400">
+                        {isZh ? "管理员可以在这里维护招聘领域评估方案，供 AI 评估和题目生成使用。" : "Maintain reusable recruiting assessment plans for AI evaluation and question generation."}
+                    </p>
+                </div>
+                <div className="flex flex-1 flex-wrap items-center justify-end gap-3">
+                    <div className="relative w-full sm:w-[260px]">
+                        <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#B0B2B8]"/>
+                        <Input
+                            value={query}
+                            placeholder={isZh ? "搜索方案名称、岗位或标签" : "Search name, position, or tag"}
+                            className="h-9 rounded-[4px] border-[#E6E7EB] bg-white pl-9 text-[12px] shadow-none placeholder:text-[#B0B2B8] focus-visible:border-[#1E3BFA] focus-visible:ring-[#1E3BFA]/15"
+                            onChange={(event) => setQuery(event.target.value)}
+                        />
                     </div>
-                    <div className="flex gap-2">
-                        {canManageSkill && (
-                            <Button variant="outline" onClick={() => openSkillEditorWithAI(null)}>
-                                <Sparkles className="h-4 w-4"/>
-                                {`AI ${t.recruitment.taskTypeScreening}`}
-                            </Button>
-                        )}
-                        {canManageSkill && (
-                            <Button onClick={() => setCreateDialogOpen(true)}>
-                                <Plus className="h-4 w-4"/>
-                                {t.recruitment.newSkill}
-                            </Button>
-                        )}
-                    </div>
-                </CardContent>
-            </Card>
+                    <select
+                        aria-label={isZh ? "按方案类型筛选" : "Filter by plan type"}
+                        className="h-9 min-w-[140px] rounded-[4px] border border-[#E6E7EB] bg-white px-3 text-[12px] text-[#33353D] outline-none transition focus:border-[#1E3BFA] dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200"
+                        value={taskFilter}
+                        onChange={(event) => setTaskFilter(event.target.value as "all" | SkillTaskKind)}
+                    >
+                        <option value="all">{isZh ? "全部类型" : "All types"}</option>
+                        <option value="screening">{t.recruitment.taskTypeScreening}</option>
+                        <option value="jd">{t.recruitment.taskTypeJd}</option>
+                        <option value="interview">{t.recruitment.taskTypeInterview}</option>
+                    </select>
+                    {canManageSkill ? (
+                        <>
+                        <Button variant="outline" className="h-9 rounded-[6px] border-[#1E3BFA] bg-white px-4 text-[13px] font-normal text-[#0F23D9] shadow-none hover:bg-[rgba(30,59,250,0.05)]" onClick={() => openSkillEditorWithAI(null)}>
+                            <Sparkles className="h-3.5 w-3.5"/>
+                            {isZh ? "AI 生成" : "Generate with AI"}
+                        </Button>
+                        <Button className="h-9 rounded-[6px] bg-[#1E3BFA] px-4 text-[13px] font-normal text-white shadow-none hover:bg-[#0F23D9]" onClick={() => setCreateDialogOpen(true)}>
+                            <Plus className="h-3.5 w-3.5"/>
+                            {t.recruitment.newSkill}
+                        </Button>
+                        </>
+                    ) : null}
+                </div>
+            </div>
 
-            <Card className={panelClass}>
-                <CardContent className="space-y-3 px-6 py-5">
-                    <Input
-                        value={query}
-                        placeholder={t.common.search || "Search"}
-                        onChange={(event) => setQuery(event.target.value)}
-                    />
-                    <div className="flex flex-wrap gap-2">
-                        {([
-                            ["all", "All"],
-                            ["screening", t.recruitment.taskTypeScreening],
-                            ["jd", t.recruitment.taskTypeJd],
-                            ["interview", t.recruitment.taskTypeInterview],
-                        ] as const).map(([value, label]) => (
-                            <Button
-                                key={`skill-filter-${value}`}
-                                size="sm"
-                                variant={taskFilter === value ? "default" : "outline"}
-                                onClick={() => setTaskFilter(value)}
-                            >
-                                {label}
-                            </Button>
-                        ))}
-                    </div>
-                </CardContent>
-            </Card>
-
-            <Card className={panelClass}>
-                <CardContent className="px-0 py-0">
-                    {skillsLoading ? (
-                        <div className="px-6 py-10">
-                            <LoadingPanel label={t.common.loading}/>
-                        </div>
-                    ) : filteredSkills.length ? (
-                        <div>
-                            <div className="hidden grid-cols-[minmax(0,2.1fr)_0.9fr_1.1fr_0.9fr_1fr] gap-4 border-b border-slate-200/80 px-6 py-4 text-xs font-medium uppercase tracking-[0.18em] text-slate-500 dark:border-slate-800 dark:text-slate-400 lg:grid">
-                                <div>评估方案</div>
-                                <div>类型</div>
-                                <div>关联岗位</div>
-                                <div>创建时间</div>
-                                <div>操作</div>
-                            </div>
-                            <div className="divide-y divide-slate-200/80 dark:divide-slate-800">
-                                {filteredSkills.map((skill) => {
-                                    const previewTags = skill.tags.slice(0, 2);
-                                    const hiddenTagCount = Math.max(0, skill.tags.length - previewTags.length);
-                                    return (
-                                    <div key={skill.id} className="grid min-h-[116px] gap-4 px-6 py-5 lg:grid-cols-[minmax(0,2.1fr)_0.9fr_1.1fr_0.9fr_1fr] lg:items-center">
-                                        <div className="min-w-0 space-y-2">
-                                            <div className="flex flex-wrap items-center gap-2">
-                                                <p className="truncate text-base font-semibold text-slate-900 dark:text-slate-100">{skill.name}</p>
-                                                <Badge
-                                                    className={cn("rounded-full border", skill.is_enabled ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200" : "border-slate-200 bg-slate-100 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300")}>
-                                                    {skill.is_enabled ? t.recruitment.enabled : t.recruitment.disabled}
-                                                </Badge>
-                                            </div>
-                                            <p className="line-clamp-2 min-h-10 text-sm leading-5 text-slate-600 dark:text-slate-300">{shortText(skill.description || skill.content, 140)}</p>
-                                            {previewTags.length ? (
-                                                <div className="flex flex-wrap items-center gap-2">
-                                                    {previewTags.map((tag) => (
-                                                        <Badge key={tag} variant="outline" className="rounded-full">{tag}</Badge>
-                                                    ))}
-                                                    {hiddenTagCount > 0 ? (
-                                                        <span className="text-xs text-slate-400 dark:text-slate-500">{`+${hiddenTagCount}`}</span>
-                                                    ) : null}
-                                                </div>
-                                            ) : null}
-                                        </div>
-                                        <div className="flex flex-wrap gap-2">
-                                            {(skill.task_types || []).map((taskType) => (
-                                                <Badge key={`${skill.id}-${taskType}`} variant="outline" className="rounded-full">
-                                                    {taskTypeLabels[taskType as SkillTaskKind] || taskType}
-                                                </Badge>
+            {skillsLoading ? (
+                <div className="rounded-[8px] border border-[#EBEEF5] px-6 py-16 dark:border-slate-800">
+                    <LoadingPanel label={t.common.loading}/>
+                </div>
+            ) : filteredSkills.length ? (
+                <div className="grid gap-4 xl:grid-cols-2">
+                    {filteredSkills.map((skill) => {
+                        const taskTypes = (skill.task_types || []) as SkillTaskKind[];
+                        const parsedDimensions = taskTypes.includes("screening") ? parseSkillContent(skill.content).dimensions : undefined;
+                        const meta = [
+                            parsedDimensions?.length ? (isZh ? `维度 ${parsedDimensions.length}` : `${parsedDimensions.length} dimensions`) : null,
+                            skill.bound_position_title ? (isZh ? `岗位：${skill.bound_position_title}` : `Position: ${skill.bound_position_title}`) : null,
+                            `${isZh ? "更新于" : "Updated"} ${formatDateTime(skill.updated_at || skill.created_at)}`,
+                            skill.updated_by || skill.created_by || null,
+                        ].filter(Boolean).join(" · ");
+                        return (
+                            <article key={skill.id} className="flex min-h-[152px] flex-col rounded-[8px] border border-[#EBEEF5] bg-white px-5 py-4 shadow-none transition-colors hover:border-[#D6D8DD] dark:border-slate-800 dark:bg-slate-950">
+                                <div className="flex items-start justify-between gap-4">
+                                    <div className="min-w-0">
+                                        <div className="flex flex-wrap items-center gap-2">
+                                            <h2 className="truncate text-[14px] font-semibold leading-5 text-[#0E1114] dark:text-slate-100">{skill.name}</h2>
+                                            {taskTypes.map((taskType) => (
+                                                <span key={`${skill.id}-${taskType}`} className={cn("inline-flex h-[22px] items-center rounded-[4px] px-2 text-[11px]", taskTone[taskType] || "bg-[#F2F3F5] text-[#86888F]")}>{taskTypeLabels[taskType] || taskType}</span>
                                             ))}
                                         </div>
-                                        <div className="truncate text-sm text-slate-600 dark:text-slate-300">
-                                            {skill.bound_position_title || "通用方案"}
-                                        </div>
-                                        <div className="text-sm text-slate-500 dark:text-slate-400">
-                                            {formatDateTime(skill.created_at)}
-                                        </div>
-                                        <div className="flex flex-wrap gap-2">
-                                            {canManageSkill && (
-                                                <Button size="sm" variant="outline" onClick={() => openSkillEditor(skill)}>{t.common.edit}</Button>
-                                            )}
-                                            {canManageSkill && (
-                                                <Button size="sm" variant="outline" onClick={() => void toggleSkill(skill.id, !skill.is_enabled)}>
-                                                    {skill.is_enabled ? t.recruitment.disable : t.recruitment.enable}
-                                                </Button>
-                                            )}
-                                            {canManageSkill && (
-                                                <Button size="sm" variant="outline" onClick={() => setSkillDeleteTarget(skill)}>{t.common.delete}</Button>
-                                            )}
-                                        </div>
+                                        <p className="mt-1 line-clamp-2 text-[12px] leading-5 text-[#86888F] dark:text-slate-400">{shortText(skill.description || skill.content, 150)}</p>
                                     </div>
-                                )})}
-                            </div>
-                        </div>
-                    ) : (
-                        <div className="px-6 py-10">
-                            <EmptyState title={t.common.noSkills || "No Assessment Plans Yet"} description={t.common.skillsEmptyHint || "Admins can maintain assessment plans here for AI screening and interview question generation."}/>
-                        </div>
-                    )}
-                </CardContent>
-            </Card>
+                                    <span className={cn("inline-flex h-[22px] shrink-0 items-center rounded-[4px] px-2 text-[11px]", skill.is_enabled ? "bg-[rgba(12,201,145,0.1)] text-[#0B9F75]" : "bg-[#F2F3F5] text-[#86888F]")}>{skill.is_enabled ? t.recruitment.enabled : t.recruitment.disabled}</span>
+                                </div>
+
+                                {skill.tags.length ? (
+                                    <div className="mt-3 flex flex-wrap gap-2">
+                                        {skill.tags.map((tag) => <span key={`${skill.id}-${tag}`} className="inline-flex h-[22px] items-center rounded-[4px] bg-[rgba(30,59,250,0.06)] px-2 text-[11px] text-[#0F23D9]">{tag}</span>)}
+                                    </div>
+                                ) : null}
+
+                                <div className="mt-auto flex flex-wrap items-end justify-between gap-3 border-t border-[#F2F3F5] pt-3">
+                                    <p className="min-w-0 truncate text-[11px] leading-5 text-[#B0B2B8] dark:text-slate-500">{meta}</p>
+                                    {canManageSkill ? (
+                                        <div className="ml-auto flex shrink-0 items-center gap-4 text-[12px]">
+                                            <button type="button" className="text-[#0F23D9] hover:text-[#1E3BFA]" onClick={() => openSkillEditor(skill)}>{t.common.edit}</button>
+                                            <button type="button" className="text-[#0F23D9] hover:text-[#1E3BFA]" onClick={() => void toggleSkill(skill.id, !skill.is_enabled)}>{skill.is_enabled ? t.recruitment.disable : t.recruitment.enable}</button>
+                                            <button type="button" className="text-[#F53F3F] hover:text-[#D9363E]" onClick={() => setSkillDeleteTarget(skill)}>{t.common.delete}</button>
+                                        </div>
+                                    ) : null}
+                                </div>
+                            </article>
+                        );
+                    })}
+                </div>
+            ) : (
+                <div className="rounded-[8px] border border-[#EBEEF5] px-6 py-14 dark:border-slate-800">
+                    <EmptyState title={t.common.noSkills || "No Assessment Plans Yet"} description={query || taskFilter !== "all" ? (isZh ? "没有符合当前筛选条件的评估方案。" : "No assessment plans match the current filters.") : (t.common.skillsEmptyHint || "Admins can maintain assessment plans here for AI screening and interview question generation.")}/>
+                </div>
+            )}
 
             <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
-                <DialogContent className="sm:max-w-xl">
-                    <DialogHeader>
-                        <DialogTitle>选择评估方案类型</DialogTitle>
-                        <DialogDescription>初筛方案继续使用维度配置流程，JD 和面试题方案使用轻量表单。</DialogDescription>
+                <DialogContent className="gap-0 overflow-hidden rounded-[8px] border-[#EBEEF5] bg-white p-0 text-[#0E1114] shadow-[0_8px_24px_rgba(14,17,20,0.16)] sm:max-w-[560px] dark:border-[#EBEEF5] dark:bg-white dark:text-[#0E1114] [&_[data-slot=dialog-close]]:right-5 [&_[data-slot=dialog-close]]:top-[18px] [&_[data-slot=dialog-close]]:text-[#86888F]">
+                    <DialogHeader className="gap-1 border-b border-[#F2F3F5] px-6 pb-[14px] pr-14 pt-[18px] text-left">
+                        <DialogTitle className="text-[16px] font-semibold leading-5 text-[#0E1114]">{isZh ? "选择评估方案类型" : "Choose Assessment Plan Type"}</DialogTitle>
+                        <DialogDescription className="text-[12px] leading-5 text-[#86888F]">{isZh ? "不同类型的方案会注入到对应 AI 任务的提示词中" : "Each plan type is applied to its corresponding AI workflow."}</DialogDescription>
                     </DialogHeader>
-                    <div className="grid gap-3">
+                    <div className="grid gap-3 px-6 py-5">
                         {createOptions.map((option) => (
                             <button
                                 key={option.kind}
                                 type="button"
-                                className="rounded-2xl border border-slate-200/80 px-4 py-4 text-left transition hover:border-slate-400 dark:border-slate-800"
+                                className="flex min-h-[64px] items-center gap-3 rounded-[6px] border border-[#E6E7EB] px-4 py-3 text-left transition hover:border-[#1E3BFA] hover:bg-[rgba(30,59,250,0.025)]"
                                 onClick={() => {
                                     setCreateDialogOpen(false);
                                     openSkillEditorByTaskKind(option.kind);
                                 }}
                             >
-                                <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">{option.title}</div>
-                                <div className="mt-1 text-sm text-slate-500 dark:text-slate-400">{option.description}</div>
+                                <span className={cn("inline-flex h-[24px] shrink-0 items-center rounded-[4px] px-2 text-[11px]", taskTone[option.kind])}>{taskTypeLabels[option.kind]}</span>
+                                <span className="min-w-0">
+                                    <span className="block text-[13px] font-medium leading-5 text-[#0E1114]">{option.title}</span>
+                                    <span className="mt-0.5 block text-[11px] leading-[18px] text-[#86888F]">{option.description}</span>
+                                </span>
                             </button>
                         ))}
                     </div>
                 </DialogContent>
             </Dialog>
-        </div>
+        </section>
     );
 }

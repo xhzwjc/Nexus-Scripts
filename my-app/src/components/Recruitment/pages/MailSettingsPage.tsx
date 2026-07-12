@@ -13,27 +13,17 @@ import type {
 } from "@/lib/recruitment-api";
 import {useI18n} from "@/lib/i18n";
 import {cn} from "@/lib/utils";
-import {Badge} from "@/components/ui/badge";
 import {Button} from "@/components/ui/button";
-import {
-    Card,
-    CardContent,
-    CardDescription,
-    CardHeader,
-    CardTitle,
-} from "@/components/ui/card";
 
-import {EmptyState, InfoTile, LoadingPanel} from "../components/SharedComponents";
+import {EmptyState, LoadingPanel} from "../components/SharedComponents";
 import {
     formatLongDateTime,
     labelForCandidateStatus,
     labelForResumeMailDispatchStatus,
     shortText,
-    statusBadgeClass,
 } from "../utils";
 
 type MailSettingsPageProps = {
-    panelClass: string;
     mailSenderConfigs: RecruitmentMailSenderConfig[];
     mailRecipients: RecruitmentMailRecipient[];
     resumeMailDispatches: RecruitmentResumeMailDispatch[];
@@ -48,6 +38,7 @@ type MailSettingsPageProps = {
     selectedCandidateIds: number[];
     selectedCandidateId: number | null;
     canManageMailConfig: boolean;
+    canSendMail: boolean;
     openMailSenderEditor: (sender?: RecruitmentMailSenderConfig) => void;
     openMailRecipientEditor: (recipient?: RecruitmentMailRecipient) => void;
     openResumeMailDialog: () => void;
@@ -60,8 +51,10 @@ type MailSettingsPageProps = {
     refreshMailSettingsWithFeedback: () => Promise<void>;
 };
 
+const enabledTone = "bg-[rgba(12,201,145,0.1)] text-[#0B9F75]";
+const disabledTone = "bg-[#F2F3F5] text-[#86888F]";
+
 export function MailSettingsPage({
-    panelClass,
     mailSenderConfigs,
     mailRecipients,
     resumeMailDispatches,
@@ -76,6 +69,7 @@ export function MailSettingsPage({
     selectedCandidateIds,
     selectedCandidateId,
     canManageMailConfig,
+    canSendMail,
     openMailSenderEditor,
     openMailRecipientEditor,
     openResumeMailDialog,
@@ -87,254 +81,169 @@ export function MailSettingsPage({
     saveMailAutoPushGlobalConfig,
     refreshMailSettingsWithFeedback,
 }: MailSettingsPageProps) {
-    const { t, language } = useI18n();
+    const {t, language} = useI18n();
     const isZh = language === "zh-CN";
-    const hasMailData = mailSenderConfigs.length || mailRecipients.length || resumeMailDispatches.length;
+    const hasMailData = Boolean(mailSenderConfigs.length || mailRecipients.length || resumeMailDispatches.length);
     const selectedGlobalRecipientEmails = mailAutoPushGlobalConfig.global_default_recipient_ids
         .map((recipientId) => mailRecipientMap.get(recipientId)?.email || "")
         .filter(Boolean);
 
     if (mailSettingsLoading && !hasMailData) {
-        return <LoadingPanel label={t.common.loadingMailCenter || "Loading mail center"}/>;
+        return <div className="rounded-[8px] border border-[#EBEEF5] px-6 py-16 dark:border-slate-800"><LoadingPanel label={t.common.loadingMailCenter || "Loading mail center"}/></div>;
     }
 
     return (
-        <div className="space-y-6">
-            <Card className={panelClass}>
-                <CardContent className="flex flex-wrap items-center justify-between gap-3 px-6 py-6">
-                    <div>
-                        <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{t.common.mailConfigCenter || "Mail Configuration & Delivery Center"}</p>
-                        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{t.common.mailConfigHint || "Manage senders, recipients, and delivery logs in one place, and send resumes directly from the current candidate context."}</p>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                        <Button variant="outline" onClick={() => void refreshMailSettingsWithFeedback()} disabled={mailSettingsLoading}>
-                            {mailSettingsLoading ? <Loader2 className="h-4 w-4 animate-spin"/> : <RefreshCw className="h-4 w-4"/>}
-                            {mailSettingsLoading ? t.common.refreshing : t.recruitment.refreshMailSettings}
+        <section aria-labelledby="settings-mail-title">
+            <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
+                <div className="flex min-w-0 flex-wrap items-baseline gap-x-4 gap-y-1">
+                    <h1 id="settings-mail-title" className="text-[18px] font-semibold leading-7 text-[#0E1114] dark:text-white">{isZh ? "邮件配置与投递中心" : "Mail Configuration & Delivery"}</h1>
+                    <p className="text-[12px] leading-5 text-[#B0B2B8] dark:text-slate-400">{isZh ? "统一维护发件箱、收件人和发送记录，并支持从当前候选人上下文直接发简历。" : "Manage senders, recipients, and delivery records, and send resumes from the active candidate context."}</p>
+                </div>
+                <div className="flex shrink-0 flex-wrap items-center justify-end gap-3">
+                    <Button variant="outline" size="icon" title={t.recruitment.refreshMailSettings} aria-label={t.recruitment.refreshMailSettings} className="h-9 w-9 rounded-[6px] border-[#E6E7EB] bg-white text-[#33353D] shadow-none hover:border-[#1E3BFA] hover:bg-[#F7F8FA] hover:text-[#0F23D9]" onClick={() => void refreshMailSettingsWithFeedback()} disabled={mailSettingsLoading}>
+                        {mailSettingsLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin"/> : <RefreshCw className="h-3.5 w-3.5"/>}
+                    </Button>
+                    {canManageMailConfig ? (
+                        <>
+                            <Button variant="outline" className="h-9 rounded-[6px] border-[#1E3BFA] bg-white px-4 text-[13px] font-normal text-[#0F23D9] shadow-none hover:bg-[rgba(30,59,250,0.05)]" onClick={() => openMailSenderEditor()}><Plus className="h-3.5 w-3.5"/>{t.recruitment.newSender}</Button>
+                            <Button variant="outline" className="h-9 rounded-[6px] border-[#1E3BFA] bg-white px-4 text-[13px] font-normal text-[#0F23D9] shadow-none hover:bg-[rgba(30,59,250,0.05)]" onClick={() => openMailRecipientEditor()}><Plus className="h-3.5 w-3.5"/>{t.recruitment.newRecipient}</Button>
+                        </>
+                    ) : null}
+                    {canSendMail ? (
+                        <Button className="h-9 rounded-[6px] bg-[#1E3BFA] px-4 text-[13px] font-normal text-white shadow-none hover:bg-[#0F23D9]" onClick={openResumeMailDialog} disabled={!selectedCandidateIds.length && !selectedCandidateId} title={!selectedCandidateIds.length && !selectedCandidateId ? (isZh ? "请先在候选人页面选择候选人" : "Select a candidate first") : undefined}>
+                            <Send className="h-3.5 w-3.5"/>{t.recruitment.sendCurrentCandidate}
                         </Button>
-                        <Button
-                            variant="outline"
-                            onClick={() => openResumeMailDialog()}
-                            disabled={!selectedCandidateIds.length && !selectedCandidateId}
-                        >
-                            <Send className="h-4 w-4"/>
-                            {t.recruitment.sendCurrentCandidate}
-                        </Button>
-                        <Button variant="outline" onClick={() => openMailRecipientEditor()}>
-                            <Plus className="h-4 w-4"/>
-                            {t.recruitment.newRecipient}
-                        </Button>
-                        <Button onClick={() => openMailSenderEditor()}>
-                            <Plus className="h-4 w-4"/>
-                            {t.recruitment.newSender}
-                        </Button>
-                    </div>
-                </CardContent>
-            </Card>
-
-            <div className="grid gap-6 xl:grid-cols-2">
-                <Card className={panelClass}>
-                    <CardHeader>
-                        <CardTitle className="text-lg">{t.common.globalAutoSendDefaults || "Global Auto-Send Defaults"}</CardTitle>
-                        <CardDescription>{t.common.globalAutoSendHint || "Provide a default recipient pool that positions can reuse. It only sends when a position explicitly enables auto-send and opts into global recipients."}</CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                        <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
-                            <input
-                                type="checkbox"
-                                checked={mailAutoPushGlobalConfig.global_auto_push_enabled}
-                                disabled={!canManageMailConfig || mailAutoPushConfigSaving}
-                                onChange={(event) => setMailAutoPushGlobalConfig((current) => ({
-                                    ...current,
-                                    global_auto_push_enabled: event.target.checked,
-                                }))}
-                            />
-                            {t.common.enableSystemAutoSend || "Enable system-wide auto-send"}
-                        </label>
-                        <div className="space-y-2">
-                            <p className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">{t.common.globalDefaultRecipients || "Global Default Recipients"}</p>
-                            <div className="flex flex-wrap gap-2">
-                                {mailRecipients.filter((recipient) => recipient.is_enabled).length ? mailRecipients.filter((recipient) => recipient.is_enabled).map((recipient) => {
-                                    const selected = mailAutoPushGlobalConfig.global_default_recipient_ids.includes(recipient.id);
-                                    return (
-                                        <button
-                                            key={`global-mail-recipient-${recipient.id}`}
-                                            type="button"
-                                            disabled={!canManageMailConfig || mailAutoPushConfigSaving}
-                                            className={cn(
-                                                "rounded-full border px-3 py-2 text-xs transition disabled:cursor-not-allowed disabled:opacity-60",
-                                                selected
-                                                    ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
-                                                    : "border-slate-200 bg-white text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300",
-                                            )}
-                                            onClick={() => setMailAutoPushGlobalConfig((current) => ({
-                                                ...current,
-                                                global_default_recipient_ids: current.global_default_recipient_ids.includes(recipient.id)
-                                                    ? current.global_default_recipient_ids.filter((id) => id !== recipient.id)
-                                                    : [...current.global_default_recipient_ids, recipient.id],
-                                            }))}
-                                        >
-                                            {recipient.name}
-                                        </button>
-                                    );
-                                }) : <p className="text-sm text-slate-500 dark:text-slate-400">{t.recruitment.noRecipientsAvailable}</p>}
-                            </div>
-                        </div>
-                        <div className="flex items-center justify-between gap-3 rounded-2xl border border-dashed border-slate-200/80 px-4 py-3 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
-                            <span>{t.common.currentDefaultEmails || "Current default emails:"} {selectedGlobalRecipientEmails.length ? selectedGlobalRecipientEmails.join(isZh ? "、" : ", ") : (t.common.notSet || "Not set")}</span>
-                            <Button
-                                size="sm"
-                                onClick={() => void saveMailAutoPushGlobalConfig(mailAutoPushGlobalConfig)}
-                                disabled={!canManageMailConfig || mailAutoPushConfigSaving}
-                            >
-                                {mailAutoPushConfigSaving ? t.common.saving : t.common.saveDefaults || "Save Defaults"}
-                            </Button>
-                        </div>
-                    </CardContent>
-                </Card>
-
-                <Card className={panelClass}>
-                    <CardHeader>
-                        <CardTitle className="text-lg">{t.common.senders || "Senders"}</CardTitle>
-                        <CardDescription>{t.common.sendersHint || "Supports personal mailboxes, 163, Outlook, and later corporate mail. The default sender is preferred when sending resumes."}</CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                        {mailSenderConfigs.length ? mailSenderConfigs.map((sender) => (
-                            <div key={sender.id} className="rounded-2xl border border-slate-200/80 px-4 py-4 dark:border-slate-800">
-                                <div className="flex items-start justify-between gap-3">
-                                    <div>
-                                        <p className="font-medium text-slate-900 dark:text-slate-100">{sender.name}</p>
-                                        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{sender.from_name || sender.name} &lt;{sender.from_email}&gt;</p>
-                                    </div>
-                                    <div className="flex flex-wrap gap-2">
-                                        {sender.is_default ? <Badge className="rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200">{t.common.default || "Default"}</Badge> : null}
-                                        <Badge
-                                            className={cn("rounded-full border", sender.is_enabled ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200" : "border-slate-200 bg-slate-100 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300")}>
-                                            {sender.is_enabled ? t.recruitment.enabled : t.recruitment.disabled}
-                                        </Badge>
-                                    </div>
-                                </div>
-                                <div className="mt-3 grid gap-3 md:grid-cols-2">
-                                    <InfoTile label="SMTP" value={`${sender.smtp_host}:${sender.smtp_port}`}/>
-                                    <InfoTile label={t.common.username || "Username"} value={sender.username}/>
-                                </div>
-                                <div className="mt-4 flex flex-wrap gap-2">
-                                    <Button size="sm" variant="outline" onClick={() => openMailSenderEditor(sender)}>{t.common.edit}</Button>
-                                    <Button size="sm" variant="outline" onClick={() => setMailSenderDeleteTarget(sender)}>{t.common.delete}</Button>
-                                </div>
-                            </div>
-                        )) : <EmptyState title={t.common.noSenders || "No Senders"} description={t.common.noSendersHint || "Set up at least one sender before resumes can be sent to recruiters, interviewers, or hiring managers."}/>}
-                    </CardContent>
-                </Card>
-
-                <Card className={panelClass}>
-                    <CardHeader>
-                        <CardTitle className="text-lg">{t.common.recipients || "Recipients"}</CardTitle>
-                        <CardDescription>{t.common.recipientsHint || "Manage internal recipients in one place. Sending supports single-select, multi-select, and temporary external emails."}</CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                        {mailRecipients.length ? mailRecipients.map((recipient) => (
-                            <div key={recipient.id} className="rounded-2xl border border-slate-200/80 px-4 py-4 dark:border-slate-800">
-                                <div className="flex items-start justify-between gap-3">
-                                    <div>
-                                        <p className="font-medium text-slate-900 dark:text-slate-100">{recipient.name}</p>
-                                        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{recipient.email}</p>
-                                    </div>
-                                    <Badge
-                                        className={cn("rounded-full border", recipient.is_enabled ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200" : "border-slate-200 bg-slate-100 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300")}>
-                                        {recipient.is_enabled ? t.recruitment.selectable : t.recruitment.disabled}
-                                    </Badge>
-                                </div>
-                                <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
-                                    {recipient.department || (t.common.noDepartment || "No department")} / {recipient.role_title || (t.common.noRole || "No role")}
-                                </p>
-                                <div className="mt-3 flex flex-wrap gap-2">
-                                    {recipient.tags.map((tag) => (
-                                        <Badge key={tag} variant="outline" className="rounded-full">{tag}</Badge>
-                                    ))}
-                                </div>
-                                {recipient.notes ? <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">{recipient.notes}</p> : null}
-                                <div className="mt-4 flex flex-wrap gap-2">
-                                    <Button size="sm" variant="outline" onClick={() => openMailRecipientEditor(recipient)}>{t.common.edit}</Button>
-                                    <Button size="sm" variant="outline" onClick={() => setMailRecipientDeleteTarget(recipient)}>{t.common.delete}</Button>
-                                </div>
-                            </div>
-                        )) : <EmptyState title={t.common.noRecipients || "No Recipients"} description={t.common.noRecipientsHint || "Maintain the internal recipient list here so you can multi-select them when sending resumes."}/>}
-                    </CardContent>
-                </Card>
+                    ) : null}
+                </div>
             </div>
 
-            <Card className={panelClass}>
-                <CardHeader>
-                    <CardTitle className="text-lg">{t.common.deliveryRecords || "Delivery Records"}</CardTitle>
-                    <CardDescription>{t.common.deliveryRecordsHint || "Keep the sender, candidate, recipients, subject, and status for every resume delivery so you can trace what was sent."}</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                    {resumeMailDispatches.length ? resumeMailDispatches.map((dispatch) => {
-                        const recipientSummary = [
-                            ...dispatch.recipient_ids.map((recipientId) => mailRecipientMap.get(recipientId)?.name || `${t.common.recipient || "Recipient"} #${recipientId}`),
-                            ...dispatch.recipient_emails,
-                        ].join(isZh ? "、" : ", ");
-                        const candidateSummary = dispatch.candidate_ids
-                            .map((candidateId) => candidateMap.get(candidateId)?.name || `${t.common.candidate || "Candidate"} #${candidateId}`)
-                            .join(isZh ? "、" : ", ");
-                        const dispatchAction = `mail-dispatch-${dispatch.id}`;
-                        const isDispatchActing = mailDispatchActionKey === dispatchAction;
+            <div className="mb-5 rounded-[8px] border border-[#EBEEF5] bg-white px-5 py-4 shadow-none dark:border-slate-800 dark:bg-slate-950">
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div>
+                        <h2 className="text-[14px] font-semibold leading-5 text-[#0E1114] dark:text-slate-100">{isZh ? "全局自动推送默认配置" : "Global Auto-send Defaults"}</h2>
+                        <p className="mt-1 text-[12px] leading-5 text-[#B0B2B8] dark:text-slate-400">{isZh ? "提供岗位可选复用的默认收件池。只有岗位明确开启自动推送且勾选使用全局收件人时，才会实际发送。" : "Provide a default recipient pool for positions. Delivery only occurs when the position explicitly enables auto-send and uses global recipients."}</p>
+                    </div>
+                    {canManageMailConfig ? (
+                        <Button className="h-8 rounded-[6px] bg-[#1E3BFA] px-4 text-[12px] font-normal text-white shadow-none hover:bg-[#0F23D9]" onClick={() => void saveMailAutoPushGlobalConfig(mailAutoPushGlobalConfig)} disabled={mailAutoPushConfigSaving}>
+                            {mailAutoPushConfigSaving ? t.common.saving : (isZh ? "保存默认配置" : "Save defaults")}
+                        </Button>
+                    ) : null}
+                </div>
+                <div className="mt-3 flex flex-wrap items-center gap-x-8 gap-y-3">
+                    <button
+                        type="button"
+                        role="switch"
+                        aria-checked={mailAutoPushGlobalConfig.global_auto_push_enabled}
+                        disabled={!canManageMailConfig || mailAutoPushConfigSaving}
+                        className="inline-flex items-center gap-3 text-[12px] text-[#33353D] disabled:cursor-not-allowed disabled:opacity-60 dark:text-slate-300"
+                        onClick={() => setMailAutoPushGlobalConfig((current) => ({...current, global_auto_push_enabled: !current.global_auto_push_enabled}))}
+                    >
+                        <span className={cn("relative h-5 w-9 rounded-full transition-colors", mailAutoPushGlobalConfig.global_auto_push_enabled ? "bg-[#1E3BFA]" : "bg-[#D6D8DD]")}>
+                            <span className={cn("absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform", mailAutoPushGlobalConfig.global_auto_push_enabled ? "translate-x-[18px]" : "translate-x-0.5")}/>
+                        </span>
+                        {isZh ? "启用系统级自动推送能力" : "Enable system-wide auto-send"}
+                    </button>
+                    <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-[12px] text-[#86888F]">{isZh ? "默认收件人：" : "Default recipients:"}</span>
+                        {mailRecipients.filter((recipient) => recipient.is_enabled).length ? mailRecipients.filter((recipient) => recipient.is_enabled).map((recipient) => {
+                            const selected = mailAutoPushGlobalConfig.global_default_recipient_ids.includes(recipient.id);
+                            return (
+                                <button
+                                    key={`global-mail-recipient-${recipient.id}`}
+                                    type="button"
+                                    disabled={!canManageMailConfig || mailAutoPushConfigSaving}
+                                    className={cn("h-[26px] rounded-[4px] border px-2.5 text-[11px] transition disabled:cursor-not-allowed disabled:opacity-60", selected ? "border-[rgba(30,59,250,0.18)] bg-[rgba(30,59,250,0.07)] text-[#0F23D9]" : "border-[#E6E7EB] bg-white text-[#86888F] hover:border-[#1E3BFA]")}
+                                    onClick={() => setMailAutoPushGlobalConfig((current) => ({...current, global_default_recipient_ids: current.global_default_recipient_ids.includes(recipient.id) ? current.global_default_recipient_ids.filter((id) => id !== recipient.id) : [...current.global_default_recipient_ids, recipient.id]}))}
+                                >
+                                    {recipient.name}
+                                </button>
+                            );
+                        }) : <span className="text-[12px] text-[#B0B2B8]">{t.recruitment.noRecipientsAvailable}</span>}
+                    </div>
+                </div>
+                <p className="mt-2 text-[11px] leading-5 text-[#B0B2B8]">{isZh ? "当前默认邮箱：" : "Current default emails: "}{selectedGlobalRecipientEmails.length ? selectedGlobalRecipientEmails.join(isZh ? "、" : ", ") : (t.common.notSet || "Not set")}</p>
+            </div>
 
-                        return (
-                            <div key={dispatch.id} className="rounded-2xl border border-slate-200/80 px-4 py-4 dark:border-slate-800">
-                                <div className="flex flex-wrap items-start justify-between gap-3">
-                                    <div>
-                                        <p className="font-medium text-slate-900 dark:text-slate-100">{dispatch.subject || (t.common.noCustomSubject || "No custom subject (system default subject will be used)")}</p>
-                                        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                                            {mailSenderMap.get(dispatch.sender_config_id || 0)?.name || dispatch.sender_name || (t.common.defaultSender || "Default sender")} / {formatLongDateTime(dispatch.sent_at || dispatch.created_at)}
-                                        </p>
+            <div className="mb-5 grid gap-5 xl:grid-cols-2">
+                <div className="rounded-[8px] border border-[#EBEEF5] bg-white px-5 py-5 shadow-none dark:border-slate-800 dark:bg-slate-950 xl:min-h-[270px]">
+                    <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                        <h2 className="text-[14px] font-semibold text-[#0E1114] dark:text-slate-100">{isZh ? "发件箱" : "Senders"}</h2>
+                        <p className="text-[11px] text-[#B0B2B8]">{isZh ? "支持个人邮箱、163、Outlook，默认发件箱会作为简历发送时的首选。" : "Supports personal, 163, and Outlook mailboxes. The default sender is preferred."}</p>
+                    </div>
+                    <div className="mt-3 space-y-3">
+                        {mailSenderConfigs.length ? mailSenderConfigs.map((sender) => (
+                            <div key={sender.id} className="flex min-h-[64px] items-center justify-between gap-4 rounded-[6px] bg-[#F7F8FA] px-4 py-3 dark:bg-slate-900/60">
+                                <div className="min-w-0">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <p className="truncate text-[13px] font-medium text-[#0E1114] dark:text-slate-100">{sender.from_email}</p>
+                                        {sender.is_default ? <span className="inline-flex h-[20px] items-center rounded-[4px] bg-[rgba(30,59,250,0.08)] px-2 text-[10px] text-[#1E3BFA]">{t.common.default || "Default"}</span> : null}
+                                        {!sender.is_enabled ? <span className={cn("inline-flex h-[20px] items-center rounded-[4px] px-2 text-[10px]", disabledTone)}>{t.recruitment.disabled}</span> : null}
                                     </div>
-                                    <div className="flex flex-wrap gap-2">
-                                        <Badge variant="outline" className="rounded-full">
-                                            {dispatch.send_mode === "automatic" ? (t.common.automatic || "Automatic") : (t.common.manual || "Manual")}
-                                        </Badge>
-                                        {dispatch.trigger_type ? (
-                                            <Badge variant="outline" className="rounded-full">
-                                                {dispatch.trigger_type === "screening_completed" ? (t.common.triggerScreeningCompleted || "Trigger: screening completed") : dispatch.trigger_type}
-                                            </Badge>
-                                        ) : null}
-                                        <Badge className={cn("rounded-full border", statusBadgeClass("task", dispatch.status === "sent" ? "success" : dispatch.status))}>
-                                            {labelForResumeMailDispatchStatus(dispatch.status)}
-                                        </Badge>
-                                        {dispatch.status === "sent" ? <Badge variant="outline" className="rounded-full">{t.common.canResend || "Can Resend"}</Badge> : null}
-                                    </div>
+                                    <p className="mt-1 truncate text-[11px] text-[#B0B2B8]" title={`${sender.name} · ${sender.username} · ${sender.smtp_host}:${sender.smtp_port}`}>{sender.name} · {isZh ? "登录账号" : "Login"}：{sender.username} · SMTP {sender.smtp_host}:{sender.smtp_port}</p>
                                 </div>
-                                <div className="mt-3 grid gap-3 md:grid-cols-2">
-                                    <InfoTile label={t.common.candidates || "Candidates"} value={shortText(candidateSummary || (t.common.unrecorded || "Unrecorded"), 120)}/>
-                                    <InfoTile label={t.common.recipientsLabel || "Recipients"} value={shortText(recipientSummary || (t.common.unrecorded || "Unrecorded"), 120)}/>
-                                </div>
-                                <div className="mt-3 grid gap-3 md:grid-cols-2">
-                                    <InfoTile
-                                        label={t.common.sourcePosition || "Source Position"}
-                                        value={dispatch.position_id ? (positionMap.get(dispatch.position_id)?.title || `${t.common.position || "Position"} #${dispatch.position_id}`) : (t.common.noLinkedPosition || "No linked position")}
-                                    />
-                                    <InfoTile
-                                        label={t.common.triggerStatus || "Trigger Status"}
-                                        value={dispatch.candidate_status ? labelForCandidateStatus(dispatch.candidate_status) : (t.common.unrecorded || "Unrecorded")}
-                                    />
-                                </div>
-                                <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">{shortText(dispatch.body_text || (t.common.defaultEmailBodyHint || "When the body is blank, the system uses the default email template."), 180)}</p>
-                                {dispatch.error_message ? <p className="mt-3 text-sm text-rose-600 dark:text-rose-300">{dispatch.error_message}</p> : null}
-                                <div className="mt-4 flex flex-wrap gap-2">
-                                    {dispatch.status === "failed" ? (
-                                        <Button size="sm" variant="outline" onClick={() => void retryResumeMailDispatch(dispatch)} disabled={isDispatchActing}>
-                                            {isDispatchActing ? t.common.retrying : t.common.retryFailedSend}
-                                        </Button>
-                                    ) : null}
-                                    <Button size="sm" variant="outline" onClick={() => openResumeMailReplayDialog(dispatch)}>
-                                        {t.common.sendAgain || "Send Again"}
-                                    </Button>
-                                </div>
+                                {canManageMailConfig ? <div className="flex shrink-0 items-center gap-3 text-[12px]"><button type="button" className="text-[#0F23D9] hover:text-[#1E3BFA]" onClick={() => openMailSenderEditor(sender)}>{t.common.edit}</button><button type="button" className="text-[#F53F3F] hover:text-[#D9363E]" onClick={() => setMailSenderDeleteTarget(sender)}>{t.common.delete}</button></div> : null}
                             </div>
-                        );
-                    }) : <EmptyState title={t.common.noDeliveryRecords || "No Delivery Records"} description={t.common.noDeliveryRecordsHint || "After sending resumes from the candidate center, the full delivery audit trail will appear here."}/>}
-                </CardContent>
-            </Card>
-        </div>
+                        )) : <EmptyState title={t.common.noSenders || "No Senders"} description={t.common.noSendersHint || "Set up at least one sender before sending resumes."}/>}
+                    </div>
+                </div>
+
+                <div className="rounded-[8px] border border-[#EBEEF5] bg-white px-5 py-5 shadow-none dark:border-slate-800 dark:bg-slate-950 xl:min-h-[270px]">
+                    <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                        <h2 className="text-[14px] font-semibold text-[#0E1114] dark:text-slate-100">{isZh ? "收件人" : "Recipients"}</h2>
+                        <p className="text-[11px] text-[#B0B2B8]">{isZh ? "统一维护公司内部可选收件人，发送时支持单选、多选。" : "Maintain reusable internal recipients for single or multi-select sending."}</p>
+                    </div>
+                    <div className="mt-3 space-y-3">
+                        {mailRecipients.length ? mailRecipients.map((recipient) => (
+                            <div key={recipient.id} className="flex min-h-[64px] items-center justify-between gap-4 rounded-[6px] bg-[#F7F8FA] px-4 py-3 dark:bg-slate-900/60">
+                                <div className="min-w-0">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <p className="truncate text-[13px] font-medium text-[#0E1114] dark:text-slate-100">{recipient.name} · {recipient.email}</p>
+                                        {!recipient.is_enabled ? <span className={cn("inline-flex h-[20px] items-center rounded-[4px] px-2 text-[10px]", disabledTone)}>{t.recruitment.disabled}</span> : null}
+                                    </div>
+                                    <p className="mt-1 truncate text-[11px] text-[#B0B2B8]" title={[recipient.department, recipient.role_title, ...recipient.tags].filter(Boolean).join(" · ")}>{recipient.department || (t.common.noDepartment || "No department")} · {recipient.role_title || (t.common.noRole || "No role")}{recipient.tags.length ? ` · ${recipient.tags.join(isZh ? "、" : ", ")}` : ""}</p>
+                                </div>
+                                {canManageMailConfig ? <div className="flex shrink-0 items-center gap-3 text-[12px]"><button type="button" className="text-[#0F23D9] hover:text-[#1E3BFA]" onClick={() => openMailRecipientEditor(recipient)}>{t.common.edit}</button><button type="button" className="text-[#F53F3F] hover:text-[#D9363E]" onClick={() => setMailRecipientDeleteTarget(recipient)}>{t.common.delete}</button></div> : null}
+                            </div>
+                        )) : <EmptyState title={t.common.noRecipients || "No Recipients"} description={t.common.noRecipientsHint || "Maintain internal recipients for resume delivery."}/>}
+                    </div>
+                </div>
+            </div>
+
+            <div className="rounded-[8px] border border-[#EBEEF5] bg-white shadow-none dark:border-slate-800 dark:bg-slate-950">
+                <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-5 pb-3 pt-5">
+                    <h2 className="text-[14px] font-semibold text-[#0E1114] dark:text-slate-100">{isZh ? "发送记录" : "Delivery Records"}</h2>
+                    <p className="text-[11px] text-[#B0B2B8]">{isZh ? "保留每次简历发送的发件箱、候选人、收件人、主题和状态，便于追踪是否已送达。" : "Track the sender, candidates, recipients, subject, status, and delivery time for each send."}</p>
+                </div>
+                {resumeMailDispatches.length ? (
+                    <div className="overflow-x-auto">
+                        <table className="w-full min-w-[1120px] table-fixed text-left">
+                            <thead className="border-y border-[#EBEEF5] text-[11px] font-normal text-[#86888F] dark:border-slate-800 dark:text-slate-400">
+                                <tr className="h-10"><th className="w-[150px] px-5 font-normal">{isZh ? "发件箱" : "Sender"}</th><th className="w-[170px] px-4 font-normal">{isZh ? "候选人" : "Candidates"}</th><th className="w-[360px] px-4 font-normal">{isZh ? "收件人 / 主题" : "Recipients / Subject"}</th><th className="w-[160px] px-4 font-normal">{isZh ? "触发状态" : "Trigger"}</th><th className="w-[100px] px-4 font-normal">{isZh ? "状态" : "Status"}</th><th className="w-[150px] px-4 font-normal">{isZh ? "发送时间" : "Sent at"}</th><th className="px-4 font-normal">{isZh ? "操作" : "Actions"}</th></tr>
+                            </thead>
+                            <tbody className="divide-y divide-[#F2F3F5] dark:divide-slate-800">
+                                {resumeMailDispatches.map((dispatch) => {
+                                    const recipientSummary = [...dispatch.recipient_ids.map((recipientId) => mailRecipientMap.get(recipientId)?.name || `${t.common.recipient || "Recipient"} #${recipientId}`), ...dispatch.recipient_emails].join(isZh ? "、" : ", ");
+                                    const candidateSummary = dispatch.candidate_ids.map((candidateId) => candidateMap.get(candidateId)?.name || `${t.common.candidate || "Candidate"} #${candidateId}`).join(isZh ? "、" : ", ");
+                                    const dispatchAction = `mail-dispatch-${dispatch.id}`;
+                                    const isDispatchActing = mailDispatchActionKey === dispatchAction;
+                                    const statusSuccess = dispatch.status === "sent";
+                                    return (
+                                        <tr key={dispatch.id} className="h-[62px] text-[12px] text-[#33353D] hover:bg-[#F8F8F9] dark:text-slate-300 dark:hover:bg-slate-900/50">
+                                            <td className="px-5"><p className="truncate text-[#0E1114] dark:text-slate-100">{mailSenderMap.get(dispatch.sender_config_id || 0)?.from_email || dispatch.sender_name || (t.common.defaultSender || "Default sender")}</p></td>
+                                            <td className="px-4"><p className="truncate font-medium text-[#0F23D9]" title={candidateSummary}>{candidateSummary || (t.common.unrecorded || "-")}</p><p className="mt-0.5 truncate text-[11px] text-[#B0B2B8]">{dispatch.position_id ? positionMap.get(dispatch.position_id)?.title || `${t.common.position || "Position"} #${dispatch.position_id}` : (t.common.noLinkedPosition || "No linked position")}</p></td>
+                                            <td className="px-4"><p className="truncate text-[#0E1114] dark:text-slate-100" title={recipientSummary}>{recipientSummary || (t.common.unrecorded || "-")}</p><p className="mt-0.5 truncate text-[11px] text-[#B0B2B8]" title={dispatch.subject || ""}>{shortText(dispatch.subject || (t.common.noCustomSubject || "System default subject"), 100)}</p></td>
+                                            <td className="px-4"><p>{dispatch.trigger_type === "screening_completed" ? (t.common.triggerScreeningCompleted || "Trigger: screening completed") : dispatch.send_mode === "automatic" ? (t.common.automatic || "Automatic") : (t.common.manual || "Manual")}</p><p className="mt-0.5 truncate text-[11px] text-[#B0B2B8]">{dispatch.candidate_status ? labelForCandidateStatus(dispatch.candidate_status) : "-"}</p></td>
+                                            <td className="px-4"><span className={cn("inline-flex h-[22px] items-center rounded-[4px] px-2 text-[11px]", statusSuccess ? enabledTone : "bg-[rgba(245,63,63,0.08)] text-[#F53F3F]")}>{labelForResumeMailDispatchStatus(dispatch.status)}</span></td>
+                                            <td className="px-4 text-[#86888F]">{formatLongDateTime(dispatch.sent_at || dispatch.created_at)}</td>
+                                            <td className="px-4"><div className="flex items-center gap-3 whitespace-nowrap">{dispatch.status === "failed" ? <button type="button" className="text-[#F53F3F] hover:text-[#D9363E] disabled:opacity-50" onClick={() => void retryResumeMailDispatch(dispatch)} disabled={isDispatchActing}>{isDispatchActing ? t.common.retrying : t.common.retryFailedSend}</button> : null}{canSendMail ? <button type="button" className="text-[#0F23D9] hover:text-[#1E3BFA]" onClick={() => openResumeMailReplayDialog(dispatch)}>{t.common.sendAgain || "Send Again"}</button> : null}</div></td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                ) : <div className="px-6 py-14"><EmptyState title={t.common.noDeliveryRecords || "No Delivery Records"} description={t.common.noDeliveryRecordsHint || "Delivery records will appear here after a resume is sent."}/></div>}
+            </div>
+        </section>
     );
 }

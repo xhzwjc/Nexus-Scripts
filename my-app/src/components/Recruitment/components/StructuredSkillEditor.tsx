@@ -1,7 +1,7 @@
 "use client";
 
 import React, {useCallback, useEffect, useDeferredValue, useMemo, useRef, useState} from "react";
-import {ChevronDown, GripVertical, Pencil, Plus, Sparkles, Square, Trash2, X} from "lucide-react";
+import {GripVertical, Pencil, Plus, Sparkles, Square, Trash2, X} from "lucide-react";
 
 import type {ScreeningSkillDimension, ScreeningSkillFormData, SkillTaskKind} from "../types";
 import {
@@ -44,6 +44,7 @@ type StructuredSkillEditorProps = {
     positionId?: number | null;
     positionJdContent?: string | null;
     onGeneratedDirtyChange?: (dirty: boolean) => void;
+    bindingControl?: React.ReactNode;
 };
 
 /* ── Debounced text input: local state for typing, syncs to parent on blur ── */
@@ -274,9 +275,9 @@ const AiGeneratedContentPreview = React.memo(function AiGeneratedContentPreview(
     }, [content, scrollToLatest]);
 
     return (
-        <div className="mt-4 rounded-[8px] border border-[#EBEEF5] bg-white p-4 shadow-none dark:border-slate-800 dark:bg-slate-950/70">
+        <div className="mt-3 rounded-[6px] bg-[#F7F8FA] p-3 shadow-none">
             <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                <div className="flex items-center gap-2 text-[11px] text-[#86888F]">
                     <span className={cn(
                         "inline-flex h-2 w-2 rounded-full",
                         aiGenerating ? "animate-pulse bg-[#1E3BFA]" : "bg-emerald-500",
@@ -290,7 +291,7 @@ const AiGeneratedContentPreview = React.memo(function AiGeneratedContentPreview(
                 {autoFollowPaused ? (
                     <button
                         type="button"
-                        className="rounded-[6px] border border-[#1E3BFA]/25 bg-white px-2.5 py-1 text-xs font-medium text-[#0F23D9] transition hover:border-[#1E3BFA] hover:bg-[#1E3BFA]/5 dark:border-blue-900 dark:bg-slate-900 dark:text-blue-300"
+                        className="rounded-[4px] border border-[#1E3BFA]/25 bg-white px-2.5 py-1 text-[11px] font-medium text-[#0F23D9] transition hover:border-[#1E3BFA] hover:bg-[#1E3BFA]/5"
                         onClick={scrollToLatest}
                     >
                         {isZh ? "回到最新" : "Jump to latest"}
@@ -299,7 +300,7 @@ const AiGeneratedContentPreview = React.memo(function AiGeneratedContentPreview(
             </div>
             <div
                 ref={contentRef}
-                className="mt-3 max-h-[320px] min-h-[180px] overflow-y-auto whitespace-pre-wrap rounded-[6px] bg-[#F7F8FA] px-3 py-3 text-base leading-relaxed text-[#33353D] dark:bg-slate-900/70 dark:text-slate-200"
+                className="mt-2 max-h-[280px] min-h-[140px] overflow-y-auto whitespace-pre-wrap rounded-[4px] border border-[#EBEEF5] bg-white px-3 py-3 text-[12px] leading-6 text-[#33353D]"
                 onScroll={handleScroll}
             >
                 {content || (isZh ? "请稍候，实时内容将在这里继续更新..." : "Please wait. Live content will continue updating here...")}
@@ -310,7 +311,6 @@ const AiGeneratedContentPreview = React.memo(function AiGeneratedContentPreview(
 
 export function StructuredSkillEditor({
     initialData,
-    editingSkillId,
     onSubmit,
     onCancel,
     submitting,
@@ -322,6 +322,7 @@ export function StructuredSkillEditor({
     positionId,
     positionJdContent,
     onGeneratedDirtyChange,
+    bindingControl,
 }: StructuredSkillEditorProps) {
     const { t, language } = useI18n();
     const isZh = language === "zh-CN";
@@ -341,7 +342,6 @@ export function StructuredSkillEditor({
     const [aiExtraRequirements, setAiExtraRequirements] = useState("");
     const [aiGeneratedContent, setAiGeneratedContent] = useState("");
     const [aiAppliedNotice, setAiAppliedNotice] = useState<string | null>(null);
-    const [aiSettingsExpanded, setAiSettingsExpanded] = useState(true);
     const [hasReceivedFirstAiToken, setHasReceivedFirstAiToken] = useState(false);
     const [streamProgressVisible, setStreamProgressVisible] = useState(false);
     const [streamProgressPercent, setStreamProgressPercent] = useState(0);
@@ -496,7 +496,6 @@ export function StructuredSkillEditor({
         setStreamProgressPercent(0);
         setStreamEstimatedTotalChars(0);
         setStreamCompleted(false);
-        setAiSettingsExpanded(false);
         firstTokenReceivedRef.current = false;
         const result = await onGenerateAI(
             aiRoleName.trim(),
@@ -595,12 +594,19 @@ export function StructuredSkillEditor({
                 if (v === "advanced" && tab === "structured") handleSwitchToAdvanced();
                 setTab(v);
             }} className="flex flex-col flex-1 min-h-0">
+                <TabsList className="-mx-6 -mt-4 h-[53px] w-auto shrink-0 justify-start gap-2 rounded-none border-0 border-b border-[#F2F3F5] bg-transparent px-6 py-3">
+                    <TabsTrigger value="structured" className="h-8 flex-none rounded-[6px] border border-[#E6E7EB] bg-white px-4 py-1 text-[12px] font-normal text-[#33353D] shadow-none focus-visible:outline-none focus-visible:ring-[#1E3BFA]/15 data-[state=active]:border-[#1E3BFA] data-[state=active]:bg-[#1E3BFA] data-[state=active]:text-white data-[state=active]:shadow-none dark:bg-white dark:text-[#33353D] dark:data-[state=active]:bg-[#1E3BFA] dark:data-[state=active]:text-white">{t.recruitment.skillTabsStructured}</TabsTrigger>
+                    <TabsTrigger value="advanced" className="h-8 flex-none rounded-[6px] border border-[#E6E7EB] bg-white px-4 py-1 text-[12px] font-normal text-[#33353D] shadow-none focus-visible:outline-none focus-visible:ring-[#1E3BFA]/15 data-[state=active]:border-[#1E3BFA] data-[state=active]:bg-[#1E3BFA] data-[state=active]:text-white data-[state=active]:shadow-none dark:bg-white dark:text-[#33353D] dark:data-[state=active]:bg-[#1E3BFA] dark:data-[state=active]:text-white">{t.recruitment.skillTabsAdvanced}</TabsTrigger>
+                    <TabsTrigger value="ai" className="h-8 flex-none rounded-[6px] border border-[#E6E7EB] bg-white px-4 py-1 text-[12px] font-normal text-[#33353D] shadow-none focus-visible:outline-none focus-visible:ring-[#1E3BFA]/15 data-[state=active]:border-[#1E3BFA] data-[state=active]:bg-[#1E3BFA] data-[state=active]:text-white data-[state=active]:shadow-none dark:bg-white dark:text-[#33353D] dark:data-[state=active]:bg-[#1E3BFA] dark:data-[state=active]:text-white">{t.recruitment.skillTabsAi}</TabsTrigger>
+                </TabsList>
+
+                {bindingControl ? <div className="mt-4 shrink-0">{bindingControl}</div> : null}
                 {aiAppliedNotice ? (
-                    <div className="mb-2 flex items-center justify-between gap-3 rounded-[6px] border border-emerald-200 bg-emerald-50/70 px-3 py-1.5 text-sm text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/20 dark:text-emerald-200">
+                    <div className="mt-3 flex shrink-0 items-center justify-between gap-3 rounded-[6px] bg-[rgba(12,201,145,0.08)] px-3 py-2 text-[12px] text-[#0B9F75]">
                         <p className="truncate">{aiAppliedNotice}</p>
                         <button
                             type="button"
-                            className="shrink-0 rounded-[4px] p-0.5 text-emerald-700 transition hover:bg-emerald-100 dark:text-emerald-200 dark:hover:bg-emerald-900/40"
+                            className="shrink-0 rounded-[4px] p-0.5 text-[#0B9F75] transition hover:bg-[rgba(12,201,145,0.12)]"
                             onClick={() => setAiAppliedNotice(null)}
                             aria-label="Dismiss AI success notice"
                         >
@@ -608,30 +614,25 @@ export function StructuredSkillEditor({
                         </button>
                     </div>
                 ) : null}
-                <TabsList className="h-auto w-full shrink-0 justify-start rounded-none border-b border-[#F2F3F5] bg-transparent p-0">
-                    <TabsTrigger value="structured" className="rounded-none border-x-0 border-t-0 border-b-2 border-transparent px-4 py-2 shadow-none data-[state=active]:border-b-[#1E3BFA] data-[state=active]:bg-transparent data-[state=active]:text-[#0F23D9] data-[state=active]:shadow-none">{t.recruitment.skillTabsStructured}</TabsTrigger>
-                    <TabsTrigger value="advanced" className="rounded-none border-x-0 border-t-0 border-b-2 border-transparent px-4 py-2 shadow-none data-[state=active]:border-b-[#1E3BFA] data-[state=active]:bg-transparent data-[state=active]:text-[#0F23D9] data-[state=active]:shadow-none">{t.recruitment.skillTabsAdvanced}</TabsTrigger>
-                    <TabsTrigger value="ai" className="rounded-none border-x-0 border-t-0 border-b-2 border-transparent px-4 py-2 shadow-none data-[state=active]:border-b-[#1E3BFA] data-[state=active]:bg-transparent data-[state=active]:text-[#0F23D9] data-[state=active]:shadow-none">{t.recruitment.skillTabsAi}</TabsTrigger>
-                </TabsList>
 
-                <TabsContent value="structured" className="flex-1 min-h-0 overflow-y-auto pr-1 mt-3 space-y-5">
+                <TabsContent value="structured" className="mt-4 min-h-0 flex-1 space-y-4 overflow-y-auto pr-1 text-[12px]">
                     <div className="grid gap-4 md:grid-cols-2">
                         <div className="space-y-1.5">
-                            <Label>{t.recruitment.skillRoleName} {t.recruitment.required}</Label>
-                            <DebouncedInput value={form.roleName} onCommit={(v) => updateForm("roleName", v)} placeholder={t.recruitment.placeholderRoleName} />
+                            <Label className="text-[12px] font-normal text-[#33353D]">{t.recruitment.skillName} {t.recruitment.required}</Label>
+                            <DebouncedInput className="h-[34px] text-[12px]" value={form.name} onCommit={(v) => updateForm("name", v)} placeholder={t.recruitment.placeholderSkillName} />
                         </div>
                         <div className="space-y-1.5">
-                            <Label>{t.recruitment.skillName} {t.recruitment.required}</Label>
-                            <DebouncedInput value={form.name} onCommit={(v) => updateForm("name", v)} placeholder={t.recruitment.placeholderSkillName} />
+                            <Label className="text-[12px] font-normal text-[#33353D]">{t.recruitment.skillRoleName} {t.recruitment.required}</Label>
+                            <DebouncedInput className="h-[34px] text-[12px]" value={form.roleName} onCommit={(v) => updateForm("roleName", v)} placeholder={t.recruitment.placeholderRoleName} />
                         </div>
                     </div>
                     <div className="space-y-1.5">
-                        <Label>{t.recruitment.skillRoleBackground}</Label>
-                        <DebouncedTextarea value={form.roleBackground} onCommit={(v) => updateForm("roleBackground", v)} placeholder={t.recruitment.placeholderRoleBackground} rows={2} />
+                        <Label className="text-[12px] font-normal text-[#33353D]">{t.recruitment.skillRoleBackground}</Label>
+                        <DebouncedTextarea className="min-h-[54px] text-[12px] leading-5" value={form.roleBackground} onCommit={(v) => updateForm("roleBackground", v)} placeholder={t.recruitment.placeholderRoleBackground} rows={2} />
                     </div>
 
                     <div className="space-y-1.5">
-                        <Label>{t.recruitment.skillDimensions}</Label>
+                        <Label className="text-[12px] font-normal text-[#33353D]">{isZh ? "适用场景" : "Applies To"}</Label>
                         <div className="flex flex-wrap gap-2">
                             {([["jd", t.recruitment.taskTypeJd], ["screening", t.recruitment.taskTypeScreening], ["interview", t.recruitment.taskTypeInterview]] as const).map(([kind, label]) => (
                                 <button
@@ -649,30 +650,30 @@ export function StructuredSkillEditor({
                                 </button>
                             ))}
                         </div>
-                        <p className="text-xs text-slate-400">{t.recruitment.taskTypeHint}</p>
+                        <p className="text-[11px] text-[#B0B2B8]">{t.recruitment.taskTypeHint}</p>
                     </div>
 
-                    <Separator />
+                    <Separator className="bg-[#F2F3F5]" />
 
                     <div className="space-y-3">
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-3">
-                                <Label className="text-base font-semibold">{t.recruitment.skillDimensions}</Label>
-                                <span className="text-sm text-slate-500">{t.recruitment.skillDimensionsCount.replace('{count}', String(form.dimensions.length))}</span>
+                                <Label className="text-[13px] font-semibold text-[#0E1114]">{t.recruitment.skillDimensions}</Label>
+                                <span className="text-[11px] text-[#86888F]">{t.recruitment.skillDimensionsCount.replace('{count}', String(form.dimensions.length))}</span>
                             </div>
                             <div className="flex items-center gap-2">
-                                <Badge variant={deferredDimValidation.valid ? "default" : "destructive"} className="rounded-full">
+                                <Badge variant={deferredDimValidation.valid ? "default" : "destructive"} className={cn("h-[22px] rounded-[4px] px-2 text-[11px] font-normal shadow-none", deferredDimValidation.valid && "bg-[rgba(30,59,250,0.08)] text-[#1E3BFA] hover:bg-[rgba(30,59,250,0.08)]")}>
                                     {t.recruitment.totalScore} {deferredDimValidation.total.toFixed(1)} / 10.0
                                 </Badge>
                                 {!deferredDimValidation.valid && (
-                                    <span className="text-xs text-red-500">{deferredDimValidation.message}</span>
+                                    <span className="text-[11px] text-[#F53F3F]">{deferredDimValidation.message}</span>
                                 )}
                             </div>
                         </div>
 
-                        <div className="border rounded-lg overflow-hidden">
-                            <table className="w-full text-sm">
-                                <thead className="bg-slate-50 dark:bg-slate-900">
+                        <div className="overflow-hidden rounded-[6px] border border-[#EBEEF5]">
+                            <table className="w-full text-[12px]">
+                                <thead className="bg-[#F7F8FA] text-[#86888F]">
                                     <tr>
                                         <th className="w-8 px-2 py-2 text-center">{t.recruitment.skillDimensionIndex}</th>
                                         <th className="px-3 py-2 text-left">{t.recruitment.skillDimensionName}</th>
@@ -712,59 +713,61 @@ export function StructuredSkillEditor({
                                 </tbody>
                             </table>
                         </div>
-                        <Button variant="outline" size="sm" onClick={addDimension}>
+                        <Button variant="outline" size="sm" className="h-8 rounded-[6px] border-[#E6E7EB] px-3 text-[12px] font-normal text-[#0F23D9] shadow-none hover:border-[#1E3BFA] hover:bg-[#F7F8FA]" onClick={addDimension}>
                             <Plus className="h-4 w-4 mr-1" /> {t.recruitment.skillDimensionsAdd}
                         </Button>
                     </div>
 
-                    <Separator />
+                    <Separator className="bg-[#F2F3F5]" />
 
-                    <div className="space-y-1.5">
-                        <Label>{t.recruitment.skillHardRules}</Label>
-                        <DebouncedTextarea value={form.hardRules} onCommit={(v) => updateForm("hardRules", v)} placeholder={t.recruitment.skillHardRulesPlaceholder} rows={3} />
+                    <div className="grid gap-4 md:grid-cols-2">
+                        <div className="space-y-1.5">
+                            <Label className="text-[12px] font-normal text-[#33353D]">{t.recruitment.skillHardRules}</Label>
+                            <DebouncedTextarea className="min-h-[72px] text-[12px] leading-5" value={form.hardRules} onCommit={(v) => updateForm("hardRules", v)} placeholder={t.recruitment.skillHardRulesPlaceholder} rows={3} />
+                        </div>
+
+                        <div className="space-y-1.5">
+                            <Label className="text-[12px] font-normal text-[#33353D]">{t.recruitment.skillJudgmentRules}</Label>
+                            <DebouncedTextarea className="min-h-[72px] text-[12px] leading-5" value={form.judgmentRules} onCommit={(v) => updateForm("judgmentRules", v)} placeholder={t.recruitment.skillJudgmentRulesPlaceholder} rows={3} />
+                        </div>
                     </div>
 
-                    <div className="space-y-1.5">
-                        <Label>{t.recruitment.skillJudgmentRules}</Label>
-                        <DebouncedTextarea value={form.judgmentRules} onCommit={(v) => updateForm("judgmentRules", v)} placeholder={t.recruitment.skillJudgmentRulesPlaceholder} rows={2} />
-                    </div>
-
-                    <Separator />
+                    <Separator className="bg-[#F2F3F5]" />
 
                     <div className="grid gap-4 md:grid-cols-3">
                         <div className="space-y-1.5">
-                            <Label>{t.recruitment.skillDescription}</Label>
-                            <DebouncedInput value={form.description} onCommit={(v) => updateForm("description", v)} placeholder={t.recruitment.placeholderDescription} />
+                            <Label className="text-[12px] font-normal text-[#33353D]">{t.recruitment.skillDescription}</Label>
+                            <DebouncedInput className="h-[34px] text-[12px]" value={form.description} onCommit={(v) => updateForm("description", v)} placeholder={t.recruitment.placeholderDescription} />
                         </div>
                         <div className="space-y-1.5">
-                            <Label>{t.recruitment.skillTags}</Label>
-                            <DebouncedInput value={form.tagsText} onCommit={(v) => updateForm("tagsText", v)} placeholder={t.recruitment.placeholderTags} />
+                            <Label className="text-[12px] font-normal text-[#33353D]">{t.recruitment.skillTags}</Label>
+                            <DebouncedInput className="h-[34px] text-[12px]" value={form.tagsText} onCommit={(v) => updateForm("tagsText", v)} placeholder={t.recruitment.placeholderTags} />
                         </div>
                         <div className="space-y-1.5">
-                            <Label>{t.common.sortOrder}</Label>
-                            <DebouncedInput type="number" value={form.sortOrder} onCommit={(v) => updateForm("sortOrder", v)} />
+                            <Label className="text-[12px] font-normal text-[#33353D]">{t.common.sortOrder}</Label>
+                            <DebouncedInput className="h-[34px] text-[12px]" type="number" value={form.sortOrder} onCommit={(v) => updateForm("sortOrder", v)} />
                         </div>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 text-[12px] text-[#33353D]">
                         <Checkbox checked={form.isEnabled} onCheckedChange={(v) => updateForm("isEnabled", !!v)} />
                         <Label className="cursor-pointer">{t.recruitment.enabled}</Label>
                     </div>
                 </TabsContent>
 
-                <TabsContent value="advanced" className="flex-1 min-h-0 overflow-y-auto pr-1 mt-3 space-y-4">
-                    <p className="text-sm text-slate-500">{t.recruitment.skillAdvancedHint}</p>
+                <TabsContent value="advanced" className="mt-4 min-h-0 flex-1 space-y-4 overflow-y-auto pr-1 text-[12px]">
+                    <p className="rounded-[6px] bg-[rgba(30,59,250,0.05)] px-3 py-2.5 text-[12px] leading-5 text-[#33353D]">{t.recruitment.skillAdvancedHint}</p>
                     <div className="grid gap-4 md:grid-cols-2">
                         <div className="space-y-1.5">
-                            <Label>{t.recruitment.skillName} {t.recruitment.required}</Label>
-                            <DebouncedInput value={form.name} onCommit={(v) => updateForm("name", v)} />
+                            <Label className="text-[12px] font-normal text-[#33353D]">{t.recruitment.skillName} {t.recruitment.required}</Label>
+                            <DebouncedInput className="h-[34px] text-[12px]" value={form.name} onCommit={(v) => updateForm("name", v)} />
                         </div>
                         <div className="space-y-1.5">
-                            <Label>{t.recruitment.skillDescription}</Label>
-                            <DebouncedInput value={form.description} onCommit={(v) => updateForm("description", v)} />
+                            <Label className="text-[12px] font-normal text-[#33353D]">{t.recruitment.skillDescription}</Label>
+                            <DebouncedInput className="h-[34px] text-[12px]" value={form.description} onCommit={(v) => updateForm("description", v)} />
                         </div>
                     </div>
                     <div className="space-y-1.5">
-                        <Label>{t.recruitment.skillDimensions}</Label>
+                        <Label className="text-[12px] font-normal text-[#33353D]">{isZh ? "适用场景" : "Applies To"}</Label>
                         <div className="flex flex-wrap gap-2">
                             {([["jd", t.recruitment.taskTypeJd], ["screening", t.recruitment.taskTypeScreening], ["interview", t.recruitment.taskTypeInterview]] as const).map(([kind, label]) => (
                                 <button
@@ -784,17 +787,17 @@ export function StructuredSkillEditor({
                         </div>
                     </div>
                     <div className="space-y-1.5">
-                        <Label>{t.recruitment.skillContent} {t.recruitment.required}</Label>
-                        <Textarea value={advancedContent} onChange={(e) => setAdvancedContent(e.target.value)} className="min-h-[400px] rounded-[6px] border-[#D6D8DD] font-mono text-xs shadow-none focus-visible:border-[#1E3BFA] focus-visible:ring-[#1E3BFA]/15" />
+                        <Label className="text-[12px] font-normal text-[#33353D]">{t.recruitment.skillContent} {t.recruitment.required}</Label>
+                        <Textarea value={advancedContent} onChange={(e) => setAdvancedContent(e.target.value)} className="min-h-[360px] rounded-[6px] border-[#E6E7EB] bg-[#F7F8FA] px-4 py-3 font-mono text-[12px] leading-6 text-[#33353D] shadow-none focus-visible:border-[#1E3BFA] focus-visible:ring-[#1E3BFA]/15" />
                     </div>
                     <div className="grid gap-4 md:grid-cols-3">
                         <div className="space-y-1.5">
-                            <Label>{t.recruitment.skillTags}</Label>
-                            <DebouncedInput value={form.tagsText} onCommit={(v) => updateForm("tagsText", v)} />
+                            <Label className="text-[12px] font-normal text-[#33353D]">{t.recruitment.skillTags}</Label>
+                            <DebouncedInput className="h-[34px] text-[12px]" value={form.tagsText} onCommit={(v) => updateForm("tagsText", v)} />
                         </div>
                         <div className="space-y-1.5">
-                            <Label>{t.common.sortOrder}</Label>
-                            <DebouncedInput type="number" value={form.sortOrder} onCommit={(v) => updateForm("sortOrder", v)} />
+                            <Label className="text-[12px] font-normal text-[#33353D]">{t.common.sortOrder}</Label>
+                            <DebouncedInput className="h-[34px] text-[12px]" type="number" value={form.sortOrder} onCommit={(v) => updateForm("sortOrder", v)} />
                         </div>
                         <div className="flex items-end gap-2 pb-1.5">
                             <Checkbox checked={form.isEnabled} onCheckedChange={(v) => updateForm("isEnabled", !!v)} />
@@ -803,129 +806,86 @@ export function StructuredSkillEditor({
                     </div>
                 </TabsContent>
 
-                <TabsContent value="ai" className="flex-1 min-h-0 overflow-y-auto pr-1 mt-3 space-y-4">
-                    {showAiStreamingPhase && (
-                        <div className="overflow-hidden rounded-[8px] border border-[#EBEEF5] bg-white p-4 shadow-none dark:border-slate-800 dark:bg-slate-950/60">
-                            <div className="flex items-center justify-between gap-3">
-                                <div>
-                                    <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                                        {isZh ? "AI 生成结果" : "AI generated result"}
-                                    </p>
-                                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                                        {aiGenerating
-                                            ? (isZh ? "内容正在实时输出，可随时停止生成。" : "Streaming content live. You can stop generation at any time.")
-                                            : (isZh ? "内容已自动代入结构化编辑和高级模式，请检查后保存。" : "The content has been applied to structured and advanced modes. Review and save when ready.")}
-                                    </p>
-                                </div>
-                                {streamProgressVisible ? (
-                                    <div className="rounded-[6px] bg-[#1E3BFA]/5 px-3 py-1 text-xs font-medium text-[#0F23D9] shadow-none dark:bg-slate-900 dark:text-blue-300">
-                                        {streamProgressPercent}%
-                                    </div>
-                                ) : null}
-                            </div>
-                            {streamProgressVisible ? (
-                                <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-200/80 dark:bg-slate-800/80">
-                                    <div
-                                        className="h-full rounded-full bg-[#1E3BFA] transition-all duration-500"
-                                        style={{ width: `${streamProgressPercent}%` }}
-                                    />
-                                </div>
-                            ) : null}
-                            <AiGeneratedContentPreview
-                                content={aiGeneratedContent}
-                                aiGenerating={aiGenerating}
-                                isZh={isZh}
-                            />
-                        </div>
-                    )}
-                    <div className="rounded-[8px] border border-[#EBEEF5] bg-white p-4 shadow-none dark:border-slate-800 dark:bg-slate-950/60">
-                        <button
-                            type="button"
-                            className="flex w-full items-center justify-between gap-3 text-left"
-                            onClick={() => setAiSettingsExpanded((current) => !current)}
-                        >
-                            <span>
-                                <span className="block text-base font-semibold text-slate-900 dark:text-slate-100">
-                                    {showAiStreamingPhase ? (isZh ? "重新生成设置" : "Regeneration settings") : (isZh ? "AI 生成设置" : "AI generation settings")}
-                                </span>
-                                <span className="mt-1 block text-sm text-slate-500 dark:text-slate-400">
-                                    {aiSettingsExpanded
-                                        ? (isZh ? "填写岗位名称和补充要求。" : "Edit role name and extra requirements.")
-                                        : (isZh ? "已收起，展开后可修改要求或重新生成。" : "Collapsed. Expand to edit requirements or regenerate.")}
-                                </span>
-                            </span>
-                            <ChevronDown className={cn("h-4 w-4 text-slate-500 transition-transform", aiSettingsExpanded && "rotate-180")} />
-                        </button>
-                        {aiSettingsExpanded ? (
-                            <div className="mt-4 space-y-3">
-                                <div className="space-y-1.5">
-                                    <Label>{t.recruitment.skillRoleName} {t.recruitment.required}</Label>
-                                    <Input className="rounded-[6px] border-[#D6D8DD] shadow-none focus-visible:border-[#1E3BFA] focus-visible:ring-[#1E3BFA]/15" value={aiRoleName} onChange={(e) => setAiRoleName(e.target.value)} placeholder={t.recruitment.placeholderRoleName} />
-                                </div>
-                                <div className="space-y-1.5">
-                                    <Label>{t.recruitment.aiGenerationNotes}</Label>
-                                    <Textarea
-                                        className="rounded-[6px] border-[#D6D8DD] shadow-none focus-visible:border-[#1E3BFA] focus-visible:ring-[#1E3BFA]/15"
-                                        rows={showAiStreamingPhase ? 2 : 4}
-                                        value={aiExtraRequirements}
-                                        onChange={(e) => setAiExtraRequirements(e.target.value)}
-                                        placeholder={
-                                            positionId && positionJdContent
-                                                ? t.recruitment.aiGenerationNotesWithJD
-                                                : positionId
-                                                    ? t.recruitment.aiGenerationNotesNoJD
-                                                    : t.recruitment.aiGenerationNotesNoPosition
-                                        }
-                                    />
-                                </div>
-                                <div className="flex gap-2">
-                                    {aiGenerating ? (
-                                        <Button
-                                            variant="outline"
-                                            className="rounded-[6px] border-rose-300 bg-rose-50 text-rose-700 shadow-none hover:bg-rose-100 hover:text-rose-800 dark:border-rose-800 dark:bg-rose-950/30 dark:text-rose-200 dark:hover:bg-rose-950/50"
-                                            onClick={() => onStopGeneration?.()}
-                                        >
-                                            <Square className="h-4 w-4 mr-1" />
-                                            {isZh ? "停止生成" : "Stop"}
-                                        </Button>
-                                    ) : (
-                                        <Button className="rounded-[6px] bg-[#1E3BFA] text-white shadow-none hover:bg-[#0F23D9]" onClick={() => void handleGenerate()} disabled={!aiRoleName.trim()}>
-                                            <Sparkles className="h-4 w-4 ml-1" />
-                                            {showAiStreamingPhase ? (isZh ? "重新生成" : "Regenerate") : t.recruitment.aiGenerate}
-                                        </Button>
-                                    )}
-                                </div>
-                            </div>
-                        ) : null}
+                <TabsContent value="ai" className="mt-4 min-h-0 flex-1 space-y-4 overflow-y-auto pr-1 text-[12px]">
+                    <div className="rounded-[6px] bg-[rgba(30,59,250,0.05)] px-3 py-2.5 text-[12px] leading-5 text-[#33353D]">
+                        {isZh
+                            ? "描述岗位背景与考察重点，AI 将生成完整的维度结构；生成后可回到「结构化编辑」微调。"
+                            : "Describe the role and evaluation focus. AI will generate the full dimension structure for review in Structured Edit."}
+                    </div>
+                    <div className="space-y-1.5">
+                        <Label className="text-[12px] font-normal text-[#33353D]">{t.recruitment.skillRoleName} {t.recruitment.required}</Label>
+                        <Input
+                            className="h-[34px] rounded-[4px] border-[#E6E7EB] px-3 text-[12px] shadow-none placeholder:text-[#B0B2B8] focus-visible:border-[#1E3BFA] focus-visible:ring-[#1E3BFA]/15"
+                            value={aiRoleName}
+                            onChange={(e) => setAiRoleName(e.target.value)}
+                            placeholder={t.recruitment.placeholderRoleName}
+                        />
+                    </div>
+                    <div className="space-y-1.5">
+                        <Label className="text-[12px] font-normal text-[#33353D]">{t.recruitment.aiGenerationNotes}</Label>
+                        <Textarea
+                            className="min-h-[116px] resize-none rounded-[4px] border-[#E6E7EB] px-3 py-2.5 text-[12px] leading-5 shadow-none placeholder:text-[#B0B2B8] focus-visible:border-[#1E3BFA] focus-visible:ring-[#1E3BFA]/15"
+                            rows={5}
+                            value={aiExtraRequirements}
+                            onChange={(e) => setAiExtraRequirements(e.target.value)}
+                            placeholder={
+                                isZh
+                                    ? "例如：IoT 测试工程师，重点考察测试体系搭建、通信协议联调与 OTA 专项经验；OTA 经验为硬性要求，满分 10 分。"
+                                    : positionId && positionJdContent
+                                        ? t.recruitment.aiGenerationNotesWithJD
+                                        : positionId
+                                            ? t.recruitment.aiGenerationNotesNoJD
+                                            : t.recruitment.aiGenerationNotesNoPosition
+                            }
+                        />
+                    </div>
+                    <div className="flex justify-end">
+                        {aiGenerating ? (
+                            <Button
+                                variant="outline"
+                                className="h-8 rounded-[6px] border-[#F53F3F] bg-white px-3.5 text-[12px] font-normal text-[#F53F3F] shadow-none hover:bg-[rgba(245,63,63,0.05)] hover:text-[#D9363E]"
+                                onClick={() => onStopGeneration?.()}
+                            >
+                                <Square className="mr-1 h-3.5 w-3.5" />
+                                {isZh ? "停止生成" : "Stop"}
+                            </Button>
+                        ) : (
+                            <Button className="h-8 rounded-[6px] bg-[#1E3BFA] px-3.5 text-[12px] font-normal text-white shadow-none hover:bg-[#0F23D9]" onClick={() => void handleGenerate()} disabled={!aiRoleName.trim()}>
+                                <Sparkles className="mr-1 h-3.5 w-3.5" />
+                                {showAiStreamingPhase ? (isZh ? "重新生成方案" : "Regenerate plan") : (isZh ? "AI 生成方案" : "Generate with AI")}
+                            </Button>
+                        )}
                     </div>
                     {showAiWaitingPhase && (
-                        <div className="overflow-hidden rounded-[8px] border border-[#EBEEF5] bg-[#F7F8FA] p-4 shadow-none dark:border-slate-800 dark:bg-slate-950/60">
-                            <div className="flex items-start gap-4">
-                                <div className="relative mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-[6px] bg-[#1E3BFA]/5 shadow-none dark:bg-blue-950/30">
-                                    <span className="absolute inset-1 animate-pulse rounded-[5px] border border-[#1E3BFA]/20 dark:border-blue-800" />
-                                    <Sparkles className="relative h-5 w-5 text-[#1E3BFA] dark:text-blue-300" />
-                                </div>
-                                <div className="space-y-3">
-                                    <div>
-                                        <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{t.recruitment.aiGenerate}</p>
-                                        <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">{aiLoadingMessages[aiLoadingIndex]}</p>
-                                    </div>
-                                    <div className="grid gap-2 sm:grid-cols-2">
-                                        <div className="h-2.5 rounded-full bg-[#1E3BFA]/20 animate-pulse dark:bg-blue-900/70" />
-                                        <div className="h-2.5 rounded-full bg-[#1E3BFA]/10 animate-pulse dark:bg-slate-800/80" />
-                                        <div className="h-2.5 rounded-full bg-emerald-100/80 animate-pulse dark:bg-slate-800/80" />
-                                        <div className="h-2.5 rounded-full bg-slate-200/80 animate-pulse dark:bg-slate-800/80" />
-                                    </div>
-                                    <p className="text-xs text-slate-500 dark:text-slate-400">
-                                        {isZh ? "正在等待模型开始输出内容，生成开始后会立即在下方实时展示。" : "Waiting for the model to begin streaming. Live content will appear below as soon as the first token arrives."}
-                                    </p>
-                                </div>
+                        <div className="flex items-center gap-3 rounded-[6px] border border-[#EBEEF5] bg-[#F7F8FA] px-4 py-3">
+                            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[6px] bg-[rgba(30,59,250,0.08)]">
+                                <Sparkles className="h-4 w-4 animate-pulse text-[#1E3BFA]" />
+                            </span>
+                            <div>
+                                <p className="text-[12px] font-medium text-[#0E1114]">{t.recruitment.aiGenerate}</p>
+                                <p className="mt-0.5 text-[11px] text-[#86888F]">{aiLoadingMessages[aiLoadingIndex]}</p>
                             </div>
                         </div>
                     )}
-                    {!aiGeneratedContent && !aiGenerating && (
-                        <div className="rounded-[8px] border border-dashed border-[#EBEEF5] bg-[#F7F8FA] p-8 text-center text-[#86888F]">
-                            {t.recruitment.skillAiEmptyHint}
+                    {showAiStreamingPhase && (
+                        <div className="overflow-hidden rounded-[6px] border border-[#EBEEF5] bg-white p-4 shadow-none">
+                            <div className="flex items-center justify-between gap-3">
+                                <div>
+                                    <p className="text-[13px] font-semibold text-[#0E1114]">{isZh ? "AI 生成结果" : "AI generated result"}</p>
+                                    <p className="mt-1 text-[11px] text-[#86888F]">
+                                        {aiGenerating
+                                            ? (isZh ? "内容正在实时输出，可随时停止生成。" : "Streaming content live. You can stop generation at any time.")
+                                            : (isZh ? "已自动代入结构化编辑和高级模式，请检查后保存。" : "Applied to structured and advanced modes. Review before saving.")}
+                                    </p>
+                                </div>
+                                {streamProgressVisible ? <span className="rounded-[4px] bg-[rgba(30,59,250,0.08)] px-2 py-1 text-[11px] text-[#1E3BFA]">{streamProgressPercent}%</span> : null}
+                            </div>
+                            {streamProgressVisible ? (
+                                <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-[#F2F3F5]">
+                                    <div className="h-full rounded-full bg-[#1E3BFA] transition-all duration-500" style={{width: `${streamProgressPercent}%`}} />
+                                </div>
+                            ) : null}
+                            <AiGeneratedContentPreview content={aiGeneratedContent} aiGenerating={aiGenerating} isZh={isZh}/>
                         </div>
                     )}
                 </TabsContent>
@@ -935,10 +895,11 @@ export function StructuredSkillEditor({
                 <div className="mt-2 rounded-md bg-red-50 dark:bg-red-950/30 px-3 py-2 text-sm text-red-600 dark:text-red-400">{submitError}</div>
             )}
 
-            <div className="flex items-center justify-end gap-2 pt-3 border-t mt-3 shrink-0">
-                <Button variant="outline" className="rounded-[6px]" onClick={onCancel} disabled={submitting}>{t.common.cancel}</Button>
-                <Button className="rounded-[6px] bg-[#1E3BFA] text-white shadow-none hover:bg-[#0F23D9] disabled:bg-[#B0B2B8]" onClick={() => void handleSubmit()} disabled={submitting || !canSave}>
-                    {submitting ? t.common.saving : editingSkillId ? t.recruitment.skillUpdate : t.recruitment.skillCreate}
+            <div className="-mx-6 -mb-4 mt-3 flex h-16 shrink-0 items-center gap-3 border-t border-[#F2F3F5] px-6">
+                <span className="mr-auto text-[12px] text-[#86888F]">{isZh ? "保存后立即对绑定该方案的岗位生效" : "Changes apply immediately to positions bound to this plan."}</span>
+                <Button variant="outline" className="h-[34px] rounded-[6px] border-[#E6E7EB] bg-white px-[18px] text-[13px] font-normal text-[#33353D] shadow-none hover:border-[#1E3BFA] hover:bg-[#F7F8FA] hover:text-[#0F23D9]" onClick={onCancel} disabled={submitting}>{t.common.cancel}</Button>
+                <Button className="h-[34px] rounded-[6px] bg-[#1E3BFA] px-[18px] text-[13px] font-normal text-white shadow-none hover:bg-[#0F23D9] disabled:bg-[#B0B2B8]" onClick={() => void handleSubmit()} disabled={submitting || !canSave}>
+                    {submitting ? t.common.saving : isZh ? "保存方案" : "Save plan"}
                 </Button>
             </div>
         </div>

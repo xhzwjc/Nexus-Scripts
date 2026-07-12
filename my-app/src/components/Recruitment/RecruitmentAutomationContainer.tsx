@@ -241,6 +241,7 @@ import {
     recruitmentFormTextareaClass,
 } from "./components/RecruitmentForm";
 import {StructuredSkillEditor} from "./components/StructuredSkillEditor";
+import {SettingsPageLayout, type RecruitmentSettingsPage} from "./components/SettingsPageLayout";
 import {AssistantPage} from "./pages/AssistantPage";
 import {ModelSettingsPage} from "./pages/ModelSettingsPage";
 import {PositionsListPage} from "./pages/PositionsListPage";
@@ -252,6 +253,55 @@ function PageChunkLoading() {
         <div className="flex h-full min-h-[240px] items-center justify-center">
             <Loader2 className="h-5 w-5 animate-spin text-slate-400"/>
         </div>
+    );
+}
+
+const settingsDialogSurfaceClass = "gap-0 overflow-hidden rounded-[8px] border-[#EBEEF5] bg-white p-0 text-[#0E1114] shadow-[0_8px_24px_rgba(14,17,20,0.16)] dark:border-[#EBEEF5] dark:bg-white dark:text-[#0E1114] [&_[data-slot=dialog-close]]:right-6 [&_[data-slot=dialog-close]]:top-[18px] [&_[data-slot=dialog-close]]:rounded-[4px] [&_[data-slot=dialog-close]]:text-[#86888F] [&_[data-slot=dialog-close]]:opacity-100 [&_[data-slot=dialog-close][data-state=open]]:bg-transparent [&_[data-slot=dialog-close][data-state=open]]:text-[#86888F] [&_[data-slot=dialog-close]]:hover:bg-[#F7F8FA] [&_[data-slot=dialog-close]]:hover:text-[#0E1114]";
+const settingsDialogHeaderClass = "shrink-0 gap-1 border-b border-[#F2F3F5] px-6 pb-[14px] pr-14 pt-[18px] text-left";
+const settingsDialogFooterClass = "h-16 shrink-0 items-center gap-3 border-t border-[#F2F3F5] px-6 sm:justify-end";
+const settingsSecondaryButtonClass = "h-[34px] rounded-[6px] border-[#E6E7EB] bg-white px-[18px] text-[13px] font-normal text-[#33353D] shadow-none hover:border-[#1E3BFA] hover:bg-[#F7F8FA] hover:text-[#0F23D9] focus-visible:outline-none focus-visible:ring-0 dark:border-[#E6E7EB] dark:bg-white dark:text-[#33353D]";
+const settingsPrimaryButtonClass = "h-[34px] rounded-[6px] bg-[#1E3BFA] px-[18px] text-[13px] font-normal text-white shadow-none hover:bg-[#0F23D9] focus-visible:outline-none focus-visible:ring-0 dark:bg-[#1E3BFA] dark:text-white dark:hover:bg-[#0F23D9]";
+const settingsDangerButtonClass = "h-[34px] rounded-[6px] bg-[#F53F3F] px-[18px] text-[13px] font-normal text-white shadow-none hover:bg-[#D9363E] focus-visible:outline-none focus-visible:ring-0 dark:bg-[#F53F3F] dark:text-white dark:hover:bg-[#D9363E]";
+const settingsInputClass = "h-[34px] rounded-[4px] border-[#E6E7EB] bg-white px-3 text-[12px] text-[#0E1114] shadow-none placeholder:text-[#B0B2B8] focus-visible:border-[#1E3BFA] focus-visible:ring-2 focus-visible:ring-[#1E3BFA]/15 dark:border-[#E6E7EB] dark:bg-white dark:text-[#0E1114] dark:placeholder:text-[#B0B2B8]";
+const settingsTextareaClass = "rounded-[4px] border-[#E6E7EB] bg-white px-3 py-2.5 text-[12px] leading-5 text-[#0E1114] shadow-none placeholder:text-[#B0B2B8] focus-visible:border-[#1E3BFA] focus-visible:ring-2 focus-visible:ring-[#1E3BFA]/15 dark:border-[#E6E7EB] dark:bg-white dark:text-[#0E1114] dark:placeholder:text-[#B0B2B8]";
+
+function SettingsDeleteDialog({
+    open,
+    title,
+    description,
+    cancelText,
+    confirmText,
+    busy,
+    onCancel,
+    onConfirm,
+}: {
+    open: boolean;
+    title: string;
+    description: string;
+    cancelText: string;
+    confirmText: string;
+    busy: boolean;
+    onCancel: () => void;
+    onConfirm: () => void;
+}) {
+    return (
+        <Dialog open={open} onOpenChange={(nextOpen) => {
+            if (!nextOpen && !busy) onCancel();
+        }}>
+            <DialogContent className={cn(settingsDialogSurfaceClass, "sm:max-w-[420px]")}>
+                <DialogHeader className={settingsDialogHeaderClass}>
+                    <div className="mb-2 flex h-8 w-8 items-center justify-center rounded-full bg-[rgba(245,63,63,0.08)] text-[#F53F3F]">
+                        <Trash2 className="h-4 w-4"/>
+                    </div>
+                    <DialogTitle className="text-[16px] font-semibold leading-5 text-[#0E1114]">{title}</DialogTitle>
+                    <DialogDescription className="pt-1 text-[12px] leading-5 text-[#86888F]">{description}</DialogDescription>
+                </DialogHeader>
+                <DialogFooter className={settingsDialogFooterClass}>
+                    <Button variant="outline" className={settingsSecondaryButtonClass} onClick={onCancel} disabled={busy}>{cancelText}</Button>
+                    <Button variant="destructive" className={settingsDangerButtonClass} onClick={onConfirm} disabled={busy}>{confirmText}</Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
     );
 }
 
@@ -2238,6 +2288,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     }, []);
 
     const [activePage, setActivePage] = useState<RecruitmentPage>(initialPage || "workspace");
+    const isSettingsPage = activePage === "settings-mail" || activePage === "settings-models" || activePage === "settings-skills";
     const activePageRef = useRef<RecruitmentPage>(initialPage || "workspace");
     // 记录访问过的 keep-alive 页面：candidates/positions/audit 首次访问后才挂载（挂载后保持,以保留滚动位置与选中状态）
     const visitedKeepAlivePagesRef = useRef<Set<RecruitmentPage>>(new Set([initialPage || "workspace"]));
@@ -4274,10 +4325,10 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     }, [activePage]);
 
     useEffect(() => {
-        if (activePage === "settings-models" && canManageLLMConfig) {
+        if (activePage === "settings-models" && (canViewLLMConfig || canManageLLMConfig)) {
             void ensureLLMConfigsLoaded();
         }
-    }, [activePage, canManageLLMConfig]);
+    }, [activePage, canManageLLMConfig, canViewLLMConfig]);
 
     const scrollCandidateListToTop = useCallback(() => {
         const viewport = resolveScrollAreaViewport(candidateListScrollElRef.current);
@@ -11693,7 +11744,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         setSkillForm(nextSkillForm);
         setSkillEditorData(nextEditorData);
         setSkillDialogMode(taskKind === "screening" ? "structured" : "basic");
-        setSkillEditorDefaultTab(taskKind === "screening" ? "ai" : "advanced");
+        setSkillEditorDefaultTab(taskKind === "screening" ? "structured" : "advanced");
         setSkillEditorPositionId(null);
         setSkillAutoBindCategory(null);
         setSkillAutoBindDestination("positionForm");
@@ -11708,9 +11759,13 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
 
     function openSkillEditorWithAI(boundPositionId: number | null = null) {
         void ensureSkillsLoaded();
+        const nextSkillForm = emptySkillForm();
+        nextSkillForm.taskTypes = ["screening"];
+        const nextEditorData = emptyScreeningSkillForm();
+        nextEditorData.taskTypes = ["screening"];
         setSkillEditingId(null);
-        setSkillForm(emptySkillForm());
-        setSkillEditorData(emptyScreeningSkillForm());
+        setSkillForm(nextSkillForm);
+        setSkillEditorData(nextEditorData);
         setSkillDialogMode("structured");
         setSkillEditorDefaultTab("ai");
         setSkillEditorPositionId(boundPositionId);
@@ -14567,7 +14622,6 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     function renderSkillsPage() {
         return (
             <SkillSettingsPage
-                panelClass={panelClass}
                 skillsLoading={skillsLoading}
                 skills={skills}
                 canManageSkill={canManageSkill}
@@ -14583,7 +14637,6 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     function renderModelsPage() {
         return (
             <ModelSettingsPage
-                panelClass={panelClass}
                 llmConfigs={llmConfigs}
                 modelsLoading={modelsLoading}
                 canManageLLMConfig={canManageLLMConfig}
@@ -14602,7 +14655,6 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     function renderMailSettingsPage() {
         return (
             <MailSettingsPage
-                panelClass={panelClass}
                 mailSenderConfigs={mailSenderConfigs}
                 mailRecipients={mailRecipients}
                 resumeMailDispatches={resumeMailDispatches}
@@ -14617,6 +14669,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 selectedCandidateIds={selectedCandidateIds}
                 selectedCandidateId={selectedCandidateId}
                 canManageMailConfig={canManageMailConfig}
+                canSendMail={canSendMail}
                 openMailSenderEditor={openMailSenderEditor}
                 openMailRecipientEditor={openMailRecipientEditor}
                 openResumeMailDialog={openResumeMailDialog}
@@ -14756,7 +14809,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     return (
         <div
             className="relative flex h-full min-h-0 flex-col overflow-hidden bg-[var(--tr-page)] text-[var(--tr-ink)] dark:text-slate-300">
-            {activePage !== "workspace" && activePage !== "positions" && activePage !== "candidates" && activePage !== "talent-pool" && activePage !== "interviews" && activePage !== "review-workbench" ? <div
+            {activePage !== "workspace" && activePage !== "positions" && activePage !== "candidates" && activePage !== "talent-pool" && activePage !== "interviews" && activePage !== "review-workbench" && !isSettingsPage ? <div
                 className="shrink-0 border-b border-[var(--tr-border)] bg-white dark:border-slate-800 dark:bg-slate-950">
                 <div className="flex min-h-[62px] flex-wrap items-center justify-between gap-2 px-5 py-3 2xl:px-6">
                     <div className="flex min-w-0 items-center gap-2.5">
@@ -14858,21 +14911,21 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                             {renderWorkspacePage()}
                         </ScrollArea>
                     )}
-                    {activePage === "settings-skills" && (
-                        <ScrollArea className="h-full">
-                            <div className="p-4 lg:p-5 2xl:p-6">{renderSkillsPage()}</div>
+                    {isSettingsPage ? (
+                        <ScrollArea className="h-full bg-white dark:bg-slate-950">
+                            <SettingsPageLayout
+                                activePage={activePage as RecruitmentSettingsPage}
+                                canAccessMail={canViewMail || canManageMailConfig}
+                                canAccessModels={canViewLLMConfig || canManageLLMConfig}
+                                canAccessSkills={canViewSkill || canManageSkill}
+                                onNavigate={(page) => applyRecruitmentPageChange(page)}
+                            >
+                                {activePage === "settings-mail" ? renderMailSettingsPage() : null}
+                                {activePage === "settings-models" ? renderModelsPage() : null}
+                                {activePage === "settings-skills" ? renderSkillsPage() : null}
+                            </SettingsPageLayout>
                         </ScrollArea>
-                    )}
-                    {activePage === "settings-models" && (
-                        <ScrollArea className="h-full">
-                            <div className="p-4 lg:p-5 2xl:p-6">{renderModelsPage()}</div>
-                        </ScrollArea>
-                    )}
-                    {activePage === "settings-mail" && (
-                        <ScrollArea className="h-full">
-                            <div className="p-4 lg:p-5 2xl:p-6">{renderMailSettingsPage()}</div>
-                        </ScrollArea>
-                    )}
+                    ) : null}
                 </div>
 
             {orgSwitching && (
@@ -15459,85 +15512,49 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 </DialogContent>
             </Dialog>
 
-            <Dialog open={Boolean(llmDeleteTarget)} onOpenChange={(open) => {
-                if (!open) setLlmDeleteTarget(null);
-            }}>
-                <DialogContent className="sm:max-w-md">
-                    <DialogHeader>
-                        <DialogTitle>{recruitmentUiText.llmDeleteTitle}</DialogTitle>
-                        <DialogDescription>{recruitmentUiText.llmDeleteDescription}</DialogDescription>
-                    </DialogHeader>
-                    <DialogFooter>
-                        <Button variant="outline" onClick={() => setLlmDeleteTarget(null)}
-                                disabled={deleteActionKey === `llm-${llmDeleteTarget?.id}`}>{recruitmentUiText.cancel}</Button>
-                        <Button variant="destructive"
-                                onClick={() => llmDeleteTarget && void deleteLLMConfig(llmDeleteTarget.id)}
-                                disabled={deleteActionKey === `llm-${llmDeleteTarget?.id}`}>
-                            {deleteActionKey === `llm-${llmDeleteTarget?.id}` ? recruitmentUiText.deleting : recruitmentUiText.confirmDelete}
-                        </Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
+            <SettingsDeleteDialog
+                open={Boolean(llmDeleteTarget)}
+                title={recruitmentUiText.llmDeleteTitle}
+                description={recruitmentUiText.llmDeleteDescription}
+                cancelText={recruitmentUiText.cancel}
+                confirmText={deleteActionKey === `llm-${llmDeleteTarget?.id}` ? recruitmentUiText.deleting : recruitmentUiText.confirmDelete}
+                busy={deleteActionKey === `llm-${llmDeleteTarget?.id}`}
+                onCancel={() => setLlmDeleteTarget(null)}
+                onConfirm={() => llmDeleteTarget && void deleteLLMConfig(llmDeleteTarget.id)}
+            />
 
-            <Dialog open={Boolean(skillDeleteTarget)} onOpenChange={(open) => {
-                if (!open) setSkillDeleteTarget(null);
-            }}>
-                <DialogContent className="sm:max-w-md">
-                    <DialogHeader>
-                        <DialogTitle>{recruitmentUiText.skillDeleteTitle}</DialogTitle>
-                        <DialogDescription>{recruitmentUiText.skillDeleteDescription}</DialogDescription>
-                    </DialogHeader>
-                    <DialogFooter>
-                        <Button variant="outline" onClick={() => setSkillDeleteTarget(null)}
-                                disabled={deleteActionKey === `skill-${skillDeleteTarget?.id}`}>{recruitmentUiText.cancel}</Button>
-                        <Button variant="destructive"
-                                onClick={() => skillDeleteTarget && void deleteSkill(skillDeleteTarget.id)}
-                                disabled={deleteActionKey === `skill-${skillDeleteTarget?.id}`}>
-                            {deleteActionKey === `skill-${skillDeleteTarget?.id}` ? recruitmentUiText.deleting : recruitmentUiText.confirmDelete}
-                        </Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
+            <SettingsDeleteDialog
+                open={Boolean(skillDeleteTarget)}
+                title={recruitmentUiText.skillDeleteTitle}
+                description={recruitmentUiText.skillDeleteDescription}
+                cancelText={recruitmentUiText.cancel}
+                confirmText={deleteActionKey === `skill-${skillDeleteTarget?.id}` ? recruitmentUiText.deleting : recruitmentUiText.confirmDelete}
+                busy={deleteActionKey === `skill-${skillDeleteTarget?.id}`}
+                onCancel={() => setSkillDeleteTarget(null)}
+                onConfirm={() => skillDeleteTarget && void deleteSkill(skillDeleteTarget.id)}
+            />
 
-            <Dialog open={Boolean(mailSenderDeleteTarget)} onOpenChange={(open) => {
-                if (!open) setMailSenderDeleteTarget(null);
-            }}>
-                <DialogContent className="sm:max-w-md">
-                    <DialogHeader>
-                        <DialogTitle>{recruitmentUiText.confirmDeleteMailSender}</DialogTitle>
-                        <DialogDescription>{recruitmentUiText.mailSenderDeleteDescription}</DialogDescription>
-                    </DialogHeader>
-                    <DialogFooter>
-                        <Button variant="outline" onClick={() => setMailSenderDeleteTarget(null)}
-                                disabled={deleteActionKey === `mail-sender-${mailSenderDeleteTarget?.id}`}>{recruitmentUiText.cancelButton}</Button>
-                        <Button variant="destructive"
-                                onClick={() => mailSenderDeleteTarget && void deleteMailSender(mailSenderDeleteTarget.id)}
-                                disabled={deleteActionKey === `mail-sender-${mailSenderDeleteTarget?.id}`}>
-                            {deleteActionKey === `mail-sender-${mailSenderDeleteTarget?.id}` ? recruitmentUiText.deletingPosition : recruitmentUiText.confirmDeletePositionAction}
-                        </Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
+            <SettingsDeleteDialog
+                open={Boolean(mailSenderDeleteTarget)}
+                title={recruitmentUiText.confirmDeleteMailSender}
+                description={recruitmentUiText.mailSenderDeleteDescription}
+                cancelText={recruitmentUiText.cancelButton}
+                confirmText={deleteActionKey === `mail-sender-${mailSenderDeleteTarget?.id}` ? recruitmentUiText.deletingPosition : recruitmentUiText.confirmDeletePositionAction}
+                busy={deleteActionKey === `mail-sender-${mailSenderDeleteTarget?.id}`}
+                onCancel={() => setMailSenderDeleteTarget(null)}
+                onConfirm={() => mailSenderDeleteTarget && void deleteMailSender(mailSenderDeleteTarget.id)}
+            />
 
-            <Dialog open={Boolean(mailRecipientDeleteTarget)} onOpenChange={(open) => {
-                if (!open) setMailRecipientDeleteTarget(null);
-            }}>
-                <DialogContent className="sm:max-w-md">
-                    <DialogHeader>
-                        <DialogTitle>{recruitmentUiText.confirmDeleteMailRecipient}</DialogTitle>
-                        <DialogDescription>{recruitmentUiText.mailRecipientDeleteDescription}</DialogDescription>
-                    </DialogHeader>
-                    <DialogFooter>
-                        <Button variant="outline" onClick={() => setMailRecipientDeleteTarget(null)}
-                                disabled={deleteActionKey === `mail-recipient-${mailRecipientDeleteTarget?.id}`}>{recruitmentUiText.cancelButton}</Button>
-                        <Button variant="destructive"
-                                onClick={() => mailRecipientDeleteTarget && void deleteMailRecipient(mailRecipientDeleteTarget.id)}
-                                disabled={deleteActionKey === `mail-recipient-${mailRecipientDeleteTarget?.id}`}>
-                            {deleteActionKey === `mail-recipient-${mailRecipientDeleteTarget?.id}` ? recruitmentUiText.deletingPosition : recruitmentUiText.confirmDeletePositionAction}
-                        </Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
+            <SettingsDeleteDialog
+                open={Boolean(mailRecipientDeleteTarget)}
+                title={recruitmentUiText.confirmDeleteMailRecipient}
+                description={recruitmentUiText.mailRecipientDeleteDescription}
+                cancelText={recruitmentUiText.cancelButton}
+                confirmText={deleteActionKey === `mail-recipient-${mailRecipientDeleteTarget?.id}` ? recruitmentUiText.deletingPosition : recruitmentUiText.confirmDeletePositionAction}
+                busy={deleteActionKey === `mail-recipient-${mailRecipientDeleteTarget?.id}`}
+                onCancel={() => setMailRecipientDeleteTarget(null)}
+                onConfirm={() => mailRecipientDeleteTarget && void deleteMailRecipient(mailRecipientDeleteTarget.id)}
+            />
 
             <Dialog open={publishDialogOpen} onOpenChange={setPublishDialogOpen}>
                 <DialogContent className="rounded-[8px] border-[#EBEEF5] shadow-[0_8px_24px_rgba(14,17,20,0.16)] sm:max-w-[480px]">
@@ -15573,44 +15590,23 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 }
                 requestCloseSkillDialog();
             }}>
-                <DialogContent className="flex h-[min(88vh,840px)] max-h-[88vh] flex-col overflow-hidden rounded-[8px] border-[#EBEEF5] shadow-[0_8px_24px_rgba(14,17,20,0.16)] sm:max-w-4xl">
-                    <DialogHeader>
-                        <DialogTitle>{skillEditingId ? recruitmentUiText.skillEditTitle : recruitmentUiText.skillCreateTitle}</DialogTitle>
-                        <DialogDescription className="text-sm text-slate-500">
+                <DialogContent className={cn(settingsDialogSurfaceClass, "flex h-[min(88vh,840px)] max-h-[88vh] flex-col sm:max-w-[900px]")}>
+                    <DialogHeader className={settingsDialogHeaderClass}>
+                        <DialogTitle className="text-[16px] font-semibold leading-5 text-[#0E1114]">
+                            {skillEditingId
+                                ? `${recruitmentUiText.skillEditTitle}${skillMap.get(skillEditingId)?.name ? ` · ${skillMap.get(skillEditingId)?.name}` : ""}`
+                                : `${recruitmentUiText.skillCreateTitle}${skillDialogBindingTaskKind ? ` · ${skillDialogBindingTaskKind === "screening" ? (isZh ? "初筛" : "Screening") : skillDialogBindingTaskKind === "jd" ? (isZh ? "JD 生成" : "JD") : (isZh ? "面试题" : "Interview")}` : ""}`}
+                        </DialogTitle>
+                        <DialogDescription className="text-[12px] leading-5 text-[#86888F]">
                             {isAssessmentDraftSkillCreation
                                 ? (isZh ? "创建可复用的评估方案，保存后返回当前岗位完成绑定。" : "Create a reusable assessment plan, then return to this position to confirm binding.")
-                                : (isZh ? "维护可复用的评估方案。" : "Manage reusable assessment plans.")}
+                                : skillDialogMode === "structured"
+                                    ? (isZh ? "方案将注入到对应 AI 任务的提示词中；结构化编辑、高级模式与 AI 生成可随时切换" : "This plan is injected into the corresponding AI task. Switch freely between structured, advanced, and AI modes.")
+                                    : (isZh ? "方案将注入到对应 AI 任务的提示词中；请按当前业务字段维护方案内容" : "This plan is injected into the corresponding AI task. Maintain it using the fields below.")}
                         </DialogDescription>
                     </DialogHeader>
                     {skillDialogMode === "structured" ? (
-                        <div className="flex min-h-0 flex-1 flex-col gap-3">
-                            {isAssessmentDraftSkillCreation ? (
-                                <div className="shrink-0 rounded-[8px] border border-[#EBEEF5] bg-[#F7F8FA] px-3 py-2 text-sm text-slate-500 dark:border-slate-800 dark:bg-slate-900/40 dark:text-slate-400">
-                                    {isZh
-                                        ? `待绑定到「${positionDetail?.position.title || "当前岗位"}」，保存方案后回到评估配置弹窗确认绑定。`
-                                        : `Pending for ${positionDetail?.position.title || "current position"}. Save this plan, then confirm binding in the assessment dialog.`}
-                                </div>
-                            ) : (
-                                <div className="shrink-0 rounded-[8px] border border-[#EBEEF5] bg-[#F7F8FA] px-3 py-2 dark:border-slate-800 dark:bg-slate-900/40">
-                                    <div className="flex items-center gap-3">
-                                        <span className="shrink-0 text-sm font-medium text-slate-600 dark:text-slate-300">{isZh ? "关联岗位" : "Bound Position"}</span>
-                                        <NativeSelect
-                                            value={skillBoundPositionId}
-                                            onChange={(event) => {
-                                                setSkillBoundPositionId(event.target.value);
-                                                setSkillEditorPositionId(event.target.value ? Number(event.target.value) : null);
-                                            }}
-                                        >
-                                            <option value="">{isZh ? "通用方案（未绑定岗位）" : "Generic Plan (Unbound)"}</option>
-                                            {bindablePositionsForSkillDialog.map((position) => (
-                                                <option key={`structured-skill-bound-position-${position.id}`} value={position.id}>
-                                                    {position.title}
-                                                </option>
-                                            ))}
-                                        </NativeSelect>
-                                    </div>
-                                </div>
-                            )}
+                        <div className="flex min-h-0 flex-1 flex-col px-6 py-4">
                             <StructuredSkillEditor
                                 initialData={skillEditorData}
                                 editingSkillId={skillEditingId}
@@ -15625,19 +15621,56 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                 positionId={skillEditorPositionId}
                                 positionJdContent={skillEditorPositionId ? (positionDetail?.current_jd_version?.jd_markdown || null) : null}
                                 onGeneratedDirtyChange={setSkillGeneratedDraftUnsaved}
+                                bindingControl={isAssessmentDraftSkillCreation ? (
+                                    <div className="rounded-[6px] bg-[rgba(30,59,250,0.05)] px-3 py-2.5 text-[12px] leading-5 text-[#33353D]">
+                                        {isZh
+                                            ? `待绑定到「${positionDetail?.position.title || "当前岗位"}」，保存方案后回到评估配置弹窗确认绑定。`
+                                            : `Pending for ${positionDetail?.position.title || "current position"}. Save this plan, then confirm binding in the assessment dialog.`}
+                                    </div>
+                                ) : (
+                                    <div className="w-full space-y-1.5 md:max-w-[calc(50%-8px)]">
+                                        <span className="block text-[12px] font-normal text-[#33353D]">{isZh ? "关联岗位" : "Bound Position"}</span>
+                                        <NativeSelect
+                                            className={settingsInputClass}
+                                            value={skillBoundPositionId}
+                                            onChange={(event) => {
+                                                setSkillBoundPositionId(event.target.value);
+                                                setSkillEditorPositionId(event.target.value ? Number(event.target.value) : null);
+                                            }}
+                                        >
+                                            <option value="">{isZh ? "通用方案（未绑定岗位）" : "Generic Plan (Unbound)"}</option>
+                                            {bindablePositionsForSkillDialog.map((position) => (
+                                                <option key={`structured-skill-bound-position-${position.id}`} value={position.id}>
+                                                    {position.title}
+                                                </option>
+                                            ))}
+                                        </NativeSelect>
+                                    </div>
+                                )}
                             />
                         </div>
                     ) : (
                         <>
+                            <div className="flex h-[53px] shrink-0 items-center gap-2 border-b border-[#F2F3F5] px-6 py-3">
+                                <button type="button" disabled title={isZh ? "该类型使用高级模式维护" : "This type is maintained in advanced mode"} className="h-8 rounded-[6px] border border-[#E6E7EB] bg-white px-4 text-[12px] font-normal text-[#B0B2B8]">
+                                    {isZh ? "结构化编辑" : "Structured Edit"}
+                                </button>
+                                <button type="button" className="h-8 rounded-[6px] border border-[#1E3BFA] bg-[#1E3BFA] px-4 text-[12px] font-normal text-white">
+                                    {isZh ? "高级模式" : "Advanced"}
+                                </button>
+                                <button type="button" disabled title={isZh ? "该类型暂不支持 AI 结构化生成" : "AI structured generation is not available for this type"} className="h-8 rounded-[6px] border border-[#E6E7EB] bg-white px-4 text-[12px] font-normal text-[#B0B2B8]">
+                                    {isZh ? "AI 生成" : "AI Generate"}
+                                </button>
+                            </div>
                             <ScrollArea className="min-h-0 flex-1">
-                                <div className="grid gap-4 px-1 py-1">
-                                    <Field label={isZh ? "方案标题" : "Plan Title"} required error={skillFormErrors.name}>
+                                <div className="grid gap-4 px-6 py-5 text-[12px]">
+                                    <Field className="space-y-1.5 [&>p:first-child]:text-[12px] [&>p:first-child]:font-normal [&>p:first-child]:text-[#33353D]" label={isZh ? "方案标题" : "Plan Title"} required error={skillFormErrors.name}>
                                         <Input
                                             ref={skillNameInputRef}
                                             value={skillForm.name}
                                             maxLength={120}
                                             aria-invalid={Boolean(skillFormErrors.name)}
-                                            className={cn(skillFormErrors.name ? "border-rose-500 focus-visible:ring-rose-500/20" : "")}
+                                            className={cn(settingsInputClass, skillFormErrors.name ? "border-rose-500 focus-visible:ring-rose-500/20" : "")}
                                             onChange={(event) => setSkillForm((current) => ({...current, name: event.target.value.slice(0, 120)}))}
                                         />
                                     </Field>
@@ -15648,7 +15681,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                                 : `Pending for ${positionDetail?.position.title || "current position"}. Save this plan, then confirm binding in the assessment dialog.`}
                                         </div>
                                     ) : (
-                                        <Field label={isZh ? "关联岗位" : "Bound Position"}>
+                                        <Field className="space-y-1.5 [&>p:first-child]:text-[12px] [&>p:first-child]:font-normal [&>p:first-child]:text-[#33353D]" label={isZh ? "关联岗位" : "Bound Position"}>
                                             <NativeSelect
                                                 value={skillBoundPositionId}
                                                 onChange={(event) => {
@@ -15666,7 +15699,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                         </Field>
                                     )}
                                     <div className="space-y-2">
-                                        <span className="text-sm font-medium text-slate-700 dark:text-slate-300">{isZh ? "适用场景" : "Applies To"}</span>
+                                        <span className="text-[12px] font-normal text-[#33353D]">{isZh ? "适用场景" : "Applies To"}</span>
                                         <div className="flex flex-wrap gap-2">
                                             {([["jd", recruitmentUiText.jdSkillLabel], ["interview", recruitmentUiText.interviewSkillLabel]] as const).map(([taskType, label]) => (
                                                 <button
@@ -15685,18 +15718,19 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                             ))}
                                         </div>
                                     </div>
-                                    <Field label={isZh ? "方案内容" : "Plan Content"} required error={skillFormErrors.content}>
+                                    <Field className="space-y-1.5 [&>p:first-child]:text-[12px] [&>p:first-child]:font-normal [&>p:first-child]:text-[#33353D]" label={isZh ? "方案内容" : "Plan Content"} required error={skillFormErrors.content}>
                                         <Textarea
                                             ref={skillContentInputRef}
                                             value={skillForm.content}
                                             rows={10}
                                             aria-invalid={Boolean(skillFormErrors.content)}
-                                            className={cn(skillFormErrors.content ? "border-rose-500 focus-visible:ring-rose-500/20" : "")}
+                                            className={cn(settingsTextareaClass, skillFormErrors.content ? "border-rose-500 focus-visible:ring-rose-500/20" : "")}
                                             onChange={(event) => setSkillForm((current) => ({...current, content: event.target.value}))}
                                         />
                                     </Field>
-                                    <Field label={isZh ? "附加条件" : "Additional Conditions"}>
+                                    <Field className="space-y-1.5 [&>p:first-child]:text-[12px] [&>p:first-child]:font-normal [&>p:first-child]:text-[#33353D]" label={isZh ? "附加条件" : "Additional Conditions"}>
                                         <Textarea
+                                            className={settingsTextareaClass}
                                             value={skillExtraConditions}
                                             rows={4}
                                             placeholder={isZh ? "例如：输出语气、补充限制、必须强调的判断标准" : "Optional constraints, tone, or extra criteria"}
@@ -15704,23 +15738,24 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                         />
                                     </Field>
                                     <div className="grid gap-4 md:grid-cols-2">
-                                        <Field label={isZh ? "标签" : "Tags"}>
+                                        <Field className="space-y-1.5 [&>p:first-child]:text-[12px] [&>p:first-child]:font-normal [&>p:first-child]:text-[#33353D]" label={isZh ? "标签" : "Tags"}>
                                             <Input
+                                                className={settingsInputClass}
                                                 value={skillForm.tagsText}
                                                 onChange={(event) => setSkillForm((current) => ({...current, tagsText: event.target.value}))}
                                             />
                                         </Field>
-                                        <Field label={recruitmentUiText.sortLabel} error={skillFormErrors.sortOrder}>
+                                        <Field className="space-y-1.5 [&>p:first-child]:text-[12px] [&>p:first-child]:font-normal [&>p:first-child]:text-[#33353D]" label={recruitmentUiText.sortLabel} error={skillFormErrors.sortOrder}>
                                             <Input
                                                 type="number"
                                                 value={skillForm.sortOrder}
                                                 aria-invalid={Boolean(skillFormErrors.sortOrder)}
-                                                className={cn(skillFormErrors.sortOrder ? "border-rose-500 focus-visible:ring-rose-500/20" : "")}
+                                                className={cn(settingsInputClass, skillFormErrors.sortOrder ? "border-rose-500 focus-visible:ring-rose-500/20" : "")}
                                                 onChange={(event) => setSkillForm((current) => ({...current, sortOrder: event.target.value}))}
                                             />
                                         </Field>
                                     </div>
-                                    <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+                                    <label className="flex items-center gap-2 text-[12px] text-[#33353D]">
                                         <input
                                             type="checkbox"
                                             checked={skillForm.isEnabled}
@@ -15731,16 +15766,17 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                 </div>
                             </ScrollArea>
                             {skillFormSubmitError ? (
-                                <div className="mt-2 rounded-md bg-red-50 px-3 py-2 text-sm text-red-600 dark:bg-red-950/30 dark:text-red-400">
+                                <div className="mx-6 mt-2 rounded-[4px] bg-[rgba(245,63,63,0.08)] px-3 py-2 text-[12px] text-[#F53F3F]">
                                     {skillFormSubmitError}
                                 </div>
                             ) : null}
-                            <DialogFooter className="shrink-0">
-                                <Button variant="outline" className="rounded-[6px]" onClick={requestCloseSkillDialog} disabled={skillSubmitting}>
+                            <DialogFooter className={cn(settingsDialogFooterClass, "sm:justify-start")}>
+                                <span className="mr-auto text-[12px] text-[#86888F]">{isZh ? "保存后立即对绑定该方案的岗位生效" : "Changes apply immediately to positions bound to this plan."}</span>
+                                <Button variant="outline" className={settingsSecondaryButtonClass} onClick={requestCloseSkillDialog} disabled={skillSubmitting}>
                                     {recruitmentUiText.cancel}
                                 </Button>
-                                <Button className="rounded-[6px] bg-[#1E3BFA] text-white hover:bg-[#0F23D9]" onClick={() => void submitSkill()} disabled={skillSubmitting}>
-                                    {skillSubmitting ? recruitmentUiText.saving : recruitmentUiText.saveSkill}
+                                <Button className={settingsPrimaryButtonClass} onClick={() => void submitSkill()} disabled={skillSubmitting}>
+                                    {skillSubmitting ? recruitmentUiText.saving : (isZh ? "保存方案" : "Save plan")}
                                 </Button>
                             </DialogFooter>
                         </>
@@ -15749,20 +15785,20 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             </Dialog>
 
             <Dialog open={skillUnsavedCloseConfirmOpen} onOpenChange={setSkillUnsavedCloseConfirmOpen}>
-                <DialogContent className="sm:max-w-md">
-                    <DialogHeader>
-                        <DialogTitle>{isZh ? "这次生成的评估方案还没有保存" : "This generated assessment plan has not been saved"}</DialogTitle>
-                        <DialogDescription>
+                <DialogContent className={cn(settingsDialogSurfaceClass, "sm:max-w-[480px]")}>
+                    <DialogHeader className={settingsDialogHeaderClass}>
+                        <DialogTitle className="text-[16px] font-semibold leading-5 text-[#0E1114]">{isZh ? "这次生成的评估方案还没有保存" : "This generated assessment plan has not been saved"}</DialogTitle>
+                        <DialogDescription className="pt-1 text-[12px] leading-5 text-[#86888F]">
                             {isZh
                                 ? "关闭后，本次 AI 生成并代入编辑区的内容会被放弃，不会创建评估方案。你可以继续检查并点击「创建」，也可以确认不保存直接关闭。"
                                 : "If you close now, the AI-generated content applied to the editor will be discarded and no assessment plan will be created. You can keep editing and click Create, or close without saving."}
                         </DialogDescription>
                     </DialogHeader>
-                    <DialogFooter>
-                        <Button variant="outline" onClick={() => setSkillUnsavedCloseConfirmOpen(false)}>
+                    <DialogFooter className={settingsDialogFooterClass}>
+                        <Button variant="outline" className={settingsSecondaryButtonClass} onClick={() => setSkillUnsavedCloseConfirmOpen(false)}>
                             {isZh ? "继续编辑" : "Keep Editing"}
                         </Button>
-                        <Button variant="destructive" onClick={discardGeneratedSkillDraftAndClose}>
+                        <Button variant="destructive" className={settingsDangerButtonClass} onClick={discardGeneratedSkillDraftAndClose}>
                             {isZh ? "不保存，关闭" : "Close Without Saving"}
                         </Button>
                     </DialogFooter>
@@ -15777,20 +15813,20 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                     setLlmSubmitting(false);
                 }
             }}>
-                <DialogContent className="flex h-[min(85vh,840px)] max-h-[85vh] flex-col overflow-hidden sm:max-w-3xl">
-                    <DialogHeader>
-                        <DialogTitle>{llmEditingId ? recruitmentUiText.modelConfigEditTitle : recruitmentUiText.modelConfigCreateTitle}</DialogTitle>
-                        <DialogDescription>{recruitmentUiText.modelDialogDescription}</DialogDescription>
+                <DialogContent className={cn(settingsDialogSurfaceClass, "flex max-h-[88vh] flex-col sm:max-w-[760px]")}>
+                    <DialogHeader className={settingsDialogHeaderClass}>
+                        <DialogTitle className="text-[16px] font-semibold leading-5 text-[#0E1114]">{llmEditingId ? recruitmentUiText.modelConfigEditTitle : recruitmentUiText.modelConfigCreateTitle}</DialogTitle>
+                        <DialogDescription className="text-[12px] leading-5 text-[#86888F]">{recruitmentUiText.modelDialogDescription}</DialogDescription>
                     </DialogHeader>
                     <ScrollArea className="min-h-0 flex-1">
-                        <div className="grid gap-4 px-1 py-1 md:grid-cols-2">
+                        <div className="grid gap-4 px-6 py-5 md:grid-cols-2">
                             <Field label={recruitmentUiText.configKeyLabel} required error={llmFormErrors.configKey}>
                                 <Input
                                     ref={llmConfigKeyInputRef}
                                     value={llmForm.configKey}
                                     maxLength={120}
                                     aria-invalid={Boolean(llmFormErrors.configKey)}
-                                    className={cn(llmFormErrors.configKey ? "border-rose-500 focus-visible:ring-rose-500/20" : "")}
+                                    className={cn(settingsInputClass, llmFormErrors.configKey ? "border-rose-500 focus-visible:ring-rose-500/20" : "")}
                                     onChange={(event) => updateLLMFormField("configKey", event.target.value.slice(0, 120))}
                                 />
                             </Field>
@@ -15800,7 +15836,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                     value={llmForm.taskType}
                                     maxLength={80}
                                     aria-invalid={Boolean(llmFormErrors.taskType)}
-                                    className={cn(llmFormErrors.taskType ? "border-rose-500 focus-visible:ring-rose-500/20" : "")}
+                                    className={cn(settingsInputClass, llmFormErrors.taskType ? "border-rose-500 focus-visible:ring-rose-500/20" : "")}
                                     onChange={(event) => updateLLMFormField("taskType", event.target.value.slice(0, 80))}
                                 />
                             </Field>
@@ -15808,7 +15844,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                 <NativeSelect
                                     value={llmForm.provider}
                                     aria-invalid={Boolean(llmFormErrors.provider)}
-                                    className={cn(llmFormErrors.provider ? "border-rose-500 focus-visible:ring-rose-500/20" : "")}
+                                    className={cn(settingsInputClass, llmFormErrors.provider ? "border-rose-500 focus-visible:ring-rose-500/20" : "")}
                                     onChange={(event) => updateLLMFormField("provider", event.target.value)}
                                 >
                                     {Object.entries(providerLabels).map(([value, label]) => (
@@ -15822,7 +15858,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                     value={llmForm.modelName}
                                     maxLength={120}
                                     aria-invalid={Boolean(llmFormErrors.modelName)}
-                                    className={cn(llmFormErrors.modelName ? "border-rose-500 focus-visible:ring-rose-500/20" : "")}
+                                    className={cn(settingsInputClass, llmFormErrors.modelName ? "border-rose-500 focus-visible:ring-rose-500/20" : "")}
                                     onChange={(event) => updateLLMFormField("modelName", event.target.value.slice(0, 120))}
                                 />
                                 <p className="mt-2 text-xs leading-5 text-slate-500 dark:text-slate-400">
@@ -15830,11 +15866,12 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                 </p>
                             </Field>
                             <Field label={recruitmentUiText.baseUrlLabel}>
-                                <Input value={llmForm.baseUrl}
+                                <Input className={settingsInputClass} value={llmForm.baseUrl}
                                        onChange={(event) => updateLLMFormField("baseUrl", event.target.value)}/>
                             </Field>
                             <Field label={recruitmentUiText.apiKeyEnvLabel}>
                                 <Input
+                                    className={settingsInputClass}
                                     value={llmForm.apiKeyEnv}
                                     onChange={(event) => updateLLMFormField("apiKeyEnv", event.target.value)}
                                     placeholder={recruitmentUiText.apiKeyEnvPlaceholder}
@@ -15842,6 +15879,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                             </Field>
                             <Field label={recruitmentUiText.apiKeyValueLabel}>
                                 <Input
+                                    className={settingsInputClass}
                                     value={llmForm.apiKeyValue}
                                     onChange={(event) => updateLLMFormField("apiKeyValue", event.target.value)}
                                     placeholder={recruitmentUiText.apiKeyValuePlaceholder}
@@ -15854,7 +15892,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                     max={100}
                                     value={llmForm.maxConcurrent}
                                     aria-invalid={Boolean(llmFormErrors.maxConcurrent)}
-                                    className={cn(llmFormErrors.maxConcurrent ? "border-rose-500 focus-visible:ring-rose-500/20" : "")}
+                                    className={cn(settingsInputClass, llmFormErrors.maxConcurrent ? "border-rose-500 focus-visible:ring-rose-500/20" : "")}
                                     onChange={(event) => updateLLMFormField("maxConcurrent", event.target.value)}
                                 />
                                 <p className="mt-2 text-xs leading-5 text-slate-500 dark:text-slate-400">
@@ -15868,7 +15906,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                     max={1000}
                                     value={llmForm.maxQps}
                                     aria-invalid={Boolean(llmFormErrors.maxQps)}
-                                    className={cn(llmFormErrors.maxQps ? "border-rose-500 focus-visible:ring-rose-500/20" : "")}
+                                    className={cn(settingsInputClass, llmFormErrors.maxQps ? "border-rose-500 focus-visible:ring-rose-500/20" : "")}
                                     onChange={(event) => updateLLMFormField("maxQps", event.target.value)}
                                 />
                                 <p className="mt-2 text-xs leading-5 text-slate-500 dark:text-slate-400">
@@ -15880,182 +15918,182 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                     type="number"
                                     value={llmForm.priority}
                                     aria-invalid={Boolean(llmFormErrors.priority)}
-                                    className={cn(llmFormErrors.priority ? "border-rose-500 focus-visible:ring-rose-500/20" : "")}
+                                    className={cn(settingsInputClass, llmFormErrors.priority ? "border-rose-500 focus-visible:ring-rose-500/20" : "")}
                                     onChange={(event) => updateLLMFormField("priority", event.target.value)}
                                 />
                             </Field>
                         </div>
-                        <Field label={recruitmentUiText.extraConfigLabel} error={llmFormErrors.extraConfigText} className="mt-4">
+                        <Field label={recruitmentUiText.extraConfigLabel} error={llmFormErrors.extraConfigText} className="px-6 pb-4">
                             <Textarea
                                 ref={llmExtraConfigInputRef}
                                 value={llmForm.extraConfigText}
                                 aria-invalid={Boolean(llmFormErrors.extraConfigText)}
-                                className={cn(llmFormErrors.extraConfigText ? "border-rose-500 focus-visible:ring-rose-500/20" : "")}
+                                className={cn(settingsTextareaClass, llmFormErrors.extraConfigText ? "border-rose-500 focus-visible:ring-rose-500/20" : "")}
                                 onChange={(event) => updateLLMFormField("extraConfigText", event.target.value)}
                                 rows={10}
                             />
                         </Field>
-                        <label className="mt-4 flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
-                            <input type="checkbox" checked={llmForm.isActive}
+                        <label className="flex items-center gap-2 px-6 pb-5 text-[12px] text-[#33353D]">
+                            <input type="checkbox" className="h-4 w-4 accent-[#1E3BFA]" checked={llmForm.isActive}
                                    onChange={(event) => updateLLMFormField("isActive", event.target.checked)}/>
                             {recruitmentUiText.saveAndEnableLabel}
                         </label>
                     </ScrollArea>
-                    <DialogFooter className="shrink-0 items-center justify-between gap-3 sm:justify-between">
-                        <div className="min-h-5 flex-1 text-sm text-red-600 dark:text-red-400">
+                    <DialogFooter className={cn(settingsDialogFooterClass, "sm:justify-between")}>
+                        <div className="min-h-5 flex-1 text-left text-[12px] text-[#F53F3F]">
                             {llmFormSubmitError ?? ""}
                         </div>
-                        <Button variant="outline" onClick={() => setLlmDialogOpen(false)}
+                        <Button variant="outline" className={settingsSecondaryButtonClass} onClick={() => setLlmDialogOpen(false)}
                                 disabled={llmSubmitting}>{recruitmentUiText.cancel}</Button>
-                        <Button onClick={() => void submitLLMConfig()}
+                        <Button className={settingsPrimaryButtonClass} onClick={() => void submitLLMConfig()}
                                 disabled={llmSubmitting}>{llmSubmitting ? recruitmentUiText.saving : recruitmentUiText.saveModelConfig}</Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
 
             <Dialog open={mailSenderDialogOpen} onOpenChange={setMailSenderDialogOpen}>
-                <DialogContent className="sm:max-w-3xl">
-                    <DialogHeader>
-                        <DialogTitle>{mailSenderEditingId ? recruitmentUiText.editMailSender : recruitmentUiText.newMailSender}</DialogTitle>
-                        <DialogDescription>{recruitmentUiText.mailSenderDescription}</DialogDescription>
+                <DialogContent className={cn(settingsDialogSurfaceClass, "flex max-h-[88vh] flex-col sm:max-w-[720px]")}>
+                    <DialogHeader className={settingsDialogHeaderClass}>
+                        <DialogTitle className="text-[16px] font-semibold leading-5 text-[#0E1114]">{mailSenderEditingId ? recruitmentUiText.editMailSender : recruitmentUiText.newMailSender}</DialogTitle>
+                        <DialogDescription className="text-[12px] leading-5 text-[#86888F]">{recruitmentUiText.mailSenderDescription}</DialogDescription>
                     </DialogHeader>
-                    <ScrollArea className="max-h-[65vh]">
-                        <div className="grid gap-4 px-1 py-1 md:grid-cols-2">
-                            <Field label={recruitmentUiText.mailSenderName}><Input value={mailSenderForm.name}
+                    <ScrollArea className="min-h-0 flex-1">
+                        <div className="grid gap-4 px-6 py-5 md:grid-cols-2">
+                            <Field label={recruitmentUiText.mailSenderName} required><Input className={settingsInputClass} value={mailSenderForm.name}
                                                        onChange={(event) => setMailSenderForm((current) => ({
                                                            ...current,
                                                            name: event.target.value
                                                        }))}/></Field>
-                            <Field label={recruitmentUiText.mailSenderFromName}><Input value={mailSenderForm.fromName}
+                            <Field label={recruitmentUiText.mailSenderFromName}><Input className={settingsInputClass} value={mailSenderForm.fromName}
                                                              onChange={(event) => setMailSenderForm((current) => ({
                                                                  ...current,
                                                                  fromName: event.target.value
                                                              }))} placeholder={recruitmentUiText.mailSenderFromNamePlaceholder}/></Field>
-                            <Field label={recruitmentUiText.mailSenderEmail}><Input value={mailSenderForm.fromEmail}
+                            <Field label={recruitmentUiText.mailSenderEmail} required><Input className={settingsInputClass} value={mailSenderForm.fromEmail}
                                                            onChange={(event) => setMailSenderForm((current) => ({
                                                                ...current,
                                                                fromEmail: event.target.value
                                                            }))} placeholder={recruitmentUiText.mailSenderEmailPlaceholder}/></Field>
-                            <Field label={recruitmentUiText.mailSenderUsername}><Input value={mailSenderForm.username}
+                            <Field label={recruitmentUiText.mailSenderUsername}><Input className={settingsInputClass} value={mailSenderForm.username}
                                                            onChange={(event) => setMailSenderForm((current) => ({
                                                                ...current,
                                                                username: event.target.value
                                                            }))}/></Field>
-                            <Field label={recruitmentUiText.smtpHost}><Input value={mailSenderForm.smtpHost}
+                            <Field label={recruitmentUiText.smtpHost}><Input className={settingsInputClass} value={mailSenderForm.smtpHost}
                                                             onChange={(event) => setMailSenderForm((current) => ({
                                                                 ...current,
                                                                 smtpHost: event.target.value
                                                             }))} placeholder={recruitmentUiText.smtpHostPlaceholder}/></Field>
-                            <Field label={recruitmentUiText.smtpPort}><Input type="number" value={mailSenderForm.smtpPort}
+                            <Field label={recruitmentUiText.smtpPort}><Input className={settingsInputClass} type="number" value={mailSenderForm.smtpPort}
                                                             onChange={(event) => setMailSenderForm((current) => ({
                                                                 ...current,
                                                                 smtpPort: event.target.value
                                                             }))}/></Field>
-                            <div className="md:col-span-2 flex flex-wrap gap-2 px-1 py-1">
+                            <div className="flex flex-wrap gap-2 md:col-span-2">
                                 {mailSenderPresets.map((preset) => (
-                                    <Button key={preset.key} type="button" size="sm" variant="outline"
+                                    <Button key={preset.key} type="button" size="sm" variant="outline" className="h-7 rounded-[4px] border-[#E6E7EB] px-3 text-[11px] text-[#0F23D9] shadow-none hover:border-[#1E3BFA] hover:bg-[#F7F8FA]"
                                             onClick={() => applyMailSenderPreset(preset.key)}>
                                         {preset.label}
                                     </Button>
                                 ))}
                                 <p className="self-center text-xs text-slate-500 dark:text-slate-400">{recruitmentUiText.smtpHostAutoHint}</p>
                             </div>
-                            <Field label={mailSenderEditingId ? recruitmentUiText.mailSenderPasswordEdit : recruitmentUiText.mailSenderPassword}>
-                                <Input type="password" value={mailSenderForm.password}
+                            <Field label={mailSenderEditingId ? recruitmentUiText.mailSenderPasswordEdit : recruitmentUiText.mailSenderPassword} required={!mailSenderEditingId}>
+                                <Input className={settingsInputClass} type="password" value={mailSenderForm.password}
                                        onChange={(event) => setMailSenderForm((current) => ({
                                            ...current,
                                            password: event.target.value
                                        }))}/>
                             </Field>
-                        </div>
-                        <div className="mt-4 grid gap-3 px-1 py-1 md:grid-cols-2">
-                            <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
-                                <input type="checkbox" checked={mailSenderForm.useSsl}
+                            <div className="grid gap-3 md:col-span-2 md:grid-cols-2">
+                            <label className="flex items-center gap-2 text-[12px] text-[#33353D]">
+                                <input type="checkbox" className="h-4 w-4 accent-[#1E3BFA]" checked={mailSenderForm.useSsl}
                                        onChange={(event) => setMailSenderForm((current) => ({
                                            ...current,
                                            useSsl: event.target.checked
                                        }))}/>
                                 {recruitmentUiText.useSSL}
                             </label>
-                            <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
-                                <input type="checkbox" checked={mailSenderForm.useStarttls}
+                            <label className="flex items-center gap-2 text-[12px] text-[#33353D]">
+                                <input type="checkbox" className="h-4 w-4 accent-[#1E3BFA]" checked={mailSenderForm.useStarttls}
                                        onChange={(event) => setMailSenderForm((current) => ({
                                            ...current,
                                            useStarttls: event.target.checked
                                        }))}/>
                                 {recruitmentUiText.useSTARTTLS}
                             </label>
-                            <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
-                                <input type="checkbox" checked={mailSenderForm.isDefault}
+                            <label className="flex items-center gap-2 text-[12px] text-[#33353D]">
+                                <input type="checkbox" className="h-4 w-4 accent-[#1E3BFA]" checked={mailSenderForm.isDefault}
                                        onChange={(event) => setMailSenderForm((current) => ({
                                            ...current,
                                            isDefault: event.target.checked
                                        }))}/>
                                 {recruitmentUiText.setAsDefaultSender}
                             </label>
-                            <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
-                                <input type="checkbox" checked={mailSenderForm.isEnabled}
+                            <label className="flex items-center gap-2 text-[12px] text-[#33353D]">
+                                <input type="checkbox" className="h-4 w-4 accent-[#1E3BFA]" checked={mailSenderForm.isEnabled}
                                        onChange={(event) => setMailSenderForm((current) => ({
                                            ...current,
                                            isEnabled: event.target.checked
                                        }))}/>
                                 {recruitmentUiText.enableSender}
                             </label>
+                            </div>
                         </div>
                     </ScrollArea>
-                    <DialogFooter>
-                        <Button variant="outline" onClick={() => setMailSenderDialogOpen(false)}>{recruitmentUiText.cancelButton}</Button>
-                        <Button onClick={() => void submitMailSender()} disabled={mailSenderSaving}>{mailSenderSaving ? recruitmentUiText.saving : recruitmentUiText.saveMailSender}</Button>
+                    <DialogFooter className={settingsDialogFooterClass}>
+                        <Button variant="outline" className={settingsSecondaryButtonClass} onClick={() => setMailSenderDialogOpen(false)}>{recruitmentUiText.cancelButton}</Button>
+                        <Button className={settingsPrimaryButtonClass} onClick={() => void submitMailSender()} disabled={mailSenderSaving}>{mailSenderSaving ? recruitmentUiText.saving : recruitmentUiText.saveMailSender}</Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
 
             <Dialog open={mailRecipientDialogOpen} onOpenChange={setMailRecipientDialogOpen}>
-                <DialogContent className="sm:max-w-3xl max-h-[85vh] overflow-hidden">
-                    <DialogHeader>
-                        <DialogTitle>{mailRecipientEditingId ? recruitmentUiText.editMailRecipient : recruitmentUiText.newMailRecipient}</DialogTitle>
-                        <DialogDescription>{recruitmentUiText.mailRecipientDescription}</DialogDescription>
+                <DialogContent className={cn(settingsDialogSurfaceClass, "flex max-h-[88vh] flex-col sm:max-w-[640px]")}>
+                    <DialogHeader className={settingsDialogHeaderClass}>
+                        <DialogTitle className="text-[16px] font-semibold leading-5 text-[#0E1114]">{mailRecipientEditingId ? recruitmentUiText.editMailRecipient : recruitmentUiText.newMailRecipient}</DialogTitle>
+                        <DialogDescription className="text-[12px] leading-5 text-[#86888F]">{recruitmentUiText.mailRecipientDescription}</DialogDescription>
                     </DialogHeader>
-                    <ScrollArea className="max-h-[65vh]">
-                        <div className="space-y-4 px-1 py-1">
+                    <ScrollArea className="min-h-0 flex-1">
+                        <div className="space-y-4 px-6 py-5">
                             <div className="grid gap-4 md:grid-cols-2">
-                                <Field label={recruitmentUiText.recipientName}><Input value={mailRecipientForm.name}
+                                <Field label={recruitmentUiText.recipientName} required><Input className={settingsInputClass} value={mailRecipientForm.name}
                                                            onChange={(event) => setMailRecipientForm((current) => ({
                                                                ...current,
                                                                name: event.target.value
                                                            }))}/></Field>
-                                <Field label={recruitmentUiText.recipientEmail}><Input value={mailRecipientForm.email}
+                                <Field label={recruitmentUiText.recipientEmail} required><Input className={settingsInputClass} value={mailRecipientForm.email}
                                                            onChange={(event) => setMailRecipientForm((current) => ({
                                                                ...current,
                                                                email: event.target.value
                                                            }))} placeholder="name@example.com"/></Field>
-                                <Field label={recruitmentUiText.recipientDepartment}><Input value={mailRecipientForm.department}
+                                <Field label={recruitmentUiText.recipientDepartment}><Input className={settingsInputClass} value={mailRecipientForm.department}
                                                            onChange={(event) => setMailRecipientForm((current) => ({
                                                                ...current,
                                                                department: event.target.value
                                                            }))}/></Field>
-                                <Field label={recruitmentUiText.recipientRoleTitle}><Input value={mailRecipientForm.roleTitle}
+                                <Field label={recruitmentUiText.recipientRoleTitle}><Input className={settingsInputClass} value={mailRecipientForm.roleTitle}
                                                            onChange={(event) => setMailRecipientForm((current) => ({
                                                                ...current,
                                                                roleTitle: event.target.value
                                                            }))}/></Field>
                             </div>
                             <Field label={recruitmentUiText.recipientTags}>
-                                <Input value={mailRecipientForm.tagsText}
+                                <Input className={settingsInputClass} value={mailRecipientForm.tagsText}
                                        onChange={(event) => setMailRecipientForm((current) => ({
                                            ...current,
                                            tagsText: event.target.value
                                        }))} placeholder={recruitmentUiText.recipientTagsPlaceholder}/>
                             </Field>
                             <Field label={recruitmentUiText.recipientNotes}>
-                                <Textarea className="resize-y" value={mailRecipientForm.notes}
+                                <Textarea className={cn(settingsTextareaClass, "resize-y")} value={mailRecipientForm.notes}
                                           onChange={(event) => setMailRecipientForm((current) => ({
                                               ...current,
                                               notes: event.target.value
                                           }))} rows={4}/>
                             </Field>
-                            <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
-                                <input type="checkbox" checked={mailRecipientForm.isEnabled}
+                            <label className="flex items-center gap-2 text-[12px] text-[#33353D]">
+                                <input type="checkbox" className="h-4 w-4 accent-[#1E3BFA]" checked={mailRecipientForm.isEnabled}
                                        onChange={(event) => setMailRecipientForm((current) => ({
                                            ...current,
                                            isEnabled: event.target.checked
@@ -16064,9 +16102,9 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                             </label>
                         </div>
                     </ScrollArea>
-                    <DialogFooter>
-                        <Button variant="outline" onClick={() => setMailRecipientDialogOpen(false)}>{recruitmentUiText.cancelButton}</Button>
-                        <Button onClick={() => void submitMailRecipient()} disabled={mailRecipientSaving}>{mailRecipientSaving ? recruitmentUiText.saving : recruitmentUiText.saveMailRecipient}</Button>
+                    <DialogFooter className={settingsDialogFooterClass}>
+                        <Button variant="outline" className={settingsSecondaryButtonClass} onClick={() => setMailRecipientDialogOpen(false)}>{recruitmentUiText.cancelButton}</Button>
+                        <Button className={settingsPrimaryButtonClass} onClick={() => void submitMailRecipient()} disabled={mailRecipientSaving}>{mailRecipientSaving ? recruitmentUiText.saving : recruitmentUiText.saveMailRecipient}</Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
