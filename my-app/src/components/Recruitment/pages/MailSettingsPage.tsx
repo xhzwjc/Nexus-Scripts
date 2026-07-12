@@ -138,8 +138,8 @@ export function MailSettingsPage({
                         className="inline-flex items-center gap-3 text-[12px] text-[#33353D] disabled:cursor-not-allowed disabled:opacity-60 dark:text-slate-300"
                         onClick={() => setMailAutoPushGlobalConfig((current) => ({...current, global_auto_push_enabled: !current.global_auto_push_enabled}))}
                     >
-                        <span className={cn("relative h-5 w-9 rounded-full transition-colors", mailAutoPushGlobalConfig.global_auto_push_enabled ? "bg-[#1E3BFA]" : "bg-[#D6D8DD]")}>
-                            <span className={cn("absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform", mailAutoPushGlobalConfig.global_auto_push_enabled ? "translate-x-[18px]" : "translate-x-0.5")}/>
+                        <span className={cn("flex h-5 w-9 shrink-0 items-center rounded-full p-0.5 transition-colors", mailAutoPushGlobalConfig.global_auto_push_enabled ? "bg-[#1E3BFA]" : "bg-[#D6D8DD]")}>
+                            <span className={cn("h-4 w-4 rounded-full bg-white shadow-sm transition-transform", mailAutoPushGlobalConfig.global_auto_push_enabled ? "translate-x-4" : "translate-x-0")}/>
                         </span>
                         {isZh ? "启用系统级自动推送能力" : "Enable system-wide auto-send"}
                     </button>

@@ -342,7 +342,18 @@ function TogglePillButton({active, onClick, children}: {
 }
 
 // 大体量页面与 recharts 图表按需加载，从招聘模块主 chunk 中拆出，首次进入该页时才下载对应代码。
-const AuditPage = nextDynamic(() => import("./pages/AuditPage").then((mod) => mod.AuditPage), {loading: PageChunkLoading, ssr: false});
+const AuditPage = nextDynamic(() => import("./pages/AuditPageRedesigned").then((mod) => mod.AuditPage), {loading: PageChunkLoading, ssr: false});
+
+function uniqueAiTaskLogs(logs: AITaskLog[]) {
+    const seen = new Set<number>();
+    return logs.filter((log) => {
+        if (seen.has(log.id)) {
+            return false;
+        }
+        seen.add(log.id);
+        return true;
+    });
+}
 const CandidatesPage = nextDynamic(() => import("./pages/CandidatesPage").then((mod) => mod.CandidatesPage), {loading: PageChunkLoading, ssr: false});
 const MailSettingsPage = nextDynamic(() => import("./pages/MailSettingsPage").then((mod) => mod.MailSettingsPage), {loading: PageChunkLoading, ssr: false});
 const InterviewWorkbenchPage = nextDynamic(() => import("./pages/InterviewWorkbenchPage").then((mod) => mod.InterviewWorkbenchPage), {loading: PageChunkLoading, ssr: false});
@@ -2420,7 +2431,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const [isLoadingMorePositionCandidates, setIsLoadingMorePositionCandidates] = useState(false);
     const loadingMorePositionCandidatesRef = useRef(false);
     const positionCandidatesLoadRequestIdRef = useRef(0);
-    const [auditFiltersCollapsed, setAuditFiltersCollapsed] = useState(true);
+    const [auditFiltersCollapsed, setAuditFiltersCollapsed] = useState(false);
     const [bootstrapping, setBootstrapping] = useState(true);
     const [versionOutdated, setVersionOutdated] = useState(false);
     const [pageVisible, setPageVisible] = useState(() => (
@@ -6274,7 +6285,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 ),
             );
             if (mountedRef.current) {
-                setAllAiLogs(data?.items || []);
+                setAllAiLogs(uniqueAiTaskLogs(data?.items || []));
                 setAiLogTotal(data?.total || 0);
             }
             return data?.items || [];
@@ -6310,7 +6321,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 `/ai-task-logs?limit=20&offset=${offset}${taskTypeParam}${statusParam}${orgCodeParam}`
             );
             if (mountedRef.current) {
-                setAllAiLogs(prev => [...prev, ...(data?.items || [])]);
+                setAllAiLogs(prev => uniqueAiTaskLogs([...prev, ...(data?.items || [])]));
                 setAiLogTotal(data?.total || 0);
             }
         } catch (error) {
@@ -6586,7 +6597,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                     : "";
             const url = orgCodeParam ? `/ai-task-logs?limit=20&offset=0&${orgCodeParam}` : "/ai-task-logs?limit=20&offset=0";
             const d = await recruitmentApi<{items: AITaskLog[]; total: number}>(url);
-            setAllAiLogs(d?.items || []);
+            setAllAiLogs(uniqueAiTaskLogs(d?.items || []));
             setAiLogTotal(d?.total || 0);
         })();
 
@@ -14443,13 +14454,13 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     function renderAuditPage() {
         return (
             <AuditPage
-                panelClass={panelClass}
                 auditFiltersCollapsed={auditFiltersCollapsed}
                 auditFilterSummary={auditFilterSummary}
                 logsLoading={logsLoading}
                 logTaskTypeFilter={logTaskTypeFilter}
                 logStatusFilter={logStatusFilter}
                 aiLogs={visibleAiLogs}
+                aiLogTotal={aiLogTotal}
                 selectedLogId={selectedLogId}
                 selectedLogDetail={selectedLogDetail}
                 logDetailLoading={logDetailLoading}
@@ -14809,7 +14820,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     return (
         <div
             className="relative flex h-full min-h-0 flex-col overflow-hidden bg-[var(--tr-page)] text-[var(--tr-ink)] dark:text-slate-300">
-            {activePage !== "workspace" && activePage !== "positions" && activePage !== "candidates" && activePage !== "talent-pool" && activePage !== "interviews" && activePage !== "review-workbench" && !isSettingsPage ? <div
+            {activePage !== "workspace" && activePage !== "positions" && activePage !== "candidates" && activePage !== "talent-pool" && activePage !== "interviews" && activePage !== "review-workbench" && activePage !== "audit" && !isSettingsPage ? <div
                 className="shrink-0 border-b border-[var(--tr-border)] bg-white dark:border-slate-800 dark:bg-slate-950">
                 <div className="flex min-h-[62px] flex-wrap items-center justify-between gap-2 px-5 py-3 2xl:px-6">
                     <div className="flex min-w-0 items-center gap-2.5">
@@ -14878,7 +14889,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                         </div>
                     ) : null}
                     {visitedKeepAlivePagesRef.current.has("audit") ? (
-                        <div className={cn("h-full min-h-0 px-3 py-3", activePage !== "audit" && "hidden")}>
+                        <div className={cn("h-full min-h-0", activePage !== "audit" && "hidden")}>
                             <KeepAliveFreeze frozen={activePage !== "audit"}>
                                 {auditPageNode}
                             </KeepAliveFreeze>
