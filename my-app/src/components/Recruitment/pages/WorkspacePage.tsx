@@ -65,7 +65,6 @@ type WorkspacePageProps = {
     sourceStatsData: SourceStatsData | null;
     userName?: string | null;
     organizationControl?: React.ReactNode;
-    settingsControl?: React.ReactNode;
     canManagePosition?: boolean;
     canManageCandidate?: boolean;
     canViewAudit?: boolean;
@@ -214,7 +213,6 @@ export function WorkspacePage({
     sourceStatsData,
     userName,
     organizationControl,
-    settingsControl,
     canManagePosition = false,
     canManageCandidate = false,
     canViewAudit = false,
@@ -413,7 +411,6 @@ export function WorkspacePage({
                             <Upload className="h-4 w-4"/>{tr.uploadResume}
                         </Button>
                     ) : null}
-                    {settingsControl}
                     {onRefresh ? (
                         <Button
                             type="button"

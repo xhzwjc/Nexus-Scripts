@@ -33,7 +33,6 @@ type PositionsListPageProps = {
     showOrganizationColumn: boolean;
     getOrganizationLabel: (orgCode?: string | null) => string;
     organizationControl?: React.ReactNode;
-    settingsControl?: React.ReactNode;
     canManageCandidate: boolean;
     onQueryChange: (value: string) => void;
     onStatusFilterChange: (value: string) => void;
@@ -72,7 +71,6 @@ export function PositionsListPage({
     showOrganizationColumn,
     getOrganizationLabel,
     organizationControl,
-    settingsControl,
     canManageCandidate,
     onQueryChange,
     onStatusFilterChange,
@@ -151,7 +149,6 @@ export function PositionsListPage({
                                 <Upload className="h-4 w-4"/>{isZh ? "上传简历" : "Upload Resumes"}
                             </Button>
                         ) : null}
-                        {settingsControl}
                         <Button
                             variant="outline"
                             className="h-9 rounded-[6px] border-[#1E3BFA] px-3 text-[13px] text-[#1E3BFA] shadow-none hover:bg-[#1E3BFA]/5 hover:text-[#1E3BFA]"

@@ -45,15 +45,17 @@ export function SearchField({
                                 onChange,
                                 placeholder,
                                 inputClassName,
+                                iconClassName,
                             }: {
     value: string;
     onChange: (value: string) => void;
     placeholder: string;
     inputClassName?: string;
+    iconClassName?: string;
 }) {
     return (
         <div className="relative">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"/>
+            <Search className={cn("pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400", iconClassName)}/>
             <Input className={cn("pl-9", inputClassName)} value={value} onChange={(event) => onChange(event.target.value)}
                    placeholder={placeholder}/>
         </div>

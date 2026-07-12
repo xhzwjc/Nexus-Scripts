@@ -43,6 +43,47 @@
   --radius-xl: calc(var(--radius) + 4px);
 }
 
+/* Candidate detail drawer uses the recruitment prototype's compact control language. */
+.candidate-detail-drawer [data-slot="input"],
+.candidate-detail-drawer select,
+.candidate-detail-drawer textarea {
+  border-color: #e6e7eb;
+  border-radius: 4px;
+  box-shadow: none;
+  color: #33353d;
+  font-size: 13px;
+}
+
+.candidate-detail-drawer [data-slot="input"]:focus-visible,
+.candidate-detail-drawer select:focus-visible,
+.candidate-detail-drawer textarea:focus-visible {
+  border-color: #1e3bfa;
+  box-shadow: 0 0 0 1px rgba(30, 59, 250, 0.18);
+  outline: none;
+}
+
+.candidate-detail-drawer [data-slot="button"] {
+  border-radius: 6px;
+  box-shadow: none;
+}
+
+.candidate-detail-drawer [data-slot="button"][class*="bg-[#334155]"] {
+  background-color: #1e3bfa;
+  color: #ffffff;
+}
+
+.candidate-detail-drawer [data-slot="button"][class*="bg-[#334155]"]:hover {
+  background-color: #0f23d9;
+}
+
+.candidate-detail-drawer [data-slot="badge"] {
+  border-radius: 4px;
+}
+
+.candidate-detail-drawer [class*="shadow-xl"] {
+  box-shadow: 0 8px 24px rgba(14, 17, 20, 0.16);
+}
+
 @font-face {
   font-family: "Alimama Agile";
   src: url("/fonts/AlimamaAgileVF-Thin.woff2") format("woff2");

@@ -742,6 +742,9 @@ def test_candidate_reassignment_is_validated_and_does_not_leak_cross_org_positio
         rd_position_detail = rd_user.get_position_detail(positions["chunmiao-rd"]["id"])
         assert {item["name"] for item in rd_position_detail["candidates"]} == {"研发候选人"}
         assert leak.name not in {item["name"] for item in rd_position_detail["candidates"]}
+        rd_position_candidate = rd_position_detail["candidates"][0]
+        assert rd_position_candidate["created_by"] == "rd-user"
+        assert "updated_by" in rd_position_candidate
 
         db.add(RecruitmentResumeFile(candidate_id=candidates["chunmiao-rd"].id, org_code="chunmiao-rd", original_name="rd.pdf", stored_name="rd.pdf", storage_path="/tmp/rd.pdf", uploaded_by="rd-user"))
         db.add(RecruitmentResumeParseResult(candidate_id=candidates["chunmiao-rd"].id, resume_file_id=1, org_code="chunmiao-rd", raw_text="raw", status="success"))

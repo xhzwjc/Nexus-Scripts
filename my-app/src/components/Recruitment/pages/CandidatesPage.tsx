@@ -21,8 +21,6 @@ import {
     Eye,
     FileText,
     GraduationCap,
-    LayoutGrid,
-    List,
     Loader2,
     Mail,
     MapPin,
@@ -34,14 +32,10 @@ import {
     RotateCcw,
     Save,
     Search,
-    SlidersHorizontal,
     Sparkles,
     Square,
-    Star,
-    Tag,
     Trash2,
     UserCheck,
-    UserPlus,
     Users,
     Video,
 } from "lucide-react";
@@ -96,7 +90,6 @@ import {
     CANDIDATE_PIPELINE_STAGES,
     INTERVIEW_PIPELINE_STATUS_VALUES,
     INTERVIEW_REJECTED_STATUS_VALUES,
-    INTERVIEW_TODO_STATUS_VALUES,
     type CandidatePipelineStageChildConfig,
     type CandidatePipelineStageConfig,
 } from "../workflowStages";
@@ -132,7 +125,6 @@ import {
     resolveCandidateFacingErrorContext,
     resolveLogSkillSnapshots,
     sanitizeCandidateFacingErrorText,
-    statusBadgeClass,
 } from "../utils";
 
 type InterviewMethod = "onsite" | "video" | "phone";
@@ -169,9 +161,20 @@ const DERIVED_CANDIDATE_DISPLAY_STATUS_VALUES = new Set([
     "screening_running",
     ...INTERVIEW_PIPELINE_STATUS_VALUES,
 ]);
-const INTERVIEW_TODO_STATUS_SET = new Set<string>(INTERVIEW_TODO_STATUS_VALUES);
 const INTERVIEW_PIPELINE_STATUS_SET = new Set<string>(INTERVIEW_PIPELINE_STATUS_VALUES);
 const INTERVIEW_REJECTED_STATUS_SET = new Set<string>(INTERVIEW_REJECTED_STATUS_VALUES);
+const BATCH_SCREENING_PROTECTED_STATUS_SET = new Set<string>([
+    "department_review_pending",
+    "department_review_passed",
+    "department_review_rejected",
+    ...INTERVIEW_PIPELINE_STATUS_VALUES,
+    ...INTERVIEW_REJECTED_STATUS_VALUES,
+    "interview_passed",
+    "pending_offer",
+    "offer_sent",
+    "hired",
+    "talent_pool",
+]);
 
 type CandidateScheduleFormErrorKey =
     | "subject"
@@ -181,6 +184,27 @@ type CandidateScheduleFormErrorKey =
     | "scheduled_date"
     | "scheduled_start_time"
     | "scheduled_end_time";
+
+type CandidateNestedDeleteTarget =
+    | {kind: "offer"; id: number; title: string}
+    | {kind: "follow_up"; id: number; title: string}
+    | {kind: "interview"; id: number; title: string};
+
+type CandidatePagePermissions = {
+    manageCandidate: boolean;
+    executeProcess: boolean;
+    viewReview: boolean;
+    actReview: boolean;
+    manageReview: boolean;
+    viewInterview: boolean;
+    manageInterview: boolean;
+    viewSkill: boolean;
+    bindSkill: boolean;
+    sendMail: boolean;
+    viewLog: boolean;
+    viewAssistant: boolean;
+    viewTalentPool: boolean;
+};
 
 function interviewRoundNameForIndex(roundIndex: number) {
     if (roundIndex <= 1) return "初试";
@@ -328,17 +352,17 @@ function ScheduleTimeSelect({
                     if (!disabled) setOpen((current) => !current);
                 }}
                 className={cn(
-                    "flex h-10 w-full items-center justify-between gap-2 rounded-md border border-slate-200 bg-white px-3 text-left text-sm outline-none transition hover:border-slate-300 focus:border-[#171717] dark:border-slate-700 dark:bg-slate-950 dark:hover:border-slate-600 dark:focus:border-slate-500",
-                    value ? "text-slate-800 dark:text-slate-100" : "text-slate-400 dark:text-slate-500",
-                    disabled ? "cursor-not-allowed bg-slate-50 text-slate-300 hover:border-slate-200 dark:bg-slate-900 dark:text-slate-600 dark:hover:border-slate-700" : "",
+                    "flex h-10 w-full items-center justify-between gap-2 rounded-md border border-[#E6E7EB] bg-white px-3 text-left text-sm outline-none transition hover:border-[#D6D8DD] focus:border-[#1E3BFA] dark:border-[#33353D] dark:bg-[#0E1114] dark:hover:border-[#5E5F66] dark:focus:border-[#86888F]",
+                    value ? "text-[#33353D] dark:text-[#F7F8FA]" : "text-[#B0B2B8] dark:text-[#86888F]",
+                    disabled ? "cursor-not-allowed bg-[#F7F8FA] text-[#D6D8DD] hover:border-[#E6E7EB] dark:bg-[#16181B] dark:text-[#33353D] dark:hover:border-[#33353D]" : "",
                     buttonClassName,
                 )}
             >
                 <span className="min-w-0 truncate">{value || placeholder}</span>
-                <Clock3 className="h-3.5 w-3.5 shrink-0 text-slate-300 dark:text-slate-500"/>
+                <Clock3 className="h-3.5 w-3.5 shrink-0 text-[#D6D8DD] dark:text-[#86888F]"/>
             </button>
             {open && !disabled ? (
-                <div className="absolute left-0 top-[calc(100%+4px)] z-30 max-h-56 w-full overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 shadow-xl dark:border-slate-700 dark:bg-slate-950">
+                <div className="absolute left-0 top-[calc(100%+4px)] z-30 max-h-56 w-full overflow-y-auto rounded-lg border border-[#E6E7EB] bg-white py-1 shadow-xl dark:border-[#33353D] dark:bg-[#0E1114]">
                     {options.map((time) => {
                         const optionContent = formatOption ? formatOption(time) : time;
                         return (
@@ -353,8 +377,8 @@ function ScheduleTimeSelect({
                                 className={cn(
                                     "flex h-8 w-full min-w-0 items-center px-3 text-left text-sm transition",
                                     time === value
-                                        ? "bg-neutral-100 text-[#171717] dark:bg-slate-800 dark:text-slate-100"
-                                        : "text-slate-700 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-900",
+                                        ? "bg-[#F7F8FA] text-[#0E1114] dark:bg-[#202226] dark:text-[#F7F8FA]"
+                                        : "text-[#33353D] hover:bg-[#F7F8FA] dark:text-[#D6D8DD] dark:hover:bg-[#16181B]",
                                 )}
                             >
                                 <span className="min-w-0 truncate">{optionContent}</span>
@@ -445,12 +469,35 @@ function interviewScheduleStatusLabel(schedule: InterviewSchedule, isZh = true) 
     return label ? (isZh ? label[0] : label[1]) : (status || (isZh ? "待面试" : "Scheduled"));
 }
 
+function prototypeStatusBadgeClass(statusValue?: string | null) {
+    const status = String(statusValue || "").trim().toLowerCase();
+    if (["talent_pool"].includes(status)) {
+        return "border-[rgba(30,59,250,0.24)] bg-[rgba(30,59,250,0.07)] text-[#0F23D9]";
+    }
+    if (["passed", "completed", "success", "succeeded", "next_round", "offer_sent", "hired", "screening_passed", "department_review_passed", "interview_passed", "accepted"].includes(status)) {
+        return "border-[rgba(12,201,145,0.28)] bg-[rgba(12,201,145,0.08)] text-[#0A9C71]";
+    }
+    if (["rejected", "failed", "error", "no_show", "screening_failed", "screening_rejected", "department_review_rejected", "interview_rejected", "interview_first_rejected", "interview_second_rejected", "json_parse_failed", "timeout", "screening_total_timeout", "retry_exhausted", "rate_limited", "upstream_timeout", "request_failed"].includes(status)) {
+        return "border-[rgba(245,63,63,0.26)] bg-[rgba(245,63,63,0.08)] text-[#F53F3F]";
+    }
+    if (["no_match", "fallback", "cancelling", "invalid_result", "quota_exceeded", "parsing", "hold", "deferred", "draft", "department_review_pending", "pending_offer"].includes(status)) {
+        return "border-[rgba(255,171,36,0.30)] bg-[rgba(255,171,36,0.10)] text-[#D48806]";
+    }
+    if (["pending", "queued", "running", "processing", "scheduled", "confirmed", "in_progress", "sent", "matching", "pending_screening", "screening_running", "pending_interview", "interview_pending", "interview_first_pending", "interview_second_pending", "interview_first_active", "interview_second_active", "interview_scheduled", "interview_in_progress"].includes(status)) {
+        return "border-[rgba(46,156,255,0.26)] bg-[rgba(46,156,255,0.08)] text-[#2E9CFF]";
+    }
+    if (["cancelled", "canceled"].includes(status)) {
+        return "border-[#D6D8DD] bg-[#F2F3F5] text-[#86888F] dark:border-[#33353D] dark:bg-[#202226] dark:text-[#B0B2B8]";
+    }
+    if (status === "unmatched") {
+        return "border-[rgba(255,171,36,0.30)] bg-[rgba(255,171,36,0.10)] text-[#D48806]";
+    }
+    return "border-[#E6E7EB] bg-[#F7F8FA] text-[#33353D] dark:border-[#33353D] dark:bg-[#16181B] dark:text-[#D6D8DD]";
+}
+
 function interviewScheduleStatusClass(schedule: InterviewSchedule) {
     const status = String(schedule.result_status || schedule.status || "").trim();
-    if (["passed", "next_round", "completed"].includes(status)) return "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/70 dark:bg-emerald-950/30 dark:text-emerald-300";
-    if (["rejected", "cancelled", "no_show"].includes(status)) return "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900/70 dark:bg-rose-950/30 dark:text-rose-300";
-    if (status === "hold") return "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/70 dark:bg-amber-950/30 dark:text-amber-300";
-    return "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900/70 dark:bg-sky-950/30 dark:text-sky-300";
+    return prototypeStatusBadgeClass(status);
 }
 
 type CandidateBoardGroup = {
@@ -518,7 +565,7 @@ function firstStructuredRecord(value: unknown): Record<string, unknown> | null {
 function CandidateDetailAvatar({name}: {name: string}) {
     const initial = (name || "?").trim().charAt(0) || "?";
     return (
-        <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-[#F5F5F5] to-[#E5E5E5] text-2xl font-semibold text-[#171717] ring-4 ring-white dark:from-slate-800 dark:to-slate-900 dark:text-slate-100 dark:ring-slate-950">
+        <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#1E3BFA] text-[16px] font-semibold text-white">
             {initial}
         </div>
     );
@@ -532,8 +579,8 @@ function CandidateMetaItem({
     children: React.ReactNode;
 }) {
     return (
-        <span className="inline-flex min-w-0 items-center gap-1.5 text-[13px] text-slate-500 dark:text-slate-400">
-            <Icon className="h-3.5 w-3.5 shrink-0 text-slate-400 dark:text-slate-500"/>
+        <span className="inline-flex min-w-0 items-center gap-1.5 text-[13px] text-[#86888F] dark:text-[#B0B2B8]">
+            <Icon className="h-3.5 w-3.5 shrink-0 text-[#B0B2B8] dark:text-[#86888F]"/>
             <span className="truncate">{children}</span>
         </span>
     );
@@ -704,10 +751,10 @@ function ResumeSection({
     children: React.ReactNode;
 }) {
     return (
-        <section className="border-t border-dashed border-slate-200 pt-5 first:border-t-0 first:pt-0 dark:border-slate-800">
+        <section className="border-t border-dashed border-[#E6E7EB] pt-5 first:border-t-0 first:pt-0 dark:border-[#202226]">
             <div className="mb-4 flex items-center gap-2">
-                <span className="h-4 w-1 rounded-full bg-[#171717] dark:bg-slate-300"/>
-                <h4 className="text-[15px] font-semibold text-slate-800 dark:text-slate-100">{title}</h4>
+                <span className="h-4 w-1 rounded-full bg-[#1E3BFA] dark:bg-[#D6D8DD]"/>
+                <h4 className="text-[15px] font-semibold text-[#33353D] dark:text-[#F7F8FA]">{title}</h4>
             </div>
             {children}
         </section>
@@ -733,11 +780,12 @@ function RailActionButton({
             disabled={disabled}
             onClick={onClick}
             className={cn(
-                "h-9 rounded-[4px] px-3 text-[14px] font-medium",
-                tone === "primary" && "border-[#171717] bg-[#171717] text-white hover:bg-[#262626]",
-                tone === "success" && "border-emerald-500 bg-emerald-500 text-white hover:bg-emerald-600",
-                tone === "warning" && "border-amber-200 bg-amber-50 text-amber-700 hover:border-amber-300 hover:bg-amber-100",
-                tone === "danger" && "border-rose-200 bg-white text-rose-600 hover:border-rose-400 hover:bg-rose-50 hover:text-rose-700 dark:border-rose-900/70 dark:bg-slate-950 dark:text-rose-300 dark:hover:border-rose-800 dark:hover:bg-rose-950/30 dark:hover:text-rose-200",
+                "h-9 rounded-[6px] px-3 text-[13px] font-medium shadow-none",
+                tone === "default" && "border-[#E6E7EB] bg-white text-[#33353D] hover:border-[#1E3BFA] hover:bg-[#F7F8FA] hover:text-[#1E3BFA] dark:border-[#33353D] dark:bg-[#0E1114] dark:text-[#D6D8DD] dark:hover:border-[#1E3BFA] dark:hover:bg-[#16181B] dark:hover:text-white",
+                tone === "primary" && "border-[#1E3BFA] bg-[#1E3BFA] text-white hover:bg-[#0F23D9]",
+                tone === "success" && "border-[#0CC991] bg-[#0CC991] text-white hover:border-[#0A9C71] hover:bg-[#0A9C71] hover:text-white",
+                tone === "warning" && "border-[rgba(255,171,36,0.30)] bg-[rgba(255,171,36,0.10)] text-[#D48806] hover:border-[#FFAB24] hover:bg-[rgba(255,171,36,0.16)] hover:text-[#D48806]",
+                tone === "danger" && "border-[rgba(245,63,63,0.30)] bg-white text-[#F53F3F] hover:border-[#F53F3F] hover:bg-[rgba(245,63,63,0.06)] hover:text-[#F53F3F] dark:bg-[#0E1114] dark:text-[#F53F3F]",
             )}
         >
             {children}
@@ -745,29 +793,38 @@ function RailActionButton({
     );
 }
 
-const CANDIDATE_LIST_ESTIMATED_ROW_HEIGHT = 172;
+const CANDIDATE_LIST_ESTIMATED_ROW_HEIGHT = 56;
 const CANDIDATE_LIST_OVERSCAN = 6;
 const CANDIDATE_BOARD_ESTIMATED_CARD_HEIGHT = 150;
 const CANDIDATE_BOARD_OVERSCAN = 5;
-const CANDIDATE_POSITION_SCOPE_DEFAULT_WIDTH = 248;
+const CANDIDATE_POSITION_SCOPE_DEFAULT_WIDTH = 250;
 const CANDIDATE_POSITION_SCOPE_MIN_WIDTH = 18;
 const CANDIDATE_POSITION_SCOPE_MAX_WIDTH = 420;
+const CANDIDATE_DETAIL_INPUT_CLASS = "h-9 rounded-[4px] border-[#E6E7EB] bg-white text-[13px] text-[#33353D] shadow-none focus-visible:border-[#1E3BFA] focus-visible:ring-0 dark:border-[#33353D] dark:bg-[#0E1114] dark:text-[#F7F8FA]";
+const CANDIDATE_DETAIL_TEXTAREA_CLASS = "rounded-[4px] border-[#E6E7EB] bg-white text-[13px] text-[#33353D] shadow-none focus-visible:border-[#1E3BFA] focus-visible:ring-0 dark:border-[#33353D] dark:bg-[#0E1114] dark:text-[#F7F8FA]";
+const CANDIDATE_DETAIL_OUTLINE_BUTTON_CLASS = "h-8 rounded-[6px] border-[#E6E7EB] bg-white px-3 text-[12px] text-[#33353D] shadow-none hover:border-[#1E3BFA] hover:bg-[#F7F8FA] hover:text-[#1E3BFA] dark:border-[#33353D] dark:bg-[#0E1114] dark:text-[#D6D8DD] dark:hover:border-[#1E3BFA] dark:hover:bg-[#16181B] dark:hover:text-white";
+const CANDIDATE_DETAIL_PRIMARY_BUTTON_CLASS = "h-8 rounded-[6px] border-[#1E3BFA] bg-[#1E3BFA] px-3 text-[12px] text-white shadow-none hover:border-[#0F23D9] hover:bg-[#0F23D9] disabled:border-[#D6D8DD] disabled:bg-[#D6D8DD] disabled:text-white";
+const CANDIDATE_DETAIL_GHOST_BUTTON_CLASS = "h-8 rounded-[6px] px-2 text-[12px] text-[#86888F] shadow-none hover:bg-[#F7F8FA] hover:text-[#1E3BFA] dark:text-[#B0B2B8] dark:hover:bg-[#16181B] dark:hover:text-white";
+const CANDIDATE_DETAIL_TAG_CLASS = "h-6 rounded-[3px] border-[#E6E7EB] bg-[#F7F8FA] px-2 text-[12px] font-medium text-[#33353D] shadow-none dark:border-[#33353D] dark:bg-[#16181B] dark:text-[#D6D8DD]";
+const CANDIDATE_DETAIL_STATUS_TAG_CLASS = "h-6 rounded-[3px] border px-2 text-[12px] font-medium shadow-none";
+const CANDIDATE_PAGINATION_BUTTON_CLASS = "h-7 rounded-[4px] border-[#E6E7EB] bg-white text-[12px] leading-4 text-[#33353D] shadow-none hover:border-[#1E3BFA] hover:bg-[#F7F8FA] hover:text-[#1E3BFA] disabled:border-[#E6E7EB] disabled:bg-[#F7F8FA] disabled:text-[#B0B2B8]";
+const CANDIDATE_PAGINATION_ACTIVE_CLASS = "h-7 min-w-7 rounded-[4px] border-[#1E3BFA] bg-[#1E3BFA] px-1.5 text-[12px] leading-4 text-white shadow-none hover:border-[#0F23D9] hover:bg-[#0F23D9] hover:text-white";
 const SCORE_SUGGESTED_STATUS_VALUES = new Set(["screening_passed", "talent_pool", "screening_rejected"]);
-const SMOOTH_VERTICAL_SCROLLBAR_CLASS = "[scrollbar-gutter:stable] [scrollbar-width:thin] [scrollbar-color:rgba(148,163,184,0.82)_transparent] [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 dark:[scrollbar-color:rgba(71,85,105,0.9)_transparent] dark:[&::-webkit-scrollbar-thumb]:bg-slate-700";
-const POSITION_SCOPE_SCROLLBAR_CLASS = "[scrollbar-width:thin] [scrollbar-color:transparent_transparent] hover:[scrollbar-color:rgba(100,116,139,0.52)_transparent] [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-transparent hover:[&::-webkit-scrollbar-thumb]:bg-slate-400/70 dark:hover:[scrollbar-color:rgba(71,85,105,0.62)_transparent] dark:hover:[&::-webkit-scrollbar-thumb]:bg-slate-600/70";
+const SMOOTH_VERTICAL_SCROLLBAR_CLASS = "[scrollbar-gutter:stable] [scrollbar-width:thin] [scrollbar-color:rgba(148,163,184,0.82)_transparent] [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-[#D6D8DD] dark:[scrollbar-color:rgba(71,85,105,0.9)_transparent] dark:[&::-webkit-scrollbar-thumb]:bg-[#33353D]";
+const POSITION_SCOPE_SCROLLBAR_CLASS = "[scrollbar-width:thin] [scrollbar-color:transparent_transparent] hover:[scrollbar-color:rgba(134,136,143,0.52)_transparent] [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-transparent hover:[&::-webkit-scrollbar-thumb]:bg-[#B0B2B8]/70 dark:hover:[scrollbar-color:rgba(134,136,143,0.62)_transparent] dark:hover:[&::-webkit-scrollbar-thumb]:bg-[#86888F]/70";
 
 // AI 匹配度按分层配色：高-绿 / 中-琥珀 / 低-玫红，便于列表一眼分层
 function matchPercentToneClass(percent: number | null | undefined) {
     if (percent == null) {
-        return "text-slate-400 dark:text-slate-500";
+        return "text-[#B0B2B8] dark:text-[#86888F]";
     }
     if (percent >= 70) {
-        return "text-emerald-600 dark:text-emerald-300";
+        return "text-[#0A9C71]";
     }
     if (percent >= 40) {
-        return "text-amber-600 dark:text-amber-400";
+        return "text-[#D48806]";
     }
-    return "text-rose-600 dark:text-rose-300";
+    return "text-[#F53F3F]";
 }
 
 type CandidateRowProps = {
@@ -838,9 +895,9 @@ const CandidateRow = React.memo(function CandidateRow({
                 gridTemplateColumns,
             }}
             className={cn(
-                "grid cursor-pointer overflow-hidden border-b border-slate-200/80 bg-white text-base transition-colors dark:border-slate-800 dark:bg-slate-950",
-                "hover:bg-slate-50 dark:hover:bg-slate-900/70",
-                isSelected && "bg-slate-100 dark:bg-slate-900",
+                "grid cursor-pointer overflow-hidden border-b border-[#E6E7EB]/80 bg-white text-base transition-colors dark:border-[#202226] dark:bg-[#0E1114]",
+                "hover:bg-[#F7F8FA] dark:hover:bg-[#16181B]/70",
+                isSelected && "bg-[#F2F3F5] dark:bg-[#16181B]",
             )}
             onClick={onSelect}
         >
@@ -867,35 +924,35 @@ const CandidateRow = React.memo(function CandidateRow({
                         >
                             <div className="min-w-0 overflow-hidden">
                                 <div className="flex min-w-0 items-center gap-2 overflow-hidden">
-                                    <HoverRevealText text={candidate.name + (candidate.age ? ` (${candidate.age}${tr.ageSuffix})` : "")} className="font-medium text-slate-900 dark:text-slate-100"/>
+                                    <HoverRevealText text={candidate.name + (candidate.age ? ` (${candidate.age}${tr.ageSuffix})` : "")} className="font-medium text-[#0E1114] dark:text-[#F7F8FA]"/>
                                     {resumeMailSummary ? (
-                                        <Badge className="shrink-0 rounded-full border border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-900 dark:bg-violet-950/30 dark:text-violet-200">
+                                        <Badge className="shrink-0 rounded-full border border-[rgba(30,59,250,0.18)] bg-[rgba(30,59,250,0.06)] text-[#0F23D9] dark:border-[rgba(30,59,250,0.35)] dark:bg-[rgba(30,59,250,0.16)]/30 dark:text-[#AAB3FF]">
                                             {tr.resumeSent}
                                         </Badge>
                                     ) : null}
                                 </div>
                                 <HoverRevealText
                                     text={candidate.phone || candidate.email || tr.noContact}
-                                    className="text-xs text-slate-500 dark:text-slate-400"
+                                    className="text-xs text-[#86888F] dark:text-[#B0B2B8]"
                                 />
                                 {candidateProfileSummary ? (
                                     <HoverRevealText
                                         text={candidateProfileSummary}
-                                        className="mt-0.5 text-sm text-slate-500 dark:text-slate-400"
+                                        className="mt-0.5 text-sm text-[#86888F] dark:text-[#B0B2B8]"
                                         tooltipClassName="max-w-sm"
                                     />
                                 ) : null}
                                 {candidate.ai_potential_position ? (
                                     <HoverRevealText
                                         text={`${isZh ? "转岗潜力" : "Potential Transition"}: ${candidate.ai_potential_position}${candidate.ai_potential_reason ? ` · ${candidate.ai_potential_reason}` : ""}`}
-                                        className="mt-1 text-xs text-violet-600 dark:text-violet-300"
+                                        className="mt-1 text-xs text-[#1E3BFA] dark:text-[#7D8BFF]"
                                         tooltipClassName="max-w-md"
                                     />
                                 ) : null}
                                 {resumeMailSummary ? (
                                     <HoverRevealText
                                         text={resumeMailSummary}
-                                        className="mt-1 text-xs text-violet-600 dark:text-slate-300"
+                                        className="mt-1 text-xs text-[#1E3BFA] dark:text-[#D6D8DD]"
                                         tooltipClassName="max-w-sm"
                                     />
                                 ) : null}
@@ -917,7 +974,7 @@ const CandidateRow = React.memo(function CandidateRow({
                         >
                             <HoverRevealText
                                 text={getOrganizationLabel(candidate.org_code)}
-                                className="text-xs text-slate-600 dark:text-slate-300"
+                                className="text-xs text-[#33353D] dark:text-[#D6D8DD]"
                             />
                         </div>
                     );
@@ -939,7 +996,7 @@ const CandidateRow = React.memo(function CandidateRow({
                                 {aiPositionLabel ? (
                                     <HoverRevealText
                                         text={`${isZh ? "AI 建议" : "AI Suggestion"}: ${aiPositionLabel}`}
-                                        className="mt-1 text-xs text-violet-600 dark:text-violet-300"
+                                        className="mt-1 text-xs text-[#1E3BFA] dark:text-[#7D8BFF]"
                                         tooltipClassName="max-w-sm"
                                     />
                                 ) : null}
@@ -959,7 +1016,7 @@ const CandidateRow = React.memo(function CandidateRow({
                             }}
                             className="flex min-w-0 flex-col justify-center p-2 whitespace-nowrap"
                         >
-                            <Badge className={cn("rounded-full border max-w-full", statusBadgeClass("candidate", displayStatus))}>
+                            <Badge className={cn("max-w-full rounded-[3px] border", prototypeStatusBadgeClass(displayStatus))}>
                                 <span className="truncate">{labelForCandidateStatus(displayStatus)}</span>
                             </Badge>
                             {candidate.display_status_reason ? (
@@ -971,7 +1028,7 @@ const CandidateRow = React.memo(function CandidateRow({
                                         ),
                                         language,
                                     })}
-                                    className="mt-1 text-[11px] leading-4 text-slate-500 dark:text-slate-400"
+                                    className="mt-1 text-[11px] leading-4 text-[#86888F] dark:text-[#B0B2B8]"
                                     tooltipClassName="max-w-sm"
                                 />
                             ) : null}
@@ -1008,7 +1065,7 @@ const CandidateRow = React.memo(function CandidateRow({
                             }}
                             className="flex min-w-0 items-center p-2"
                         >
-                            <HoverRevealText text={candidate.city || "-"} className="text-xs text-slate-600 dark:text-slate-300"/>
+                            <HoverRevealText text={candidate.city || "-"} className="text-xs text-[#33353D] dark:text-[#D6D8DD]"/>
                         </div>
                     );
                 }
@@ -1024,7 +1081,7 @@ const CandidateRow = React.memo(function CandidateRow({
                             }}
                             className="flex min-w-0 items-center p-2"
                         >
-                            <HoverRevealText text={candidate.expected_city || "-"} className="text-xs text-slate-600 dark:text-slate-300"/>
+                            <HoverRevealText text={candidate.expected_city || "-"} className="text-xs text-[#33353D] dark:text-[#D6D8DD]"/>
                         </div>
                     );
                 }
@@ -1040,7 +1097,7 @@ const CandidateRow = React.memo(function CandidateRow({
                             }}
                             className="flex min-w-0 items-center p-2"
                         >
-                            <HoverRevealText text={labelForCandidateSource(candidate.source)} className="text-xs text-slate-600 dark:text-slate-300"/>
+                            <HoverRevealText text={labelForCandidateSource(candidate.source)} className="text-xs text-[#33353D] dark:text-[#D6D8DD]"/>
                         </div>
                     );
                 }
@@ -1095,6 +1152,204 @@ const CandidateRow = React.memo(function CandidateRow({
         && prev.candidate.expected_city === next.candidate.expected_city
         && prev.language === next.language
         && prev.getResumeMailSummary(prev.candidate.id) === next.getResumeMailSummary(next.candidate.id);
+});
+
+type CandidatePrototypeTableRowProps = {
+    candidate: CandidateSummary;
+    isSelected: boolean;
+    isChecked: boolean;
+    rowStart: number;
+    rowHeight: number;
+    setSelectedCandidateId: React.Dispatch<React.SetStateAction<number | null>>;
+    toggleCandidateSelection: (candidateId: number, nextChecked?: boolean) => void;
+    onPrimaryAction: (candidate: CandidateSummary) => void;
+    onSendResume: (candidateId: number) => void;
+    canExecuteProcess: boolean;
+    canSendResume: boolean;
+    organizationLabel?: string | null;
+    resumeMailSummary?: string | null;
+    language: string;
+    gridTemplateColumns: string;
+};
+
+function getCandidatePrototypeListGridTemplate(canSendResume: boolean) {
+    const actionColumnWidth = canSendResume ? 216 : 168;
+    return {
+        minWidth: canSendResume ? 1240 : 1192,
+        columns: [
+            "40px",
+            "minmax(210px,1.75fr)",
+            "minmax(150px,1.2fr)",
+            "minmax(116px,0.85fr)",
+            "minmax(116px,0.9fr)",
+            "minmax(96px,0.75fr)",
+            "minmax(72px,0.55fr)",
+            "minmax(88px,0.65fr)",
+            "minmax(136px,1fr)",
+            `${actionColumnWidth}px`,
+        ].join(" "),
+    };
+}
+
+function candidatePrototypeStatusClass(status: string) {
+    if (status === "screening_rejected" || status === "department_review_rejected" || INTERVIEW_REJECTED_STATUS_SET.has(status)) {
+        return "bg-[rgba(245,63,63,0.08)] text-[#F53F3F]";
+    }
+    if (["screening_passed", "interview_passed", "pending_offer", "offer_sent", "hired"].includes(status)) {
+        return "bg-[rgba(12,201,145,0.10)] text-[#0A9C71]";
+    }
+    if (status === "screening_running" || INTERVIEW_PIPELINE_STATUS_SET.has(status) || status === "department_review_pending") {
+        return "bg-[rgba(30,59,250,0.08)] text-[#1E3BFA]";
+    }
+    if (["new_imported", "pending_screening", "screening_failed"].includes(status)) {
+        return "bg-[rgba(255,171,36,0.12)] text-[#D48806]";
+    }
+    return "bg-[rgba(176,178,184,0.12)] text-[#5E5F66]";
+}
+
+function candidatePrototypePrimaryActionLabel(candidate: CandidateSummary, isZh: boolean, canExecuteProcess: boolean) {
+    const status = resolveCandidateDisplayStatus(candidate);
+    if (!canExecuteProcess && ["new_imported", "matching", "unmatched", "pending_screening", "screening_failed"].includes(status)) {
+        return isZh ? "查看详情" : "View Details";
+    }
+    if (status === "screening_running") return isZh ? "查看进度" : "View Progress";
+    if (INTERVIEW_PIPELINE_STATUS_SET.has(status)) return isZh ? "面试题" : "Questions";
+    if (status === "screening_rejected" || status === "department_review_rejected" || INTERVIEW_REJECTED_STATUS_SET.has(status)) {
+        return isZh ? "入人才库" : "Talent Pool";
+    }
+    if (!["new_imported", "matching", "unmatched", "pending_screening", "screening_failed"].includes(status)) {
+        return isZh ? "查看详情" : "View Details";
+    }
+    if (candidate.latest_score_id || candidate.latest_total_score != null) return isZh ? "重新初筛" : "Re-screen";
+    return isZh ? "开始初筛" : "Start Screening";
+}
+
+const CandidatePrototypeTableRow = React.memo(function CandidatePrototypeTableRow({
+    candidate,
+    isSelected,
+    isChecked,
+    rowStart,
+    rowHeight,
+    setSelectedCandidateId,
+    toggleCandidateSelection,
+    onPrimaryAction,
+    onSendResume,
+    canExecuteProcess,
+    canSendResume,
+    organizationLabel,
+    resumeMailSummary,
+    language,
+    gridTemplateColumns,
+}: CandidatePrototypeTableRowProps) {
+    const isZh = language !== "en-US";
+    const displayStatus = resolveCandidateDisplayStatus(candidate);
+    const matchPercent = resolveCandidateSummaryMatchPercent(candidate);
+    const matchColor = matchPercent == null ? "#B0B2B8" : matchPercent >= 70 ? "#0CC991" : matchPercent >= 40 ? "#FFAB24" : "#F53F3F";
+    const initials = (candidate.name || (isZh ? "候" : "C")).trim().slice(0, 1).toUpperCase();
+    const avatarColors = ["#1E3BFA", "#2E9CFF", "#0CC991", "#FFAB24", "#7B61FF", "#F53F3F"];
+    const avatarColor = avatarColors[Math.abs(candidate.id) % avatarColors.length];
+    const profileMeta = [
+        candidate.current_company,
+        candidate.city,
+        candidate.expected_city ? `${isZh ? "期望" : "Expect"} ${candidate.expected_city}` : "",
+        candidate.phone || candidate.email,
+        organizationLabel,
+    ].filter(Boolean).join(" · ") || "-";
+    const profileDetails = [
+        profileMeta,
+        candidate.email && candidate.email !== candidate.phone ? candidate.email : "",
+        candidate.tags?.length ? `${isZh ? "标签" : "Tags"}: ${candidate.tags.join("、")}` : "",
+        candidate.ai_potential_position ? `${isZh ? "转岗建议" : "Potential"}: ${candidate.ai_potential_position}` : "",
+        candidate.display_status_reason || "",
+        candidate.source_detail || "",
+        resumeMailSummary || "",
+    ].filter(Boolean).join(" · ");
+    const appliedPosition = candidate.position_title || candidate.screened_position_title || candidate.ai_match_position_title || (isZh ? "未分配岗位" : "Unassigned");
+
+    return (
+        <div
+            role="row"
+            data-candidate-id={candidate.id}
+            style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                width: "100%",
+                height: rowHeight,
+                transform: `translateY(${rowStart}px)`,
+                gridTemplateColumns,
+            }}
+            className={cn(
+                "grid cursor-pointer items-center border-b border-[#F2F3F5] bg-white text-[12px] text-[#0F1014] transition-colors hover:bg-[#F8F8F9]",
+                isSelected && "bg-[rgba(30,59,250,0.04)]",
+            )}
+            onClick={() => setSelectedCandidateId(candidate.id)}
+        >
+            <div role="cell" className="flex items-center justify-center" onClick={(event) => event.stopPropagation()}>
+                <input
+                    type="checkbox"
+                    checked={isChecked}
+                    onChange={(event) => toggleCandidateSelection(candidate.id, event.target.checked)}
+                    aria-label={isZh ? `选择候选人 ${candidate.name}` : `Select ${candidate.name}`}
+                    className="h-3.5 w-3.5 rounded-[3px] border-[#D6D8DD] accent-[#1E3BFA] focus:ring-[#1E3BFA]"
+                />
+            </div>
+            <div role="cell" className="flex min-w-0 items-center gap-2.5 px-2.5">
+                <span
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[11px] font-medium text-white"
+                    style={{backgroundColor: avatarColor}}
+                >
+                    {initials}
+                </span>
+                <span className="min-w-0">
+                    <span className="flex min-w-0 items-center gap-1.5">
+                    <button
+                        type="button"
+                        className="block min-w-0 max-w-full truncate text-left text-[13px] font-medium text-[#0F23D9] hover:text-[#1E3BFA]"
+                        title={candidate.age ? `${candidate.name} · ${candidate.age}${isZh ? "岁" : ""}` : candidate.name}
+                        onClick={(event) => {
+                            event.stopPropagation();
+                            setSelectedCandidateId(candidate.id);
+                        }}
+                    >
+                        {candidate.name}{candidate.age ? <span className="ml-1 font-normal text-[#86888F]">{candidate.age}{isZh ? "岁" : ""}</span> : null}
+                    </button>
+                    {resumeMailSummary ? <span className="shrink-0 rounded-[3px] bg-[rgba(30,59,250,0.07)] px-1.5 py-0.5 text-[10px] text-[#1E3BFA]">{isZh ? "已发送" : "Sent"}</span> : null}
+                    </span>
+                    <span className="mt-0.5 block truncate text-[11px] text-[#B0B2B8]" title={profileDetails}>{profileMeta}</span>
+                </span>
+            </div>
+            <div role="cell" className="truncate px-2.5" title={appliedPosition}>{appliedPosition}</div>
+            <div role="cell" className="flex items-center gap-1.5 px-2.5">
+                <span className="h-[5px] w-11 overflow-hidden rounded-full bg-[#F2F3F5]">
+                    <span className="block h-full rounded-full" style={{width: `${matchPercent ?? 0}%`, backgroundColor: matchColor}}/>
+                </span>
+                <span className="tabular-nums" style={{color: matchColor}}>{matchPercent == null ? "—" : `${Math.round(matchPercent)}%`}</span>
+            </div>
+            <div role="cell" className="px-2.5">
+                <span title={candidate.display_status_reason || undefined} className={cn("inline-flex h-[22px] max-w-full items-center truncate rounded-[4px] px-2", candidatePrototypeStatusClass(displayStatus))}>
+                    {labelForCandidateStatus(displayStatus)}
+                </span>
+            </div>
+            <div role="cell" className="truncate px-2.5" title={labelForCandidateSource(candidate.source)}>{labelForCandidateSource(candidate.source)}</div>
+            <div role="cell" className="truncate px-2.5">{candidate.education || "-"}</div>
+            <div role="cell" className="truncate px-2.5">{candidate.years_of_experience || "-"}</div>
+            <div role="cell" className="truncate px-2.5 tabular-nums text-[#86888F]">{formatDateTime(candidate.updated_at || candidate.created_at)}</div>
+            <div role="cell" className="flex min-w-0 items-center gap-3 px-2.5" onClick={(event) => event.stopPropagation()}>
+                <button type="button" className="shrink-0 text-[#0F23D9] hover:text-[#1E3BFA]" onClick={() => onPrimaryAction(candidate)}>
+                    {candidatePrototypePrimaryActionLabel(candidate, isZh, canExecuteProcess)}
+                </button>
+                <button type="button" className="shrink-0 text-[#0F23D9] hover:text-[#1E3BFA]" onClick={() => setSelectedCandidateId(candidate.id)}>
+                    {isZh ? "查看简历" : "Resume"}
+                </button>
+                {canSendResume ? (
+                    <button type="button" className="shrink-0 text-[#0F23D9] hover:text-[#1E3BFA]" onClick={() => onSendResume(candidate.id)}>
+                        {isZh ? "发送简历" : "Send"}
+                    </button>
+                ) : null}
+            </div>
+        </div>
+    );
 });
 
 type CandidateApplicantCardProps = {
@@ -1198,14 +1453,14 @@ const CandidateApplicantCard = React.memo(function CandidateApplicantCard({
     const fitClassName = cn(
         "rounded border px-1.5 py-0.5 text-[11px] font-medium leading-4",
         displayStatus === "screening_running"
-            ? "border-slate-100 bg-slate-50 text-slate-500 dark:border-slate-800 dark:bg-slate-900/40 dark:text-slate-400"
+            ? "border-[#F2F3F5] bg-[#F7F8FA] text-[#86888F] dark:border-[#202226] dark:bg-[#16181B]/40 dark:text-[#B0B2B8]"
             : displayStatus === "pending_screening"
-                ? "border-slate-100 bg-slate-50 text-slate-500 dark:border-slate-800 dark:bg-slate-900/40 dark:text-slate-400"
+                ? "border-[#F2F3F5] bg-[#F7F8FA] text-[#86888F] dark:border-[#202226] dark:bg-[#16181B]/40 dark:text-[#B0B2B8]"
                 : displayStatus === "screening_rejected" || INTERVIEW_REJECTED_STATUS_SET.has(displayStatus)
-                    ? "border-rose-100 bg-rose-50/60 text-rose-500 dark:border-rose-900/50 dark:bg-rose-950/20 dark:text-rose-300"
+                    ? "border-[rgba(245,63,63,0.22)] bg-[rgba(245,63,63,0.06)] text-[#F53F3F]"
                     : matchPercent != null && matchPercent >= 60
-                        ? "border-emerald-100 bg-emerald-50/60 text-emerald-500 dark:border-emerald-900/50 dark:bg-emerald-950/20 dark:text-emerald-300"
-                        : "border-amber-100 bg-amber-50/60 text-amber-500 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-300",
+                        ? "border-[rgba(12,201,145,0.24)] bg-[rgba(12,201,145,0.07)] text-[#0A9C71]"
+                        : "border-[rgba(255,171,36,0.26)] bg-[rgba(255,171,36,0.08)] text-[#D48806]",
     );
     const topTags = (candidate.tags || []).slice(0, 5);
 
@@ -1247,10 +1502,10 @@ const CandidateApplicantCard = React.memo(function CandidateApplicantCard({
     const fitBannerClassName = cn(
         "mt-3 flex min-w-0 items-center justify-between gap-3 rounded-md border px-3 py-2 text-xs leading-5",
         displayStatus === "screening_rejected" || INTERVIEW_REJECTED_STATUS_SET.has(displayStatus)
-            ? "border-rose-100/80 bg-rose-50/45 text-rose-600 dark:border-rose-900/50 dark:bg-rose-950/20 dark:text-rose-300"
+            ? "border-[rgba(245,63,63,0.22)] bg-[rgba(245,63,63,0.05)] text-[#F53F3F]"
             : matchPercent != null && matchPercent >= 60
-                ? "border-emerald-100/80 bg-emerald-50/45 text-emerald-600 dark:border-emerald-900/50 dark:bg-emerald-950/20 dark:text-emerald-300"
-                : "border-amber-100/80 bg-amber-50/45 text-amber-600 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-300",
+                ? "border-[rgba(12,201,145,0.24)] bg-[rgba(12,201,145,0.06)] text-[#0A9C71]"
+                : "border-[rgba(255,171,36,0.26)] bg-[rgba(255,171,36,0.07)] text-[#D48806]",
     );
 
     return (
@@ -1279,9 +1534,9 @@ const CandidateApplicantCard = React.memo(function CandidateApplicantCard({
                     }
                 }}
                 className={cn(
-                    "w-full min-w-0 rounded-lg border border-[var(--tr-border-soft)] bg-white px-3 py-3 text-left shadow-[0_1px_2px_rgba(16,32,63,0.03)] transition dark:border-slate-800 dark:bg-slate-950",
-                    "hover:border-slate-300 hover:bg-[#fbfcfe] dark:hover:border-slate-700 dark:hover:bg-slate-900/70",
-                    isSelected && "border-rose-200 bg-rose-50/50 shadow-[inset_3px_0_0_var(--tr-red)] dark:bg-slate-900",
+                    "w-full min-w-0 rounded-lg border border-[#EBEEF5] bg-white px-3 py-3 text-left shadow-[0_1px_2px_rgba(16,32,63,0.03)] transition dark:border-[#202226] dark:bg-[#0E1114]",
+                    "hover:border-[#D6D8DD] hover:bg-[#fbfcfe] dark:hover:border-[#33353D] dark:hover:bg-[#16181B]/70",
+                    isSelected && "border-[#1E3BFA] bg-[rgba(30,59,250,0.03)] shadow-[inset_3px_0_0_#1E3BFA] dark:bg-[#16181B]",
                 )}
             >
                 <div className="grid min-w-0 grid-cols-[22px_minmax(0,1fr)] gap-2.5 xl:grid-cols-[22px_minmax(118px,.8fr)_minmax(170px,1.08fr)_minmax(165px,.9fr)_minmax(220px,1fr)] 2xl:grid-cols-[22px_minmax(152px,.85fr)_minmax(260px,1.25fr)_minmax(215px,.95fr)_minmax(240px,1fr)] xl:gap-3 2xl:gap-4">
@@ -1291,58 +1546,58 @@ const CandidateApplicantCard = React.memo(function CandidateApplicantCard({
                             checked={isChecked}
                             onChange={(event) => onToggleCheck(event.target.checked)}
                             aria-label={tr.selectCandidate(displayCandidateName)}
-                            className="h-3.5 w-3.5 rounded border-slate-300 accent-[var(--tr-red)]"
+                            className="h-3.5 w-3.5 rounded border-[#D6D8DD] accent-[#1E3BFA]"
                         />
                     </div>
 
                     <div className="col-start-2 flex min-w-0 gap-2 overflow-hidden xl:col-start-auto 2xl:gap-2.5">
-                        <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-lime-500"/>
+                        <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-[#0CC991]"/>
                         <div className="min-w-0">
                             <div className="flex min-w-0 items-center gap-2">
-                                <span className="truncate text-[15px] font-semibold leading-5 text-[var(--tr-ink)] dark:text-slate-50">
+                                <span className="truncate text-[15px] font-semibold leading-5 text-[#0E1114] dark:text-white">
                                     {displayCandidateName}
                                 </span>
                                 {resumeMailSummary ? (
-                                    <Badge className="shrink-0 rounded border border-blue-100 bg-blue-50 px-1.5 py-0 text-[11px] text-blue-700 dark:border-blue-900/70 dark:bg-blue-950/30 dark:text-blue-200">
+                                    <Badge className="shrink-0 rounded-[3px] border border-[rgba(46,156,255,0.24)] bg-[rgba(46,156,255,0.07)] px-1.5 py-0 text-[11px] text-[#2E9CFF]">
                                         {tr.resumeSent}
                                     </Badge>
                                 ) : null}
                             </div>
-                            <p className="mt-1 line-clamp-1 text-xs leading-5 text-[var(--tr-ink-muted)] dark:text-slate-400">
+                            <p className="mt-1 line-clamp-1 text-xs leading-5 text-[#86888F] dark:text-[#B0B2B8]">
                                 {profileHintText}
                             </p>
-                            <p className="line-clamp-1 text-xs leading-5 text-slate-400 dark:text-slate-500">
+                            <p className="line-clamp-1 text-xs leading-5 text-[#B0B2B8] dark:text-[#86888F]">
                                 {contactText}
                             </p>
-                            <p className="mt-3 line-clamp-1 text-xs leading-5 text-[var(--tr-ink-muted)] dark:text-slate-400">
+                            <p className="mt-3 line-clamp-1 text-xs leading-5 text-[#86888F] dark:text-[#B0B2B8]">
                                 {sourceTimeText}
                             </p>
                         </div>
                     </div>
 
-                    <div className="col-start-2 min-w-0 overflow-hidden space-y-2 border-t border-slate-100 pt-3 xl:col-start-auto xl:border-l xl:border-t-0 xl:pl-3 xl:pt-0 2xl:pl-4 dark:border-slate-800">
-                        <p className="flex min-w-0 items-center gap-2 text-xs leading-5 text-[var(--tr-ink)]">
-                            <GraduationCap className="h-3.5 w-3.5 shrink-0 text-slate-500"/>
+                    <div className="col-start-2 min-w-0 overflow-hidden space-y-2 border-t border-[#F2F3F5] pt-3 xl:col-start-auto xl:border-l xl:border-t-0 xl:pl-3 xl:pt-0 2xl:pl-4 dark:border-[#202226]">
+                        <p className="flex min-w-0 items-center gap-2 text-xs leading-5 text-[#0E1114]">
+                            <GraduationCap className="h-3.5 w-3.5 shrink-0 text-[#86888F]"/>
                             <span className="truncate">{educationSummaryText}</span>
                         </p>
-                        <p className="flex min-w-0 items-center gap-2 text-xs leading-5 text-[var(--tr-ink)]">
-                            <Briefcase className="h-3.5 w-3.5 shrink-0 text-slate-500"/>
+                        <p className="flex min-w-0 items-center gap-2 text-xs leading-5 text-[#0E1114]">
+                            <Briefcase className="h-3.5 w-3.5 shrink-0 text-[#86888F]"/>
                             <span className="truncate">{experienceSummaryText}</span>
                         </p>
-                        <p className="flex min-w-0 items-center gap-2 text-xs leading-5 text-[var(--tr-ink-muted)]">
-                            <Bot className="h-3.5 w-3.5 shrink-0 text-slate-500"/>
+                        <p className="flex min-w-0 items-center gap-2 text-xs leading-5 text-[#86888F]">
+                            <Bot className="h-3.5 w-3.5 shrink-0 text-[#86888F]"/>
                             <span className="truncate">
                                 {aiPositionLabel ? `${isZh ? "AI 推荐" : "AI"}：${aiPositionLabel}` : positionSourceLabel}
                             </span>
                         </p>
                         {showOriginalFile ? (
-                            <p className="line-clamp-1 text-xs leading-5 text-slate-400 dark:text-slate-500">
+                            <p className="line-clamp-1 text-xs leading-5 text-[#B0B2B8] dark:text-[#86888F]">
                                 {isZh ? "原始文件" : "Original file"}：{originalFileName}
                             </p>
                         ) : null}
                         <div className="flex min-w-0 flex-wrap gap-1 pt-0.5 2xl:gap-1.5">
                             {topTags.slice(0, 4).map((tag) => (
-                                <span key={tag} className="max-w-full truncate rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[11px] leading-4 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 2xl:px-2 2xl:py-1">
+                                <span key={tag} className="max-w-full truncate rounded-md border border-[#E6E7EB] bg-[#F7F8FA] px-1.5 py-0.5 text-[11px] leading-4 text-[#33353D] dark:border-[#202226] dark:bg-[#16181B] dark:text-[#D6D8DD] 2xl:px-2 2xl:py-1">
                                     {tag}
                                 </span>
                             ))}
@@ -1350,37 +1605,37 @@ const CandidateApplicantCard = React.memo(function CandidateApplicantCard({
                         </div>
                     </div>
 
-                    <div className="col-start-2 min-w-0 overflow-hidden space-y-2 border-t border-slate-100 pt-3 text-xs leading-5 xl:col-start-auto xl:border-l xl:border-t-0 xl:pl-3 xl:pt-0 2xl:pl-4 dark:border-slate-800">
+                    <div className="col-start-2 min-w-0 overflow-hidden space-y-2 border-t border-[#F2F3F5] pt-3 text-xs leading-5 xl:col-start-auto xl:border-l xl:border-t-0 xl:pl-3 xl:pt-0 2xl:pl-4 dark:border-[#202226]">
                         <div className="grid grid-cols-[60px_minmax(0,1fr)] gap-x-2 gap-y-1 2xl:grid-cols-[72px_minmax(0,1fr)] 2xl:gap-x-3">
-                            <span className="text-slate-400">{isZh ? "应聘岗位" : "Applied"}</span>
-                            <span className="truncate font-semibold text-[var(--tr-ink)]">{positionLabel}</span>
-                            <span className="text-slate-400">{isZh ? "渠道" : "Source"}</span>
-                            <span className="truncate text-[var(--tr-ink-muted)]">{labelForCandidateSource(candidate.source)}</span>
-                            <span className="text-slate-400">{isZh ? "投递时间" : "Submitted"}</span>
-                            <span className="truncate text-[var(--tr-ink-muted)]">{candidate.updated_at ? formatDateTime(candidate.updated_at) : "-"}</span>
-                            <span className="text-slate-400">{isZh ? "业务筛选" : "Workflow"}</span>
-                            <span className="truncate text-[var(--tr-ink-muted)]">{labelForCandidateStatus(displayStatus)}</span>
+                            <span className="text-[#B0B2B8]">{isZh ? "应聘岗位" : "Applied"}</span>
+                            <span className="truncate font-semibold text-[#0E1114]">{positionLabel}</span>
+                            <span className="text-[#B0B2B8]">{isZh ? "渠道" : "Source"}</span>
+                            <span className="truncate text-[#86888F]">{labelForCandidateSource(candidate.source)}</span>
+                            <span className="text-[#B0B2B8]">{isZh ? "投递时间" : "Submitted"}</span>
+                            <span className="truncate text-[#86888F]">{candidate.updated_at ? formatDateTime(candidate.updated_at) : "-"}</span>
+                            <span className="text-[#B0B2B8]">{isZh ? "业务筛选" : "Workflow"}</span>
+                            <span className="truncate text-[#86888F]">{labelForCandidateStatus(displayStatus)}</span>
                         </div>
                     </div>
 
-                    <div className="col-start-2 min-w-0 overflow-visible border-t border-slate-100 pt-3 xl:col-start-auto xl:border-t-0 xl:pl-2 xl:pt-0 2xl:pl-3 dark:border-slate-800">
+                    <div className="col-start-2 min-w-0 overflow-visible border-t border-[#F2F3F5] pt-3 xl:col-start-auto xl:border-t-0 xl:pl-2 xl:pt-0 2xl:pl-3 dark:border-[#202226]">
                         <div className="ml-auto flex w-fit max-w-full flex-col items-stretch space-y-2 2xl:space-y-3">
-                            <div className="flex h-8 w-full min-w-0 items-center justify-between gap-2 rounded-md bg-slate-50 px-2 text-xs font-semibold text-[var(--tr-ink)] dark:bg-slate-900 2xl:px-3">
+                            <div className="flex h-8 w-full min-w-0 items-center justify-between gap-2 rounded-md bg-[#F7F8FA] px-2 text-xs font-semibold text-[#0E1114] dark:bg-[#16181B] 2xl:px-3">
                                 <span>{isZh ? "AI 匹配度" : "AI Match"}</span>
                                 <span className={cn("text-[15px] tabular-nums", matchPercentToneClass(matchPercent))}>{matchPercent != null ? formatPercent(matchPercent) : "--"}</span>
                             </div>
-                            <p className="text-left text-xs font-medium text-[var(--tr-ink-muted)]">{isZh ? "候选人处理" : "Candidate actions"}</p>
+                            <p className="text-left text-xs font-medium text-[#86888F]">{isZh ? "候选人处理" : "Candidate actions"}</p>
                             <div className="flex min-w-0 flex-nowrap items-center gap-1.5 overflow-visible" onClick={(event) => event.stopPropagation()}>
                                 {showPassAction ? (
-                                    <Button size="sm" className="h-8 w-auto shrink-0 justify-center rounded-md bg-emerald-600 px-3 text-xs leading-5 text-white shadow-none hover:bg-emerald-700" onClick={() => onDisposition(candidate.id, "pass")}>
+                                    <Button size="sm" className="h-8 w-auto shrink-0 justify-center rounded-[6px] border-[#0CC991] bg-[#0CC991] px-3 text-xs leading-5 text-white shadow-none hover:border-[#0A9C71] hover:bg-[#0A9C71]" onClick={() => onDisposition(candidate.id, "pass")}>
                                         <span className="whitespace-nowrap">{tr.quickDispositionPass}</span>
                                     </Button>
                                 ) : null}
-                                <Button size="sm" variant="outline" className="h-8 w-auto shrink-0 justify-center rounded-md px-3 text-xs leading-5" onClick={() => onDisposition(candidate.id, "talent_pool")}>
+                                <Button size="sm" variant="outline" className="h-8 w-auto shrink-0 justify-center rounded-[6px] border-[#E6E7EB] bg-white px-3 text-xs leading-5 text-[#33353D] shadow-none hover:border-[#1E3BFA] hover:bg-[#F7F8FA] hover:text-[#1E3BFA]" onClick={() => onDisposition(candidate.id, "talent_pool")}>
                                     <span className="whitespace-nowrap">{tr.quickDispositionTalentPool}</span>
                                 </Button>
                                 {showRejectAction ? (
-                                    <Button size="sm" variant="outline" className="h-8 w-auto shrink-0 justify-center rounded-md border-rose-200 px-3 text-xs leading-5 text-rose-600 hover:bg-rose-50 dark:border-rose-900/70 dark:bg-slate-900 dark:text-rose-300 dark:hover:bg-rose-950/30" onClick={() => onDisposition(candidate.id, "reject")}>
+                                    <Button size="sm" variant="outline" className="h-8 w-auto shrink-0 justify-center rounded-[6px] border-[rgba(245,63,63,0.30)] bg-white px-3 text-xs leading-5 text-[#F53F3F] shadow-none hover:border-[#F53F3F] hover:bg-[rgba(245,63,63,0.06)] hover:text-[#F53F3F]" onClick={() => onDisposition(candidate.id, "reject")}>
                                         <span className="whitespace-nowrap">{tr.quickDispositionReject}</span>
                                     </Button>
                                 ) : null}
@@ -1457,10 +1712,10 @@ const CandidateBoardColumn = React.memo(function CandidateBoardColumn({
     });
 
     return (
-        <div className="rounded-2xl border border-slate-200/80 bg-slate-50/60 p-4 dark:border-slate-800 dark:bg-slate-900/60">
+        <div className="rounded-[8px] border border-[#EBEEF5] bg-[#F7F8FA] p-4">
             <div className="mb-4 flex items-center justify-between gap-2">
-                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{group.label}</p>
-                <Badge variant="outline" className="rounded-full">{group.items.length}</Badge>
+                <p className="text-[14px] font-semibold text-[#0E1114]">{group.label}</p>
+                <Badge variant="outline" className="h-[22px] rounded-[4px] border-[#E6E7EB] bg-white px-2 text-[11px] font-normal text-[#86888F]">{group.items.length}</Badge>
             </div>
             {group.items.length ? (
                 <div className="relative" style={{ height: virtualizer.getTotalSize() }}>
@@ -1477,10 +1732,10 @@ const CandidateBoardColumn = React.memo(function CandidateBoardColumn({
                             >
                                 <div
                                     className={cn(
-                                        "w-full rounded-2xl border px-4 py-4 transition",
+                                        "w-full rounded-[8px] border px-4 py-4 text-[#0E1114] shadow-none transition",
                                         selectedCandidateId === candidate.id
-                                            ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
-                                            : "border-slate-200 bg-white hover:border-slate-400 dark:border-slate-800 dark:bg-slate-950",
+                                            ? "border-[#1E3BFA] bg-[rgba(30,59,250,0.05)] shadow-[inset_3px_0_0_#1E3BFA]"
+                                            : "border-[#E6E7EB] bg-white hover:border-[#B0B2B8]",
                                     )}
                                 >
                                     <div className="flex items-start justify-between gap-3">
@@ -1494,7 +1749,7 @@ const CandidateBoardColumn = React.memo(function CandidateBoardColumn({
                                                     {candidate.name}
                                                 </p>
                                                 {mailSummary ? (
-                                                    <Badge className="rounded-full border border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-900 dark:bg-violet-950/30 dark:text-violet-200">
+                                                    <Badge className="rounded-[4px] border border-[rgba(30,59,250,0.16)] bg-[rgba(30,59,250,0.06)] text-[#1E3BFA]">
                                                         {tr.resumeSent}
                                                     </Badge>
                                                 ) : null}
@@ -1515,6 +1770,7 @@ const CandidateBoardColumn = React.memo(function CandidateBoardColumn({
                                             checked={selectedCandidateIdSet.has(candidate.id)}
                                             onChange={(event) => toggleCandidateSelection(candidate.id, event.target.checked)}
                                             aria-label={tr.selectCandidate(candidate.name)}
+                                            className="h-3.5 w-3.5 rounded-[3px] border-[#D6D8DD] accent-[#1E3BFA] focus:ring-[#1E3BFA]"
                                         />
                                     </div>
                                 </div>
@@ -1523,7 +1779,7 @@ const CandidateBoardColumn = React.memo(function CandidateBoardColumn({
                     })}
                 </div>
             ) : (
-                <p className="rounded-2xl border border-dashed border-slate-200 px-4 py-6 text-center text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
+                <p className="rounded-[8px] border border-dashed border-[#D6D8DD] bg-white px-4 py-6 text-center text-[13px] text-[#86888F]">
                     {tr.noCandidatesInStatus}
                 </p>
             )}
@@ -1562,119 +1818,139 @@ function CandidatePipelineBar({
     onSelectChild,
     loading,
     allLabel,
+    rightAction,
 }: {
     stages: CandidatePipelineStageSummary[];
     onSelect: (stage: CandidatePipelineStageSummary) => void;
     onSelectChild: (stage: CandidatePipelineStageSummary, child: CandidatePipelineStageChildSummary) => void;
     loading?: boolean;
     allLabel: string;
+    rightAction?: React.ReactNode;
 }) {
+    const [openStageKey, setOpenStageKey] = React.useState<string | null>(null);
+    const closeTimerRef = React.useRef<number | null>(null);
+    const openedByHoverRef = React.useRef(false);
+
+    const cancelClose = React.useCallback(() => {
+        if (closeTimerRef.current !== null) {
+            window.clearTimeout(closeTimerRef.current);
+            closeTimerRef.current = null;
+        }
+    }, []);
+    const openStageMenu = React.useCallback((stageKey: string) => {
+        cancelClose();
+        openedByHoverRef.current = true;
+        setOpenStageKey(stageKey);
+    }, [cancelClose]);
+    const scheduleClose = React.useCallback(() => {
+        cancelClose();
+        closeTimerRef.current = window.setTimeout(() => {
+            setOpenStageKey(null);
+            closeTimerRef.current = null;
+        }, 140);
+    }, [cancelClose]);
+
+    React.useEffect(() => () => cancelClose(), [cancelClose]);
+
     return (
-        <div className="grid overflow-visible rounded-md border border-[var(--tr-border)] bg-white [grid-template-columns:repeat(auto-fit,minmax(128px,1fr))] dark:border-slate-800 dark:bg-slate-950">
-            {stages.map((stage) => {
-                const activeChild = stage.children?.find((child) => child.active);
-                const defaultChild = stage.children?.[0];
-                const displayChild = activeChild || (stage.allActive ? undefined : defaultChild);
-                const displayCount = displayChild?.count ?? stage.count;
-                const displayHint = displayChild?.label || (stage.allActive ? allLabel : stage.hint);
-                const hasChildMenu = stage.key !== "all" && stage.key !== "talent_pool";
-                const hasDistinctStageAllOption = !stage.children?.some((child) => pipelineStatusValuesEqual(child.resolvedStatusValues, stage.resolvedStatusValues));
-                return (
-                <div
-                    key={stage.key}
-                    className={cn(
-                        "group relative min-w-0 border-r border-[var(--tr-border-soft)] transition last:border-r-0 dark:border-slate-800",
-                        stage.active
-                            ? "bg-white text-[var(--tr-ink)] shadow-[inset_0_-3px_0_var(--tr-red)] dark:bg-slate-950 dark:text-neutral-300"
-                            : "bg-white text-slate-700 hover:bg-slate-50 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-900",
-                    )}
-                >
-                    {hasChildMenu ? (
-                        <div className="w-full cursor-default px-4 py-3 text-left">
-                            <div className="flex items-center justify-between gap-2">
-                                <span className="truncate text-sm font-semibold">{stage.label}</span>
-                                <span className={cn("shrink-0 text-lg font-semibold tabular-nums", stage.active && "text-[var(--tr-blue)]")}>
-                                    {loading ? (
-                                        <span className="inline-block h-5 w-8 animate-pulse rounded bg-slate-200 align-middle dark:bg-slate-800" />
-                                    ) : (
-                                        displayCount.toLocaleString()
-                                    )}
-                                </span>
-                            </div>
-                            <p
+        <div className="mb-4 flex min-w-0 items-center justify-between gap-6 bg-white">
+            <div className="flex min-w-0 items-center gap-7 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                {stages.map((stage) => {
+                    const hasChildMenu = stage.key !== "all" && stage.key !== "talent_pool";
+                    const hasDistinctStageAllOption = !stage.children?.some((child) => pipelineStatusValuesEqual(child.resolvedStatusValues, stage.resolvedStatusValues));
+                    return (
+                        <div
+                            key={stage.key}
+                            className="relative flex shrink-0 items-center"
+                            onMouseEnter={() => {
+                                if (hasChildMenu) openStageMenu(stage.key);
+                            }}
+                            onMouseLeave={() => {
+                                if (hasChildMenu) scheduleClose();
+                            }}
+                        >
+                            <button
+                                type="button"
+                                aria-pressed={stage.active}
+                                onClick={() => onSelect(stage)}
                                 className={cn(
-                                    "mt-1 flex min-w-0 items-center gap-1 text-xs",
-                                    stage.active ? "text-[var(--tr-ink-muted)] dark:text-neutral-200/80" : "text-slate-500 dark:text-slate-400",
+                                    "relative flex h-9 items-center gap-1.5 px-0.5 text-[15px] transition-colors",
+                                    stage.active ? "font-semibold text-[#0E1114]" : "font-normal text-[#33353D] hover:text-[#0F23D9]",
                                 )}
                             >
-                                <span className="truncate">{displayHint}</span>
-                                <ChevronDown className="h-3 w-3 shrink-0" />
-                            </p>
-                        </div>
-                    ) : (
-                        <button
-                            type="button"
-                            aria-pressed={stage.active}
-                            onClick={() => onSelect(stage)}
-                            className="w-full px-4 py-3 text-left"
-                        >
-                        <div className="flex items-center justify-between gap-2">
-                            <span className="truncate text-sm font-semibold">{stage.label}</span>
-                            <span className={cn("shrink-0 text-lg font-semibold tabular-nums", stage.active && "text-[var(--tr-blue)]")}>
-                                {loading ? (
-                                    <span className="inline-block h-5 w-8 animate-pulse rounded bg-slate-200 align-middle dark:bg-slate-800" />
-                                ) : (
-                                    displayCount.toLocaleString()
-                                )}
-                            </span>
-                        </div>
-                        <p
-                            className={cn(
-                                "mt-1 truncate text-xs",
-                                stage.active ? "text-[var(--tr-ink-muted)] dark:text-neutral-200/80" : "text-slate-500 dark:text-slate-400",
-                            )}
-                        >
-                            {displayHint}
-                        </p>
-                        </button>
-                    )}
-                    {hasChildMenu ? (
-                        <div className="invisible absolute left-0 top-0 z-40 min-w-40 w-full rounded-md border border-blue-300 bg-white pb-1 text-sm opacity-0 shadow-xl transition group-hover:visible group-hover:opacity-100 dark:border-blue-900/70 dark:bg-slate-950">
-                            <div className="px-4 pt-3 pb-2 text-[var(--tr-blue)]">
-                                <span className="border-l-2 border-[var(--tr-blue)] pl-2 font-semibold">{stage.label}</span>
-                            </div>
-                            {stage.children?.map((child) => (
-                                <button
-                                    key={child.key}
-                                    type="button"
-                                    onClick={() => onSelectChild(stage, child)}
-                                    className={cn(
-                                        "flex h-10 w-full items-center justify-between gap-3 px-4 text-left transition hover:bg-blue-50 dark:hover:bg-blue-950/30",
-                                        child.active ? "bg-blue-50 text-[var(--tr-blue)] dark:bg-blue-950/30" : "text-slate-700 dark:text-slate-200",
-                                    )}
+                                <span>{stage.label}</span>
+                                <span className="text-[12px] font-normal tabular-nums text-[#B0B2B8]">
+                                    {loading ? <span className="inline-block h-3 w-5 animate-pulse rounded bg-[#E6E7EB]"/> : stage.count.toLocaleString()}
+                                </span>
+                                {stage.active ? <span className="absolute bottom-0 left-1/2 h-[3px] w-8 -translate-x-1/2 rounded-[2px] bg-[#1E3BFA]"/> : null}
+                            </button>
+                            {hasChildMenu ? (
+                                <Popover
+                                    open={openStageKey === stage.key}
+                                    onOpenChange={(open) => {
+                                        cancelClose();
+                                        setOpenStageKey(open ? stage.key : null);
+                                    }}
                                 >
-                                    <span className="truncate">{child.label}</span>
-                                    <span className="shrink-0 tabular-nums">{child.count.toLocaleString()}</span>
-                                </button>
-                            ))}
-                            {hasDistinctStageAllOption ? (
-                                <button
-                                    type="button"
-                                    onClick={() => onSelect(stage)}
-                                    className={cn(
-                                        "flex h-10 w-full items-center justify-between gap-3 px-4 text-left transition hover:bg-blue-50 dark:hover:bg-blue-950/30",
-                                        stage.allActive ? "bg-blue-50 text-[var(--tr-blue)] dark:bg-blue-950/30" : "text-slate-700 dark:text-slate-200",
-                                    )}
-                                >
-                                    <span>{allLabel}</span>
-                                    <span className="tabular-nums">{stage.count.toLocaleString()}</span>
-                                </button>
+                                    <PopoverTrigger asChild>
+                                        <button
+                                            type="button"
+                                            aria-label={`${stage.label} ${allLabel}`}
+                                            onPointerDown={() => {
+                                                openedByHoverRef.current = false;
+                                            }}
+                                            onKeyDown={(event) => {
+                                                if (["Enter", " ", "ArrowDown"].includes(event.key)) {
+                                                    openedByHoverRef.current = false;
+                                                }
+                                            }}
+                                            className="ml-0.5 flex h-6 w-5 items-center justify-center rounded-[4px] text-[#86888F] hover:bg-[#F7F8FA] hover:text-[#1E3BFA]"
+                                        >
+                                            <ChevronDown className="h-3 w-3"/>
+                                        </button>
+                                    </PopoverTrigger>
+                                    <PopoverContent
+                                        align="start"
+                                        className="w-48 rounded-[6px] border-[#EBEEF5] bg-white p-1 shadow-[0_8px_24px_rgba(14,17,20,0.12)]"
+                                        onOpenAutoFocus={(event) => {
+                                            if (openedByHoverRef.current) event.preventDefault();
+                                        }}
+                                        onMouseEnter={cancelClose}
+                                        onMouseLeave={scheduleClose}
+                                    >
+                                        {hasDistinctStageAllOption ? (
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    onSelect(stage);
+                                                    setOpenStageKey(null);
+                                                }}
+                                                className={cn("flex h-9 w-full items-center justify-between rounded-[4px] px-3 text-[12px] hover:bg-[#F8F8F9]", stage.allActive ? "bg-[rgba(30,59,250,0.08)] text-[#1E3BFA]" : "text-[#33353D]")}
+                                            >
+                                                <span>{allLabel}</span><span className="tabular-nums">{stage.count.toLocaleString()}</span>
+                                            </button>
+                                        ) : null}
+                                        {stage.children?.map((child) => (
+                                            <button
+                                                key={child.key}
+                                                type="button"
+                                                onClick={() => {
+                                                    onSelectChild(stage, child);
+                                                    setOpenStageKey(null);
+                                                }}
+                                                className={cn("flex h-9 w-full items-center justify-between rounded-[4px] px-3 text-[12px] hover:bg-[#F8F8F9]", child.active ? "bg-[rgba(30,59,250,0.08)] text-[#1E3BFA]" : "text-[#33353D]")}
+                                            >
+                                                <span>{child.label}</span><span className="tabular-nums">{child.count.toLocaleString()}</span>
+                                            </button>
+                                        ))}
+                                    </PopoverContent>
+                                </Popover>
                             ) : null}
                         </div>
-                    ) : null}
-                </div>
-                );
-            })}
+                    );
+                })}
+            </div>
+            {rightAction ? <div className="flex shrink-0 items-center">{rightAction}</div> : null}
         </div>
     );
 }
@@ -1711,57 +1987,49 @@ function CandidatePositionScopeSidebar({
             ].some((value) => String(value || "").toLowerCase().includes(normalizedQuery));
         }).slice(0, 80)
     ), [normalizedQuery, positions]);
-    const recruitingCount = React.useMemo(() => (
-        positions.filter((position) => position.status === "recruiting").length
-    ), [positions]);
     const showInitialLoading = loading && positions.length === 0;
 
     return (
-        <aside className="h-full min-h-0">
-            <div className="flex h-full min-h-0 flex-col rounded-md border border-[var(--tr-border)] bg-white shadow-none dark:border-slate-800 dark:bg-slate-950">
-                <div className="min-w-0 border-b border-[var(--tr-border-soft)] px-4 py-3.5 dark:border-slate-800">
-                    <p className="truncate whitespace-nowrap text-sm font-semibold leading-5 text-slate-950 dark:text-slate-50">
+        <aside className="h-full min-h-0 bg-white py-5 pl-2">
+            <div className="flex h-full min-h-0 flex-col bg-white">
+                <div className="min-w-0 px-4 pb-3">
+                    <p className="truncate whitespace-nowrap text-[15px] font-semibold leading-5 text-[#0E1114]">
                         {isZh ? "招聘中职位" : "Open Positions"}
-                    </p>
-                    <p className="mt-1 truncate whitespace-nowrap text-xs leading-5 text-slate-500 dark:text-slate-400">
-                        {showInitialLoading
-                            ? (isZh ? "正在加载职位" : "Loading positions")
-                            : (isZh ? `共 ${recruitingCount || positions.length} 个职位` : `${recruitingCount || positions.length} positions`)}
                     </p>
                     <SearchField
                         value={query}
                         onChange={setQuery}
                         placeholder={isZh ? "搜索职位" : "Search positions"}
-                        inputClassName="mt-3 h-8 text-sm"
+                        inputClassName="mt-3 h-8 rounded-[4px] border-[#E6E7EB] bg-white pl-8 pr-2.5 text-[12px] shadow-none placeholder:text-[#B0B2B8] focus-visible:border-[#1E3BFA] focus-visible:ring-1 focus-visible:ring-[#1E3BFA]"
+                        iconClassName="left-2.5 h-[13px] w-[13px] text-[#B0B2B8]"
                     />
                 </div>
-                <div className="min-w-0 border-b border-[var(--tr-border-soft)] p-2.5 dark:border-slate-800">
+                <div className="min-w-0 px-2">
                     <button
                         type="button"
                         onClick={() => onSelectPosition("")}
                         className={cn(
-                            "flex min-h-10 w-full min-w-0 items-center justify-between gap-2 rounded-md px-3 py-2.5 text-left text-sm leading-5 transition",
+                            "flex h-9 w-full min-w-0 items-center justify-between gap-2 rounded-[6px] px-2.5 text-left text-[13px] leading-5 transition",
                             !activePositionId
-                                ? "bg-[var(--tr-red-soft)] text-[var(--tr-red)]"
-                                : "text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-900",
+                                ? "bg-[rgba(30,59,250,0.08)] text-[#1E3BFA]"
+                                : "text-[#33353D] hover:bg-[#F8F8F9]",
                         )}
                     >
                         <span className="min-w-0 truncate whitespace-nowrap">{isZh ? "全部职位" : "All Positions"}</span>
-                        <span className={cn("text-xs", !activePositionId ? "text-[var(--tr-red)]" : "text-slate-400")}>
+                        <span className={cn("text-[11px] tabular-nums", !activePositionId ? "text-[#1E3BFA]" : "text-[#B0B2B8]")}>
                             {showInitialLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin"/> : allPositionCandidateCount}
                         </span>
                     </button>
                 </div>
-                <div className={cn("min-h-0 flex-1 overflow-y-auto p-2.5", POSITION_SCOPE_SCROLLBAR_CLASS)}>
+                <div className={cn("min-h-0 flex-1 overflow-y-auto px-2", POSITION_SCOPE_SCROLLBAR_CLASS)}>
                     {showInitialLoading ? (
                         <div className="space-y-2">
                             {Array.from({ length: 6 }).map((_, index) => (
                                 <div
                                     key={index}
-                                    className="rounded-md px-3 py-2.5"
+                                    className="rounded-[6px] px-2.5 py-2"
                                 >
-                                    <div className="h-4 w-28 animate-pulse rounded bg-slate-200 dark:bg-slate-800"/>
-                                    <div className="mt-2 h-3 w-36 animate-pulse rounded bg-slate-100 dark:bg-slate-900"/>
+                                    <div className="h-3.5 w-28 animate-pulse rounded bg-[#E6E7EB]"/>
                                 </div>
                             ))}
                         </div>
@@ -1774,23 +2042,18 @@ function CandidatePositionScopeSidebar({
                                 type="button"
                                 onClick={() => onSelectPosition(positionId)}
                                 className={cn(
-                                    "mb-1.5 flex w-full min-w-0 items-start justify-between gap-3 rounded-md px-3 py-2.5 text-left text-sm leading-5 transition",
+                                    "flex h-9 w-full min-w-0 items-center justify-between gap-3 rounded-[6px] px-2.5 text-left text-[13px] leading-5 transition",
                                     active
-                                        ? "bg-[var(--tr-red-soft)] text-[var(--tr-red)] dark:bg-slate-900 dark:text-neutral-300"
-                                        : "text-slate-700 hover:bg-rose-50/70 hover:text-[var(--tr-red)] dark:text-slate-200 dark:hover:bg-slate-900",
+                                        ? "bg-[rgba(30,59,250,0.08)] text-[#1E3BFA]"
+                                        : "text-[#33353D] hover:bg-[#F8F8F9]",
                                 )}
                             >
-                                <span className="min-w-0">
-                                    <span className="block truncate font-medium leading-5">{position.title}</span>
-                                    <span className="mt-1 block truncate text-xs leading-4 text-slate-400">
-                                        {[position.department, position.location].filter(Boolean).join(" · ") || tr.unassignedPosition}
-                                    </span>
-                                </span>
-                                <span className="mt-0.5 shrink-0 text-xs leading-5 text-slate-400">{position.candidate_count || 0}</span>
+                                <span className="min-w-0 truncate">{position.title}</span>
+                                <span className={cn("shrink-0 text-[11px] tabular-nums", active ? "text-[#1E3BFA]" : "text-[#B0B2B8]")}>{position.candidate_count || 0}</span>
                             </button>
                         );
                     }) : (
-                        <div className="px-3 py-8 text-center text-sm text-slate-400">
+                        <div className="px-3 py-8 text-center text-[12px] text-[#86888F]">
                             {isZh ? "没有匹配的职位" : "No matching positions"}
                         </div>
                     )}
@@ -2110,14 +2373,14 @@ function OutputSnippet({content}: { content: string }) {
     const hasMore = lines.length > 3;
 
     return (
-        <div className="mt-3 min-w-0 overflow-hidden rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/60">
-            <pre className="min-w-0 whitespace-pre-wrap break-all text-xs leading-6 text-slate-600 dark:text-slate-300">
+        <div className="mt-3 min-w-0 overflow-hidden rounded-[8px] border border-[#E6E7EB]/80 bg-[#F7F8FA] px-4 py-4 dark:border-[#202226] dark:bg-[#16181B]/60">
+            <pre className="min-w-0 whitespace-pre-wrap break-all text-xs leading-6 text-[#33353D] dark:text-[#D6D8DD]">
                 {expanded ? content : preview}
             </pre>
             {hasMore ? (
                 <button
                     type="button"
-                    className="mt-2 text-xs text-slate-400 transition hover:text-slate-600 dark:hover:text-slate-300"
+                    className="mt-2 text-xs text-[#B0B2B8] transition hover:text-[#33353D] dark:hover:text-[#D6D8DD]"
                     onClick={() => setExpanded((current) => !current)}
                 >
                     {expanded ? tr.collapse : tr.expandAll(lines.length)}
@@ -2169,59 +2432,59 @@ function InterviewQuestionCard({
     );
 
     return (
-        <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white/85 dark:border-slate-800 dark:bg-slate-950/70">
-            <div className="flex items-center justify-between gap-3 border-b border-slate-200/80 px-4 py-3 dark:border-slate-800">
+        <div className="overflow-hidden rounded-[8px] border border-[#E6E7EB]/80 bg-white/85 dark:border-[#202226] dark:bg-[#0E1114]/70">
+            <div className="flex items-center justify-between gap-3 border-b border-[#E6E7EB]/80 px-4 py-3 dark:border-[#202226]">
                 <div className="min-w-0">
-                    <p className="font-medium text-slate-900 dark:text-slate-100">{question.round_name}</p>
+                    <p className="font-medium text-[#0E1114] dark:text-[#F7F8FA]">{question.round_name}</p>
                     {question.created_at ? (
-                        <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                        <p className="mt-0.5 text-xs text-[#86888F] dark:text-[#B0B2B8]">
                             {tr.generatedAt(question.created_at)}
                         </p>
                     ) : null}
                 </div>
-                <Badge className="shrink-0 rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200">
+                <Badge className="h-6 shrink-0 rounded-[3px] border border-[rgba(12,201,145,0.28)] bg-[rgba(12,201,145,0.08)] px-2 text-[12px] text-[#0A9C71]">
                     {tr.generated}
                 </Badge>
             </div>
 
-            <div className="grid grid-cols-2 gap-px border-b border-slate-200/80 bg-slate-200/80 dark:border-slate-800 dark:bg-slate-800">
-                <div className="bg-white px-4 py-2.5 dark:bg-slate-950">
-                    <p className="text-xs text-slate-500 dark:text-slate-400">{tr.moduleCount}</p>
-                    <p className="mt-0.5 text-sm font-medium text-slate-900 dark:text-slate-100">
+            <div className="grid grid-cols-2 gap-px border-b border-[#E6E7EB]/80 bg-[#E6E7EB]/80 dark:border-[#202226] dark:bg-[#202226]">
+                <div className="bg-white px-4 py-2.5 dark:bg-[#0E1114]">
+                    <p className="text-xs text-[#86888F] dark:text-[#B0B2B8]">{tr.moduleCount}</p>
+                    <p className="mt-0.5 text-sm font-medium text-[#0E1114] dark:text-[#F7F8FA]">
                         {modules.length > 0 ? `${modules.length}${tr.modulesSuffix}` : tr.parsing}
                     </p>
                 </div>
-                <div className="bg-white px-4 py-2.5 dark:bg-slate-950">
-                    <p className="text-xs text-slate-500 dark:text-slate-400">{tr.estimatedQuestions}</p>
-                    <p className="mt-0.5 text-sm font-medium text-slate-900 dark:text-slate-100">
+                <div className="bg-white px-4 py-2.5 dark:bg-[#0E1114]">
+                    <p className="text-xs text-[#86888F] dark:text-[#B0B2B8]">{tr.estimatedQuestions}</p>
+                    <p className="mt-0.5 text-sm font-medium text-[#0E1114] dark:text-[#F7F8FA]">
                         {questionCount != null ? `${questionCount}${tr.questionSuffix}` : "-"}
                     </p>
                 </div>
             </div>
 
             {modules.length > 0 ? (
-                <div className="space-y-1.5 border-b border-slate-200/80 px-4 py-3 dark:border-slate-800">
-                    <p className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">{tr.moduleOutline}</p>
+                <div className="space-y-1.5 border-b border-[#E6E7EB]/80 px-4 py-3 dark:border-[#202226]">
+                    <p className="text-xs font-medium uppercase tracking-wide text-[#86888F] dark:text-[#B0B2B8]">{tr.moduleOutline}</p>
                     {modules.slice(0, 5).map((moduleName, index) => (
-                        <div key={`${moduleName}-${index}`} className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
-                            <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[10px] text-slate-500 dark:bg-slate-800">
+                        <div key={`${moduleName}-${index}`} className="flex items-center gap-2 text-sm text-[#33353D] dark:text-[#D6D8DD]">
+                            <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-[#F2F3F5] text-[10px] text-[#86888F] dark:bg-[#202226]">
                                 {index + 1}
                             </span>
                             <span className="truncate">{moduleName}</span>
                         </div>
                     ))}
                     {modules.length > 5 ? (
-                        <p className="text-xs text-slate-400 dark:text-slate-500">{tr.extraModules(modules.length - 5)}</p>
+                        <p className="text-xs text-[#B0B2B8] dark:text-[#86888F]">{tr.extraModules(modules.length - 5)}</p>
                     ) : null}
                 </div>
             ) : null}
 
             <div className="flex flex-wrap items-center gap-2 px-4 py-3">
-                <Button size="sm" onClick={onDownload}>
+                <Button size="sm" className={CANDIDATE_DETAIL_PRIMARY_BUTTON_CLASS} onClick={onDownload}>
                     <Download className="h-4 w-4"/>
                     {tr.downloadHtml}
                 </Button>
-                <Button size="sm" variant="outline" onClick={onPreview}>
+                <Button size="sm" variant="outline" className={CANDIDATE_DETAIL_OUTLINE_BUTTON_CLASS} onClick={onPreview}>
                     <ExternalLink className="h-4 w-4"/>
                     {tr.standalonePreview}
                 </Button>
@@ -2551,35 +2814,35 @@ function CandidateAiOutputDialog({
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="flex h-[min(88vh,900px)] max-h-[88vh] flex-col overflow-hidden sm:max-w-5xl">
-                <DialogHeader>
+            <DialogContent aria-describedby={undefined} className="flex h-[min(88vh,900px)] max-h-[88vh] flex-col overflow-hidden rounded-[8px] border-[#EBEEF5] bg-white p-0 shadow-[0_8px_24px_rgba(14,17,20,0.16)] sm:max-w-[900px]">
+                <DialogHeader className="border-b border-[#F2F3F5] px-6 pb-3.5 pt-[18px]">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                         <div className="min-w-0">
                             <DialogTitle>{tr.fullAiOutput}</DialogTitle>
-                            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
+                            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-[#86888F]">
                                 {modelLabel ? <span>{tr.modelLabel}: {modelLabel}</span> : null}
                                 {generatedAt ? <span>{tr.timeLabel}: {formatLongDateTime(generatedAt)}</span> : null}
                             </div>
                         </div>
-                        <Button size="sm" variant="outline" onClick={() => void copyContent()} disabled={!(markdown || raw)?.trim()}>
+                        <Button size="sm" variant="outline" className="h-[30px] rounded-[6px] border-[#E6E7EB] bg-white text-[12px] text-[#33353D] shadow-none hover:border-[#1E3BFA] hover:bg-[#F7F8FA] hover:text-[#1E3BFA]" onClick={() => void copyContent()} disabled={!(markdown || raw)?.trim()}>
                             {copied ? <Check className="h-4 w-4"/> : <Copy className="h-4 w-4"/>}
                             {copied ? tr.copied : tr.copyAll}
                         </Button>
                     </div>
                 </DialogHeader>
-                <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
-                    <div className="space-y-4 px-1 pb-2">
-                        <div className="rounded-[22px] border border-slate-200/80 bg-white/90 px-5 py-5 dark:border-slate-800 dark:bg-slate-950/70">
-                            <div className="prose prose-slate max-w-none text-sm leading-7 dark:prose-invert prose-headings:mb-3 prose-headings:mt-5 prose-headings:font-semibold prose-p:my-3 prose-ul:my-3 prose-ol:my-3 prose-li:my-1 prose-pre:rounded-2xl prose-pre:border prose-pre:border-slate-200/80 prose-pre:bg-slate-950 prose-pre:p-4 dark:prose-pre:border-slate-800">
+                <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5 [scrollbar-gutter:stable]">
+                    <div className="space-y-4">
+                        <div className="rounded-[8px] border border-[#EBEEF5] bg-white px-5 py-5">
+                            <div className="prose max-w-none text-[13px] leading-7 prose-headings:mb-3 prose-headings:mt-5 prose-headings:font-semibold prose-headings:text-[#0E1114] prose-p:my-3 prose-p:text-[#33353D] prose-strong:text-[#0E1114] prose-ul:my-3 prose-ol:my-3 prose-li:my-1 prose-li:text-[#33353D] prose-code:text-[#33353D] prose-pre:rounded-[8px] prose-pre:border prose-pre:border-[#EBEEF5] prose-pre:bg-[#F7F8FA] prose-pre:p-4 prose-pre:text-[#33353D]">
                                 <ReactMarkdown>{markdown}</ReactMarkdown>
                             </div>
                         </div>
                         {raw && raw.trim() && raw.trim() !== markdown.trim() ? (
-                            <details className="rounded-[22px] border border-slate-200/80 bg-slate-50/80 px-5 py-4 dark:border-slate-800 dark:bg-slate-900/60">
-                                <summary className="cursor-pointer text-sm font-medium text-slate-900 dark:text-slate-100">
+                            <details className="rounded-[8px] border border-[#EBEEF5] bg-[#F7F8FA] px-5 py-4">
+                                <summary className="cursor-pointer text-[13px] font-medium text-[#0E1114]">
                                     {tr.viewStructuredRaw}
                                 </summary>
-                                <pre className="mt-4 whitespace-pre-wrap break-all rounded-2xl border border-slate-200/80 bg-white/90 px-4 py-4 text-xs leading-6 text-slate-700 dark:border-slate-800 dark:bg-slate-950/70 dark:text-slate-300">
+                                <pre className="mt-4 whitespace-pre-wrap break-all rounded-[6px] border border-[#E6E7EB] bg-white px-4 py-4 text-[12px] leading-6 text-[#33353D]">
                                     {raw}
                                 </pre>
                             </details>
@@ -2655,22 +2918,22 @@ function MultiSelect({ options, selected, onChange, placeholder, selectedLabel }
             ref={menuRef}
             style={menuStyle}
             onMouseDown={(e) => e.stopPropagation()}
-            className="overflow-hidden rounded-md border border-slate-200 bg-white text-xs shadow-lg dark:border-slate-800 dark:bg-slate-950"
+            className="overflow-hidden rounded-[6px] border border-[#EBEEF5] bg-white text-[12px] shadow-[0_8px_24px_rgba(14,17,20,0.12)]"
         >
             <div className="max-h-64 overflow-y-auto py-1">
                 {options.map((option) => (
                     <label
                         key={option.value}
                         className={cn(
-                            "flex cursor-pointer items-center gap-2 overflow-hidden px-3 py-2 text-slate-700 transition dark:text-slate-300",
-                            selected.includes(option.value) ? "bg-slate-50 dark:bg-slate-900" : "hover:bg-slate-50 dark:hover:bg-slate-900"
+                            "flex cursor-pointer items-center gap-2 overflow-hidden px-3 py-2 text-[#33353D] transition",
+                            selected.includes(option.value) ? "bg-[rgba(30,59,250,0.08)] text-[#1E3BFA]" : "hover:bg-[#F8F8F9]"
                         )}
                     >
                         <input
                             type="checkbox"
                             checked={selected.includes(option.value)}
                             onChange={() => toggleValue(option.value)}
-                            className="h-3.5 w-3.5 shrink-0 rounded border-slate-300 text-[#171717] focus:ring-[#171717]"
+                            className="h-3.5 w-3.5 shrink-0 rounded-[3px] border-[#D6D8DD] accent-[#1E3BFA] focus:ring-[#1E3BFA]"
                         />
                         <span className="block min-w-0 flex-1 truncate" title={option.label}>
                             {option.label}
@@ -2678,10 +2941,10 @@ function MultiSelect({ options, selected, onChange, placeholder, selectedLabel }
                     </label>
                 ))}
             </div>
-            <div className="flex justify-end border-t border-slate-100 bg-slate-50/70 px-3 py-2 dark:border-slate-800 dark:bg-slate-900/60">
+            <div className="flex justify-end border-t border-[#F2F3F5] bg-[#F7F8FA] px-3 py-2">
                 <button
                     type="button"
-                    className="rounded-md bg-[#171717] px-4 py-1.5 text-xs font-medium text-white transition hover:bg-[#262626]"
+                    className="rounded-[6px] bg-[#1E3BFA] px-4 py-1.5 text-[12px] font-medium text-white transition hover:bg-[#0F23D9]"
                     onClick={() => setOpen(false)}
                 >
                     {isZh ? "确定" : "OK"}
@@ -2697,15 +2960,15 @@ function MultiSelect({ options, selected, onChange, placeholder, selectedLabel }
                 type="button"
                 onClick={handleOpen}
                 title={displayText}
-                className="flex h-8 min-w-[116px] max-w-[220px] items-center justify-between gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300 dark:hover:bg-slate-900"
+                className="flex h-8 min-w-[94px] max-w-[220px] items-center justify-between gap-1 rounded-[4px] border border-transparent bg-white px-2 py-1 text-[12px] text-[#33353D] transition hover:border-[#E6E7EB] hover:bg-[#F8F8F9]"
             >
                 <span className={cn(
                     "block w-full truncate",
-                    selected.length === 0 ? "text-slate-500" : "text-slate-900 dark:text-slate-100"
+                    selected.length === 0 ? "text-[#33353D]" : "text-[#0F23D9]"
                 )}>
                     {displayText}
                 </span>
-                <ChevronDown className={cn("h-4 w-4 text-slate-400 shrink-0", open && "rotate-180")} />
+                <ChevronDown className={cn("h-3 w-3 shrink-0 text-[#86888F]", open && "rotate-180")} />
             </button>
             {open && ReactDOM.createPortal(menuContent, document.body)}
         </>
@@ -2714,8 +2977,6 @@ function MultiSelect({ options, selected, onChange, placeholder, selectedLabel }
 
 function CandidateFilterBar({
     candidateFilterSummary,
-    candidateViewMode,
-    setCandidateViewMode,
     candidateQuery,
     setCandidateQuery,
     candidatePositionFilter,
@@ -2728,14 +2989,11 @@ function CandidateFilterBar({
     setCandidateSourceFilter,
     candidateTimeFilter,
     setCandidateTimeFilter,
-    positions,
     sourceOptions,
-    visibleCandidateCount,
-    onCollapse,
+    expanded,
+    onToggle,
 }: {
     candidateFilterSummary: string;
-    candidateViewMode: CandidateViewMode;
-    setCandidateViewMode: React.Dispatch<React.SetStateAction<CandidateViewMode>>;
     candidateQuery: string;
     setCandidateQuery: (value: string) => void;
     candidatePositionFilter: string[];
@@ -2748,10 +3006,9 @@ function CandidateFilterBar({
     setCandidateSourceFilter: React.Dispatch<React.SetStateAction<string[]>>;
     candidateTimeFilter: string;
     setCandidateTimeFilter: React.Dispatch<React.SetStateAction<string>>;
-    positions: PositionSummary[];
     sourceOptions: string[];
-    visibleCandidateCount: number;
-    onCollapse: () => void;
+    expanded: boolean;
+    onToggle: () => void;
 }) {
     const {language} = useI18n();
     const tr = React.useMemo(() => getCandidatesLocale(language), [language]);
@@ -2795,113 +3052,70 @@ function CandidateFilterBar({
         setCandidateTimeFilter,
     ]);
 
-    const filterSelectClassName = "h-8 min-w-[116px] rounded-md border-slate-200 bg-white px-2.5 py-1 pr-7 text-xs text-slate-600 shadow-none focus-visible:ring-1 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300";
+    const filterSelectClassName = "h-8 min-w-[94px] rounded-[4px] border-transparent bg-white px-2 py-1 pr-7 text-[12px] text-[#33353D] shadow-none hover:border-[#E6E7EB] hover:bg-[#F8F8F9] focus-visible:border-[#1E3BFA] focus-visible:ring-1 focus-visible:ring-[#1E3BFA]";
 
     return (
-        <Card className={cn(defaultPanelClass, "gap-0 rounded-md py-0 shadow-none")}>
-            <CardContent className="px-3 py-2">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-                        <NativeSelect
-                            value={candidateMatchFilter}
-                            onChange={(event) => setCandidateMatchFilter(event.target.value)}
-                            className={cn(filterSelectClassName, "w-[132px]")}
-                        >
-                            <option value="all">{tr.allMatchPercent}</option>
-                            <option value="80+">{tr.above80}</option>
-                            <option value="60+">{tr.above60}</option>
-                            <option value="40+">{tr.above40}</option>
-                        </NativeSelect>
-                        <MultiSelect
-                            options={positions.map((position) => ({value: String(position.id), label: position.title}))}
-                            selected={candidatePositionFilter}
-                            onChange={setCandidatePositionFilter}
-                            placeholder={tr.allPositions}
-                            selectedLabel={tr.selectedLabel}
-                        />
-                        <MultiSelect
-                            options={Object.entries(candidateStatusLabels).map(([value, label]) => ({value, label}))}
-                            selected={candidateStatusFilter}
-                            onChange={setCandidateStatusFilter}
-                            placeholder={isZh ? "全部筛选结果" : "All Results"}
-                            selectedLabel={tr.selectedLabel}
-                        />
-                        <MultiSelect
-                            options={sourceOptions.map((s) => ({ value: s, label: s }))}
-                            selected={candidateSourceFilter}
-                            onChange={setCandidateSourceFilter}
-                            placeholder={isZh ? "最后投递渠道" : "Last Channel"}
-                            selectedLabel={tr.selectedLabel}
-                        />
-                        <NativeSelect
-                            value={candidateTimeFilter}
-                            onChange={(event) => setCandidateTimeFilter(event.target.value)}
-                            className={cn(filterSelectClassName, "w-[120px]")}
-                        >
-                            <option value="all">{tr.allTime}</option>
-                            <option value="today">{tr.today}</option>
-                            <option value="7d">{tr.last7Days}</option>
-                            <option value="30d">{tr.last30Days}</option>
-                        </NativeSelect>
-                        <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="h-8 px-2 text-xs text-[#171717] hover:bg-[#F5F5F5] hover:text-[#171717] disabled:text-slate-300 dark:hover:bg-neutral-900/30"
-                            onClick={resetFilters}
-                            disabled={!hasActiveFilters}
-                        >
-                            {isZh ? "清空筛选" : "Clear"}
-                        </Button>
-                        <span className="text-xs text-slate-400">{tr.matchedCandidates(visibleCandidateCount)}</span>
-                    </div>
-                    <div className="flex min-w-0 items-center gap-2">
-                        <SearchField
-                            value={candidateQuery}
-                            onChange={setCandidateQuery}
-                            placeholder={tr.searchPlaceholder}
-                            inputClassName="h-8 w-[280px] rounded-md border-slate-200 bg-white text-xs shadow-none placeholder:text-slate-400 dark:border-slate-800 dark:bg-slate-950"
-                        />
-                        <div className="flex h-8 items-center rounded-md border border-slate-200 bg-slate-50 p-0.5 dark:border-slate-800 dark:bg-slate-900">
-                            <Button size="sm" variant={candidateViewMode === "list" ? "default" : "ghost"} className="h-7 rounded px-2 text-xs" onClick={() => setCandidateViewMode("list")}>
-                                <List className="h-3.5 w-3.5"/>
-                            </Button>
-                            <Button size="sm" variant={candidateViewMode === "board" ? "default" : "ghost"} className="h-7 rounded px-2 text-xs" onClick={() => setCandidateViewMode("board")}>
-                                <LayoutGrid className="h-3.5 w-3.5"/>
-                            </Button>
-                        </div>
-                        <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={onCollapse}
-                            className="h-8 rounded-md px-2.5 text-xs"
-                            title={tr.collapseFilters}
-                        >
-                            <ChevronUp className="h-3.5 w-3.5"/>
-                            {tr.collapseFilters}
-                        </Button>
-                    </div>
+        <div className="mb-3 bg-white">
+            <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+                <div className="flex min-w-0 flex-wrap items-center gap-6">
+                    <MultiSelect
+                        options={Object.entries(candidateStatusLabels).map(([value, label]) => ({value, label}))}
+                        selected={candidateStatusFilter}
+                        onChange={setCandidateStatusFilter}
+                        placeholder={isZh ? "状态" : "Status"}
+                        selectedLabel={tr.selectedLabel}
+                    />
+                    <NativeSelect value={candidateMatchFilter} onChange={(event) => setCandidateMatchFilter(event.target.value)} className={cn(filterSelectClassName, "w-[108px]")}>
+                        <option value="all">{isZh ? "匹配度" : "Match"}</option>
+                        <option value="80+">{tr.above80}</option>
+                        <option value="60+">{tr.above60}</option>
+                        <option value="40+">{tr.above40}</option>
+                    </NativeSelect>
+                    <MultiSelect
+                        options={sourceOptions.map((s) => ({value: s, label: s}))}
+                        selected={candidateSourceFilter}
+                        onChange={setCandidateSourceFilter}
+                        placeholder={isZh ? "来源" : "Source"}
+                        selectedLabel={tr.selectedLabel}
+                    />
+                    <NativeSelect value={candidateTimeFilter} onChange={(event) => setCandidateTimeFilter(event.target.value)} className={cn(filterSelectClassName, "w-[96px]")}>
+                        <option value="all">{isZh ? "时间" : "Time"}</option>
+                        <option value="today">{tr.today}</option>
+                        <option value="7d">{tr.last7Days}</option>
+                        <option value="30d">{tr.last30Days}</option>
+                    </NativeSelect>
+                    <button type="button" onClick={onToggle} className="h-8 px-2 text-[12px] text-[#0F23D9] hover:text-[#1E3BFA]">
+                        {expanded ? (isZh ? "收起筛选" : "Less") : (isZh ? "高级筛选" : "Advanced")}
+                    </button>
+                    <button type="button" onClick={resetFilters} disabled={!hasActiveFilters} className="h-8 px-2 text-[12px] text-[#0F23D9] hover:text-[#1E3BFA] disabled:text-[#B0B2B8]">
+                        {isZh ? "重置" : "Reset"}
+                    </button>
                 </div>
-                {hasActiveFilters ? (
-                    <div className="mt-2 flex min-w-0 flex-wrap items-center gap-1.5 border-t border-slate-100 pt-2 text-xs text-slate-500 dark:border-slate-800 dark:text-slate-400">
-                        {summaryChips.map((chip) => (
-                            <span key={chip} className="inline-flex max-w-[220px] items-center rounded-md bg-slate-100 px-2 py-0.5 dark:bg-slate-900">
-                                <span className="truncate">{chip}</span>
-                            </span>
-                        ))}
-                    </div>
-                ) : null}
-            </CardContent>
-        </Card>
+                <SearchField
+                    value={candidateQuery}
+                    onChange={setCandidateQuery}
+                    placeholder={isZh ? "搜索候选人、手机号、邮箱、公司" : tr.searchPlaceholder}
+                    inputClassName="h-8 w-[340px] rounded-[4px] border-[#E6E7EB] bg-white text-[12px] shadow-none placeholder:text-[#B0B2B8] focus-visible:border-[#1E3BFA] focus-visible:ring-1 focus-visible:ring-[#1E3BFA]"
+                />
+            </div>
+            {expanded && hasActiveFilters ? (
+                <div className="mt-2 flex min-w-0 flex-wrap items-center gap-2 border-t border-[#F2F3F5] pt-2">
+                    {hasActiveFilters ? summaryChips.map((chip) => (
+                        <span key={chip} className="inline-flex max-w-[220px] items-center rounded-[4px] bg-[#F7F8FA] px-2 py-1 text-[11px] text-[#5E5F66]">
+                            <span className="truncate">{chip}</span>
+                        </span>
+                    )) : null}
+                </div>
+            ) : null}
+        </div>
     );
 }
 
 type CandidatesPageProps = {
+    permissions: CandidatePagePermissions;
     panelClass?: string;
     candidateFilterSummary: string;
     candidateViewMode: CandidateViewMode;
-    setCandidateViewMode: React.Dispatch<React.SetStateAction<CandidateViewMode>>;
     candidateQuery: string;
     setCandidateQuery: (value: string) => void;
     candidatePositionFilter: string[];
@@ -2928,7 +3142,6 @@ type CandidatesPageProps = {
     openResumeMailDialog: (candidateIds?: number[]) => void;
     candidatesLoading: boolean;
     candidatesInitialLoaded: boolean;
-    candidateListTransitionLoading: boolean;
     candidateMatchSortLoading: boolean;
     allCandidatesCount: number;
     allPositionCandidateCount: number;
@@ -3017,7 +3230,7 @@ type CandidatesPageProps = {
     requestBatchDelete: (candidateIds: number[]) => void;
     batchBindPosition: (candidateIds: number[], positionId: number | null) => Promise<void>;
     onMoveToTalentPool?: (candidateIds: number[]) => Promise<void>;
-    onRefresh?: () => Promise<void>;
+    onUploadResume?: () => void;
     onRefreshCandidateDetail?: (candidateId: number) => Promise<void>;
     autoOpenInterviewScheduleCandidateId?: number | null;
     onAutoOpenInterviewScheduleHandled?: (candidateId: number) => void;
@@ -3055,10 +3268,10 @@ type CandidatesPageProps = {
 };
 
 export function CandidatesPage({
+    permissions,
     panelClass = defaultPanelClass,
     candidateFilterSummary,
     candidateViewMode,
-    setCandidateViewMode,
     candidateQuery,
     setCandidateQuery,
     candidatePositionFilter,
@@ -3085,7 +3298,6 @@ export function CandidatesPage({
     openResumeMailDialog,
     candidatesLoading,
     candidatesInitialLoaded,
-    candidateListTransitionLoading,
     candidateMatchSortLoading,
     allCandidatesCount,
     allPositionCandidateCount,
@@ -3160,7 +3372,7 @@ export function CandidatesPage({
     requestBatchDelete,
     batchBindPosition,
     onMoveToTalentPool,
-    onRefresh,
+    onUploadResume,
     onRefreshCandidateDetail,
     autoOpenInterviewScheduleCandidateId,
     onAutoOpenInterviewScheduleHandled,
@@ -3212,7 +3424,6 @@ export function CandidatesPage({
     const [candidateListCompactMode, setCandidateListCompactMode] = React.useState(false);
     const [candidateFilterBarExpanded, setCandidateFilterBarExpanded] = React.useState(false);
     const [candidatePositionScopeWidth, setCandidatePositionScopeWidth] = React.useState(CANDIDATE_POSITION_SCOPE_DEFAULT_WIDTH);
-    const [refreshing, setRefreshing] = React.useState(false);
     const [candidateAiOutputDialogOpen, setCandidateAiOutputDialogOpen] = React.useState(false);
     const [exportDialogOpen, setExportDialogOpen] = React.useState(false);
     const [exportIncludeResumes, setExportIncludeResumes] = React.useState(true);
@@ -3288,7 +3499,7 @@ export function CandidatesPage({
     const [scheduleAvailabilityLoading, setScheduleAvailabilityLoading] = React.useState(false);
     const [scheduleSubmitting, setScheduleSubmitting] = React.useState(false);
     const scheduleRequiredText = isZh ? "必填" : "Required";
-    const scheduleRequiredErrorClass = "border-rose-500 bg-rose-50/30 focus:border-rose-500 dark:border-rose-500 dark:bg-rose-950/10 dark:focus:border-rose-500";
+    const scheduleRequiredErrorClass = "border-[#F53F3F] bg-[rgba(245,63,63,0.04)] focus:border-[#F53F3F] dark:border-[#F53F3F] dark:bg-[rgba(245,63,63,0.06)] dark:focus:border-[#F53F3F]";
     const clearScheduleFormError = React.useCallback((field: CandidateScheduleFormErrorKey) => {
         setScheduleFormErrors((current) => {
             if (!current[field]) return current;
@@ -3298,7 +3509,7 @@ export function CandidatesPage({
         });
     }, []);
     const renderScheduleFormError = (field: CandidateScheduleFormErrorKey) => (
-        scheduleFormErrors[field] ? <p className="mt-1 text-xs leading-4 text-rose-500">{scheduleFormErrors[field]}</p> : null
+        scheduleFormErrors[field] ? <p className="mt-1 text-xs leading-4 text-[#F53F3F]">{scheduleFormErrors[field]}</p> : null
     );
     const scheduleDateOptions = React.useMemo(() => buildDateOptions(35), []);
     const scheduleToday = todayDateValue();
@@ -3338,32 +3549,30 @@ export function CandidatesPage({
     const [followUpContent, setFollowUpContent] = React.useState("");
     const [followUpType, setFollowUpType] = React.useState("note");
     const [followUpSubmitting, setFollowUpSubmitting] = React.useState(false);
+    const [nestedDeleteTarget, setNestedDeleteTarget] = React.useState<CandidateNestedDeleteTarget | null>(null);
+    const [nestedDeleteSubmitting, setNestedDeleteSubmitting] = React.useState(false);
     const candidateDetailToolbarScrollRef = React.useRef<HTMLDivElement | null>(null);
     const candidateDetailToolbarRailRef = React.useRef<HTMLDivElement | null>(null);
     const candidateDetailToolbarSyncSourceRef = React.useRef<"viewport" | "rail" | null>(null);
     const [candidateDetailToolbarRailWidth, setCandidateDetailToolbarRailWidth] = React.useState(0);
     const [candidateDetailToolbarHasOverflow, setCandidateDetailToolbarHasOverflow] = React.useState(false);
     const candidatePositionScopeCollapsed = candidatePositionScopeWidth <= CANDIDATE_POSITION_SCOPE_MIN_WIDTH + 1;
-    const candidatePositionScopeColumnWidth = candidatePositionScopeWidth;
     const candidatePositionScopeGridStyle = React.useMemo(() => ({
-        "--candidate-position-scope-width": `${candidatePositionScopeColumnWidth}px`,
-    }) as React.CSSProperties, [candidatePositionScopeColumnWidth]);
+        "--candidate-position-scope-width": `${candidatePositionScopeWidth}px`,
+    }) as React.CSSProperties, [candidatePositionScopeWidth]);
 
     const handleCandidatePositionScopeResizeStart = useColumnResizeDrag({
-        currentWidth: candidatePositionScopeColumnWidth,
+        currentWidth: candidatePositionScopeWidth,
         maxWidth: CANDIDATE_POSITION_SCOPE_MAX_WIDTH,
         minWidth: CANDIDATE_POSITION_SCOPE_MIN_WIDTH,
         setWidth: setCandidatePositionScopeWidth,
     });
 
     const handleCandidatePositionScopeResizeKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLButtonElement>) => {
-        const normalizeWidth = (width: number) => {
-            const boundedWidth = Math.max(
-                CANDIDATE_POSITION_SCOPE_MIN_WIDTH,
-                Math.min(CANDIDATE_POSITION_SCOPE_MAX_WIDTH, width),
-            );
-            return boundedWidth;
-        };
+        const normalizeWidth = (width: number) => Math.max(
+            CANDIDATE_POSITION_SCOPE_MIN_WIDTH,
+            Math.min(CANDIDATE_POSITION_SCOPE_MAX_WIDTH, width),
+        );
 
         if (event.key === "ArrowLeft") {
             event.preventDefault();
@@ -3388,7 +3597,6 @@ export function CandidatesPage({
             setCandidatePositionScopeWidth(CANDIDATE_POSITION_SCOPE_MAX_WIDTH);
         }
     }, []);
-
     const updateCandidateDetailToolbarMetrics = React.useCallback(() => {
         const node = candidateDetailToolbarScrollRef.current;
         if (!node) {
@@ -3535,9 +3743,19 @@ export function CandidatesPage({
     const candidateListGridTemplateColumns = React.useMemo(() => {
         return `56px ${candidateListVisibleColumns.map((key) => `${candidateListEffectiveColumnWidths[key]}px`).join(" ")}`;
     }, [candidateListEffectiveColumnWidths, candidateListVisibleColumns]);
+    const candidatePrototypeListGridLayout = React.useMemo(
+        () => getCandidatePrototypeListGridTemplate(permissions.sendMail),
+        [permissions.sendMail],
+    );
 
     const selectedCandidateIdSet = React.useMemo(() => new Set(selectedCandidateIds), [selectedCandidateIds]);
     const visibleCandidateIds = React.useMemo(() => visibleCandidates.map((candidate) => candidate.id), [visibleCandidates]);
+    const batchScreeningActionsAllowed = React.useMemo(() => {
+        if (!selectedCandidateIds.length) return false;
+        const selectedCandidatesOnPage = visibleCandidates.filter((candidate) => selectedCandidateIdSet.has(candidate.id));
+        return selectedCandidatesOnPage.length === selectedCandidateIds.length
+            && selectedCandidatesOnPage.every((candidate) => !BATCH_SCREENING_PROTECTED_STATUS_SET.has(resolveCandidateDisplayStatus(candidate)));
+    }, [selectedCandidateIdSet, selectedCandidateIds.length, visibleCandidates]);
     const selectedVisibleCandidateCount = React.useMemo(() => (
         visibleCandidateIds.reduce((count, candidateId) => count + (selectedCandidateIdSet.has(candidateId) ? 1 : 0), 0)
     ), [selectedCandidateIdSet, visibleCandidateIds]);
@@ -3545,11 +3763,12 @@ export function CandidatesPage({
         visibleCandidateIds.length > 0 && visibleCandidateIds.every((candidateId) => selectedCandidateIdSet.has(candidateId))
     ), [selectedCandidateIdSet, visibleCandidateIds]);
     const someVisibleCandidatesSelected = selectedVisibleCandidateCount > 0 && !allVisibleCandidatesSelected;
-    const visibleSelectAllCheckboxRef = React.useRef<HTMLInputElement | null>(null);
+    const visibleSelectAllBatchCheckboxRef = React.useRef<HTMLInputElement | null>(null);
+    const visibleSelectAllTableCheckboxRef = React.useRef<HTMLInputElement | null>(null);
     React.useEffect(() => {
-        if (visibleSelectAllCheckboxRef.current) {
-            visibleSelectAllCheckboxRef.current.indeterminate = someVisibleCandidatesSelected;
-        }
+        [visibleSelectAllBatchCheckboxRef.current, visibleSelectAllTableCheckboxRef.current].forEach((checkbox) => {
+            if (checkbox) checkbox.indeterminate = someVisibleCandidatesSelected;
+        });
     }, [someVisibleCandidatesSelected]);
     const toggleVisibleCandidateSelection = React.useCallback(() => {
         if (!visibleCandidateIds.length) return;
@@ -3685,6 +3904,7 @@ export function CandidatesPage({
     const [departmentReviewDecisionComment, setDepartmentReviewDecisionComment] = React.useState("");
     const [departmentReviewDecisionSubmitting, setDepartmentReviewDecisionSubmitting] = React.useState<"passed" | "rejected" | null>(null);
     const [candidateDetailNoteSubmitting, setCandidateDetailNoteSubmitting] = React.useState(false);
+    const [candidateNoteDraft, setCandidateNoteDraft] = React.useState("");
     const [candidateDetailSideRailTab, setCandidateDetailSideRailTab] = React.useState<"note" | "followups">("note");
     const [departmentReviewVisibleSections, setDepartmentReviewVisibleSections] = React.useState<string[]>([
         "original_resume",
@@ -3912,6 +4132,9 @@ export function CandidatesPage({
         return interviewRoundNameForIndex(roundIndex);
     }, []);
     const openInterviewScheduleForm = React.useCallback(() => {
+        if (!permissions.manageInterview) {
+            return;
+        }
         const nextRoundIndex = Math.max(1, highestInterviewRoundIndex + 1);
         const nextRoundName = buildNextInterviewRoundName(nextRoundIndex);
         setCandidateDetailPanel("interview");
@@ -3938,7 +4161,7 @@ export function CandidatesPage({
         setScheduleFormErrors({});
         setScheduleAvailabilitySlots([]);
         setScheduleFormOpen(true);
-    }, [buildNextInterviewRoundName, candidateDetail?.candidate.name, candidateDetail?.candidate.phone, highestInterviewRoundIndex, latestPassedDepartmentReviewAssignmentId]);
+    }, [buildNextInterviewRoundName, candidateDetail?.candidate.name, candidateDetail?.candidate.phone, highestInterviewRoundIndex, latestPassedDepartmentReviewAssignmentId, permissions.manageInterview]);
     const lastAutoOpenedScheduleCandidateIdRef = React.useRef<number | null>(null);
     React.useEffect(() => {
         if (!autoOpenInterviewScheduleCandidateId) {
@@ -3972,7 +4195,7 @@ export function CandidatesPage({
             };
         });
         if (!reviewers.length) {
-            window.alert(isZh ? "请选择评审人" : "Please select reviewers");
+            toast.error(isZh ? "请选择评审人" : "Please select reviewers");
             return;
         }
         setDepartmentReviewSubmitting(true);
@@ -4008,6 +4231,8 @@ export function CandidatesPage({
         setCandidateDetailMainScrolled((current) => current === nextScrolled ? current : nextScrolled);
     }, []);
     const isDepartmentReviewDecisionMode = Boolean(
+        permissions.actReview
+        &&
         candidateDetail?.candidate.id
         && departmentReviewDecisionContext?.candidateId === candidateDetail.candidate.id
         && submitDepartmentReviewDecision
@@ -4046,14 +4271,14 @@ export function CandidatesPage({
     ]);
     const saveCandidateDetailNote = React.useCallback(async () => {
         const candidateId = candidateDetail?.candidate.id;
-        const content = statusUpdateReason.trim();
+        const content = candidateNoteDraft.trim();
         if (!candidateId || !content || candidateDetailNoteSubmitting) {
             return;
         }
         setCandidateDetailNoteSubmitting(true);
         try {
             await createFollowUp(candidateId, content, "note");
-            setStatusUpdateReason("");
+            setCandidateNoteDraft("");
             setCandidateDetailSideRailTab("followups");
             setCandidateDetailPanel("background");
         } catch (error) {
@@ -4064,10 +4289,9 @@ export function CandidatesPage({
     }, [
         candidateDetail?.candidate.id,
         candidateDetailNoteSubmitting,
+        candidateNoteDraft,
         createFollowUp,
         isZh,
-        setStatusUpdateReason,
-        statusUpdateReason,
     ]);
     const manualCandidateStatusOptions = React.useMemo(
         () => Object.entries(candidateStatusLabels).filter(([value]) => !DERIVED_CANDIDATE_DISPLAY_STATUS_VALUES.has(value)),
@@ -4133,33 +4357,6 @@ export function CandidatesPage({
             if (rafId !== null) cancelAnimationFrame(rafId);
         };
     }, [candidateDetail, candidateDetailPanel, updateCandidateDetailToolbarMetrics]);
-
-    const candidateOverviewCounts = React.useMemo(() => {
-        return visibleCandidates.reduce((acc, candidate) => {
-            const status = resolveCandidateDisplayStatus(candidate);
-            if (status === "pending_screening") acc.pendingScreening++;
-            if (status === "pending_interview" || INTERVIEW_TODO_STATUS_SET.has(status)) acc.pendingInterview++;
-            if (status === "talent_pool") acc.talentPool++;
-            if (visibleCandidateResumeMailSummaryMap.get(candidate.id)) acc.sent++;
-            return acc;
-        }, {pendingScreening: 0, pendingInterview: 0, talentPool: 0, sent: 0});
-    }, [visibleCandidateResumeMailSummaryMap, visibleCandidates]);
-
-    const candidateOverviewStats = React.useMemo(() => {
-        return [
-            {label: tr.currentResults, value: `${visibleCandidates.length}${tr.peopleSuffix}`},
-            {label: tr.pendingScreening, value: `${candidateOverviewCounts.pendingScreening}${tr.peopleSuffix}`},
-            {label: tr.pendingInterview, value: `${candidateOverviewCounts.pendingInterview}${tr.peopleSuffix}`},
-            {label: tr.talentPoolAndSent, value: `${candidateOverviewCounts.talentPool} / ${candidateOverviewCounts.sent}`},
-        ];
-    }, [candidateOverviewCounts, tr, visibleCandidates]);
-
-    const recentVisibleCandidates = React.useMemo(() => {
-        const toTimestamp = (value?: string | null) => (value ? new Date(value).getTime() : 0);
-        return [...visibleCandidates]
-            .sort((left, right) => toTimestamp(right.updated_at) - toTimestamp(left.updated_at))
-            .slice(0, 5);
-    }, [visibleCandidates]);
 
     const selectedCandidateResumeMailSummary = candidateDetail
         ? getCandidateResumeMailSummary(candidateDetail.candidate.id)
@@ -4430,16 +4627,52 @@ export function CandidatesPage({
         setInlineResumePreviewLoading(false);
         setInlineResumePreviewError(message);
     }, []);
-    const candidateDetailTabs = React.useMemo<Array<{key: CandidateDetailPanelKey; label: string; count?: number | null; disabled?: boolean}>>(() => ([
-        {key: "resume", label: isZh ? "简历" : "Resume"},
-        {key: "assessment", label: isZh ? "测评" : "Assessment", count: candidateDetail?.score ? 1 : null},
-        {key: "screening", label: isZh ? "筛选" : "Screening", count: candidateProcessActivity.length || null},
-        {key: "review", label: isZh ? "评审" : "Review", count: departmentReviews.length || null},
-        {key: "exam", label: isZh ? "考试" : "Exam", disabled: true},
-        {key: "interview", label: isZh ? "面试" : "Interview", count: interviewSchedules.length || candidateDetail?.interview_questions.length || null},
-        {key: "offer", label: "Offer", count: offers.length || null},
-        {key: "background", label: isZh ? "背调" : "Background", count: followUps.length || null},
-    ]), [candidateDetail?.interview_questions.length, candidateDetail?.score, candidateProcessActivity.length, departmentReviews.length, followUps.length, interviewSchedules.length, isZh, offers.length]);
+    const printCandidateResume = React.useCallback(async () => {
+        if (!primaryResumeFile) {
+            toast.error(isZh ? "暂无可打印的简历" : "No resume is available to print");
+            return;
+        }
+        if (!inlineResumePreviewUrl) {
+            await openResumeFile(primaryResumeFile, false);
+            return;
+        }
+        const printWindow = window.open(inlineResumePreviewUrl, "_blank");
+        if (!printWindow) {
+            toast.error(isZh ? "浏览器阻止了打印窗口，请允许弹窗后重试" : "The print window was blocked. Allow pop-ups and try again.");
+            return;
+        }
+        printWindow.opener = null;
+        const triggerPrint = () => {
+            window.setTimeout(() => {
+                try {
+                    printWindow.focus();
+                    printWindow.print();
+                } catch {
+                    // The opened resume remains available for the browser's own print action.
+                }
+            }, 300);
+        };
+        if (printWindow.document.readyState === "complete") {
+            triggerPrint();
+        } else {
+            printWindow.addEventListener("load", triggerPrint, {once: true});
+        }
+    }, [inlineResumePreviewUrl, isZh, openResumeFile, primaryResumeFile]);
+    const candidateDetailTabs = React.useMemo<Array<{key: CandidateDetailPanelKey; label: string; count?: number | null; disabled?: boolean}>>(() => {
+        const tabs: Array<{key: CandidateDetailPanelKey; label: string; count?: number | null; disabled?: boolean}> = [
+            {key: "resume", label: isZh ? "简历" : "Resume"},
+            {key: "assessment", label: isZh ? "测评" : "Assessment", count: candidateDetail?.score ? 1 : null},
+            {key: "screening", label: isZh ? "筛选" : "Screening", count: candidateProcessActivity.length || null},
+        ];
+        if (permissions.viewReview) tabs.push({key: "review", label: isZh ? "评审" : "Review", count: departmentReviews.length || null});
+        if (permissions.viewSkill) tabs.push({key: "exam", label: isZh ? "考试" : "Exam", disabled: true});
+        if (permissions.viewInterview) tabs.push({key: "interview", label: isZh ? "面试" : "Interview", count: interviewSchedules.length || candidateDetail?.interview_questions.length || null});
+        tabs.push(
+            {key: "offer", label: "Offer", count: offers.length || null},
+            {key: "background", label: isZh ? "背调" : "Background", count: followUps.length || null},
+        );
+        return tabs;
+    }, [candidateDetail?.interview_questions.length, candidateDetail?.score, candidateProcessActivity.length, departmentReviews.length, followUps.length, interviewSchedules.length, isZh, offers.length, permissions.viewInterview, permissions.viewReview, permissions.viewSkill]);
     const candidateDetailFlowSteps = React.useMemo(() => ([
         {status: "pending_screening", label: isZh ? "简历初筛" : "Resume Screen"},
         {status: "department_review_pending", label: isZh ? "部门评审" : "Dept Review"},
@@ -4449,16 +4682,16 @@ export function CandidatesPage({
     ]), [isZh]);
     const normalizedCandidateDetailFlowStatus = React.useMemo(() => {
         if (candidateDetailDisplayStatus === "screening_passed") return "department_review_pending";
+        if (candidateDetailDisplayStatus === "screening_rejected") return "pending_screening";
         if (candidateDetailDisplayStatus === "department_review_passed") return "pending_interview";
+        if (candidateDetailDisplayStatus === "department_review_rejected") return "department_review_pending";
+        if (["interview_passed", "pending_offer", "offer_sent"].includes(candidateDetailDisplayStatus)) return "pending_offer";
         if (INTERVIEW_PIPELINE_STATUS_SET.has(candidateDetailDisplayStatus) || INTERVIEW_REJECTED_STATUS_SET.has(candidateDetailDisplayStatus)) {
             return "pending_interview";
         }
         return candidateDetailDisplayStatus;
     }, [candidateDetailDisplayStatus]);
-    const candidateDetailFlowIndex = Math.max(
-        0,
-        candidateDetailFlowSteps.findIndex((step) => step.status === normalizedCandidateDetailFlowStatus),
-    );
+    const candidateDetailFlowIndex = candidateDetailFlowSteps.findIndex((step) => step.status === normalizedCandidateDetailFlowStatus);
     const parsedResumeBasicInfo = candidateDetail?.parse_result?.basic_info ?? null;
     const parsedResumeEducation = firstStructuredRecord(candidateDetail?.parse_result?.education_experiences);
     const parsedResumeWork = firstStructuredRecord(candidateDetail?.parse_result?.work_experiences);
@@ -4476,47 +4709,40 @@ export function CandidatesPage({
         context: resolveCandidateFacingErrorContext(taskType, { autoRetry }),
         language,
     }), [language]);
-    const refreshLikeLoading = refreshing || candidateListTransitionLoading;
+    const confirmNestedDelete = React.useCallback(async () => {
+        if (!nestedDeleteTarget || nestedDeleteSubmitting) {
+            return;
+        }
+        setNestedDeleteSubmitting(true);
+        try {
+            if (nestedDeleteTarget.kind === "offer") {
+                await deleteOffer(nestedDeleteTarget.id);
+            } else if (nestedDeleteTarget.kind === "follow_up") {
+                await deleteFollowUp(nestedDeleteTarget.id);
+            } else {
+                await deleteInterviewSchedule(nestedDeleteTarget.id);
+            }
+            setNestedDeleteTarget(null);
+        } finally {
+            setNestedDeleteSubmitting(false);
+        }
+    }, [deleteFollowUp, deleteInterviewSchedule, deleteOffer, nestedDeleteSubmitting, nestedDeleteTarget]);
+    const candidateDialogClassName = "overflow-hidden rounded-[8px] border-[#EBEEF5] bg-white p-0 text-[#0E1114] shadow-[0_8px_24px_rgba(14,17,20,0.16)]";
+    const candidateDialogHeaderClassName = "border-b border-[#F2F3F5] px-6 pb-3.5 pt-[18px]";
+    const candidateDialogBodyClassName = "space-y-4 px-6 py-5";
+    const candidateDialogFooterClassName = "-mx-6 -mb-5 mt-5 flex min-h-16 items-center justify-end gap-3 border-t border-[#F2F3F5] px-6";
+    const candidateDialogSecondaryButtonClassName = "h-[34px] rounded-[6px] border-[#E6E7EB] bg-white px-[18px] text-[13px] text-[#33353D] shadow-none hover:border-[#1E3BFA] hover:bg-[#F7F8FA] hover:text-[#1E3BFA]";
+    const candidateDialogPrimaryButtonClassName = "h-[34px] rounded-[6px] bg-[#1E3BFA] px-[18px] text-[13px] text-white shadow-none hover:bg-[#0F23D9] disabled:bg-[#1E3BFA] disabled:text-white disabled:opacity-50";
+    const candidateBatchActionButtonClassName = "h-7 shrink-0 whitespace-nowrap rounded-[4px] border-[#E6E7EB] bg-white px-2.5 text-[12px] font-normal text-[#33353D] shadow-none hover:border-[#1E3BFA] hover:bg-[#F7F8FA] hover:text-[#1E3BFA] focus-visible:ring-1 focus-visible:ring-[#1E3BFA]";
 
     return (
         <>
-            <div
-                className={cn(
-                    "grid h-full min-h-0 overflow-hidden",
-                    candidateFilterBarExpanded
-                        ? "grid-rows-[auto_minmax(0,1fr)] gap-2"
-                        : "grid-rows-[minmax(0,1fr)] gap-0",
-                )}
-            >
-                {candidateFilterBarExpanded ? (
-                    <CandidateFilterBar
-                        candidateFilterSummary={candidateFilterSummary}
-                        candidateViewMode={candidateViewMode}
-                        setCandidateViewMode={setCandidateViewMode}
-                        candidateQuery={candidateQuery}
-                        setCandidateQuery={setCandidateQuery}
-                        candidatePositionFilter={candidatePositionFilter}
-                        setCandidatePositionFilter={setCandidatePositionFilter}
-                        candidateStatusFilter={candidateStatusFilter}
-                        setCandidateStatusFilter={setCandidateStatusFilter}
-                        candidateMatchFilter={candidateMatchFilter}
-                        setCandidateMatchFilter={setCandidateMatchFilter}
-                        candidateSourceFilter={candidateSourceFilter}
-                        setCandidateSourceFilter={setCandidateSourceFilter}
-                        candidateTimeFilter={candidateTimeFilter}
-                        setCandidateTimeFilter={setCandidateTimeFilter}
-                        positions={positions}
-                        sourceOptions={sourceOptions}
-                        visibleCandidateCount={candidateTotal}
-                        onCollapse={() => setCandidateFilterBarExpanded(false)}
-                    />
-                ) : null}
-
+            <div className="h-full min-h-0 overflow-hidden bg-white">
                 <div
-                    className="grid min-h-0 grid-cols-1 gap-3 overflow-hidden xl:grid-cols-[var(--candidate-position-scope-width)_minmax(0,1fr)]"
+                    className="grid h-full min-h-0 grid-cols-1 gap-0 overflow-hidden bg-white xl:grid-cols-[var(--candidate-position-scope-width)_minmax(0,1fr)]"
                     style={candidatePositionScopeGridStyle}
                 >
-                    <div className="relative hidden min-h-0 overflow-visible xl:block">
+                    <div className="relative hidden min-h-0 overflow-visible border-r border-dashed border-[#EBEEF5] xl:block">
                         <div
                             className={cn(
                                 "h-full min-w-0 overflow-hidden transition-opacity duration-150",
@@ -4536,42 +4762,69 @@ export function CandidatesPage({
                         </div>
                         <button
                             type="button"
-                            aria-label={isZh ? "拖拽调整岗位列表宽度" : "Drag to resize position list"}
-                            title={isZh ? "拖拽调整岗位列表宽度，双击恢复默认宽度" : "Drag to resize, double click to reset"}
+                            aria-label={isZh ? "拖拽调整招聘中职位栏宽度" : "Resize open positions panel"}
+                            title={isZh ? "左右拖拽调整宽度，双击恢复默认宽度" : "Drag horizontally to resize; double click to reset"}
                             onPointerDown={handleCandidatePositionScopeResizeStart}
                             onKeyDown={handleCandidatePositionScopeResizeKeyDown}
                             onDoubleClick={() => setCandidatePositionScopeWidth(CANDIDATE_POSITION_SCOPE_DEFAULT_WIDTH)}
                             className={cn(
-                                "group absolute -right-2 top-0 z-20 flex h-full w-4 cursor-col-resize touch-none items-center justify-center rounded-full outline-none transition focus-visible:ring-2 focus-visible:ring-[var(--tr-red)] focus-visible:ring-offset-2",
-                                "hover:bg-slate-100/80 dark:hover:bg-slate-900/80",
-                                candidatePositionScopeCollapsed && "bg-white/80 dark:bg-slate-950/80",
+                                "group absolute -right-1 top-0 z-20 flex h-full w-2 cursor-col-resize touch-none items-center justify-center outline-none transition focus-visible:ring-1 focus-visible:ring-[#1E3BFA]",
+                                "hover:bg-[rgba(30,59,250,0.04)]",
+                                candidatePositionScopeCollapsed && "bg-white/80",
                             )}
                         >
                             <span
                                 className={cn(
-                                    "block h-12 w-1 rounded-full bg-slate-300 transition dark:bg-slate-700",
+                                    "block h-full w-px bg-transparent transition",
                                     candidatePositionScopeCollapsed
-                                        ? "bg-[var(--tr-red)] dark:bg-[var(--tr-red)]"
-                                        : "group-hover:bg-slate-400",
+                                        ? "bg-[#1E3BFA]"
+                                        : "group-hover:bg-[#1E3BFA]",
                                 )}
                             />
                         </button>
                     </div>
-                <Card className="h-full !gap-0 overflow-hidden rounded-md border border-[var(--tr-border)] bg-white !py-0 shadow-none dark:border-slate-800 dark:bg-slate-950">
-                    <CardHeader className="px-4 pt-2 pb-0 sm:px-5">
+                <Card className="h-full !gap-0 overflow-hidden rounded-none border-0 bg-white !py-0 shadow-none">
+                    <CardHeader className="gap-0 px-8 pb-0 pt-5">
                         <CandidatePipelineBar
                             stages={candidatePipelineStages}
                             onSelect={selectCandidatePipelineStage}
                             onSelectChild={selectCandidatePipelineChild}
                             loading={candidatePipelineStatsLoading}
                             allLabel={isZh ? "全部" : "All"}
+                            rightAction={permissions.manageCandidate && onUploadResume ? (
+                                <Button
+                                    type="button"
+                                    onClick={onUploadResume}
+                                    className="h-9 rounded-[6px] bg-[#1E3BFA] px-[18px] text-[14px] font-normal text-white shadow-none hover:bg-[#0F23D9] hover:text-white"
+                                >
+                                    {isZh ? "上传简历" : "Upload Resume"}
+                                </Button>
+                            ) : null}
+                        />
+                        <CandidateFilterBar
+                            candidateFilterSummary={candidateFilterSummary}
+                            candidateQuery={candidateQuery}
+                            setCandidateQuery={setCandidateQuery}
+                            candidatePositionFilter={candidatePositionFilter}
+                            setCandidatePositionFilter={setCandidatePositionFilter}
+                            candidateStatusFilter={candidateStatusFilter}
+                            setCandidateStatusFilter={setCandidateStatusFilter}
+                            candidateMatchFilter={candidateMatchFilter}
+                            setCandidateMatchFilter={setCandidateMatchFilter}
+                            candidateSourceFilter={candidateSourceFilter}
+                            setCandidateSourceFilter={setCandidateSourceFilter}
+                            candidateTimeFilter={candidateTimeFilter}
+                            setCandidateTimeFilter={setCandidateTimeFilter}
+                            sourceOptions={sourceOptions}
+                            expanded={candidateFilterBarExpanded}
+                            onToggle={() => setCandidateFilterBarExpanded((current) => !current)}
                         />
                         <div
                             className={cn(
-                                "mt-1.5 flex items-center gap-2 border-t border-[var(--tr-border-soft)] py-2 dark:border-slate-800",
+                                "mt-0 flex items-center gap-2",
                                 selectedCandidateIds.length > 0
-                                    ? "overflow-hidden rounded-md bg-slate-50 px-2 dark:bg-neutral-900/20"
-                                    : "flex-wrap justify-between",
+                                    ? "overflow-hidden rounded-[6px] bg-[#F7F8FA] px-2 py-2"
+                                    : "mb-1 h-10 flex-wrap justify-between rounded-[6px] bg-[#F7F8FA] px-3.5",
                             )}
                         >
                             {selectedCandidateIds.length > 0 ? (
@@ -4579,33 +4832,42 @@ export function CandidatesPage({
                                     <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                                         <label
                                             className={cn(
-                                                "inline-flex h-7 shrink-0 items-center gap-2 rounded-md border border-slate-200 bg-white px-2.5 shadow-sm transition hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-950 dark:hover:bg-slate-900",
+                                                "inline-flex h-7 shrink-0 items-center gap-2 rounded-[4px] border border-[#E6E7EB] bg-white px-2.5 text-[#33353D] shadow-none transition hover:border-[#1E3BFA] hover:text-[#1E3BFA]",
                                                 visibleCandidateIds.length ? "cursor-pointer" : "cursor-not-allowed opacity-50",
                                             )}
                                         >
                                             <input
-                                                ref={visibleSelectAllCheckboxRef}
+                                                ref={visibleSelectAllBatchCheckboxRef}
                                                 type="checkbox"
-                                                className="h-3.5 w-3.5 rounded border-slate-300 text-[#171717] focus:ring-[#171717]"
+                                                className="h-3.5 w-3.5 rounded-[3px] border-[#D6D8DD] accent-[#1E3BFA] focus:ring-[#1E3BFA]"
                                                 checked={allVisibleCandidatesSelected}
                                                 disabled={!visibleCandidateIds.length}
                                                 aria-checked={someVisibleCandidatesSelected ? "mixed" : allVisibleCandidatesSelected}
                                                 aria-label={allVisibleCandidatesSelected ? tr.unselectVisibleCandidates : tr.selectVisibleCandidates}
                                                 onChange={toggleVisibleCandidateSelection}
                                             />
-                                            <span className="text-xs font-medium text-slate-700 dark:text-slate-200">
+                                            <span className="text-[12px] font-normal">
                                                 {allVisibleCandidatesSelected ? tr.unselectVisibleCandidates : tr.selectVisibleCandidates}
                                             </span>
                                         </label>
-                                        <span className="inline-flex h-7 shrink-0 items-center rounded-md border border-[#D4D4D4] bg-white px-2.5 text-xs font-medium text-[#171717] dark:border-neutral-800/70 dark:bg-slate-950 dark:text-neutral-300">
+                                        <span className="inline-flex h-7 shrink-0 items-center rounded-[4px] border border-[#1E3BFA] bg-[rgba(30,59,250,0.05)] px-2.5 text-[12px] font-medium text-[#1E3BFA]">
                                             {tr.selectedCandidates(selectedCandidateIds.length)}
                                         </span>
+                                        <button
+                                            type="button"
+                                            className="shrink-0 text-[12px] text-[#0F23D9] hover:text-[#1E3BFA]"
+                                            onClick={() => setSelectedCandidateIds([])}
+                                        >
+                                            {tr.clearSelection}
+                                        </button>
+                                        {permissions.executeProcess ? <>
                                         <Button
                                             size="sm"
                                             variant="outline"
-                                            className="h-7 shrink-0 rounded-md px-2.5 text-xs text-emerald-700 hover:bg-emerald-50 dark:text-emerald-300 dark:hover:bg-emerald-950/30"
+                                            className={cn(candidateBatchActionButtonClassName, "text-[#0A9C71] hover:border-[#0CC991] hover:bg-[rgba(12,201,145,0.06)] hover:text-[#0A9C71]")}
                                             onClick={() => void runQuickDisposition("pass")}
-                                            disabled={batchStatusSubmitting}
+                                            disabled={batchStatusSubmitting || !batchScreeningActionsAllowed}
+                                            title={!batchScreeningActionsAllowed ? (isZh ? "仅可批量处理当前页且尚未进入部门评审、面试或 Offer 的候选人" : "Only current-page candidates before review, interview, or offer can be processed") : undefined}
                                         >
                                             <Check className="h-3.5 w-3.5"/>
                                             {tr.quickDispositionPass}
@@ -4613,19 +4875,10 @@ export function CandidatesPage({
                                         <Button
                                             size="sm"
                                             variant="outline"
-                                            className="h-7 shrink-0 rounded-md border-slate-200 px-2.5 text-xs text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:border-slate-500 dark:hover:bg-slate-800 dark:hover:text-white"
-                                            onClick={() => void runQuickDisposition("talent_pool")}
-                                            disabled={batchStatusSubmitting}
-                                        >
-                                            <Users className="h-3.5 w-3.5"/>
-                                            {tr.quickDispositionTalentPool}
-                                        </Button>
-                                        <Button
-                                            size="sm"
-                                            variant="outline"
-                                            className="h-7 shrink-0 rounded-md px-2.5 text-xs text-rose-600 hover:bg-rose-50 dark:text-rose-300 dark:hover:bg-rose-950/30"
+                                            className={cn(candidateBatchActionButtonClassName, "text-[#F53F3F] hover:border-[#F53F3F] hover:bg-[rgba(245,63,63,0.06)] hover:text-[#F53F3F]")}
                                             onClick={() => void runQuickDisposition("reject")}
-                                            disabled={batchStatusSubmitting}
+                                            disabled={batchStatusSubmitting || !batchScreeningActionsAllowed}
+                                            title={!batchScreeningActionsAllowed ? (isZh ? "仅可批量处理当前页且尚未进入部门评审、面试或 Offer 的候选人" : "Only current-page candidates before review, interview, or offer can be processed") : undefined}
                                         >
                                             <Trash2 className="h-3.5 w-3.5"/>
                                             {tr.quickDispositionReject}
@@ -4633,9 +4886,9 @@ export function CandidatesPage({
                                         <Button
                                             size="sm"
                                             variant="outline"
-                                            className="h-7 shrink-0 rounded-md px-2.5 text-xs"
+                                            className={candidateBatchActionButtonClassName}
                                             onClick={() => void triggerScreening(selectedCandidateIds)}
-                                            disabled={isBatchScreeningCancelling || (screeningSubmitting && !isBatchScreeningRunning) || (!isBatchScreeningRunning && !selectedCandidateIds.length)}
+                                            disabled={!batchScreeningActionsAllowed || isBatchScreeningCancelling || (screeningSubmitting && !isBatchScreeningRunning) || (!isBatchScreeningRunning && !selectedCandidateIds.length)}
                                         >
                                             {isBatchScreeningCancelling ? <Loader2 className="h-3.5 w-3.5 animate-spin"/> : isBatchScreeningRunning ? <Square className="h-3.5 w-3.5"/> : screeningSubmitting ? <Loader2 className="h-3.5 w-3.5 animate-spin"/> : <Sparkles className="h-3.5 w-3.5"/>}
                                             {isBatchScreeningCancelling ? tr.stopping : isBatchScreeningRunning ? tr.stopBatchScreening : screeningSubmitting ? tr.queueing : tr.queueBatch}
@@ -4643,17 +4896,18 @@ export function CandidatesPage({
                                         <Button
                                             size="sm"
                                             variant="outline"
-                                            className="h-7 shrink-0 rounded-md px-2.5 text-xs"
+                                            className={candidateBatchActionButtonClassName}
                                             onClick={() => void triggerFreshScreening(selectedCandidateIds)}
-                                            disabled={screeningSubmitting}
+                                            disabled={screeningSubmitting || !batchScreeningActionsAllowed}
                                         >
                                             <RotateCcw className="h-3.5 w-3.5"/>
                                             {tr.requeueFreshScreening}
                                         </Button>
-                                        <Button
+                                        </> : null}
+                                        {permissions.viewTalentPool ? <Button
                                             size="sm"
                                             variant="outline"
-                                            className="h-7 shrink-0 rounded-md px-2.5 text-xs"
+                                            className={candidateBatchActionButtonClassName}
                                             onClick={() => void (async () => {
                                                 if (onMoveToTalentPool) {
                                                     await onMoveToTalentPool(selectedCandidateIds);
@@ -4664,30 +4918,30 @@ export function CandidatesPage({
                                         >
                                             <Users className="h-3.5 w-3.5"/>
                                             {isZh ? "归入人才库" : "Move to Talent Pool"}
-                                        </Button>
-                                        <Button
+                                        </Button> : null}
+                                        {permissions.manageCandidate ? <Button
                                             size="sm"
                                             variant="outline"
-                                            className="h-7 shrink-0 rounded-md px-2.5 text-xs"
+                                            className={candidateBatchActionButtonClassName}
                                             onClick={() => setExportDialogOpen(true)}
                                             disabled={exporting}
                                         >
                                             <Download className="h-3.5 w-3.5"/>
                                             {exporting ? tr.exporting : tr.exportCandidates}
-                                        </Button>
-                                        <Button
+                                        </Button> : null}
+                                        {permissions.sendMail ? <Button
                                             size="sm"
                                             variant="outline"
-                                            className="h-7 shrink-0 rounded-md px-2.5 text-xs"
+                                            className={candidateBatchActionButtonClassName}
                                             onClick={() => openResumeMailDialog(selectedCandidateIds)}
                                         >
                                             <Mail className="h-3.5 w-3.5"/>
                                             {tr.sendResumesBatch}
-                                        </Button>
+                                        </Button> : null}
                                         <Button
                                             size="sm"
                                             variant="outline"
-                                            className="h-7 shrink-0 rounded-md px-2.5 text-xs"
+                                            className={candidateBatchActionButtonClassName}
                                             onClick={() => {
                                                 setBatchBindPositionId("");
                                                 setBatchBindDialogOpen(true);
@@ -4699,7 +4953,7 @@ export function CandidatesPage({
                                         <Button
                                             size="sm"
                                             variant="outline"
-                                            className="h-7 shrink-0 rounded-md px-2.5 text-xs"
+                                            className={candidateBatchActionButtonClassName}
                                             onClick={() => {
                                                 setBatchStatusValue("");
                                                 setBatchStatusReason("");
@@ -4712,7 +4966,7 @@ export function CandidatesPage({
                                         <Button
                                             size="sm"
                                             variant="outline"
-                                            className="h-7 shrink-0 rounded-md px-2.5 text-xs text-rose-600 hover:bg-rose-50 hover:text-rose-700 dark:text-rose-400 dark:hover:bg-rose-950/30 dark:hover:text-rose-300"
+                                            className={cn(candidateBatchActionButtonClassName, "text-[#F53F3F] hover:border-[#F53F3F] hover:bg-[rgba(245,63,63,0.06)] hover:text-[#F53F3F]")}
                                             onClick={() => requestBatchDelete(selectedCandidateIds)}
                                         >
                                             <Trash2 className="h-3.5 w-3.5"/>
@@ -4722,84 +4976,27 @@ export function CandidatesPage({
                                 </>
                             ) : (
                                 <>
-                                    <div className="flex min-w-0 flex-wrap items-center gap-2">
-                                        <div className="flex min-w-0 flex-wrap items-center justify-start gap-2 text-xs text-slate-500 dark:text-slate-400">
-                                            <label
-                                                className={cn(
-                                                    "inline-flex h-7 items-center gap-2 rounded-md border border-slate-200 bg-white px-2.5 shadow-sm transition hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-950 dark:hover:bg-slate-900",
-                                                    visibleCandidateIds.length ? "cursor-pointer" : "cursor-not-allowed opacity-50",
-                                                )}
-                                            >
-                                                <input
-                                                    ref={visibleSelectAllCheckboxRef}
-                                                    type="checkbox"
-                                                    className="h-3.5 w-3.5 rounded border-slate-300 text-[#171717] focus:ring-[#171717]"
-                                                    checked={allVisibleCandidatesSelected}
-                                                    disabled={!visibleCandidateIds.length}
-                                                    aria-checked={someVisibleCandidatesSelected ? "mixed" : allVisibleCandidatesSelected}
-                                                    aria-label={allVisibleCandidatesSelected ? tr.unselectVisibleCandidates : tr.selectVisibleCandidates}
-                                                    onChange={toggleVisibleCandidateSelection}
-                                                />
-                                                <span className="font-medium text-slate-700 dark:text-slate-200">
-                                                    {allVisibleCandidatesSelected ? tr.unselectVisibleCandidates : tr.selectVisibleCandidates}
-                                                </span>
-                                            </label>
-                                            <span>{tr.visibleSelectionCount(selectedVisibleCandidateCount, visibleCandidateIds.length)}</span>
-                                            <span className="hidden text-slate-300 sm:inline">|</span>
-                                            <span>{tr.selectedCandidates(selectedCandidateIds.length)}</span>
+                                    <div className="flex min-w-0 flex-1 items-center gap-4 overflow-hidden text-[12px] text-[#33353D]">
+                                        <span className="shrink-0">
+                                            {isZh ? "当前结果" : "Results"} <b className="font-semibold tabular-nums text-[#0E1114]">{candidateTotal}</b> {isZh ? "人" : ""}
+                                        </span>
+                                        <span className="truncate text-[#86888F]">
+                                            {isZh
+                                                ? `待初筛 ${candidatePipelineStages.find((stage) => stage.key === "resume_screening")?.count || 0} · 待面试 ${(candidatePipelineStages.find((stage) => stage.key === "first_interview")?.count || 0) + (candidatePipelineStages.find((stage) => stage.key === "second_interview")?.count || 0)} · 人才库 ${candidatePipelineStages.find((stage) => stage.key === "talent_pool")?.count || 0}`
+                                                : `${visibleCandidateIds.length} visible`}
+                                        </span>
+                                        <div className="ml-auto flex shrink-0 items-center gap-3">
+                                            {[
+                                                permissions.executeProcess ? tr.queueBatch : null,
+                                                permissions.executeProcess ? tr.requeueFreshScreening : null,
+                                                permissions.sendMail ? tr.sendResumesBatch : null,
+                                                permissions.manageCandidate ? tr.batchBindPosition : null,
+                                                permissions.manageCandidate ? tr.batchUpdateStatus : null,
+                                                permissions.manageCandidate ? tr.exportCandidates : null,
+                                            ].filter((label): label is string => Boolean(label)).map((label) => (
+                                                <span key={label} className="text-[#B0B2B8]">{label}</span>
+                                            ))}
                                         </div>
-                                        {onRefresh ? (
-                                            <Button
-                                                size="sm"
-                                                variant="outline"
-                                                className="h-7 rounded-md px-2 text-xs font-normal"
-                                                disabled={refreshLikeLoading || candidatesLoading}
-                                                onClick={async () => {
-                                                    setRefreshing(true);
-                                                    try {
-                                                        await onRefresh();
-                                                    } finally {
-                                                        setRefreshing(false);
-                                                    }
-                                                }}
-                                            >
-                                                <RotateCcw className={cn("h-3.5 w-3.5", refreshLikeLoading && "animate-spin")}/>
-                                                {tr.refresh}
-                                            </Button>
-                                        ) : null}
-                                    </div>
-                                    <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2">
-                                        <div className="w-[156px] max-w-[156px] min-w-0 shrink-0">
-                                            <NativeSelect
-                                                value={activeQuickPosition || "__all__"}
-                                                title={
-                                                    activeQuickPosition
-                                                        ? (positions.find((position) => String(position.id) === activeQuickPosition)?.title || "")
-                                                        : tr.allPositions
-                                                }
-                                                onChange={(event) => {
-                                                    const nextValue = event.target.value;
-                                                    setCandidatePositionFilter(nextValue === "__all__" ? [] : [nextValue]);
-                                                }}
-                                                className="h-8 w-full max-w-full truncate rounded-md border-[var(--tr-border)] bg-white px-2 py-0 pr-6 text-xs text-slate-700 shadow-none hover:border-slate-300 hover:text-slate-950 focus-visible:ring-1 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300 dark:hover:text-slate-100"
-                                            >
-                                                <option value="__all__">{tr.allPositions}</option>
-                                                {positions.map((position) => (
-                                                    <option key={position.id} value={String(position.id)}>
-                                                        {position.title}
-                                                    </option>
-                                                ))}
-                                            </NativeSelect>
-                                        </div>
-                                        <Button
-                                            size="sm"
-                                            variant="ghost"
-                                            className="h-8 rounded-md border border-[var(--tr-border)] bg-white px-2.5 text-xs font-normal text-slate-700 shadow-none hover:bg-slate-50 hover:text-slate-950 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300 dark:hover:bg-slate-900 dark:hover:text-slate-100"
-                                            onClick={() => setCandidateFilterBarExpanded((current) => !current)}
-                                        >
-                                            <SlidersHorizontal className="h-3.5 w-3.5"/>
-                                            {candidateFilterBarExpanded ? tr.collapseFilters : tr.filters}
-                                        </Button>
                                     </div>
                                 </>
                             )}
@@ -4807,7 +5004,7 @@ export function CandidatesPage({
                     </CardHeader>
                     <CardContent className="relative flex min-h-0 flex-1 flex-col px-0 pb-1 pt-0">
                         {candidateMatchSortLoading ? (
-                            <div className="mb-2 flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-2 text-sm text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200">
+                            <div className="mb-2 flex items-center gap-2 rounded-[6px] border border-[rgba(255,171,36,0.30)] bg-[rgba(255,171,36,0.08)] px-2.5 py-2 text-sm text-[#D48806]">
                                 <Loader2 className="h-4 w-4 animate-spin"/>
                                 <span>{tr.sortingByMatchPercent}</span>
                             </div>
@@ -4815,46 +5012,120 @@ export function CandidatesPage({
                         {candidatesLoading || !candidatesInitialLoaded ? (
                             <LoadingCard label={tr.loadingCandidateList}/>
                         ) : candidateViewMode === "list" ? (
-                            visibleCandidates.length === 0 ? (
-                                <div className="flex min-h-0 flex-1 items-center justify-center">
-                                    <EmptyState title={tr.noCandidatesMatched} description={tr.noCandidatesMatchedDesc}/>
-                                </div>
-                            ) : (
-                                <div className="min-h-0 flex flex-1 flex-col overflow-hidden bg-[#f8fafc] dark:bg-slate-950">
+                                <div className="min-h-0 flex flex-1 flex-col overflow-hidden bg-white">
                                     <div
                                         ref={mergedCandidateListScrollRef}
-                                        className={cn("relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-4 py-3", SMOOTH_VERTICAL_SCROLLBAR_CLASS)}
+                                        className={cn("relative min-h-0 flex-1 overflow-auto", SMOOTH_VERTICAL_SCROLLBAR_CLASS)}
                                     >
-                                        <div
-                                            role="list"
-                                            aria-rowcount={visibleCandidates.length}
-                                            className="relative"
-                                            style={{height: rowVirtualizer.getTotalSize()}}
-                                        >
-                                            {virtualItems.map((virtualRow) => {
-                                                const candidate = visibleCandidates[virtualRow.index];
-                                                return (
-                                                    <CandidateApplicantCard
-                                                        key={candidate.id}
-                                                        candidate={candidate}
-                                                        isSelected={selectedCandidateId === candidate.id}
-                                                        isChecked={selectedCandidateIdSet.has(candidate.id)}
-                                                        rowIndex={virtualRow.index}
-                                                        rowStart={virtualRow.start}
-                                                        measureElement={rowVirtualizer.measureElement}
-                                                        setSelectedCandidateId={setSelectedCandidateId}
-                                                        toggleCandidateSelection={toggleCandidateSelection}
-                                                        getResumeMailSummary={getVisibleCandidateResumeMailSummary}
-                                                        onDisposition={(candidateId, action) => void runCandidateDisposition([candidateId], action)}
-                                                        tr={tr}
-                                                        language={language}
+                                        <div className="w-full" style={{minWidth: candidatePrototypeListGridLayout.minWidth}}>
+                                            <div
+                                                role="row"
+                                                className="sticky top-0 z-10 grid h-10 items-center border-b border-[#F2F3F5] bg-white text-[12px] text-[#86888F]"
+                                                style={{gridTemplateColumns: candidatePrototypeListGridLayout.columns}}
+                                            >
+                                                <div role="columnheader" className="flex items-center justify-center">
+                                                    <input
+                                                        ref={visibleSelectAllTableCheckboxRef}
+                                                        type="checkbox"
+                                                        checked={allVisibleCandidatesSelected}
+                                                        aria-checked={someVisibleCandidatesSelected ? "mixed" : allVisibleCandidatesSelected}
+                                                        onChange={toggleVisibleCandidateSelection}
+                                                        className="h-3.5 w-3.5 rounded-[3px] border-[#D6D8DD] accent-[#1E3BFA] focus:ring-[#1E3BFA]"
                                                     />
-                                                );
-                                            })}
+                                                </div>
+                                                <div role="columnheader" className="px-2.5">{isZh ? "候选人" : "Candidate"}</div>
+                                                <div role="columnheader" className="px-2.5">{isZh ? "应聘岗位" : "Applied Position"}</div>
+                                                <div role="columnheader" className="overflow-hidden px-0">{renderCandidateListHeaderCell("match", isZh ? "AI 匹配度" : "AI Match")}</div>
+                                                <div role="columnheader" className="px-2.5">{isZh ? "状态" : "Status"}</div>
+                                                <div role="columnheader" className="px-2.5">{isZh ? "来源" : "Source"}</div>
+                                                <div role="columnheader" className="px-2.5">{isZh ? "学历" : "Education"}</div>
+                                                <div role="columnheader" className="px-2.5">{isZh ? "工作年限" : "Experience"}</div>
+                                                <div role="columnheader" className="px-2.5">{isZh ? "投递时间" : "Submitted"}</div>
+                                                <div role="columnheader" className="px-2.5">{isZh ? "操作" : "Actions"}</div>
+                                            </div>
+                                            <div
+                                                role="rowgroup"
+                                                aria-rowcount={visibleCandidates.length}
+                                                className="relative"
+                                                style={{height: Math.max(rowVirtualizer.getTotalSize(), visibleCandidates.length === 0 ? 280 : 0)}}
+                                            >
+                                                {virtualItems.map((virtualRow) => {
+                                                    const candidate = visibleCandidates[virtualRow.index];
+                                                    return (
+                                                        <CandidatePrototypeTableRow
+                                                            key={candidate.id}
+                                                            candidate={candidate}
+                                                            isSelected={selectedCandidateId === candidate.id}
+                                                            isChecked={selectedCandidateIdSet.has(candidate.id)}
+                                                            rowStart={virtualRow.start}
+                                                            rowHeight={CANDIDATE_LIST_ESTIMATED_ROW_HEIGHT}
+                                                            setSelectedCandidateId={setSelectedCandidateId}
+                                                            toggleCandidateSelection={toggleCandidateSelection}
+                                                            onPrimaryAction={(item) => {
+                                                                const status = resolveCandidateDisplayStatus(item);
+                                                                if (!permissions.executeProcess) {
+                                                                    setSelectedCandidateId(item.id);
+                                                                    setCandidateDetailPanel("resume");
+                                                                    return;
+                                                                }
+                                                                if (status === "screening_rejected" || status === "department_review_rejected" || INTERVIEW_REJECTED_STATUS_SET.has(status)) {
+                                                                    void runCandidateDisposition([item.id], "talent_pool");
+                                                                    return;
+                                                                }
+                                                                if (status === "screening_running") {
+                                                                    setSelectedCandidateId(item.id);
+                                                                    setCandidateDetailPanel("screening");
+                                                                    return;
+                                                                }
+                                                                if (INTERVIEW_PIPELINE_STATUS_SET.has(status)) {
+                                                                    setSelectedCandidateId(item.id);
+                                                                    setCandidateDetailPanel("interview");
+                                                                    return;
+                                                                }
+                                                                if (["new_imported", "matching", "unmatched", "pending_screening", "screening_failed"].includes(status)) {
+                                                                    void triggerFreshScreening([item.id]);
+                                                                    return;
+                                                                }
+                                                                setSelectedCandidateId(item.id);
+                                                                if (status === "department_review_pending" || status === "department_review_passed") {
+                                                                    setCandidateDetailPanel("review");
+                                                                } else if (["interview_passed", "pending_offer", "offer_sent", "hired"].includes(status)) {
+                                                                    setCandidateDetailPanel("offer");
+                                                                } else if (status === "screening_passed") {
+                                                                    setCandidateDetailPanel("assessment");
+                                                                } else {
+                                                                    setCandidateDetailPanel("resume");
+                                                                }
+                                                            }}
+                                                            onSendResume={(candidateId) => openResumeMailDialog([candidateId])}
+                                                            canExecuteProcess={permissions.executeProcess}
+                                                            canSendResume={permissions.sendMail}
+                                                            organizationLabel={showOrganizationColumn ? getOrganizationLabel(candidate.org_code) : null}
+                                                            resumeMailSummary={getVisibleCandidateResumeMailSummary(candidate.id)}
+                                                            language={language}
+                                                            gridTemplateColumns={candidatePrototypeListGridLayout.columns}
+                                                        />
+                                                    );
+                                                })}
+                                                {visibleCandidates.length === 0 ? (
+                                                    <div
+                                                        className="absolute left-0 top-0 flex h-[280px] items-center justify-center px-6 py-10"
+                                                        style={{width: candidateListViewportEl?.clientWidth || "100%"}}
+                                                    >
+                                                        <div className="max-w-[360px] text-center">
+                                                            <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-[8px] bg-[#F2F3F5] text-[#86888F]">
+                                                                <Users className="h-5 w-5"/>
+                                                            </span>
+                                                            <p className="mt-3 text-[14px] font-medium text-[#0E1114]">{tr.noCandidatesMatched}</p>
+                                                            <p className="mt-1 text-[12px] leading-5 text-[#86888F]">{tr.noCandidatesMatchedDesc}</p>
+                                                        </div>
+                                                    </div>
+                                                ) : null}
+                                            </div>
                                         </div>
                                     </div>
-                                    <div className="shrink-0 border-t border-slate-200/80 px-4 py-1.5 dark:border-slate-800">
-                                        <div className="flex flex-wrap items-center justify-between gap-2 text-xs leading-5 text-slate-500 dark:text-slate-400">
+                                    <div className="shrink-0 border-t border-[#F2F3F5] px-0 py-3">
+                                        <div className="flex flex-wrap items-center justify-between gap-2 text-[12px] leading-5 text-[#86888F]">
                                             <span>
                                                 {tr.candidatePageRange(candidatePageStart, candidatePageEnd, candidateTotal)}
                                             </span>
@@ -4863,7 +5134,7 @@ export function CandidatesPage({
                                                     value={String(candidatePageSize)}
                                                     title={tr.rowsPerPage}
                                                     onChange={(event) => setCandidatePageSize(Number(event.target.value))}
-                                                    className="h-7 w-[96px] shrink-0 rounded-md border-slate-200 bg-white pr-7 text-xs shadow-none dark:border-slate-800 dark:bg-slate-950"
+                                                    className="h-7 w-[96px] shrink-0 rounded-[4px] border-[#E6E7EB] bg-white pr-7 text-[12px] shadow-none"
                                                 >
                                                     {candidatePageSizeOptions.map((option) => (
                                                         <option key={option} value={option}>{option}{tr.rowsPerPage}</option>
@@ -4872,7 +5143,7 @@ export function CandidatesPage({
                                                 <Button
                                                     size="sm"
                                                     variant="outline"
-                                                    className="h-6 rounded-md px-2 text-xs leading-4"
+                                                    className={cn(CANDIDATE_PAGINATION_BUTTON_CLASS, "px-2")}
                                                     disabled={candidatePageIndex <= 0 || candidatesLoading}
                                                     onClick={() => setCandidatePageIndex(candidatePageIndex - 1)}
                                                 >
@@ -4883,7 +5154,7 @@ export function CandidatesPage({
                                                         key={pageIndex}
                                                         size="sm"
                                                         variant={pageIndex === candidatePageIndex ? "default" : "outline"}
-                                                        className="h-6 min-w-6 rounded-md px-1.5 text-xs leading-4"
+                                                        className={pageIndex === candidatePageIndex ? CANDIDATE_PAGINATION_ACTIVE_CLASS : cn(CANDIDATE_PAGINATION_BUTTON_CLASS, "min-w-7 px-1.5")}
                                                         disabled={candidatesLoading}
                                                         onClick={() => setCandidatePageIndex(pageIndex)}
                                                     >
@@ -4893,7 +5164,7 @@ export function CandidatesPage({
                                                 <Button
                                                     size="sm"
                                                     variant="outline"
-                                                    className="h-6 rounded-md px-2 text-xs leading-4"
+                                                    className={cn(CANDIDATE_PAGINATION_BUTTON_CLASS, "px-2")}
                                                     disabled={candidatePageIndex >= candidateTotalPages - 1 || candidatesLoading}
                                                     onClick={() => setCandidatePageIndex(candidatePageIndex + 1)}
                                                 >
@@ -4903,7 +5174,6 @@ export function CandidatesPage({
                                         </div>
                                     </div>
                                 </div>
-                            )
                         ) : (
                             <div className="min-h-0 flex flex-1 flex-col">
                                 <div
@@ -4926,28 +5196,28 @@ export function CandidatesPage({
                                         ))}
                                     </div>
                                 </div>
-                                <div className="mt-2 flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-slate-200/80 pt-2 text-xs leading-5 text-slate-500 dark:border-slate-800 dark:text-slate-400">
+                                <div className="mt-2 flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-[#F2F3F5] pt-3 text-[12px] leading-5 text-[#86888F]">
                                     <span>{tr.candidatePageRange(candidatePageStart, candidatePageEnd, candidateTotal)}</span>
                                     <div className="flex flex-wrap items-center gap-1.5">
                                         <NativeSelect
                                             value={String(candidatePageSize)}
                                             title={tr.rowsPerPage}
                                             onChange={(event) => setCandidatePageSize(Number(event.target.value))}
-                                            className="h-7 w-[96px] shrink-0 rounded-md border-slate-200 bg-white pr-7 text-xs shadow-none dark:border-slate-800 dark:bg-slate-950"
+                                            className="h-7 w-[96px] shrink-0 rounded-[4px] border-[#E6E7EB] bg-white pr-7 text-[12px] shadow-none"
                                         >
                                             {candidatePageSizeOptions.map((option) => (
                                                 <option key={option} value={option}>{option}{tr.rowsPerPage}</option>
                                             ))}
                                         </NativeSelect>
-                                        <Button size="sm" variant="outline" className="h-6 rounded-md px-2 text-xs leading-4" disabled={candidatePageIndex <= 0 || candidatesLoading} onClick={() => setCandidatePageIndex(candidatePageIndex - 1)}>
+                                        <Button size="sm" variant="outline" className={cn(CANDIDATE_PAGINATION_BUTTON_CLASS, "px-2")} disabled={candidatePageIndex <= 0 || candidatesLoading} onClick={() => setCandidatePageIndex(candidatePageIndex - 1)}>
                                             {tr.previousPage}
                                         </Button>
                                         {candidatePaginationPages.map((pageIndex) => (
-                                            <Button key={pageIndex} size="sm" variant={pageIndex === candidatePageIndex ? "default" : "outline"} className="h-6 min-w-6 rounded-md px-1.5 text-xs leading-4" disabled={candidatesLoading} onClick={() => setCandidatePageIndex(pageIndex)}>
+                                            <Button key={pageIndex} size="sm" variant={pageIndex === candidatePageIndex ? "default" : "outline"} className={pageIndex === candidatePageIndex ? CANDIDATE_PAGINATION_ACTIVE_CLASS : cn(CANDIDATE_PAGINATION_BUTTON_CLASS, "min-w-7 px-1.5")} disabled={candidatesLoading} onClick={() => setCandidatePageIndex(pageIndex)}>
                                                 {pageIndex + 1}
                                             </Button>
                                         ))}
-                                        <Button size="sm" variant="outline" className="h-6 rounded-md px-2 text-xs leading-4" disabled={candidatePageIndex >= candidateTotalPages - 1 || candidatesLoading} onClick={() => setCandidatePageIndex(candidatePageIndex + 1)}>
+                                        <Button size="sm" variant="outline" className={cn(CANDIDATE_PAGINATION_BUTTON_CLASS, "px-2")} disabled={candidatePageIndex >= candidateTotalPages - 1 || candidatesLoading} onClick={() => setCandidatePageIndex(candidatePageIndex + 1)}>
                                             {tr.nextPage}
                                         </Button>
                                     </div>
@@ -4959,6 +5229,7 @@ export function CandidatesPage({
                 </div>
 
                 <Dialog
+                    modal={false}
                     open={selectedCandidateId !== null}
                     onOpenChange={(open) => {
                         if (!open) {
@@ -4967,10 +5238,11 @@ export function CandidatesPage({
                     }}
                 >
                     <DialogContent
-                        className="h-[min(94vh,1040px)] max-h-[94vh] overflow-hidden rounded-[6px] border border-slate-200 bg-[#f4f7fb] p-0 text-slate-900 shadow-2xl dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100"
+                        aria-describedby={undefined}
+                        className="candidate-detail-drawer left-auto right-0 top-0 h-screen max-h-screen translate-x-0 translate-y-0 overflow-hidden rounded-none border-0 border-l border-[#EBEEF5] bg-white p-0 text-[#0E1114] shadow-[-8px_0_24px_rgba(14,17,20,0.12)] sm:rounded-none"
                         style={{
-                            width: "min(1480px, calc(100vw - 32px))",
-                            maxWidth: "min(1480px, calc(100vw - 32px))",
+                            width: "min(1120px, calc(100vw - 32px))",
+                            maxWidth: "min(1120px, calc(100vw - 32px))",
                         }}
                     >
                         <DialogTitle className="sr-only">
@@ -4979,34 +5251,34 @@ export function CandidatesPage({
                                 : (isZh ? "候选人详情" : "Candidate Details")}
                         </DialogTitle>
                     {candidateDetailLoading ? (
-                        <div className="flex h-full items-center justify-center bg-white dark:bg-slate-950">
+                        <div className="flex h-full items-center justify-center bg-white dark:bg-[#0E1114]">
                             <LoadingPanel label={tr.loadingCandidateDetail}/>
                         </div>
                     ) : candidateDetail ? (
-                        <div className="grid h-full min-h-0 grid-cols-1 bg-[#f4f7fb] dark:bg-slate-950 lg:grid-cols-[minmax(0,1fr)_340px]">
+                        <div className="grid h-full min-h-0 grid-cols-1 bg-white md:grid-cols-[minmax(0,1fr)_320px]">
                             <section
                                 ref={candidateDetailMainScrollRef}
                                 onScroll={handleCandidateDetailMainScroll}
-                                className={cn("relative min-h-0 min-w-0 overflow-y-auto bg-white dark:bg-slate-950", SMOOTH_VERTICAL_SCROLLBAR_CLASS)}
+                                className={cn("relative min-h-0 min-w-0 overflow-y-auto bg-white dark:bg-[#0E1114]", SMOOTH_VERTICAL_SCROLLBAR_CLASS)}
                             >
                                 <div className="sticky top-0 z-30 h-0 overflow-visible">
                                     <div className={cn(
-                                        "border-b border-slate-200 bg-white/95 px-7 py-3 shadow-[0_4px_18px_rgba(15,23,42,0.08)] backdrop-blur transition duration-200 dark:border-slate-800 dark:bg-slate-950/95 dark:shadow-[0_4px_18px_rgba(0,0,0,0.35)]",
+                                        "border-b border-[#F2F3F5] bg-white/95 px-7 py-3 shadow-[0_4px_12px_rgba(14,17,20,0.06)] backdrop-blur transition duration-200",
                                         candidateDetailMainScrolled ? "translate-y-0 opacity-100" : "pointer-events-none -translate-y-full opacity-0",
                                     )}>
                                         <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
                                             <div className="min-w-0">
                                                 <div className="flex min-w-0 flex-wrap items-center gap-2">
-                                                    <span className="truncate text-[18px] font-semibold leading-6 text-slate-950 dark:text-slate-100">{candidateDetail.candidate.name}</span>
-                                                    <span className="truncate text-[13px] text-slate-500 dark:text-slate-400">{candidateDetail.candidate.candidate_code || "-"}</span>
-                                                    <span className="text-[13px] text-slate-400 dark:text-slate-600">|</span>
-                                                    <span className="text-[13px] text-slate-600 dark:text-slate-300">{candidateDetail.candidate.age ? `${candidateDetail.candidate.age}${isZh ? "岁" : ""}` : "--"}</span>
-                                                    <span className="text-[13px] text-slate-400 dark:text-slate-600">|</span>
-                                                    <span className="truncate text-[13px] text-slate-600 dark:text-slate-300">
+                                                    <span className="truncate text-[18px] font-semibold leading-6 text-[#0E1114] dark:text-[#F7F8FA]">{candidateDetail.candidate.name}</span>
+                                                    <span className="truncate text-[13px] text-[#86888F] dark:text-[#B0B2B8]">{candidateDetail.candidate.candidate_code || "-"}</span>
+                                                    <span className="text-[13px] text-[#B0B2B8] dark:text-[#33353D]">|</span>
+                                                    <span className="text-[13px] text-[#33353D] dark:text-[#D6D8DD]">{candidateDetail.candidate.age ? `${candidateDetail.candidate.age}${isZh ? "岁" : ""}` : "--"}</span>
+                                                    <span className="text-[13px] text-[#B0B2B8] dark:text-[#33353D]">|</span>
+                                                    <span className="truncate text-[13px] text-[#33353D] dark:text-[#D6D8DD]">
                                                         {candidateDetail.candidate.education || readStructuredText(parsedResumeEducation, ["degree", "education", "学历"]) || "-"}
                                                     </span>
                                                 </div>
-                                                <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 text-[13px] text-slate-500 dark:text-slate-400">
+                                                <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 text-[13px] text-[#86888F] dark:text-[#B0B2B8]">
                                                     <span className="truncate">
                                                         {candidateDetail.candidate.position_title || candidateDetail.candidate.screened_position_title || candidateDetail.candidate.ai_match_position_title || tr.unassignedPosition}
                                                     </span>
@@ -5014,22 +5286,24 @@ export function CandidatesPage({
                                                 </div>
                                             </div>
                                             <div className="flex shrink-0 flex-wrap items-center gap-2">
-                                                <Badge className={cn("h-6 rounded-[3px] border px-2 text-[12px]", statusBadgeClass("candidate", candidateDetailDisplayStatus))}>
+                                                <Badge className={cn("h-6 rounded-[3px] border px-2 text-[12px]", prototypeStatusBadgeClass(candidateDetailDisplayStatus))}>
                                                     {labelForCandidateStatus(candidateDetailDisplayStatus)}
                                                 </Badge>
-                                                <Badge variant="outline" className="h-6 rounded-[3px] border-emerald-200 bg-emerald-50 px-2 text-[12px] text-emerald-700">
+                                                <Badge variant="outline" className="h-6 rounded-[3px] border-[rgba(12,201,145,0.28)] bg-[rgba(12,201,145,0.08)] px-2 text-[12px] text-[#0A9C71]">
                                                     {tr.matchBadge} {formatPercent(candidateScoreDisplayValues.matchPercent ?? resolveCandidateSummaryMatchPercent(candidateDetail.candidate))}
                                                 </Badge>
                                             </div>
                                         </div>
                                     </div>
                                 </div>
-                                <div className="border-b border-slate-200 px-7 pb-0 pt-5 dark:border-slate-800">
-                                    <div className="mb-5 flex flex-wrap items-center justify-between gap-3 text-[13px] text-slate-500 dark:text-slate-400">
+                                <div className="border-b border-[#F2F3F5] px-7 pb-0 pt-5">
+                                    <div className="mb-5 flex flex-wrap items-center justify-between gap-3 text-[13px] text-[#86888F] dark:text-[#B0B2B8]">
                                         <div className="flex min-w-0 items-center gap-2">
-                                            <span className="rounded-[3px] bg-slate-100 px-3 py-1.5 text-slate-700 dark:bg-slate-900 dark:text-slate-300">{isZh ? "1次应聘" : "1 Application"}</span>
-                                            <span className="max-w-[360px] truncate rounded-[3px] border border-slate-200 px-3 py-1.5 text-slate-700 dark:border-slate-800 dark:text-slate-300">
+                                            <span className="max-w-[360px] truncate rounded-[3px] border border-[#E6E7EB] bg-[#F7F8FA] px-3 py-1.5 text-[#33353D]">
                                                 {candidateDetail.candidate.position_title || candidateDetail.candidate.screened_position_title || tr.unassignedPosition}
+                                            </span>
+                                            <span className="truncate rounded-[3px] bg-[#F2F3F5] px-3 py-1.5 text-[#86888F]">
+                                                {labelForCandidateSource(candidateDetail.candidate.source)}
                                             </span>
                                         </div>
                                         <span className="truncate">
@@ -5041,12 +5315,12 @@ export function CandidatesPage({
                                         <CandidateDetailAvatar name={candidateDetail.candidate.name}/>
                                         <div className="min-w-0 flex-1 pb-5">
                                             <div className="flex flex-wrap items-center gap-2">
-                                                <h3 data-no-zoom className="truncate text-[22px] font-semibold leading-8 text-slate-950 dark:text-slate-100">
+                                                <h3 data-no-zoom className="truncate text-[22px] font-semibold leading-8 text-[#0E1114] dark:text-[#F7F8FA]">
                                                     {candidateDetail.candidate.name}
                                                 </h3>
-                                                <span className="text-[14px] text-slate-500 dark:text-slate-400">{candidateDetail.candidate.candidate_code}</span>
-                                                <span className="text-[14px] text-slate-500 dark:text-slate-600">|</span>
-                                                <span className="text-[14px] text-slate-600 dark:text-slate-300">{candidateDetail.candidate.age ? `${candidateDetail.candidate.age}${isZh ? "岁" : ""}` : "--"}</span>
+                                                <span className="text-[14px] text-[#86888F] dark:text-[#B0B2B8]">{candidateDetail.candidate.candidate_code}</span>
+                                                <span className="text-[14px] text-[#86888F] dark:text-[#33353D]">|</span>
+                                                <span className="text-[14px] text-[#33353D] dark:text-[#D6D8DD]">{candidateDetail.candidate.age ? `${candidateDetail.candidate.age}${isZh ? "岁" : ""}` : "--"}</span>
                                             </div>
                                             <div className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-2">
                                                 <CandidateMetaItem icon={GraduationCap}>{candidateDetail.candidate.education || readStructuredText(parsedResumeEducation, ["degree", "education", "学历"]) || "-"}</CandidateMetaItem>
@@ -5055,37 +5329,33 @@ export function CandidatesPage({
                                                 <CandidateMetaItem icon={AtSign}>{candidateDetail.candidate.email || tr.noContact}</CandidateMetaItem>
                                             </div>
                                             <div className="mt-3 flex flex-wrap items-center gap-2">
-                                                <Badge className={cn("h-6 rounded-[3px] border px-2 text-[12px]", statusBadgeClass("candidate", candidateDetailDisplayStatus))}>
+                                                <Badge className={cn("h-6 rounded-[3px] border px-2 text-[12px]", prototypeStatusBadgeClass(candidateDetailDisplayStatus))}>
                                                     {labelForCandidateStatus(candidateDetailDisplayStatus)}
                                                 </Badge>
-                                                <Badge variant="outline" className="h-6 rounded-[3px] border-emerald-200 bg-emerald-50 px-2 text-[12px] text-emerald-700">
+                                                <Badge variant="outline" className="h-6 rounded-[3px] border-[rgba(12,201,145,0.28)] bg-[rgba(12,201,145,0.08)] px-2 text-[12px] text-[#0A9C71]">
                                                     {tr.matchBadge} {formatPercent(candidateScoreDisplayValues.matchPercent ?? resolveCandidateSummaryMatchPercent(candidateDetail.candidate))}
                                                 </Badge>
-                                                <Badge variant="outline" className="h-6 rounded-[3px] px-2 text-[12px]">
+                                                <Badge variant="outline" className={CANDIDATE_DETAIL_TAG_CLASS}>
                                                     {candidateDetail.candidate.position_title || candidateDetail.candidate.ai_match_position_title || tr.unassignedPosition}
                                                 </Badge>
                                                 {selectedCandidateResumeMailSummary ? (
-                                                    <Badge variant="outline" className="h-6 rounded-[3px] border-violet-200 bg-violet-50 px-2 text-[12px] text-violet-700">
+                                                    <Badge variant="outline" className="h-6 rounded-[3px] border-[rgba(30,59,250,0.18)] bg-[rgba(30,59,250,0.06)] px-2 text-[12px] text-[#0F23D9]">
                                                         {selectedCandidateResumeMailSummary}
                                                     </Badge>
                                                 ) : null}
-                                                <Button size="sm" variant="outline" className="h-6 rounded-[3px] px-2 text-[12px]" onClick={() => setCandidateDetailPanel("resume")}>
-                                                    <Tag className="h-3.5 w-3.5"/>
-                                                    {isZh ? "打标签" : "Tag"}
-                                                </Button>
                                             </div>
                                             {candidateDetailPositionInsightVisible ? (
-                                                <div className="mt-3 grid gap-2 text-[12px] text-slate-600 dark:text-slate-300 lg:grid-cols-2">
-                                                    <div className="min-w-0 rounded-[4px] border border-violet-100 bg-violet-50/70 px-3 py-2 dark:border-violet-900/60 dark:bg-violet-950/20">
-                                                        <div className="mb-1 flex items-center gap-1.5 font-medium text-violet-700 dark:text-violet-300">
+                                                <div className="mt-3 grid gap-2 text-[12px] text-[#33353D] dark:text-[#D6D8DD] lg:grid-cols-2">
+                                                    <div className="min-w-0 rounded-[4px] border border-[rgba(30,59,250,0.16)] bg-[rgba(30,59,250,0.06)] px-3 py-2">
+                                                        <div className="mb-1 flex items-center gap-1.5 font-medium text-[#0F23D9] dark:text-[#7D8BFF]">
                                                             <Sparkles className="h-3.5 w-3.5"/>
                                                             {isZh ? "AI 推荐" : "AI Recommendation"}
                                                         </div>
-                                                        <p className="truncate text-slate-800 dark:text-slate-100">
+                                                        <p className="truncate text-[#33353D] dark:text-[#F7F8FA]">
                                                             {candidateDetailAiMatchPositionTitle || candidateDetailScreenedPositionTitle || tr.unassignedPosition}
                                                         </p>
                                                         {candidateDetailAiMatchReason ? (
-                                                            <p className="mt-1 line-clamp-2 text-slate-500 dark:text-slate-400">
+                                                            <p className="mt-1 line-clamp-2 text-[#86888F] dark:text-[#B0B2B8]">
                                                                 {sanitizeCandidateFacingErrorText(candidateDetailAiMatchReason, {
                                                                     context: resolveCandidateFacingErrorContext("ai_position_match"),
                                                                     language,
@@ -5093,16 +5363,16 @@ export function CandidatesPage({
                                                             </p>
                                                         ) : null}
                                                     </div>
-                                                    <div className="min-w-0 rounded-[4px] border border-violet-100 bg-violet-50/60 px-3 py-2 dark:border-violet-900/60 dark:bg-violet-950/20">
-                                                        <div className="mb-1 flex items-center gap-1.5 font-medium text-violet-700 dark:text-violet-300">
+                                                    <div className="min-w-0 rounded-[4px] border border-[rgba(30,59,250,0.16)] bg-[rgba(30,59,250,0.06)] px-3 py-2">
+                                                        <div className="mb-1 flex items-center gap-1.5 font-medium text-[#0F23D9] dark:text-[#7D8BFF]">
                                                             <ArrowRightLeft className="h-3.5 w-3.5"/>
                                                             {isZh ? "转岗建议" : "Transfer Suggestion"}
                                                         </div>
-                                                        <p className="truncate text-slate-800 dark:text-slate-100">
+                                                        <p className="truncate text-[#33353D] dark:text-[#F7F8FA]">
                                                             {candidateDetailAiPotentialPosition || (isZh ? "暂无转岗建议" : "No suggestion")}
                                                         </p>
                                                         {candidateDetailAiPotentialReason ? (
-                                                            <p className="mt-1 line-clamp-2 text-slate-500 dark:text-slate-400">
+                                                            <p className="mt-1 line-clamp-2 text-[#86888F] dark:text-[#B0B2B8]">
                                                                 {sanitizeCandidateFacingErrorText(candidateDetailAiPotentialReason, {
                                                                     context: resolveCandidateFacingErrorContext("ai_position_match"),
                                                                     language,
@@ -5113,51 +5383,43 @@ export function CandidatesPage({
                                                 </div>
                                             ) : null}
                                             {candidateDetailHasRuntimeOverride ? (
-                                                <p className="mt-2 text-[12px] text-slate-400 dark:text-slate-500">
+                                                <p className="mt-2 text-[12px] text-[#B0B2B8] dark:text-[#86888F]">
                                                     {tr.originalStatus} {labelForCandidateStatus(candidateDetail.candidate.status)}
                                                 </p>
                                             ) : null}
                                         </div>
-                                        <div className="hidden items-center gap-2 xl:flex">
-                                            <Button size="icon" variant="outline" className="h-9 w-9 rounded-[4px] text-amber-500">
-                                                <Star className="h-4 w-4"/>
-                                            </Button>
-                                            <Button size="icon" variant="outline" className="h-9 w-9 rounded-[4px]">
-                                                <UserPlus className="h-4 w-4"/>
-                                            </Button>
-                                            <Button size="icon" variant="outline" className="h-9 w-9 rounded-[4px]">
-                                                <ExternalLink className="h-4 w-4"/>
-                                            </Button>
-                                        </div>
                                     </div>
 
-                                    <div data-no-zoom className="flex min-w-0 items-center gap-6 overflow-x-auto border-t border-slate-100 [scrollbar-width:none] dark:border-slate-800 [&::-webkit-scrollbar]:hidden">
+                                    <div data-no-zoom className="flex min-w-0 items-center gap-6 overflow-x-auto border-t border-[#F2F3F5] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                                         {candidateDetailTabs.map((tab) => (
                                             <button
                                                 key={tab.key}
                                                 type="button"
+                                                disabled={tab.disabled}
                                                 className={cn(
-                                                    "relative h-12 shrink-0 text-[15px] text-slate-700 transition hover:text-[#171717] dark:text-slate-300 dark:hover:text-slate-100",
-                                                    candidateDetailPanel === tab.key && "font-semibold text-[#171717] dark:text-slate-100",
-                                                    tab.disabled && "text-slate-400 dark:text-slate-600",
+                                                    "relative h-12 shrink-0 text-[14px] text-[#33353D] transition hover:text-[#0F23D9]",
+                                                    candidateDetailPanel === tab.key && "font-semibold text-[#0E1114]",
+                                                    tab.disabled && "text-[#B0B2B8]",
                                                 )}
-                                                onClick={() => setCandidateDetailPanel(tab.key)}
+                                                onClick={() => {
+                                                    if (!tab.disabled) setCandidateDetailPanel(tab.key);
+                                                }}
                                             >
                                                 {tab.label}
-                                                <span className="ml-1 text-[13px] text-slate-500 dark:text-slate-400">{tab.count || 0}</span>
-                                                {candidateDetailPanel === tab.key ? <span className="absolute inset-x-0 bottom-0 h-0.5 bg-[#171717] dark:bg-slate-100"/> : null}
+                                                <span className="ml-1 text-[12px] text-[#B0B2B8]">{tab.count || 0}</span>
+                                                {candidateDetailPanel === tab.key ? <span className="absolute bottom-0 left-1/2 h-[3px] w-7 -translate-x-1/2 rounded-full bg-[#1E3BFA]"/> : null}
                                             </button>
                                         ))}
                                     </div>
 
                                     {candidateDetailPanel === "resume" ? (
                                         <>
-                                            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 py-3 dark:border-slate-800">
+                                            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#F2F3F5] py-3 dark:border-[#202226]">
                                                 <div className="flex flex-wrap items-center gap-2">
                                                     <Button
                                                         size="sm"
                                                         variant={candidateResumeView === "original" ? "default" : "outline"}
-                                                        className={cn("h-8 rounded-[4px] px-3 text-[13px]", candidateResumeView === "original" && "bg-[#171717] text-white hover:bg-[#262626]")}
+                                                        className={candidateResumeView === "original" ? CANDIDATE_DETAIL_PRIMARY_BUTTON_CLASS : CANDIDATE_DETAIL_OUTLINE_BUTTON_CLASS}
                                                         onClick={() => switchCandidateResumeView("original")}
                                                     >
                                                         {isZh ? "原始简历" : "Original"}
@@ -5165,7 +5427,7 @@ export function CandidatesPage({
                                                     <Button
                                                         size="sm"
                                                         variant={candidateResumeView === "standard" ? "default" : "outline"}
-                                                        className={cn("h-8 rounded-[4px] px-3 text-[13px]", candidateResumeView === "standard" && "bg-[#171717] text-white hover:bg-[#262626]")}
+                                                        className={candidateResumeView === "standard" ? CANDIDATE_DETAIL_PRIMARY_BUTTON_CLASS : CANDIDATE_DETAIL_OUTLINE_BUTTON_CLASS}
                                                         onClick={() => switchCandidateResumeView("standard")}
                                                     >
                                                         {isZh ? "标准简历" : "Standard"}
@@ -5173,17 +5435,17 @@ export function CandidatesPage({
                                                     <Button
                                                         size="sm"
                                                         variant={candidateResumeView === "history" ? "default" : "outline"}
-                                                        className={cn("h-8 rounded-[4px] px-3 text-[13px]", candidateResumeView === "history" && "bg-[#171717] text-white hover:bg-[#262626]")}
+                                                        className={candidateResumeView === "history" ? CANDIDATE_DETAIL_PRIMARY_BUTTON_CLASS : CANDIDATE_DETAIL_OUTLINE_BUTTON_CLASS}
                                                         onClick={() => switchCandidateResumeView("history")}
                                                     >
                                                         {isZh ? "历史简历" : "History"}
                                                     </Button>
                                                 </div>
-                                                <div className="flex min-w-0 flex-1 items-center justify-end gap-2 text-[13px] text-slate-500 dark:text-slate-400">
+                                                <div className="flex min-w-0 flex-1 items-center justify-end gap-2 text-[13px] text-[#86888F] dark:text-[#B0B2B8]">
                                                     <Button
                                                         size="sm"
                                                         variant="ghost"
-                                                        className="h-8 px-2 text-[13px]"
+                                                        className={CANDIDATE_DETAIL_GHOST_BUTTON_CLASS}
                                                         onClick={() => void refreshCurrentCandidateDetail()}
                                                         disabled={!onRefreshCandidateDetail || candidateDetailRefreshing}
                                                     >
@@ -5192,27 +5454,27 @@ export function CandidatesPage({
                                                     </Button>
                                                     {primaryResumeFile ? (
                                                         <>
-                                                            <Button size="sm" variant="ghost" className="h-8 px-2 text-[13px]" onClick={() => void openResumeFile(primaryResumeFile, true)}>
+                                                            <Button size="sm" variant="ghost" className={CANDIDATE_DETAIL_GHOST_BUTTON_CLASS} onClick={() => void openResumeFile(primaryResumeFile, true)}>
                                                                 <Download className="h-3.5 w-3.5"/>
                                                                 {tr.downloadResume}
                                                             </Button>
                                                         </>
                                                     ) : null}
-                                                    <Button size="sm" variant="ghost" className="h-8 px-2 text-[13px]" onClick={() => window.print()}>
+                                                    <Button size="sm" variant="ghost" className={CANDIDATE_DETAIL_GHOST_BUTTON_CLASS} onClick={() => void printCandidateResume()}>
                                                         <Printer className="h-3.5 w-3.5"/>
                                                         {isZh ? "打印" : "Print"}
                                                     </Button>
                                                     <Popover open={candidateResumeMoreOpen} onOpenChange={setCandidateResumeMoreOpen}>
                                                         <PopoverTrigger asChild>
-                                                            <Button size="sm" variant="ghost" className="h-8 px-2 text-[13px]">
+                                                            <Button size="sm" variant="ghost" className={CANDIDATE_DETAIL_GHOST_BUTTON_CLASS}>
                                                                 <MoreHorizontal className="h-3.5 w-3.5"/>
                                                                 {isZh ? "更多" : "More"}
                                                             </Button>
                                                         </PopoverTrigger>
-                                                        <PopoverContent className="w-44 border-slate-200 bg-white p-1 dark:border-slate-800 dark:bg-slate-950" align="end">
+                                                        <PopoverContent className="w-44 border-[#E6E7EB] bg-white p-1 dark:border-[#202226] dark:bg-[#0E1114]" align="end">
                                                             <button
                                                                 type="button"
-                                                                className="flex w-full items-center rounded-[4px] px-3 py-2 text-left text-[13px] text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-900"
+                                                                className="flex w-full items-center rounded-[4px] px-3 py-2 text-left text-[13px] text-[#33353D] hover:bg-[#F2F3F5] dark:text-[#D6D8DD] dark:hover:bg-[#16181B]"
                                                                 onClick={(event) => {
                                                                     event.preventDefault();
                                                                     event.stopPropagation();
@@ -5223,7 +5485,7 @@ export function CandidatesPage({
                                                             </button>
                                                             <button
                                                                 type="button"
-                                                                className="flex w-full items-center rounded-[4px] px-3 py-2 text-left text-[13px] text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-900"
+                                                                className="flex w-full items-center rounded-[4px] px-3 py-2 text-left text-[13px] text-[#33353D] hover:bg-[#F2F3F5] dark:text-[#D6D8DD] dark:hover:bg-[#16181B]"
                                                                 onClick={(event) => {
                                                                     event.preventDefault();
                                                                     event.stopPropagation();
@@ -5234,7 +5496,7 @@ export function CandidatesPage({
                                                             </button>
                                                             <button
                                                                 type="button"
-                                                                className="flex w-full items-center rounded-[4px] px-3 py-2 text-left text-[13px] text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:text-slate-400 dark:text-slate-300 dark:hover:bg-slate-900 dark:disabled:text-slate-600"
+                                                                className="flex w-full items-center rounded-[4px] px-3 py-2 text-left text-[13px] text-[#33353D] hover:bg-[#F2F3F5] disabled:cursor-not-allowed disabled:text-[#B0B2B8] dark:text-[#D6D8DD] dark:hover:bg-[#16181B] dark:disabled:text-[#33353D]"
                                                                 disabled={!primaryResumeFile}
                                                                 onClick={(event) => {
                                                                     event.preventDefault();
@@ -5253,7 +5515,7 @@ export function CandidatesPage({
                                             <div className="flex min-w-0 items-center gap-3 pb-3">
                                                 <div className="min-w-0 flex-1">
                                                     <NativeSelect
-                                                        className="h-8 rounded-[3px] border-slate-200 text-[13px] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                                                        className="h-8 rounded-[3px] border-[#E6E7EB] text-[13px] dark:border-[#33353D] dark:bg-[#16181B] dark:text-[#F7F8FA]"
                                                         value={primaryResumeFile ? String(primaryResumeFile.id) : ""}
                                                         onChange={(event) => {
                                                             const nextId = Number(event.target.value);
@@ -5275,23 +5537,23 @@ export function CandidatesPage({
                                     ) : null}
                                 </div>
 
-                                <div className="bg-white dark:bg-slate-950">
+                                <div className="bg-white dark:bg-[#0E1114]">
                                     <div className="mx-auto min-w-0 max-w-[1040px] space-y-6 px-8 py-7">
                                     {candidateDetailPanel === "resume" ? (
                                         <>
 	                                            {duplicateCandidates.length > 0 && (
-	                                                <details className="rounded-2xl border border-amber-200 bg-amber-50/70 px-4 py-3 dark:border-amber-900/80 dark:bg-amber-950/30">
-                                                    <summary className="cursor-pointer text-sm font-medium text-amber-800 dark:text-amber-200">
+	                                                <details className="rounded-[8px] border border-[rgba(255,171,36,0.32)] bg-[rgba(255,171,36,0.08)] px-4 py-3">
+                                                    <summary className="cursor-pointer text-sm font-medium text-[#D48806]">
                                                         {tr.duplicateWarning}（{duplicateCandidates.length}）
                                                     </summary>
-                                                    <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">{tr.duplicateWarningDesc(duplicateCandidates.length)}</p>
+                                                    <p className="mt-1 text-xs text-[#D48806]">{tr.duplicateWarningDesc(duplicateCandidates.length)}</p>
                                                     <div className="mt-2 flex flex-wrap gap-1.5">
                                                         {duplicateCandidates.map((dup) => (
                                                             <Button
                                                                 key={dup.id}
                                                                 size="sm"
                                                                 variant="outline"
-                                                                className="h-6 rounded-full border-amber-300 px-2 text-xs text-amber-800 hover:bg-amber-100 dark:border-amber-800 dark:text-amber-200 dark:hover:bg-amber-900/40"
+                                                                className="h-6 rounded-[3px] border-[rgba(255,171,36,0.32)] bg-white px-2 text-[12px] text-[#D48806] shadow-none hover:bg-[rgba(255,171,36,0.10)]"
                                                                 onClick={() => setSelectedCandidateId(dup.id)}
                                                             >
                                                                 {dup.name} ({dup.candidate_code})
@@ -5302,13 +5564,13 @@ export function CandidatesPage({
 		                                            )}
 
                                             {candidateResumeView === "original" ? (
-                                            <div className="overflow-hidden rounded-[4px] border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
-                                                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-950">
+                                            <div className="overflow-hidden rounded-[4px] border border-[#E6E7EB] bg-white dark:border-[#202226] dark:bg-[#0E1114]">
+                                                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#E6E7EB] bg-white px-4 py-3 dark:border-[#202226] dark:bg-[#0E1114]">
                                                     <div className="min-w-0">
-                                                        <p className="truncate text-[14px] font-medium text-slate-900 dark:text-slate-100">
+                                                        <p className="truncate text-[14px] font-medium text-[#0E1114] dark:text-[#F7F8FA]">
                                                             {primaryResumeFile ? primaryResumeFile.original_name : tr.noResumeFile}
                                                         </p>
-                                                        <p className="mt-0.5 text-[12px] text-slate-500 dark:text-slate-400">
+                                                        <p className="mt-0.5 text-[12px] text-[#86888F] dark:text-[#B0B2B8]">
                                                             {primaryResumeFile
                                                                 ? tr.resumeFileDesc(primaryResumeFile.file_ext || "-", primaryResumeFile.file_size || 0, primaryResumeFile.parse_status)
                                                                 : tr.resumeFileEmptyDesc}
@@ -5316,11 +5578,11 @@ export function CandidatesPage({
                                                     </div>
                                                     {primaryResumeFile ? (
                                                         <div className="flex items-center gap-2">
-                                                            <Button size="sm" variant="outline" className="h-8 rounded-[4px] px-3 text-[13px]" onClick={() => void openResumeFile(primaryResumeFile, false)}>
+                                                            <Button size="sm" variant="outline" className={CANDIDATE_DETAIL_OUTLINE_BUTTON_CLASS} onClick={() => void openResumeFile(primaryResumeFile, false)}>
                                                                 <ExternalLink className="h-3.5 w-3.5"/>
                                                                 {isZh ? "新窗口打开" : "Open"}
                                                             </Button>
-                                                            <Button size="sm" variant="outline" className="h-8 rounded-[4px] px-3 text-[13px]" onClick={() => void openResumeFile(primaryResumeFile, true)}>
+                                                            <Button size="sm" variant="outline" className={CANDIDATE_DETAIL_OUTLINE_BUTTON_CLASS} onClick={() => void openResumeFile(primaryResumeFile, true)}>
                                                                 <Download className="h-3.5 w-3.5"/>
                                                                 {tr.downloadResume}
                                                             </Button>
@@ -5329,8 +5591,8 @@ export function CandidatesPage({
                                                 </div>
                                                 <div className="relative h-[min(70vh,720px)] min-h-[560px] overflow-hidden bg-white">
                                                     {inlineResumePreviewLoading || ((inlineResumePreviewBlob || inlineResumePreviewUrl) && !inlineResumeFrameReady) ? (
-                                                        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-white text-slate-500">
-                                                            <Loader2 className="h-8 w-8 animate-spin text-[#171717]"/>
+                                                        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-white text-[#86888F]">
+                                                            <Loader2 className="h-8 w-8 animate-spin text-[#0E1114]"/>
                                                             <span className="text-[14px]">{isZh ? "正在加载原始简历..." : "Loading original resume..."}</span>
                                                         </div>
                                                     ) : null}
@@ -5374,14 +5636,14 @@ export function CandidatesPage({
 
                                             {candidateResumeView === "standard" ? (
                                             <>
-                                            <div className="rounded-[4px] border border-slate-100 bg-white px-10 py-8 shadow-[0_1px_8px_rgba(15,23,42,0.04)] dark:border-slate-800 dark:bg-slate-950 dark:shadow-none">
-                                                <div className="flex items-start gap-5 border-b border-slate-100 pb-6 dark:border-slate-800">
+                                            <div className="rounded-[4px] border border-[#F2F3F5] bg-white px-10 py-8 shadow-[0_1px_8px_rgba(15,23,42,0.04)] dark:border-[#202226] dark:bg-[#0E1114] dark:shadow-none">
+                                                <div className="flex items-start gap-5 border-b border-[#F2F3F5] pb-6 dark:border-[#202226]">
                                                     <CandidateDetailAvatar name={candidateDetail.candidate.name}/>
                                                     <div className="min-w-0 flex-1">
                                                         <div className="flex flex-wrap items-center gap-4">
-                                                            <h4 className="text-[20px] font-semibold text-slate-900 dark:text-slate-100">{candidateDetail.candidate.name}</h4>
-                                                            <span className="text-[14px] text-slate-500 dark:text-slate-400">{candidateDetail.candidate.age ? `${candidateDetail.candidate.age}${isZh ? "岁" : ""}` : "--"}</span>
-                                                            <span className="text-[14px] text-slate-500 dark:text-slate-400">{candidateDetail.candidate.education || readStructuredText(parsedResumeEducation, ["degree", "education", "学历"]) || "-"}</span>
+                                                            <h4 className="text-[20px] font-semibold text-[#0E1114] dark:text-[#F7F8FA]">{candidateDetail.candidate.name}</h4>
+                                                            <span className="text-[14px] text-[#86888F] dark:text-[#B0B2B8]">{candidateDetail.candidate.age ? `${candidateDetail.candidate.age}${isZh ? "岁" : ""}` : "--"}</span>
+                                                            <span className="text-[14px] text-[#86888F] dark:text-[#B0B2B8]">{candidateDetail.candidate.education || readStructuredText(parsedResumeEducation, ["degree", "education", "学历"]) || "-"}</span>
                                                         </div>
                                                         <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2">
                                                             <CandidateMetaItem icon={GraduationCap}>{candidateDetail.candidate.education || readStructuredText(parsedResumeEducation, ["school", "school_name", "university", "学校"]) || "-"}</CandidateMetaItem>
@@ -5394,36 +5656,36 @@ export function CandidatesPage({
 
                                                 <div className="mt-7 space-y-7">
                                                     <ResumeSection title={isZh ? "个人信息" : "Personal Info"}>
-                                                        <div className="grid gap-y-4 text-[14px] text-slate-700 dark:text-slate-300 sm:grid-cols-2">
-                                                            <div><span className="mr-10 text-slate-400 dark:text-slate-500">{isZh ? "姓名" : "Name"}</span>{candidateDetail.candidate.name}</div>
-                                                            <div><span className="mr-10 text-slate-400 dark:text-slate-500">{isZh ? "年龄" : "Age"}</span>{candidateDetail.candidate.age || "-"}</div>
-                                                            <div><span className="mr-10 text-slate-400 dark:text-slate-500">{isZh ? "手机" : "Phone"}</span>{candidateDetail.candidate.phone || "-"}</div>
-                                                            <div><span className="mr-10 text-slate-400 dark:text-slate-500">{isZh ? "邮箱" : "Email"}</span>{candidateDetail.candidate.email || "-"}</div>
+                                                        <div className="grid gap-y-4 text-[14px] text-[#33353D] dark:text-[#D6D8DD] sm:grid-cols-2">
+                                                            <div><span className="mr-10 text-[#B0B2B8] dark:text-[#86888F]">{isZh ? "姓名" : "Name"}</span>{candidateDetail.candidate.name}</div>
+                                                            <div><span className="mr-10 text-[#B0B2B8] dark:text-[#86888F]">{isZh ? "年龄" : "Age"}</span>{candidateDetail.candidate.age || "-"}</div>
+                                                            <div><span className="mr-10 text-[#B0B2B8] dark:text-[#86888F]">{isZh ? "手机" : "Phone"}</span>{candidateDetail.candidate.phone || "-"}</div>
+                                                            <div><span className="mr-10 text-[#B0B2B8] dark:text-[#86888F]">{isZh ? "邮箱" : "Email"}</span>{candidateDetail.candidate.email || "-"}</div>
                                                         </div>
                                                     </ResumeSection>
 
                                                     <ResumeSection title={isZh ? "求职意向" : "Job Intention"}>
-                                                        <div className="grid gap-y-4 text-[14px] text-slate-700 dark:text-slate-300 sm:grid-cols-2">
-                                                            <div><span className="mr-10 text-slate-400 dark:text-slate-500">{isZh ? "应聘职位" : "Position"}</span>{candidateDetail.candidate.position_title || candidateDetail.candidate.ai_match_position_title || tr.unassignedPosition}</div>
-                                                            <div><span className="mr-10 text-slate-400 dark:text-slate-500">{isZh ? "期望城市" : "Expected City"}</span>{candidateDetail.candidate.expected_city || candidateDetail.candidate.city || "-"}</div>
+                                                        <div className="grid gap-y-4 text-[14px] text-[#33353D] dark:text-[#D6D8DD] sm:grid-cols-2">
+                                                            <div><span className="mr-10 text-[#B0B2B8] dark:text-[#86888F]">{isZh ? "应聘职位" : "Position"}</span>{candidateDetail.candidate.position_title || candidateDetail.candidate.ai_match_position_title || tr.unassignedPosition}</div>
+                                                            <div><span className="mr-10 text-[#B0B2B8] dark:text-[#86888F]">{isZh ? "期望城市" : "Expected City"}</span>{candidateDetail.candidate.expected_city || candidateDetail.candidate.city || "-"}</div>
                                                         </div>
                                                     </ResumeSection>
 
                                                     <ResumeSection title={isZh ? "教育经历" : "Education"}>
-                                                        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-[14px] text-slate-700 dark:text-slate-300">
-                                                            <span className="font-medium text-slate-900 dark:text-slate-100">{readStructuredText(parsedResumeEducation, ["school", "school_name", "university", "学校"]) || "-"}</span>
+                                                        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-[14px] text-[#33353D] dark:text-[#D6D8DD]">
+                                                            <span className="font-medium text-[#0E1114] dark:text-[#F7F8FA]">{readStructuredText(parsedResumeEducation, ["school", "school_name", "university", "学校"]) || "-"}</span>
                                                             <span>{readStructuredText(parsedResumeEducation, ["major", "专业"]) || "-"}</span>
                                                             <span>{candidateDetail.candidate.education || readStructuredText(parsedResumeEducation, ["degree", "education", "学历"]) || "-"}</span>
-                                                            <span className="text-slate-400 dark:text-slate-500">{readStructuredText(parsedResumeEducation, ["start_date", "end_date", "time_range", "时间"]) || ""}</span>
+                                                            <span className="text-[#B0B2B8] dark:text-[#86888F]">{readStructuredText(parsedResumeEducation, ["start_date", "end_date", "time_range", "时间"]) || ""}</span>
                                                         </div>
                                                     </ResumeSection>
 
                                                     <ResumeSection title={isZh ? "工作经历" : "Work Experience"}>
-                                                        <div className="space-y-2 text-[14px] leading-7 text-slate-700 dark:text-slate-300">
-                                                            <p className="font-medium text-slate-900 dark:text-slate-100">{candidateDetail.candidate.current_company || readStructuredText(parsedResumeWork, ["company", "company_name", "公司"]) || "-"}</p>
+                                                        <div className="space-y-2 text-[14px] leading-7 text-[#33353D] dark:text-[#D6D8DD]">
+                                                            <p className="font-medium text-[#0E1114] dark:text-[#F7F8FA]">{candidateDetail.candidate.current_company || readStructuredText(parsedResumeWork, ["company", "company_name", "公司"]) || "-"}</p>
                                                             <p>{readStructuredText(parsedResumeWork, ["position", "job_title", "title", "职位"]) || candidateDetail.candidate.years_of_experience || "-"}</p>
                                                             {readStructuredText(parsedResumeWork, ["description", "职责", "work_content", "summary"]) ? (
-                                                                <p className="whitespace-pre-wrap text-slate-600 dark:text-slate-300">{readStructuredText(parsedResumeWork, ["description", "职责", "work_content", "summary"])}</p>
+                                                                <p className="whitespace-pre-wrap text-[#33353D] dark:text-[#D6D8DD]">{readStructuredText(parsedResumeWork, ["description", "职责", "work_content", "summary"])}</p>
                                                             ) : null}
                                                         </div>
                                                     </ResumeSection>
@@ -5432,7 +5694,7 @@ export function CandidatesPage({
                                                         <ResumeSection title={isZh ? "技能标签" : "Skills"}>
                                                             <div className="flex flex-wrap gap-2">
                                                                 {parsedResumeSkills.map((skill) => (
-                                                                    <span key={skill} className="rounded-[3px] bg-slate-100 px-2.5 py-1 text-[13px] text-slate-600 dark:bg-slate-900 dark:text-slate-300">{skill}</span>
+                                                                    <span key={skill} className="rounded-[3px] bg-[#F2F3F5] px-2.5 py-1 text-[13px] text-[#33353D] dark:bg-[#16181B] dark:text-[#D6D8DD]">{skill}</span>
                                                                 ))}
                                                             </div>
                                                         </ResumeSection>
@@ -5442,15 +5704,15 @@ export function CandidatesPage({
 
 	                                            <Field label={tr.baseInfo}>
                                                 <div className="grid gap-3 md:grid-cols-2">
-                                                    <Input value={candidateEditor.name} onChange={(event) => setCandidateEditor((current) => ({...current, name: event.target.value}))} placeholder={tr.namePlaceholder}/>
-                                                    <Input value={candidateEditor.phone} onChange={(event) => setCandidateEditor((current) => ({...current, phone: event.target.value}))} placeholder={tr.phonePlaceholder}/>
-                                                    <Input value={candidateEditor.email} onChange={(event) => setCandidateEditor((current) => ({...current, email: event.target.value}))} placeholder={tr.emailPlaceholder}/>
-                                                    <Input value={candidateEditor.currentCompany} onChange={(event) => setCandidateEditor((current) => ({...current, currentCompany: event.target.value}))} placeholder={tr.companyPlaceholder}/>
-                                                    <Input value={candidateEditor.yearsOfExperience} onChange={(event) => setCandidateEditor((current) => ({...current, yearsOfExperience: event.target.value}))} placeholder={tr.experiencePlaceholder}/>
-                                                    <Input value={candidateEditor.education} onChange={(event) => setCandidateEditor((current) => ({...current, education: event.target.value}))} placeholder={tr.educationPlaceholder}/>
-                                                    <Input value={candidateEditor.age} onChange={(event) => setCandidateEditor((current) => ({...current, age: event.target.value}))} placeholder={tr.agePlaceholder}/>
-                                                    <Input value={candidateEditor.city} onChange={(event) => setCandidateEditor((current) => ({...current, city: event.target.value}))} placeholder={tr.cityPlaceholder}/>
-                                                    <Input value={candidateEditor.expectedCity} onChange={(event) => setCandidateEditor((current) => ({...current, expectedCity: event.target.value}))} placeholder={tr.expectedCityPlaceholder}/>
+	                                                    <Input className={CANDIDATE_DETAIL_INPUT_CLASS} value={candidateEditor.name} onChange={(event) => setCandidateEditor((current) => ({...current, name: event.target.value}))} placeholder={tr.namePlaceholder}/>
+	                                                    <Input className={CANDIDATE_DETAIL_INPUT_CLASS} value={candidateEditor.phone} onChange={(event) => setCandidateEditor((current) => ({...current, phone: event.target.value}))} placeholder={tr.phonePlaceholder}/>
+	                                                    <Input className={CANDIDATE_DETAIL_INPUT_CLASS} value={candidateEditor.email} onChange={(event) => setCandidateEditor((current) => ({...current, email: event.target.value}))} placeholder={tr.emailPlaceholder}/>
+	                                                    <Input className={CANDIDATE_DETAIL_INPUT_CLASS} value={candidateEditor.currentCompany} onChange={(event) => setCandidateEditor((current) => ({...current, currentCompany: event.target.value}))} placeholder={tr.companyPlaceholder}/>
+	                                                    <Input className={CANDIDATE_DETAIL_INPUT_CLASS} value={candidateEditor.yearsOfExperience} onChange={(event) => setCandidateEditor((current) => ({...current, yearsOfExperience: event.target.value}))} placeholder={tr.experiencePlaceholder}/>
+	                                                    <Input className={CANDIDATE_DETAIL_INPUT_CLASS} value={candidateEditor.education} onChange={(event) => setCandidateEditor((current) => ({...current, education: event.target.value}))} placeholder={tr.educationPlaceholder}/>
+	                                                    <Input className={CANDIDATE_DETAIL_INPUT_CLASS} value={candidateEditor.age} onChange={(event) => setCandidateEditor((current) => ({...current, age: event.target.value}))} placeholder={tr.agePlaceholder}/>
+	                                                    <Input className={CANDIDATE_DETAIL_INPUT_CLASS} value={candidateEditor.city} onChange={(event) => setCandidateEditor((current) => ({...current, city: event.target.value}))} placeholder={tr.cityPlaceholder}/>
+	                                                    <Input className={CANDIDATE_DETAIL_INPUT_CLASS} value={candidateEditor.expectedCity} onChange={(event) => setCandidateEditor((current) => ({...current, expectedCity: event.target.value}))} placeholder={tr.expectedCityPlaceholder}/>
                                                 </div>
                                             </Field>
 
@@ -5465,33 +5727,34 @@ export function CandidatesPage({
 
                                             <div className="grid gap-4 md:grid-cols-2">
                                                 <Field label={tr.owner}>
-                                                    <Input value={candidateEditor.ownerId} onChange={(event) => setCandidateEditor((current) => ({...current, ownerId: event.target.value}))} placeholder={tr.ownerPlaceholder}/>
+	                                                    <Input className={CANDIDATE_DETAIL_INPUT_CLASS} value={candidateEditor.ownerId} onChange={(event) => setCandidateEditor((current) => ({...current, ownerId: event.target.value}))} placeholder={tr.ownerPlaceholder}/>
                                                 </Field>
                                             </div>
 
                                             <Field label={tr.tagsAndNotes}>
                                                 <div className="space-y-3">
-                                                    <Input value={candidateEditor.tagsText} onChange={(event) => setCandidateEditor((current) => ({...current, tagsText: event.target.value}))} placeholder={tr.tagsPlaceholder}/>
+	                                                    <Input className={CANDIDATE_DETAIL_INPUT_CLASS} value={candidateEditor.tagsText} onChange={(event) => setCandidateEditor((current) => ({...current, tagsText: event.target.value}))} placeholder={tr.tagsPlaceholder}/>
                                                     <Textarea
+                                                        className={CANDIDATE_DETAIL_TEXTAREA_CLASS}
                                                         value={candidateEditor.notes}
                                                         onChange={(event) => setCandidateEditor((current) => ({...current, notes: event.target.value}))}
                                                         rows={4}
                                                         placeholder={tr.notesPlaceholder}
                                                     />
-                                                    <Button onClick={() => void saveCandidate()}>
+                                                    <Button className={CANDIDATE_DETAIL_PRIMARY_BUTTON_CLASS} onClick={() => void saveCandidate()}>
                                                         <Save className="h-4 w-4"/>
                                                         {tr.saveCandidateInfo}
                                                     </Button>
                                                 </div>
                                             </Field>
 
-                                            <div className="rounded-md border border-slate-200 bg-white px-4 py-4 dark:border-slate-800 dark:bg-slate-950">
+                                            <div className="rounded-md border border-[#E6E7EB] bg-white px-4 py-4 dark:border-[#202226] dark:bg-[#0E1114]">
                                                 <div className="flex flex-wrap items-start justify-between gap-3">
                                                     <div className="min-w-0 flex-1">
-                                                        <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                                                        <p className="text-sm font-medium text-[#0E1114] dark:text-[#F7F8FA]">
                                                             {primaryResumeFile ? primaryResumeFile.original_name : tr.noResumeFile}
                                                         </p>
-                                                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                                        <p className="mt-1 text-xs text-[#86888F] dark:text-[#B0B2B8]">
                                                             {primaryResumeFile
                                                                 ? tr.resumeFileDesc(primaryResumeFile.file_ext || "-", primaryResumeFile.file_size || 0, primaryResumeFile.parse_status)
                                                                 : tr.resumeFileEmptyDesc}
@@ -5499,11 +5762,11 @@ export function CandidatesPage({
                                                     </div>
                                                     {primaryResumeFile ? (
                                                         <div className="flex flex-wrap gap-2">
-                                                            <Button size="sm" variant="outline" onClick={() => void openResumeFile(primaryResumeFile, true)}>{tr.downloadResume}</Button>
+                                                            <Button size="sm" variant="outline" className={CANDIDATE_DETAIL_OUTLINE_BUTTON_CLASS} onClick={() => void openResumeFile(primaryResumeFile, true)}>{tr.downloadResume}</Button>
                                                             <Button
                                                                 size="sm"
                                                                 variant="outline"
-                                                                className="border-rose-200 text-rose-600 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700 dark:border-rose-900/80 dark:text-rose-200 dark:hover:bg-rose-950/30"
+                                                                className="h-8 rounded-[6px] border-[rgba(245,63,63,0.30)] bg-white px-3 text-[12px] text-[#F53F3F] shadow-none hover:border-[#F53F3F] hover:bg-[rgba(245,63,63,0.06)] hover:text-[#F53F3F] dark:bg-[#0E1114]"
                                                                 onClick={() => requestDeleteResumeFile(primaryResumeFile)}
                                                             >
                                                                 <Trash2 className="h-4 w-4"/>
@@ -5513,7 +5776,7 @@ export function CandidatesPage({
                                                     ) : null}
                                                 </div>
                                                 {primaryResumeFile?.parse_error ? (
-                                                    <div className="mt-3 rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-base text-rose-700 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-200">
+                                                    <div className="mt-3 rounded-[6px] border border-[rgba(245,63,63,0.28)] bg-[rgba(245,63,63,0.07)] px-4 py-3 text-base text-[#F53F3F]">
                                                         {tr.parseErrorLine(primaryResumeFile.parse_error)}
                                                     </div>
                                                 ) : null}
@@ -5522,7 +5785,7 @@ export function CandidatesPage({
                                             ) : null}
 
                                             {candidateResumeView === "history" ? (
-                                                <div className="rounded-[4px] bg-white px-5 py-4 dark:bg-slate-950">
+                                                <div className="rounded-[4px] bg-white px-5 py-4 dark:bg-[#0E1114]">
                                                     {resumeFiles.length ? (
                                                         <div className="space-y-3">
                                                             {resumeFiles.map((file) => {
@@ -5532,12 +5795,12 @@ export function CandidatesPage({
                                                                         key={file.id}
                                                                         className={cn(
                                                                             "flex flex-wrap items-center justify-between gap-3 rounded-[4px] border px-4 py-3",
-                                                                            active ? "border-[#171717] bg-[#F5F5F5]/60 dark:border-slate-500 dark:bg-slate-900" : "border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950",
+                                                                            active ? "border-[#1E3BFA] bg-[#F5F5F5]/60 dark:border-[#86888F] dark:bg-[#16181B]" : "border-[#E6E7EB] bg-white dark:border-[#202226] dark:bg-[#0E1114]",
                                                                         )}
                                                                     >
                                                                         <div className="min-w-0">
-                                                                            <p className="truncate text-[14px] font-medium text-slate-900 dark:text-slate-100">{file.original_name}</p>
-                                                                            <p className="mt-1 text-[12px] text-slate-500 dark:text-slate-400">
+                                                                            <p className="truncate text-[14px] font-medium text-[#0E1114] dark:text-[#F7F8FA]">{file.original_name}</p>
+                                                                            <p className="mt-1 text-[12px] text-[#86888F] dark:text-[#B0B2B8]">
                                                                                 {tr.resumeFileDesc(file.file_ext || "-", file.file_size || 0, file.parse_status)}
                                                                             </p>
                                                                         </div>
@@ -5545,7 +5808,7 @@ export function CandidatesPage({
                                                                             <Button
                                                                                 size="sm"
                                                                                 variant={active ? "default" : "outline"}
-                                                                                className={cn("h-8 rounded-[4px] px-3 text-[13px]", active && "bg-[#171717] text-white hover:bg-[#262626]")}
+                                                                                className={active ? CANDIDATE_DETAIL_PRIMARY_BUTTON_CLASS : CANDIDATE_DETAIL_OUTLINE_BUTTON_CLASS}
                                                                                 onClick={() => {
                                                                                     setSelectedResumeFileId(file.id);
                                                                                     setCandidateResumeView("original");
@@ -5553,7 +5816,7 @@ export function CandidatesPage({
                                                                             >
                                                                                 {isZh ? "查看原始简历" : "View Original"}
                                                                             </Button>
-                                                                            <Button size="sm" variant="outline" className="h-8 rounded-[4px] px-3 text-[13px]" onClick={() => void openResumeFile(file, true)}>
+                                                                            <Button size="sm" variant="outline" className={CANDIDATE_DETAIL_OUTLINE_BUTTON_CLASS} onClick={() => void openResumeFile(file, true)}>
                                                                                 <Download className="h-3.5 w-3.5"/>
                                                                                 {tr.downloadResume}
                                                                             </Button>
@@ -5575,6 +5838,7 @@ export function CandidatesPage({
 
                                             <Field label={tr.statusFlow}>
                                                 <div className="space-y-3">
+                                                    {permissions.manageCandidate ? <>
                                                     <div className="flex flex-wrap gap-2">
                                                         {manualCandidateStatusOptions.map(([value, label]) => {
                                                             const isCurrent = candidateDetail.candidate.status === value;
@@ -5584,6 +5848,7 @@ export function CandidatesPage({
                                                                     key={value}
                                                                     size="sm"
                                                                     variant={isCurrent ? "default" : "outline"}
+                                                                    className={isCurrent ? CANDIDATE_DETAIL_PRIMARY_BUTTON_CLASS : CANDIDATE_DETAIL_OUTLINE_BUTTON_CLASS}
                                                                     aria-pressed={isCurrent}
                                                                     disabled={Boolean(statusFlowSubmitting)}
                                                                     title={isCurrent ? tr.currentStatusLine(label) : tr.confirmStatusChange(label)}
@@ -5598,21 +5863,23 @@ export function CandidatesPage({
                                                         })}
                                                     </div>
                                                     <Textarea
+                                                        className={CANDIDATE_DETAIL_TEXTAREA_CLASS}
                                                         value={statusUpdateReason}
                                                         onChange={(event) => setStatusUpdateReason(event.target.value)}
                                                         rows={3}
                                                         placeholder={tr.statusReasonPlaceholder}
                                                     />
+                                                    </> : null}
                                                     <div className="space-y-3">
                                                         {candidateDetail.status_history.length ? candidateDetail.status_history.map((history) => (
-                                                            <div key={history.id} className="rounded-2xl border border-slate-200/80 px-4 py-4 dark:border-slate-800">
+                                                            <div key={history.id} className="rounded-[8px] border border-[#E6E7EB]/80 px-4 py-4 dark:border-[#202226]">
                                                                 <div className="flex items-center justify-between gap-3">
-                                                                    <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                                                                    <p className="text-sm font-medium text-[#0E1114] dark:text-[#F7F8FA]">
                                                                         {labelForCandidateStatus(history.from_status || "")} → {labelForCandidateStatus(history.to_status)}
                                                                     </p>
-                                                                    <p className="text-xs text-slate-500 dark:text-slate-400">{formatDateTime(history.created_at)}</p>
+                                                                    <p className="text-xs text-[#86888F] dark:text-[#B0B2B8]">{formatDateTime(history.created_at)}</p>
                                                                 </div>
-                                                                <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{history.reason || tr.noReasonProvided}</p>
+                                                                <p className="mt-2 text-sm text-[#33353D] dark:text-[#D6D8DD]">{history.reason || tr.noReasonProvided}</p>
                                                             </div>
                                                         )) : (
                                                             <EmptyState title={tr.noStatusHistory} description={tr.noStatusHistoryDesc}/>
@@ -5632,60 +5899,60 @@ export function CandidatesPage({
                                                 ) : (
                                                     <EmptyState title={tr.noScreeningMemory} description={tr.noScreeningMemoryDesc}/>
                                                 )}
-                                                <p className="mt-3 break-words text-xs leading-6 text-slate-500 dark:text-slate-400">
+                                                <p className="mt-3 break-words text-xs leading-6 text-[#86888F] dark:text-[#B0B2B8]">
                                                     {tr.screeningMemoryHint(effectiveScreeningSkillSourceLabel)}
                                                 </p>
-                                                <p className="mt-2 break-words text-xs leading-6 text-slate-500 dark:text-slate-400">
+                                                <p className="mt-2 break-words text-xs leading-6 text-[#86888F] dark:text-[#B0B2B8]">
                                                     {tr.screeningSkillPreview(formatSkillNames(effectiveScreeningSkillIds, skillMap, language))}
                                                 </p>
                                             </Field>
 
-                                            <Field label={tr.aiAssistant}>
-                                                <div className="rounded-md border border-slate-200 bg-slate-50 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/60">
+                                            {permissions.viewAssistant ? <Field label={tr.aiAssistant}>
+                                                <div className="rounded-md border border-[#E6E7EB] bg-[#F7F8FA] px-4 py-4 dark:border-[#202226] dark:bg-[#16181B]/60">
                                                     <div className="flex flex-wrap items-start justify-between gap-3">
                                                         <div className="min-w-0 flex-1">
-                                                            <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{tr.assistantPackedTitle}</p>
-                                                            <p className="mt-1 break-words text-xs leading-6 text-slate-500 dark:text-slate-400">
+                                                            <p className="text-sm font-medium text-[#0E1114] dark:text-[#F7F8FA]">{tr.assistantPackedTitle}</p>
+                                                            <p className="mt-1 break-words text-xs leading-6 text-[#86888F] dark:text-[#B0B2B8]">
                                                                 {candidateAssistantActivity.length
                                                                     ? tr.assistantPackedDescWithCount(candidateAssistantActivity.length)
                                                                     : tr.assistantPackedDescEmpty}
                                                             </p>
                                                         </div>
-                                                        <Button size="sm" variant="outline" onClick={() => openAssistantMode("drawer")}>
+                                                        <Button size="sm" variant="outline" className={CANDIDATE_DETAIL_OUTLINE_BUTTON_CLASS} onClick={() => openAssistantMode("drawer")}>
                                                             <Bot className="h-4 w-4"/>
                                                             {tr.openAiAssistant}
                                                         </Button>
                                                     </div>
                                                 </div>
-                                            </Field>
+                                            </Field> : null}
 
-                                            <Field label={tr.aiExecutionLogs}>
+                                            {permissions.viewLog ? <Field label={tr.aiExecutionLogs}>
                                                 <div className="space-y-3">
                                                     {candidateProcessActivity.length ? (
                                                         <>
-                                                            <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-slate-200 bg-slate-50 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/60">
+                                                            <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-[#E6E7EB] bg-[#F7F8FA] px-4 py-4 dark:border-[#202226] dark:bg-[#16181B]/60">
                                                                 <div className="min-w-0">
-                                                                    <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                                                                    <p className="text-sm font-medium text-[#0E1114] dark:text-[#F7F8FA]">
                                                                         {tr.recordedLogs(candidateProcessActivity.length)}
                                                                     </p>
-                                                                    <p className="mt-1 break-words text-xs text-slate-500 dark:text-slate-400">
+                                                                    <p className="mt-1 break-words text-xs text-[#86888F] dark:text-[#B0B2B8]">
                                                                         {tr.logsCollapsedHint}
                                                                     </p>
                                                                 </div>
-                                                                <Button size="sm" variant="outline" onClick={() => setCandidateProcessLogsExpanded((current) => !current)}>
+                                                                <Button size="sm" variant="outline" className={CANDIDATE_DETAIL_OUTLINE_BUTTON_CLASS} onClick={() => setCandidateProcessLogsExpanded((current) => !current)}>
                                                                     {candidateProcessLogsExpanded ? tr.collapseLogs : tr.expandLogs}
                                                                 </Button>
                                                             </div>
                                                             {candidateProcessLogsExpanded ? candidateProcessActivity.map((log) => {
                                                                 const logSkillSnapshots = resolveLogSkillSnapshots(log, skillMap);
                                                                 return (
-                                                                    <div key={log.id} className="rounded-md border border-slate-200 px-4 py-4 dark:border-slate-800">
+                                                                    <div key={log.id} className="rounded-md border border-[#E6E7EB] px-4 py-4 dark:border-[#202226]">
                                                                         <div className="flex flex-wrap items-start justify-between gap-3">
                                                                             <div className="min-w-0 flex-1">
-                                                                                <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{labelForTaskType(log.task_type)}</p>
-                                                                                <p className="mt-1 break-words text-xs text-slate-500 dark:text-slate-400">{labelForProvider(log.model_provider)} · {log.model_name || "-"} · {formatLongDateTime(log.created_at)}</p>
+                                                                                <p className="text-sm font-medium text-[#0E1114] dark:text-[#F7F8FA]">{labelForTaskType(log.task_type)}</p>
+                                                                                <p className="mt-1 break-words text-xs text-[#86888F] dark:text-[#B0B2B8]">{labelForProvider(log.model_provider)} · {log.model_name || "-"} · {formatLongDateTime(log.created_at)}</p>
                                                                             </div>
-                                                                            <Badge className={cn("rounded border", statusBadgeClass("task", log.status))}>
+                                                                            <Badge className={cn("rounded-[3px] border", prototypeStatusBadgeClass(log.status))}>
                                                                                 {labelForTaskExecutionStatus(log.status)}
                                                                             </Badge>
                                                                         </div>
@@ -5694,7 +5961,7 @@ export function CandidatesPage({
                                                                             <InfoTile label={tr.memorySource} value={labelForMemorySource(log.memory_source)}/>
                                                                         </div>
                                                                         {log.error_message ? (
-                                                                            <p className="mt-3 break-all text-sm text-rose-600">
+                                                                            <p className="mt-3 break-all text-sm text-[#F53F3F]">
                                                                                 {sanitizeTaskMessage(
                                                                                     log.error_message,
                                                                                     log.task_type,
@@ -5711,7 +5978,7 @@ export function CandidatesPage({
                                                                             ),
                                                                         )}/>
                                                                         <div className="mt-3 flex flex-wrap gap-2">
-                                                                            <Button size="sm" variant="outline" onClick={() => openTaskLogDetail(log.id)}>{tr.viewFullLog}</Button>
+                                                                            <Button size="sm" variant="outline" className={CANDIDATE_DETAIL_OUTLINE_BUTTON_CLASS} onClick={() => openTaskLogDetail(log.id)}>{tr.viewFullLog}</Button>
                                                                         </div>
                                                                     </div>
                                                                 );
@@ -5721,57 +5988,54 @@ export function CandidatesPage({
                                                         <EmptyState title={tr.noAiLogs} description={tr.noAiLogsDesc}/>
                                                     )}
                                                 </div>
-                                            </Field>
+                                            </Field> : null}
                                         </>
                                     ) : null}
 
                                     {candidateDetailPanel === "review" ? (
                                         <div className="space-y-3">
-                                            <div className="rounded-md border border-slate-200 bg-white px-4 py-4 dark:border-slate-800 dark:bg-slate-950">
+                                            <div className="rounded-md border border-[#E6E7EB] bg-white px-4 py-4 dark:border-[#202226] dark:bg-[#0E1114]">
                                                 <div className="flex flex-wrap items-center justify-between gap-3">
                                                     <div>
-                                                        <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{isZh ? "部门评审" : "Department Review"}</p>
-                                                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                                        <p className="text-sm font-semibold text-[#0E1114] dark:text-[#F7F8FA]">{isZh ? "部门评审" : "Department Review"}</p>
+                                                        <p className="mt-1 text-xs text-[#86888F] dark:text-[#B0B2B8]">
                                                             {isZh ? "把候选人提交给用人部门，评审结果会回写到当前流程。" : "Send the candidate to hiring reviewers and keep the result in this workflow."}
                                                         </p>
                                                     </div>
-                                                    <Button size="sm" onClick={openDepartmentReviewDialog} disabled={!createDepartmentReview}>
+                                                    <Button size="sm" className={CANDIDATE_DETAIL_PRIMARY_BUTTON_CLASS} onClick={openDepartmentReviewDialog} disabled={!permissions.manageReview || !createDepartmentReview}>
                                                         <Users className="h-4 w-4"/>
                                                         {isZh ? "提交部门评审" : "Submit Review"}
                                                     </Button>
                                                 </div>
                                             </div>
                                             {departmentReviews.length ? departmentReviews.map((review) => (
-                                                <div key={review.id} className="rounded-md border border-slate-200 bg-white px-4 py-4 dark:border-slate-800 dark:bg-slate-950">
+                                                <div key={review.id} className="rounded-md border border-[#E6E7EB] bg-white px-4 py-4 dark:border-[#202226] dark:bg-[#0E1114]">
                                                     <div className="flex flex-wrap items-center justify-between gap-2">
                                                         <div className="flex items-center gap-2">
-                                                            <Badge variant="outline" className="rounded-[3px]">
+                                                            <Badge variant="outline" className={cn(CANDIDATE_DETAIL_STATUS_TAG_CLASS, prototypeStatusBadgeClass(review.status))}>
                                                                 {review.status === "passed"
                                                                     ? (isZh ? "评审通过" : "Passed")
                                                                     : review.status === "rejected"
                                                                         ? (isZh ? "评审淘汰" : "Rejected")
                                                                         : (isZh ? "评审中" : "Pending")}
                                                             </Badge>
-                                                            <span className="text-sm text-slate-500 dark:text-slate-400">{formatDateTime(review.created_at)}</span>
+                                                            <span className="text-sm text-[#86888F] dark:text-[#B0B2B8]">{formatDateTime(review.created_at)}</span>
                                                         </div>
-                                                        <span className="text-sm text-slate-500 dark:text-slate-400">{isZh ? "发起人" : "Created by"}：{review.created_by || "-"}</span>
+                                                        <span className="text-sm text-[#86888F] dark:text-[#B0B2B8]">{isZh ? "发起人" : "Created by"}：{review.created_by || "-"}</span>
                                                     </div>
-                                                    {review.message ? <p className="mt-3 rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-600 dark:bg-slate-900 dark:text-slate-300">{review.message}</p> : null}
-                                                    <div className="mt-3 divide-y divide-slate-100 dark:divide-slate-800">
+                                                    {review.message ? <p className="mt-3 rounded-md bg-[#F7F8FA] px-3 py-2 text-sm text-[#33353D] dark:bg-[#16181B] dark:text-[#D6D8DD]">{review.message}</p> : null}
+                                                    <div className="mt-3 divide-y divide-[#F2F3F5]">
                                                         {review.assignments.map((assignment) => (
                                                             <div key={assignment.id} className="flex flex-wrap items-start justify-between gap-3 py-3">
                                                                 <div>
-                                                                    <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{assignment.reviewer_name || assignment.reviewer_user_code}</p>
-                                                                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{assignment.reviewer_user_code}</p>
-                                                                    {assignment.comment ? <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{assignment.comment}</p> : null}
+                                                                    <p className="text-sm font-medium text-[#0E1114] dark:text-[#F7F8FA]">{assignment.reviewer_name || assignment.reviewer_user_code}</p>
+                                                                    <p className="mt-1 text-xs text-[#86888F] dark:text-[#B0B2B8]">{assignment.reviewer_user_code}</p>
+                                                                    {assignment.comment ? <p className="mt-2 text-sm text-[#33353D] dark:text-[#D6D8DD]">{assignment.comment}</p> : null}
                                                                 </div>
                                                                 <div className="text-right">
                                                                     <Badge className={cn(
-                                                                        "rounded-[3px] border",
-                                                                        assignment.status === "passed" && "border-emerald-200 bg-emerald-50 text-emerald-700",
-                                                                        assignment.status === "rejected" && "border-rose-200 bg-rose-50 text-rose-700",
-                                                                        assignment.status === "deferred" && "border-amber-200 bg-amber-50 text-amber-700",
-                                                                        (!assignment.status || assignment.status === "pending") && "border-[#D4D4D4] bg-[#F5F5F5] text-[#171717]",
+                                                                        CANDIDATE_DETAIL_STATUS_TAG_CLASS,
+                                                                        prototypeStatusBadgeClass(assignment.status || "pending"),
                                                                     )}>
                                                                         {assignment.status === "passed"
                                                                             ? (isZh ? "通过" : "Passed")
@@ -5781,7 +6045,7 @@ export function CandidatesPage({
                                                                                     ? (isZh ? "暂缓" : "Deferred")
                                                                                     : (isZh ? "待评审" : "Pending")}
                                                                     </Badge>
-                                                                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{formatDateTime(assignment.decision_at)}</p>
+                                                                    <p className="mt-1 text-xs text-[#86888F] dark:text-[#B0B2B8]">{formatDateTime(assignment.decision_at)}</p>
                                                                 </div>
                                                             </div>
                                                         ))}
@@ -5798,27 +6062,27 @@ export function CandidatesPage({
 
                                     {candidateDetailPanel === "offer" ? (
                                         <>
-                                            <div className="rounded-2xl border border-slate-200/80 bg-white/85 px-4 py-4 dark:border-slate-800 dark:bg-slate-950/70">
+                                            <div className="rounded-[8px] border border-[#E6E7EB]/80 bg-white/85 px-4 py-4 dark:border-[#202226] dark:bg-[#0E1114]/70">
                                                 <div className="flex flex-wrap items-center justify-between gap-2">
-                                                    <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{tr.offers}</p>
-                                                    <Button size="sm" variant="outline" onClick={() => { setOfferForm({offer_title: "", salary: "", department: "", entry_date: "", offer_content: "", notes: ""}); setOfferFormOpen(!offerFormOpen); }}>
+                                                    <p className="text-sm font-medium text-[#0E1114] dark:text-[#F7F8FA]">{tr.offers}</p>
+                                                    <Button size="sm" variant="outline" className={CANDIDATE_DETAIL_OUTLINE_BUTTON_CLASS} onClick={() => { setOfferForm({offer_title: "", salary: "", department: "", entry_date: "", offer_content: "", notes: ""}); setOfferFormOpen(!offerFormOpen); }}>
                                                         <Plus className="h-4 w-4"/>
                                                         {tr.addOffer}
                                                     </Button>
                                                 </div>
                                                 {offerFormOpen && candidateDetail && (
-                                                    <div className="mt-3 space-y-2 rounded-xl border border-slate-200/70 bg-slate-50/50 p-3 dark:border-slate-800 dark:bg-slate-900/50">
+                                                    <div className="mt-3 space-y-2 rounded-[8px] border border-[#E6E7EB]/70 bg-[#F7F8FA]/50 p-3 dark:border-[#202226] dark:bg-[#16181B]/50">
                                                         <div className="grid gap-2 md:grid-cols-2">
-                                                            <Input value={offerForm.offer_title} onChange={(e) => setOfferForm((f) => ({...f, offer_title: e.target.value}))} placeholder={tr.offerTitle}/>
-                                                            <Input value={offerForm.salary} onChange={(e) => setOfferForm((f) => ({...f, salary: e.target.value}))} placeholder={tr.offerSalary}/>
-                                                            <Input value={offerForm.department} onChange={(e) => setOfferForm((f) => ({...f, department: e.target.value}))} placeholder={tr.offerDepartment}/>
-                                                            <Input type="date" value={offerForm.entry_date} onChange={(e) => setOfferForm((f) => ({...f, entry_date: e.target.value}))} placeholder={tr.offerEntryDate}/>
+                                                            <Input className={CANDIDATE_DETAIL_INPUT_CLASS} value={offerForm.offer_title} onChange={(e) => setOfferForm((f) => ({...f, offer_title: e.target.value}))} placeholder={tr.offerTitle}/>
+                                                            <Input className={CANDIDATE_DETAIL_INPUT_CLASS} value={offerForm.salary} onChange={(e) => setOfferForm((f) => ({...f, salary: e.target.value}))} placeholder={tr.offerSalary}/>
+                                                            <Input className={CANDIDATE_DETAIL_INPUT_CLASS} value={offerForm.department} onChange={(e) => setOfferForm((f) => ({...f, department: e.target.value}))} placeholder={tr.offerDepartment}/>
+                                                            <Input className={CANDIDATE_DETAIL_INPUT_CLASS} type="date" value={offerForm.entry_date} onChange={(e) => setOfferForm((f) => ({...f, entry_date: e.target.value}))} placeholder={tr.offerEntryDate}/>
                                                         </div>
-                                                        <Textarea value={offerForm.offer_content} onChange={(e) => setOfferForm((f) => ({...f, offer_content: e.target.value}))} rows={3} placeholder={tr.offerContent}/>
-                                                        <Input value={offerForm.notes} onChange={(e) => setOfferForm((f) => ({...f, notes: e.target.value}))} placeholder={tr.offerNotes}/>
+                                                        <Textarea className={CANDIDATE_DETAIL_TEXTAREA_CLASS} value={offerForm.offer_content} onChange={(e) => setOfferForm((f) => ({...f, offer_content: e.target.value}))} rows={3} placeholder={tr.offerContent}/>
+                                                        <Input className={CANDIDATE_DETAIL_INPUT_CLASS} value={offerForm.notes} onChange={(e) => setOfferForm((f) => ({...f, notes: e.target.value}))} placeholder={tr.offerNotes}/>
                                                         <div className="flex justify-end gap-2">
-                                                            <Button size="sm" variant="outline" onClick={() => setOfferFormOpen(false)}>{tr.batchBindPositionCancel}</Button>
-                                                            <Button size="sm" disabled={offerSubmitting} onClick={async () => {
+                                                            <Button size="sm" variant="outline" className={CANDIDATE_DETAIL_OUTLINE_BUTTON_CLASS} onClick={() => setOfferFormOpen(false)}>{tr.batchBindPositionCancel}</Button>
+                                                            <Button size="sm" className={CANDIDATE_DETAIL_PRIMARY_BUTTON_CLASS} disabled={offerSubmitting} onClick={async () => {
                                                                 setOfferSubmitting(true);
                                                                 try {
                                                                     await createOffer({
@@ -5845,17 +6109,27 @@ export function CandidatesPage({
                                                     {offers.length > 0 ? offers.map((offer) => {
                                                         const statusLabels: Record<string, string> = {draft: tr.offerStatusDraft, sent: tr.offerStatusSent, accepted: tr.offerStatusAccepted, rejected: tr.offerStatusRejected, cancelled: tr.offerStatusCancelled};
                                                         return (
-                                                            <div key={offer.id} className="rounded-xl border border-slate-200/70 px-3 py-2 dark:border-slate-800">
+                                                            <div key={offer.id} className="rounded-[8px] border border-[#E6E7EB]/70 px-3 py-2 dark:border-[#202226]">
                                                                 <div className="flex items-start justify-between gap-2">
                                                                     <div className="min-w-0 flex-1">
                                                                         <div className="flex items-center gap-2">
-                                                                            <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{offer.offer_title || "-"}</p>
-                                                                            <Badge variant="outline" className="rounded-full text-xs">{statusLabels[offer.status] || offer.status}</Badge>
+                                                                            <p className="text-sm font-medium text-[#0E1114] dark:text-[#F7F8FA]">{offer.offer_title || "-"}</p>
+                                                                            <Badge
+                                                                                variant="outline"
+                                                                                className={cn(
+                                                                                    CANDIDATE_DETAIL_STATUS_TAG_CLASS,
+                                                                                    offer.status === "accepted" && "border-[rgba(12,201,145,0.28)] bg-[rgba(12,201,145,0.08)] text-[#0A9C71]",
+                                                                                    (offer.status === "rejected" || offer.status === "cancelled") && "border-[rgba(245,63,63,0.26)] bg-[rgba(245,63,63,0.08)] text-[#F53F3F]",
+                                                                                    offer.status === "sent" && "border-[rgba(46,156,255,0.26)] bg-[rgba(46,156,255,0.08)] text-[#2E9CFF]",
+                                                                                )}
+                                                                            >
+                                                                                {statusLabels[offer.status] || offer.status}
+                                                                            </Badge>
                                                                         </div>
-                                                                        {offer.salary && <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{offer.salary}</p>}
-                                                                        {offer.department && <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{offer.department}</p>}
-                                                                        {offer.entry_date && <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{offer.entry_date}</p>}
-                                                                        {offer.offer_content && <p className="mt-1 text-xs text-slate-600 dark:text-slate-300 whitespace-pre-wrap">{offer.offer_content}</p>}
+                                                                        {offer.salary && <p className="mt-0.5 text-xs text-[#86888F] dark:text-[#B0B2B8]">{offer.salary}</p>}
+                                                                        {offer.department && <p className="mt-0.5 text-xs text-[#86888F] dark:text-[#B0B2B8]">{offer.department}</p>}
+                                                                        {offer.entry_date && <p className="mt-0.5 text-xs text-[#86888F] dark:text-[#B0B2B8]">{offer.entry_date}</p>}
+                                                                        {offer.offer_content && <p className="mt-1 text-xs text-[#33353D] dark:text-[#D6D8DD] whitespace-pre-wrap">{offer.offer_content}</p>}
                                                                     </div>
                                                                     <div className="flex items-center gap-1">
                                                                         <NativeSelect
@@ -5869,7 +6143,13 @@ export function CandidatesPage({
                                                                             <option value="rejected">{tr.offerStatusRejected}</option>
                                                                             <option value="cancelled">{tr.offerStatusCancelled}</option>
                                                                         </NativeSelect>
-                                                                        <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-rose-500 hover:text-rose-700" onClick={() => { if (window.confirm(tr.confirmDeleteOffer)) void deleteOffer(offer.id); }}>
+                                                                        <Button
+                                                                            size="sm"
+                                                                            variant="ghost"
+                                                                            className="h-7 w-7 rounded-[4px] p-0 text-[#F53F3F] hover:bg-[rgba(245,63,63,0.08)] hover:text-[#F53F3F]"
+                                                                            aria-label={tr.confirmDeleteOffer}
+                                                                            onClick={() => setNestedDeleteTarget({kind: "offer", id: offer.id, title: offer.offer_title || (isZh ? "当前 Offer" : "Current offer")})}
+                                                                        >
                                                                             <Trash2 className="h-3.5 w-3.5"/>
                                                                         </Button>
                                                                     </div>
@@ -5886,23 +6166,23 @@ export function CandidatesPage({
 
                                     {candidateDetailPanel === "background" ? (
                                         <>
-                                            <div className="rounded-md border border-slate-200 bg-white px-4 py-4 dark:border-slate-800 dark:bg-slate-950">
-                                                <p className="text-base font-medium text-slate-900 dark:text-slate-100">{isZh ? "背调信息" : "Background Check"}</p>
-                                                <p className="mt-1 text-sm leading-6 text-slate-500 dark:text-slate-400">
+                                            <div className="rounded-md border border-[#E6E7EB] bg-white px-4 py-4 dark:border-[#202226] dark:bg-[#0E1114]">
+                                                <p className="text-base font-medium text-[#0E1114] dark:text-[#F7F8FA]">{isZh ? "背调信息" : "Background Check"}</p>
+                                                <p className="mt-1 text-sm leading-6 text-[#86888F] dark:text-[#B0B2B8]">
                                                     {isZh ? "当前系统还没有独立背调数据模型，先把跟进记录放在这里承接；后续新增背调供应商、授权、报告状态时可以直接扩展本页。" : "No dedicated background-check data model is available yet. Follow-up notes are shown here for now and can be extended with providers, authorizations, and report status later."}
                                                 </p>
                                             </div>
-                                            <div className="rounded-2xl border border-slate-200/80 bg-white/85 px-4 py-4 dark:border-slate-800 dark:bg-slate-950/70">
+                                            <div className="rounded-[8px] border border-[#E6E7EB]/80 bg-white/85 px-4 py-4 dark:border-[#202226] dark:bg-[#0E1114]/70">
                                                 <div className="flex flex-wrap items-center justify-between gap-2">
-                                                    <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{tr.followUps}</p>
-                                                    <Button size="sm" variant="outline" onClick={() => { setFollowUpContent(""); setFollowUpType("note"); setFollowUpFormOpen(!followUpFormOpen); }}>
+                                                    <p className="text-sm font-medium text-[#0E1114] dark:text-[#F7F8FA]">{tr.followUps}</p>
+                                                    <Button size="sm" variant="outline" className={CANDIDATE_DETAIL_OUTLINE_BUTTON_CLASS} onClick={() => { setFollowUpContent(""); setFollowUpType("note"); setFollowUpFormOpen(!followUpFormOpen); }}>
                                                         <Plus className="h-4 w-4"/>
                                                         {tr.addFollowUp}
                                                     </Button>
                                                 </div>
                                                 {followUpFormOpen && candidateDetail && (
-                                                    <div className="mt-3 space-y-2 rounded-xl border border-slate-200/70 bg-slate-50/50 p-3 dark:border-slate-800 dark:bg-slate-900/50">
-                                                        <Textarea value={followUpContent} onChange={(e) => setFollowUpContent(e.target.value)} rows={3} placeholder={tr.followUpContentPlaceholder}/>
+                                                    <div className="mt-3 space-y-2 rounded-[8px] border border-[#E6E7EB]/70 bg-[#F7F8FA]/50 p-3 dark:border-[#202226] dark:bg-[#16181B]/50">
+                                                        <Textarea className={CANDIDATE_DETAIL_TEXTAREA_CLASS} value={followUpContent} onChange={(e) => setFollowUpContent(e.target.value)} rows={3} placeholder={tr.followUpContentPlaceholder}/>
                                                         <div className="flex items-center gap-2">
                                                             <NativeSelect value={followUpType} onChange={(e) => setFollowUpType(e.target.value)} className="h-8 text-xs">
                                                                 <option value="note">{tr.followUpTypeNote}</option>
@@ -5912,8 +6192,8 @@ export function CandidatesPage({
                                                                 <option value="other">{tr.followUpTypeOther}</option>
                                                             </NativeSelect>
                                                             <div className="flex-1"/>
-                                                            <Button size="sm" variant="outline" onClick={() => setFollowUpFormOpen(false)}>{tr.batchBindPositionCancel}</Button>
-                                                            <Button size="sm" disabled={followUpSubmitting || !followUpContent.trim()} onClick={async () => {
+                                                            <Button size="sm" variant="outline" className={CANDIDATE_DETAIL_OUTLINE_BUTTON_CLASS} onClick={() => setFollowUpFormOpen(false)}>{tr.batchBindPositionCancel}</Button>
+                                                            <Button size="sm" className={CANDIDATE_DETAIL_PRIMARY_BUTTON_CLASS} disabled={followUpSubmitting || !followUpContent.trim()} onClick={async () => {
                                                                 setFollowUpSubmitting(true);
                                                                 try {
                                                                     await createFollowUp(candidateDetail.candidate.id, followUpContent.trim(), followUpType);
@@ -5933,16 +6213,22 @@ export function CandidatesPage({
                                                     {followUps.length > 0 ? followUps.map((fu) => {
                                                         const typeLabels: Record<string, string> = {note: tr.followUpTypeNote, call: tr.followUpTypeCall, email: tr.followUpTypeEmail, interview: tr.followUpTypeInterview, other: tr.followUpTypeOther};
                                                         return (
-                                                            <div key={fu.id} className="rounded-xl border border-slate-200/70 px-3 py-2 dark:border-slate-800">
+                                                            <div key={fu.id} className="rounded-[8px] border border-[#E6E7EB]/70 px-3 py-2 dark:border-[#202226]">
                                                                 <div className="flex items-start justify-between gap-2">
                                                                     <div className="min-w-0 flex-1">
                                                                         <div className="flex items-center gap-2">
-                                                                            <Badge variant="outline" className="rounded-full text-xs">{typeLabels[fu.follow_up_type] || fu.follow_up_type}</Badge>
-                                                                            {fu.created_at && <span className="text-xs text-slate-400 dark:text-slate-500">{formatDateTime(fu.created_at)}</span>}
+                                                                            <Badge variant="outline" className={CANDIDATE_DETAIL_TAG_CLASS}>{typeLabels[fu.follow_up_type] || fu.follow_up_type}</Badge>
+                                                                            {fu.created_at && <span className="text-xs text-[#B0B2B8] dark:text-[#86888F]">{formatDateTime(fu.created_at)}</span>}
                                                                         </div>
-                                                                        <p className="mt-1 text-sm text-slate-700 dark:text-slate-300 whitespace-pre-wrap">{fu.content}</p>
+                                                                        <p className="mt-1 text-sm text-[#33353D] dark:text-[#D6D8DD] whitespace-pre-wrap">{fu.content}</p>
                                                                     </div>
-                                                                    <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-rose-500 hover:text-rose-700" onClick={() => { if (window.confirm(tr.confirmDeleteFollowUp)) void deleteFollowUp(fu.id); }}>
+                                                                    <Button
+                                                                        size="sm"
+                                                                        variant="ghost"
+                                                                        className="h-7 w-7 rounded-[4px] p-0 text-[#F53F3F] hover:bg-[rgba(245,63,63,0.08)] hover:text-[#F53F3F]"
+                                                                        aria-label={tr.confirmDeleteFollowUp}
+                                                                        onClick={() => setNestedDeleteTarget({kind: "follow_up", id: fu.id, title: fu.content.slice(0, 30) || (isZh ? "当前跟进记录" : "Current follow-up")})}
+                                                                    >
                                                                         <Trash2 className="h-3.5 w-3.5"/>
                                                                     </Button>
                                                                 </div>
@@ -5960,10 +6246,11 @@ export function CandidatesPage({
                                         <>
                                             <div className="min-w-0 space-y-2">
                                                 <div className="flex flex-wrap items-center justify-between gap-3">
-                                                    <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{tr.aiScoreAndAdvice}</p>
+                                                    <p className="text-sm font-medium text-[#0E1114] dark:text-[#F7F8FA]">{tr.aiScoreAndAdvice}</p>
                                                     <Button
                                                         size="sm"
                                                         variant="outline"
+                                                        className={CANDIDATE_DETAIL_OUTLINE_BUTTON_CLASS}
                                                         onClick={() => setCandidateAiOutputDialogOpen(true)}
                                                         disabled={!candidateAiOutputAvailable}
                                                     >
@@ -5971,10 +6258,10 @@ export function CandidatesPage({
                                                         {tr.viewFullAiOutput}
                                                     </Button>
                                                 </div>
-                                                    <div className="rounded-2xl border border-slate-200/80 bg-slate-50/70 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/60">
+                                                    <div className="rounded-[8px] border border-[#E6E7EB]/80 bg-[#F7F8FA]/70 px-4 py-4 dark:border-[#202226] dark:bg-[#16181B]/60">
                                                         <div className="flex flex-wrap items-start justify-between gap-3">
                                                             <div className="min-w-0 flex-1">
-                                                                <p className="text-3xl font-semibold text-slate-900 dark:text-slate-100">
+                                                                <p className="text-3xl font-semibold text-[#0E1114] dark:text-[#F7F8FA]">
                                                                     {candidateScoreDisplayValues.totalScore !== null
                                                                         ? formatScoreValue(
                                                                             candidateScoreDisplayValues.totalScore,
@@ -5982,7 +6269,7 @@ export function CandidatesPage({
                                                                         )
                                                                         : "-"}
                                                                 </p>
-                                                            <p className="mt-1 break-words text-sm text-slate-500 dark:text-slate-400">
+                                                            <p className="mt-1 break-words text-sm text-[#86888F] dark:text-[#B0B2B8]">
                                                                 {tr.aiRecommendationLine(
                                                                     candidateScoreDecisionValues.recommendation || "-",
                                                                     labelForCandidateStatus(candidateScoreDecisionValues.suggestedStatus) || "-",
@@ -5991,20 +6278,20 @@ export function CandidatesPage({
                                                         </div>
                                                         <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
                                                             {candidateDetail.score?.score_validation_passed === false ? (
-                                                                <Badge variant="outline" className="rounded-full border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+                                                                <Badge variant="outline" className="h-6 rounded-[3px] border-[rgba(255,171,36,0.32)] bg-[rgba(255,171,36,0.10)] px-2 text-[12px] text-[#D48806]">
                                                                     {tr.scoreValidationWarnings}
                                                                 </Badge>
                                                             ) : null}
-                                                            <Badge variant="outline" className="rounded-full">
+                                                            <Badge variant="outline" className="h-6 rounded-[3px] border-[rgba(30,59,250,0.20)] bg-[rgba(30,59,250,0.06)] px-2 text-[12px] text-[#0F23D9]">
                                                                 {tr.matchBadge} {candidateScoreDisplayValues.matchPercent !== null
                                                                     ? formatPercent(candidateScoreDisplayValues.matchPercent)
                                                                     : "-"}
                                                             </Badge>
                                                         </div>
                                                     </div>
-                                                    <div className="mt-4 space-y-3 text-sm text-slate-600 dark:text-slate-300">
+                                                    <div className="mt-4 space-y-3 text-sm text-[#33353D] dark:text-[#D6D8DD]">
                                                         {Array.isArray(candidateDetail.score?.validation_warnings) && candidateDetail.score.validation_warnings.length > 0 ? (
-                                                            <details className="rounded-xl border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs text-amber-900 dark:border-amber-900/80 dark:bg-amber-950/30 dark:text-amber-200">
+                                                            <details className="rounded-[8px] border border-[rgba(255,171,36,0.30)] bg-[rgba(255,171,36,0.08)] px-3 py-2 text-xs text-[#D48806]">
                                                                 <summary className="cursor-pointer font-medium">{tr.viewScoreWarnings}</summary>
                                                                 <ul className="mt-2 space-y-1">
                                                                     {candidateDetail.score.validation_warnings.map((item, index) => (
@@ -6016,7 +6303,7 @@ export function CandidatesPage({
                                                             </details>
                                                         ) : null}
                                                         <div className="space-y-2">
-                                                            <p className="font-medium text-slate-900 dark:text-slate-100">{tr.strengths}</p>
+                                                            <p className="font-medium text-[#0E1114] dark:text-[#F7F8FA]">{tr.strengths}</p>
                                                             {readScoreTextArray(candidateDetail.score?.advantages).length > 0 ? (
                                                                 <ul className="space-y-1">
                                                                     {readScoreTextArray(candidateDetail.score?.advantages).map((item, index) => (
@@ -6030,7 +6317,7 @@ export function CandidatesPage({
                                                             )}
                                                         </div>
                                                         <div className="space-y-2">
-                                                            <p className="font-medium text-slate-900 dark:text-slate-100">{tr.risks}</p>
+                                                            <p className="font-medium text-[#0E1114] dark:text-[#F7F8FA]">{tr.risks}</p>
                                                             {readScoreTextArray(candidateDetail.score?.concerns).length > 0 ? (
                                                                 <ul className="space-y-1">
                                                                     {readScoreTextArray(candidateDetail.score?.concerns).map((item, index) => (
@@ -6044,7 +6331,7 @@ export function CandidatesPage({
                                                             )}
                                                         </div>
                                                         <div className="space-y-2">
-                                                            <p className="font-medium text-slate-900 dark:text-slate-100">{isZh ? "综合能力概览" : "Competency Overview"}</p>
+                                                            <p className="font-medium text-[#0E1114] dark:text-[#F7F8FA]">{isZh ? "综合能力概览" : "Competency Overview"}</p>
                                                             <CandidateRadarChart
                                                                 dimensions={readScoreDimensions(candidateDetail.score?.dimensions)}
                                                                 radarScores={candidateDetail.score?.radar_scores}
@@ -6058,7 +6345,7 @@ export function CandidatesPage({
                                                                     benchmark: isZh ? "岗位基准线" : "Benchmark",
                                                                 }}
                                                             />
-                                                            <p className="font-medium text-slate-900 dark:text-slate-100 mt-4">{isZh ? "各维度得分" : "Dimension Scores"}</p>
+                                                            <p className="font-medium text-[#0E1114] dark:text-[#F7F8FA] mt-4">{isZh ? "各维度得分" : "Dimension Scores"}</p>
                                                             <CandidateRadarChart
                                                                 dimensions={readScoreDimensions(candidateDetail.score?.dimensions)}
                                                                 isZh={isZh}
@@ -6071,7 +6358,7 @@ export function CandidatesPage({
                                                                     benchmark: isZh ? "岗位基准线" : "Benchmark",
                                                                 }}
                                                             />
-                                                            <p className="font-medium text-slate-900 dark:text-slate-100 mt-4">{tr.dimensionScores}</p>
+                                                            <p className="font-medium text-[#0E1114] dark:text-[#F7F8FA] mt-4">{tr.dimensionScores}</p>
                                                             {readScoreDimensions(candidateDetail.score?.dimensions).length > 0 ? (
                                                                 <ul className="space-y-2">
                                                                     {readScoreDimensions(candidateDetail.score?.dimensions).map((item, index) => {
@@ -6085,31 +6372,31 @@ export function CandidatesPage({
                                                                             ? Math.min(100, Math.round((scoreValue / maxScore) * 100))
                                                                             : null;
                                                                         return (
-                                                                            <li key={`dimension-${index}`} className="rounded-xl border border-slate-200/70 px-3 py-3 dark:border-slate-800">
+                                                                            <li key={`dimension-${index}`} className="rounded-[8px] border border-[#E6E7EB]/70 px-3 py-3 dark:border-[#202226]">
                                                                                 <div className="flex items-center justify-between gap-2">
-                                                                                    <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                                                                                    <p className="text-sm font-medium text-[#0E1114] dark:text-[#F7F8FA]">
                                                                                         {label}
-                                                                                        {isInferred ? <span className="ml-1 text-xs text-slate-400 dark:text-slate-500">{tr.inferredDimension}</span> : null}
+                                                                                        {isInferred ? <span className="ml-1 text-xs text-[#B0B2B8] dark:text-[#86888F]">{tr.inferredDimension}</span> : null}
                                                                                     </p>
-                                                                                    <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+                                                                                    <p className="text-sm font-semibold text-[#33353D] dark:text-[#E6E7EB]">
                                                                                         {scoreValue !== null ? scoreValue : "-"} / {maxScore !== null ? maxScore : "-"}
                                                                                     </p>
                                                                                 </div>
                                                                                 {percent !== null && (
-                                                                                    <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
+                                                                                    <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-[#E6E7EB] dark:bg-[#33353D]">
                                                                                         <div
-                                                                                            className={`h-full rounded-full transition-all ${percent >= 80 ? "bg-emerald-500" : percent >= 60 ? "bg-[#171717]" : percent >= 40 ? "bg-amber-500" : "bg-rose-500"}`}
+                                                                                            className={`h-full rounded-full transition-all ${percent >= 80 ? "bg-[#0CC991]" : percent >= 60 ? "bg-[#1E3BFA]" : percent >= 40 ? "bg-[#FFAB24]" : "bg-[#F53F3F]"}`}
                                                                                             style={{width: `${percent}%`}}
                                                                                         />
                                                                                     </div>
                                                                                 )}
                                                                                 {reason && (
-                                                                                    <div className="mt-2 text-xs leading-6 text-slate-600 dark:text-slate-300">
-                                                                                        <p className="font-medium text-slate-700 dark:text-slate-200">{tr.dimensionReason}:</p>
+                                                                                    <div className="mt-2 text-xs leading-6 text-[#33353D] dark:text-[#D6D8DD]">
+                                                                                        <p className="font-medium text-[#33353D] dark:text-[#E6E7EB]">{tr.dimensionReason}:</p>
                                                                                         <p className="mt-0.5 break-words">{reason}</p>
                                                                                     </div>
                                                                                 )}
-                                                                                <div className="mt-2 text-xs leading-6 text-slate-500 dark:text-slate-400">
+                                                                                <div className="mt-2 text-xs leading-6 text-[#86888F] dark:text-[#B0B2B8]">
                                                                                     <p>{tr.evidence}:</p>
                                                                                     {evidences.length ? (
                                                                                         <ul className="mt-1 space-y-1">
@@ -6137,10 +6424,10 @@ export function CandidatesPage({
 
                                             <div className="grid gap-4 md:grid-cols-2">
                                                 <Field label={tr.manualOverrideScore}>
-                                                    <Input value={candidateEditor.manualOverrideScore} onChange={(event) => setCandidateEditor((current) => ({...current, manualOverrideScore: event.target.value}))} placeholder={tr.overrideScorePlaceholder}/>
+                                                    <Input className={CANDIDATE_DETAIL_INPUT_CLASS} value={candidateEditor.manualOverrideScore} onChange={(event) => setCandidateEditor((current) => ({...current, manualOverrideScore: event.target.value}))} placeholder={tr.overrideScorePlaceholder}/>
                                                 </Field>
                                                 <Field label={tr.overrideReason}>
-                                                    <Input value={candidateEditor.manualOverrideReason} onChange={(event) => setCandidateEditor((current) => ({...current, manualOverrideReason: event.target.value}))} placeholder={tr.overrideReasonPlaceholder}/>
+                                                    <Input className={CANDIDATE_DETAIL_INPUT_CLASS} value={candidateEditor.manualOverrideReason} onChange={(event) => setCandidateEditor((current) => ({...current, manualOverrideReason: event.target.value}))} placeholder={tr.overrideReasonPlaceholder}/>
                                                 </Field>
                                             </div>
 
@@ -6148,9 +6435,9 @@ export function CandidatesPage({
                                                 <div className="space-y-3">
                                                     <div className="flex flex-wrap gap-2">
                                                         {[
-                                                            {value: "agree", label: tr.hrFeedbackAgree, activeClass: "border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"},
-                                                            {value: "disagree", label: tr.hrFeedbackDisagree, activeClass: "border-rose-300 bg-rose-50 text-rose-700 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-300"},
-                                                            {value: "neutral", label: tr.hrFeedbackNeutral, activeClass: "border-slate-300 bg-slate-100 text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"},
+                                                            {value: "agree", label: tr.hrFeedbackAgree, activeClass: "border-[rgba(12,201,145,0.30)] bg-[rgba(12,201,145,0.08)] text-[#0A9C71]"},
+                                                            {value: "disagree", label: tr.hrFeedbackDisagree, activeClass: "border-[rgba(245,63,63,0.28)] bg-[rgba(245,63,63,0.08)] text-[#F53F3F]"},
+                                                            {value: "neutral", label: tr.hrFeedbackNeutral, activeClass: "border-[#D6D8DD] bg-[#F2F3F5] text-[#33353D] dark:border-[#5E5F66] dark:bg-[#202226] dark:text-[#E6E7EB]"},
                                                         ].map((opt) => {
                                                             const isActive = candidateEditor.hrFeedback === opt.value;
                                                             return (
@@ -6158,7 +6445,7 @@ export function CandidatesPage({
                                                                     key={opt.value}
                                                                     size="sm"
                                                                     variant="outline"
-                                                                    className={isActive ? opt.activeClass : ""}
+                                                                    className={cn(CANDIDATE_DETAIL_OUTLINE_BUTTON_CLASS, isActive && opt.activeClass)}
                                                                     onClick={() => setCandidateEditor((current) => ({...current, hrFeedback: isActive ? "" : opt.value}))}
                                                                 >
                                                                     {opt.label}
@@ -6168,6 +6455,7 @@ export function CandidatesPage({
                                                     </div>
                                                     {candidateEditor.hrFeedback && (
                                                         <Input
+                                                            className={CANDIDATE_DETAIL_INPUT_CLASS}
                                                             value={candidateEditor.hrFeedbackReason}
                                                             onChange={(event) => setCandidateEditor((current) => ({...current, hrFeedbackReason: event.target.value}))}
                                                             placeholder={tr.hrFeedbackReasonPlaceholder}
@@ -6176,7 +6464,7 @@ export function CandidatesPage({
                                                 </div>
                                             </Field>
 
-                                            <Button onClick={() => void saveCandidate()} disabled={candidateSaving}>
+                                            <Button className={CANDIDATE_DETAIL_PRIMARY_BUTTON_CLASS} onClick={() => void saveCandidate()} disabled={candidateSaving}>
                                                 <Save className="h-4 w-4"/>
                                                 {candidateSaving ? tr.savingCandidate : tr.saveCandidateInfo}
                                             </Button>
@@ -6185,7 +6473,7 @@ export function CandidatesPage({
                                     ) : null}
 
                                     {candidateDetailPanel === "exam" ? (
-                                        <div className="rounded-md border border-dashed border-slate-200 bg-white px-4 py-10 dark:border-slate-800 dark:bg-slate-950">
+                                        <div className="rounded-md border border-dashed border-[#E6E7EB] bg-white px-4 py-10 dark:border-[#202226] dark:bg-[#0E1114]">
                                             <EmptyState
                                                 title={isZh ? "暂无考试记录" : "No Exam Records"}
                                                 description={isZh ? "考试模块先按竞品结构预留，后续接入笔试、测评考试或第三方测评后可直接落在这里。" : "The exam section is reserved for written tests, assessment exams, or third-party assessments."}
@@ -6195,27 +6483,31 @@ export function CandidatesPage({
 
                                     {candidateDetailPanel === "interview" ? (
                                         <div className="space-y-4">
-                                            <div className="rounded-2xl border border-slate-200/80 bg-white/85 px-4 py-4 dark:border-slate-800 dark:bg-slate-950/70 space-y-3">
+                                            <div className="rounded-[8px] border border-[#E6E7EB]/80 bg-white/85 px-4 py-4 dark:border-[#202226] dark:bg-[#0E1114]/70 space-y-3">
                                                 <div className="grid gap-3">
-                                                    <Input value={interviewRoundName} onChange={(event) => setInterviewRoundName(event.target.value)} placeholder={tr.roundPlaceholder}/>
-                                                    <Input value={joinTags(effectiveInterviewSkillIds.map((id) => skillMap.get(id)?.name || ""))} readOnly placeholder={tr.currentSkillsPlaceholder}/>
+                                                    <Input className={CANDIDATE_DETAIL_INPUT_CLASS} value={interviewRoundName} onChange={(event) => setInterviewRoundName(event.target.value)} placeholder={tr.roundPlaceholder} disabled={!permissions.manageInterview || !permissions.executeProcess}/>
+                                                    <Input className={CANDIDATE_DETAIL_INPUT_CLASS} value={joinTags(effectiveInterviewSkillIds.map((id) => skillMap.get(id)?.name || ""))} readOnly placeholder={tr.currentSkillsPlaceholder}/>
                                                 </div>
-                                                <p className="text-xs text-slate-500 dark:text-slate-400">{tr.defaultInterviewSource(preferredInterviewSkillSourceLabel)}</p>
+                                                <p className="text-xs text-[#86888F] dark:text-[#B0B2B8]">{tr.defaultInterviewSource(preferredInterviewSkillSourceLabel)}</p>
                                                 <Textarea
+                                                    className={CANDIDATE_DETAIL_TEXTAREA_CLASS}
                                                     value={interviewCustomRequirements}
                                                     onChange={(event) => setInterviewCustomRequirements(event.target.value)}
+                                                    disabled={!permissions.manageInterview || !permissions.executeProcess}
                                                     rows={3}
                                                     placeholder={tr.interviewRequirementsPlaceholder}
                                                 />
-                                                <p className="text-xs leading-6 text-slate-500 dark:text-slate-400">
+                                                <p className="text-xs leading-6 text-[#86888F] dark:text-[#B0B2B8]">
                                                     {tr.actualSkills(formatSkillNames(effectiveInterviewSkillIds, skillMap, language))}
                                                 </p>
                                                 <div className="flex flex-wrap items-center justify-between gap-3">
-                                                    <p className="text-xs text-slate-500 dark:text-slate-400">{tr.actualSource(effectiveInterviewSkillSourceLabel)}</p>
+                                                    <p className="text-xs text-[#86888F] dark:text-[#B0B2B8]">{tr.actualSource(effectiveInterviewSkillSourceLabel)}</p>
                                                     {interviewSkillSelectionDirty ? (
                                                         <Button
                                                             size="sm"
                                                             variant="ghost"
+                                                            className={CANDIDATE_DETAIL_GHOST_BUTTON_CLASS}
+                                                            disabled={!permissions.bindSkill}
                                                             onClick={() => {
                                                                 setSelectedInterviewSkillIds([]);
                                                                 setInterviewSkillSelectionDirty(false);
@@ -6225,7 +6517,7 @@ export function CandidatesPage({
                                                         </Button>
                                                     ) : null}
                                                 </div>
-                                                <p className="text-xs leading-6 text-slate-500 dark:text-slate-400">
+                                                <p className="text-xs leading-6 text-[#86888F] dark:text-[#B0B2B8]">
                                                     {!interviewSkillSelectionDirty
                                                         ? tr.interviewSkillHintDefault
                                                         : tr.interviewSkillHintManual}
@@ -6236,11 +6528,12 @@ export function CandidatesPage({
                                                             key={skill.id}
                                                             type="button"
                                                             className={cn(
-                                                                "rounded-full border px-3 py-2 text-xs transition",
+                                                                "rounded-[4px] border px-3 py-2 text-xs transition",
                                                                 effectiveInterviewSkillIds.includes(skill.id)
-                                                                    ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
-                                                                    : "border-slate-200 bg-white text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300",
+                                                                    ? "border-[#1E3BFA] bg-[rgba(30,59,250,0.08)] text-[#1E3BFA]"
+                                                                    : "border-[#E6E7EB] bg-white text-[#33353D] hover:border-[#1E3BFA] hover:text-[#1E3BFA]",
                                                             )}
+                                                            disabled={!permissions.bindSkill}
                                                             onClick={() => toggleInterviewSkillSelection(skill.id)}
                                                         >
                                                             {skill.name}
@@ -6249,7 +6542,7 @@ export function CandidatesPage({
                                                 </div>
                                             </div>
 
-                                            <div className="rounded-2xl border border-slate-200/80 bg-white/85 px-4 py-4 dark:border-slate-800 dark:bg-slate-950/70">
+                                            <div className="rounded-[8px] border border-[#E6E7EB]/80 bg-white/85 px-4 py-4 dark:border-[#202226] dark:bg-[#0E1114]/70">
                                                 {latestInterviewQuestion ? (
                                                     <InterviewQuestionCard
                                                         question={latestInterviewQuestion}
@@ -6266,10 +6559,10 @@ export function CandidatesPage({
                                                 )}
                                             </div>
 
-                                            <div className="rounded-2xl border border-slate-200/80 bg-white/85 px-4 py-4 dark:border-slate-800 dark:bg-slate-950/70">
+                                            <div className="rounded-[8px] border border-[#E6E7EB]/80 bg-white/85 px-4 py-4 dark:border-[#202226] dark:bg-[#0E1114]/70">
                                                 <div className="flex flex-wrap items-center justify-between gap-2">
-                                                    <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{tr.interviewSchedules}</p>
-                                                    <Button size="sm" variant="outline" onClick={() => {
+                                                    <p className="text-sm font-medium text-[#0E1114] dark:text-[#F7F8FA]">{tr.interviewSchedules}</p>
+                                                    {permissions.manageInterview ? <Button size="sm" variant="outline" className={CANDIDATE_DETAIL_OUTLINE_BUTTON_CLASS} onClick={() => {
                                                         if (scheduleFormOpen) {
                                                             setScheduleFormErrors({});
                                                             setScheduleDatePickerOpen(false);
@@ -6280,13 +6573,13 @@ export function CandidatesPage({
                                                     }}>
                                                         <Plus className="h-4 w-4"/>
                                                         {tr.addSchedule}
-                                                    </Button>
+                                                    </Button> : null}
                                                 </div>
                                                 {scheduleFormOpen && candidateDetail && (
-                                                    <div className="mt-3 space-y-2 rounded-xl border border-slate-200/70 bg-slate-50/50 p-3 dark:border-slate-800 dark:bg-slate-900/50">
+                                                    <div className="mt-3 space-y-2 rounded-[8px] border border-[#E6E7EB]/70 bg-[#F7F8FA]/50 p-3 dark:border-[#202226] dark:bg-[#16181B]/50">
                                                         <div className="grid gap-2 md:grid-cols-2">
                                                             <label className="space-y-1 md:col-span-2">
-                                                                <span className="text-xs text-slate-500 dark:text-slate-400"><span className="mr-0.5 text-rose-500">*</span>{isZh ? "面试主题" : "Interview subject"}</span>
+                                                                <span className="text-xs text-[#86888F] dark:text-[#B0B2B8]"><span className="mr-0.5 text-[#F53F3F]">*</span>{isZh ? "面试主题" : "Interview subject"}</span>
                                                                 <Input
                                                                     value={scheduleForm.subject}
                                                                     onChange={(e) => {
@@ -6294,12 +6587,12 @@ export function CandidatesPage({
                                                                         setScheduleForm((f) => ({...f, subject: e.target.value}));
                                                                     }}
                                                                     placeholder={isZh ? "面试主题" : "Interview subject"}
-                                                                    className={cn(scheduleFormErrors.subject && scheduleRequiredErrorClass)}
+                                                                    className={cn(CANDIDATE_DETAIL_INPUT_CLASS, scheduleFormErrors.subject && scheduleRequiredErrorClass)}
                                                                 />
                                                                 {renderScheduleFormError("subject")}
                                                             </label>
                                                             <label className="space-y-1 md:col-span-2">
-                                                                <span className="text-xs text-slate-500 dark:text-slate-400"><span className="mr-0.5 text-rose-500">*</span>{isZh ? "面试轮次" : "Round"}</span>
+                                                                <span className="text-xs text-[#86888F] dark:text-[#B0B2B8]"><span className="mr-0.5 text-[#F53F3F]">*</span>{isZh ? "面试轮次" : "Round"}</span>
                                                                 <NativeSelect
                                                                     value={scheduleForm.round_name}
                                                                     onChange={(event) => {
@@ -6322,8 +6615,8 @@ export function CandidatesPage({
                                                                 {renderScheduleFormError("round_name")}
                                                             </label>
                                                             <div className="space-y-1 md:col-span-2">
-                                                                <span className="text-xs text-slate-500 dark:text-slate-400"><span className="mr-0.5 text-rose-500">*</span>{isZh ? "面试方式" : "Interview method"}</span>
-                                                                <div className={cn("grid grid-cols-3 gap-1.5 rounded-md", scheduleFormErrors.interview_method && "border border-rose-500 bg-rose-50/30 p-1 dark:bg-rose-950/10")}>
+                                                                <span className="text-xs text-[#86888F] dark:text-[#B0B2B8]"><span className="mr-0.5 text-[#F53F3F]">*</span>{isZh ? "面试方式" : "Interview method"}</span>
+                                                                <div className={cn("grid grid-cols-3 gap-1.5 rounded-[6px]", scheduleFormErrors.interview_method && "border border-[#F53F3F] bg-[rgba(245,63,63,0.04)] p-1")}>
                                                                     {INTERVIEW_METHOD_OPTIONS.map((option) => {
                                                                         const active = scheduleForm.interview_method === option.value;
                                                                         const Icon = option.value === "onsite" ? Briefcase : option.value === "video" ? Video : Phone;
@@ -6338,8 +6631,8 @@ export function CandidatesPage({
                                                                                 className={cn(
                                                                                     "flex h-10 items-center justify-center gap-1 rounded-md border px-2 text-xs transition",
                                                                                     active
-                                                                                        ? "border-[#171717] bg-white font-medium text-[#171717] dark:border-slate-500 dark:bg-slate-800 dark:text-slate-100"
-                                                                                        : "border-slate-200 bg-white text-slate-500 hover:text-slate-800 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300",
+                                                                                        ? "border-[#1E3BFA] bg-white font-medium text-[#0E1114] dark:border-[#86888F] dark:bg-[#202226] dark:text-[#F7F8FA]"
+                                                                                        : "border-[#E6E7EB] bg-white text-[#86888F] hover:text-[#33353D] dark:border-[#33353D] dark:bg-[#0E1114] dark:text-[#D6D8DD]",
                                                                                 )}
                                                                             >
                                                                                 <Icon className="h-3.5 w-3.5"/>
@@ -6351,7 +6644,7 @@ export function CandidatesPage({
                                                                 {renderScheduleFormError("interview_method")}
                                                             </div>
                                                             <label className="space-y-1">
-                                                                <span className="text-xs text-slate-500 dark:text-slate-400"><span className="mr-0.5 text-rose-500">*</span>{isZh ? "面试官" : "Interviewer"}</span>
+                                                                <span className="text-xs text-[#86888F] dark:text-[#B0B2B8]"><span className="mr-0.5 text-[#F53F3F]">*</span>{isZh ? "面试官" : "Interviewer"}</span>
                                                                 <NativeSelect
                                                                     value={scheduleForm.interviewer_user_code}
                                                                     onChange={(event) => {
@@ -6377,7 +6670,7 @@ export function CandidatesPage({
                                                                 {renderScheduleFormError("interviewer_user_code")}
                                                             </label>
                                                             <label className="space-y-1">
-                                                                <span className="text-xs text-slate-500 dark:text-slate-400">{isZh ? "可面试时间" : "Available time"}</span>
+                                                                <span className="text-xs text-[#86888F] dark:text-[#B0B2B8]">{isZh ? "可面试时间" : "Available time"}</span>
                                                                 <NativeSelect
                                                                     value={scheduleForm.availability_slot_id}
                                                                     onChange={(event) => applyScheduleAvailabilitySlot(event.target.value)}
@@ -6397,20 +6690,20 @@ export function CandidatesPage({
                                                                 </NativeSelect>
                                                             </label>
                                                             <div className="relative space-y-1 md:col-span-2">
-                                                                <span className="text-xs text-slate-500 dark:text-slate-400"><span className="mr-0.5 text-rose-500">*</span>{isZh ? "日期时间" : "Date and time"}</span>
+                                                                <span className="text-xs text-[#86888F] dark:text-[#B0B2B8]"><span className="mr-0.5 text-[#F53F3F]">*</span>{isZh ? "日期时间" : "Date and time"}</span>
                                                                 <div className="grid grid-cols-1 items-start gap-2 md:grid-cols-[minmax(0,1fr)_132px_auto_152px]">
                                                                     <div className="min-w-0">
                                                                         <button
                                                                             type="button"
                                                                             onClick={() => setScheduleDatePickerOpen((open) => !open)}
                                                                             className={cn(
-                                                                                "flex h-10 w-full min-w-0 items-center justify-between gap-2 rounded-md border border-slate-200 bg-white px-3 text-left text-sm outline-none transition hover:border-slate-300 focus:border-[#171717] dark:border-slate-700 dark:bg-slate-950 dark:hover:border-slate-600 dark:focus:border-slate-500",
-                                                                                scheduleDatePart ? "text-slate-800 dark:text-slate-100" : "text-slate-400 dark:text-slate-500",
+                                                                                "flex h-10 w-full min-w-0 items-center justify-between gap-2 rounded-md border border-[#E6E7EB] bg-white px-3 text-left text-sm outline-none transition hover:border-[#D6D8DD] focus:border-[#1E3BFA] dark:border-[#33353D] dark:bg-[#0E1114] dark:hover:border-[#5E5F66] dark:focus:border-[#86888F]",
+                                                                                scheduleDatePart ? "text-[#33353D] dark:text-[#F7F8FA]" : "text-[#B0B2B8] dark:text-[#86888F]",
                                                                                 scheduleFormErrors.scheduled_date && scheduleRequiredErrorClass,
                                                                             )}
                                                                         >
                                                                             <span className="min-w-0 truncate">{formatDateDisplay(scheduleDatePart, isZh)}</span>
-                                                                            <CalendarClock className="h-3.5 w-3.5 shrink-0 text-slate-300 dark:text-slate-500"/>
+                                                                            <CalendarClock className="h-3.5 w-3.5 shrink-0 text-[#D6D8DD] dark:text-[#86888F]"/>
                                                                         </button>
                                                                         {renderScheduleFormError("scheduled_date")}
                                                                     </div>
@@ -6442,7 +6735,7 @@ export function CandidatesPage({
                                                                         />
                                                                         {renderScheduleFormError("scheduled_start_time")}
                                                                     </div>
-                                                                    <span className="hidden pt-2 text-sm text-slate-300 dark:text-slate-600 md:block">~</span>
+                                                                    <span className="hidden pt-2 text-sm text-[#D6D8DD] dark:text-[#33353D] md:block">~</span>
                                                                     <div className="min-w-0">
                                                                         <ScheduleTimeSelect
                                                                             value={scheduleEndTimePart}
@@ -6473,12 +6766,12 @@ export function CandidatesPage({
                                                                     </div>
                                                                 </div>
                                                                 {scheduleDatePickerOpen ? (
-                                                                    <div className="absolute left-0 top-[66px] z-30 w-[360px] rounded-xl border border-slate-200 bg-white p-3 shadow-xl dark:border-slate-700 dark:bg-slate-950">
+                                                                    <div className="absolute left-0 top-[66px] z-30 w-[360px] rounded-[8px] border border-[#E6E7EB] bg-white p-3 shadow-xl dark:border-[#33353D] dark:bg-[#0E1114]">
                                                                         <div className="mb-2 flex items-center justify-between">
-                                                                            <span className="text-xs font-medium text-slate-500 dark:text-slate-400">{isZh ? "选择面试日期" : "Select date"}</span>
+                                                                            <span className="text-xs font-medium text-[#86888F] dark:text-[#B0B2B8]">{isZh ? "选择面试日期" : "Select date"}</span>
                                                                             <button
                                                                                 type="button"
-                                                                                className="text-xs text-[#171717] dark:text-slate-100"
+                                                                                className="text-xs text-[#0E1114] dark:text-[#F7F8FA]"
                                                                                 onClick={() => {
                                                                                     clearScheduleFormError("scheduled_date");
                                                                                     clearScheduleFormError("scheduled_start_time");
@@ -6519,16 +6812,16 @@ export function CandidatesPage({
                                                                                             setScheduleDatePickerOpen(false);
                                                                                         }}
                                                                                         className={cn(
-                                                                                            "flex h-10 flex-col items-center justify-center rounded-lg text-xs transition",
+                                                                                            "flex h-10 flex-col items-center justify-center rounded-[6px] text-xs transition",
                                                                                             active
-                                                                                                ? "bg-[#171717] text-white shadow-sm dark:bg-slate-100 dark:text-slate-900"
+                                                                                                ? "bg-[#1E3BFA] text-white shadow-sm dark:bg-[#F2F3F5] dark:text-[#0E1114]"
                                                                                                 : isToday
-                                                                                                    ? "bg-neutral-100 text-[#171717] ring-1 ring-neutral-200 dark:bg-slate-800 dark:text-slate-100 dark:ring-slate-700"
-                                                                                                    : "text-slate-600 hover:bg-neutral-100 hover:text-[#171717] dark:text-slate-300 dark:hover:bg-slate-900 dark:hover:text-slate-100",
+                                                                                                    ? "bg-[#F7F8FA] text-[#0E1114] ring-1 ring-[#E6E7EB] dark:bg-[#202226] dark:text-[#F7F8FA] dark:ring-[#33353D]"
+                                                                                                    : "text-[#33353D] hover:bg-[#F7F8FA] hover:text-[#0E1114] dark:text-[#D6D8DD] dark:hover:bg-[#16181B] dark:hover:text-[#F7F8FA]",
                                                                                         )}
                                                                                     >
                                                                                         <span>{parsed ? parsed.getDate() : date.slice(-2)}</span>
-                                                                                        <span className={cn("mt-0.5 text-[10px]", active ? "text-white/80" : isToday ? "text-neutral-400" : "text-slate-300")}>
+                                                                                        <span className={cn("mt-0.5 text-[10px]", active ? "text-white/80" : isToday ? "text-[#B0B2B8]" : "text-[#D6D8DD]")}>
                                                                                             {parsed ? new Intl.DateTimeFormat(isZh ? "zh-CN" : "en-US", {weekday: "short"}).format(parsed) : ""}
                                                                                         </span>
                                                                                     </button>
@@ -6537,7 +6830,7 @@ export function CandidatesPage({
                                                                         </div>
                                                                     </div>
                                                                 ) : null}
-                                                                <p className="text-[11px] text-slate-400 dark:text-slate-500">
+                                                                <p className="text-[11px] text-[#B0B2B8] dark:text-[#86888F]">
                                                                     {scheduleStartTimePart
                                                                         ? (isZh ? `当前时长 ${formatDurationText(effectiveScheduleDurationMinutes, isZh)}` : `Duration ${formatDurationText(effectiveScheduleDurationMinutes, isZh)}`)
                                                                         : (isZh ? "先选日期和开始时间，再选择结束时间。" : "Select date and start time, then end time.")}
@@ -6545,8 +6838,8 @@ export function CandidatesPage({
                                                             </div>
                                                             {scheduleForm.interview_method === "onsite" ? (
                                                                 <>
-                                                                    <Input value={scheduleForm.location} onChange={(e) => setScheduleForm((f) => ({...f, location: e.target.value}))} placeholder={isZh ? "面试地点" : "Interview location"}/>
-                                                                    <Input value={scheduleForm.meeting_room} onChange={(e) => setScheduleForm((f) => ({...f, meeting_room: e.target.value}))} placeholder={isZh ? "会议室" : "Meeting room"}/>
+                                                                    <Input className={CANDIDATE_DETAIL_INPUT_CLASS} value={scheduleForm.location} onChange={(e) => setScheduleForm((f) => ({...f, location: e.target.value}))} placeholder={isZh ? "面试地点" : "Interview location"}/>
+                                                                    <Input className={CANDIDATE_DETAIL_INPUT_CLASS} value={scheduleForm.meeting_room} onChange={(e) => setScheduleForm((f) => ({...f, meeting_room: e.target.value}))} placeholder={isZh ? "会议室" : "Meeting room"}/>
                                                                 </>
                                                             ) : null}
                                                             {scheduleForm.interview_method === "video" ? (
@@ -6556,18 +6849,18 @@ export function CandidatesPage({
                                                                             <option key={tool} value={tool}>{tool}</option>
                                                                         ))}
                                                                     </NativeSelect>
-                                                                    <Input value={scheduleForm.meeting_link} onChange={(e) => setScheduleForm((f) => ({...f, meeting_link: e.target.value}))} placeholder={isZh ? "会议链接/会议号" : "Meeting link / ID"}/>
+                                                                    <Input className={CANDIDATE_DETAIL_INPUT_CLASS} value={scheduleForm.meeting_link} onChange={(e) => setScheduleForm((f) => ({...f, meeting_link: e.target.value}))} placeholder={isZh ? "会议链接/会议号" : "Meeting link / ID"}/>
                                                                 </>
                                                             ) : null}
                                                             {scheduleForm.interview_method === "phone" ? (
-                                                                <Input className="md:col-span-2" value={scheduleForm.contact_phone} onChange={(e) => setScheduleForm((f) => ({...f, contact_phone: e.target.value}))} placeholder={isZh ? "联系电话" : "Contact phone"}/>
+                                                                <Input className={cn(CANDIDATE_DETAIL_INPUT_CLASS, "md:col-span-2")} value={scheduleForm.contact_phone} onChange={(e) => setScheduleForm((f) => ({...f, contact_phone: e.target.value}))} placeholder={isZh ? "联系电话" : "Contact phone"}/>
                                                             ) : null}
                                                             <div className="md:col-span-2 grid gap-2 sm:grid-cols-2">
                                                                 {INTERVIEW_VISIBLE_SECTION_OPTIONS.map((option) => (
-                                                                    <label key={option.value} className="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300">
+                                                                    <label key={option.value} className="flex items-center gap-2 rounded-md border border-[#E6E7EB] bg-white px-3 py-2 text-sm text-[#33353D] dark:border-[#202226] dark:bg-[#0E1114] dark:text-[#D6D8DD]">
                                                                         <input
                                                                             type="checkbox"
-                                                                            className="accent-[#171717] dark:accent-slate-100"
+                                                                            className="accent-[#1E3BFA]"
                                                                             checked={scheduleForm.visible_sections.includes(option.value)}
                                                                             onChange={() => setScheduleForm((current) => ({
                                                                                 ...current,
@@ -6582,18 +6875,18 @@ export function CandidatesPage({
                                                             </div>
                                                         </div>
                                                         {scheduleForm.interviewer_user_code && !scheduleAvailabilityLoading && scheduleAvailabilitySlots.length === 0 ? (
-                                                            <p className="text-xs text-amber-600">
+                                                            <p className="text-xs text-[#D48806]">
                                                                 {isZh ? "该面试官近 14 天暂无可面试时间，可以手动填写时间；保存时系统仍会校验冲突。" : "No available slots in the next 14 days. You can fill the time manually; conflicts are still checked."}
                                                             </p>
                                                         ) : null}
-                                                        <Textarea value={scheduleForm.notes} onChange={(e) => setScheduleForm((f) => ({...f, notes: e.target.value}))} rows={2} placeholder={tr.scheduleNotes}/>
+                                                        <Textarea className={CANDIDATE_DETAIL_TEXTAREA_CLASS} value={scheduleForm.notes} onChange={(e) => setScheduleForm((f) => ({...f, notes: e.target.value}))} rows={2} placeholder={tr.scheduleNotes}/>
                                                         <div className="flex justify-end gap-2">
-                                                            <Button size="sm" variant="outline" onClick={() => {
+                                                            <Button size="sm" variant="outline" className={CANDIDATE_DETAIL_OUTLINE_BUTTON_CLASS} onClick={() => {
                                                                 setScheduleFormErrors({});
                                                                 setScheduleDatePickerOpen(false);
                                                                 setScheduleFormOpen(false);
                                                             }}>{tr.batchBindPositionCancel}</Button>
-                                                            <Button size="sm" disabled={scheduleSubmitting} onClick={async () => {
+                                                            <Button size="sm" className={CANDIDATE_DETAIL_PRIMARY_BUTTON_CLASS} disabled={scheduleSubmitting} onClick={async () => {
                                                                 const nextErrors: Partial<Record<CandidateScheduleFormErrorKey, string>> = {};
                                                                 if (!scheduleForm.subject.trim()) {
                                                                     nextErrors.subject = scheduleRequiredText;
@@ -6673,54 +6966,54 @@ export function CandidatesPage({
                                                                         : (schedule.location || "--");
                                                                 return (
                                                                     <div key={schedule.id} className="relative pb-7">
-                                                                        {!isLast ? <span className="absolute -left-[19px] top-5 bottom-0 w-px bg-sky-200 dark:bg-sky-900/70"/> : null}
-                                                                        <span className="absolute -left-[26px] top-1 flex h-4 w-4 items-center justify-center rounded-full bg-sky-500 ring-4 ring-sky-50 dark:bg-sky-400 dark:ring-sky-950">
+                                                                        {!isLast ? <span className="absolute -left-[19px] top-5 bottom-0 w-px bg-[rgba(30,59,250,0.22)]"/> : null}
+                                                                        <span className="absolute -left-[26px] top-1 flex h-4 w-4 items-center justify-center rounded-full bg-[#1E3BFA] ring-4 ring-[rgba(30,59,250,0.08)]">
                                                                             <span className="h-1.5 w-1.5 rounded-full bg-white"/>
                                                                         </span>
-                                                                        <p className="mb-2 text-[15px] font-semibold text-slate-900 dark:text-slate-100">
+                                                                        <p className="mb-2 text-[15px] font-semibold text-[#0E1114] dark:text-[#F7F8FA]">
                                                                             {schedule.round_name || (isZh ? "面试" : "Interview")}
                                                                         </p>
-                                                                        <div className="overflow-hidden rounded-[6px] border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
-                                                                            <div className="bg-slate-50 px-4 py-3 dark:bg-slate-900/60">
+                                                                        <div className="overflow-hidden rounded-[6px] border border-[#E6E7EB] bg-white dark:border-[#202226] dark:bg-[#0E1114]">
+                                                                            <div className="bg-[#F7F8FA] px-4 py-3 dark:bg-[#16181B]/60">
                                                                                 <div className="flex flex-wrap items-start justify-between gap-3">
                                                                                     <div className="min-w-0">
                                                                                         <div className="flex flex-wrap items-center gap-2">
-                                                                                            <p className="text-[16px] font-semibold text-slate-900 dark:text-slate-100">
+                                                                                            <p className="text-[16px] font-semibold text-[#0E1114] dark:text-[#F7F8FA]">
                                                                                                 {formatInterviewDateWithWeekday(schedule.scheduled_at, isZh)} - {formatInterviewTimeRange(schedule)}
                                                                                             </p>
-                                                                                            <Badge variant="outline" className="h-6 gap-1 rounded-[3px] border-slate-200 bg-white px-2 text-[12px] text-slate-600 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300">
+                                                                                            <Badge variant="outline" className="h-6 gap-1 rounded-[3px] border-[#E6E7EB] bg-white px-2 text-[12px] text-[#33353D] dark:border-[#33353D] dark:bg-[#0E1114] dark:text-[#D6D8DD]">
                                                                                                 <MethodIcon className="h-3.5 w-3.5"/>
                                                                                                 {interviewMethodLabel(schedule.interview_method, isZh)}
                                                                                             </Badge>
                                                                                             {schedule.subject ? (
-                                                                                                <span className="max-w-[320px] truncate text-[12px] text-slate-400 dark:text-slate-500">{schedule.subject}</span>
+                                                                                                <span className="max-w-[320px] truncate text-[12px] text-[#B0B2B8] dark:text-[#86888F]">{schedule.subject}</span>
                                                                                             ) : null}
                                                                                         </div>
-                                                                                        <div className="mt-3 grid gap-x-10 gap-y-2 text-[13px] text-slate-600 dark:text-slate-300 md:grid-cols-2">
-                                                                                            <div><span className="mr-2 text-slate-400 dark:text-slate-500">{isZh ? "安排人" : "Creator"}</span>{schedule.created_by || "--"}</div>
-                                                                                            <div><span className="mr-2 text-slate-400 dark:text-slate-500">{isZh ? "面试地点" : "Location"}</span>{locationText}</div>
-                                                                                            <div><span className="mr-2 text-slate-400 dark:text-slate-500">{isZh ? "安排时间" : "Created"}</span>{formatInterviewDateTime(schedule.created_at, isZh)}</div>
+                                                                                        <div className="mt-3 grid gap-x-10 gap-y-2 text-[13px] text-[#33353D] dark:text-[#D6D8DD] md:grid-cols-2">
+                                                                                            <div><span className="mr-2 text-[#B0B2B8] dark:text-[#86888F]">{isZh ? "安排人" : "Creator"}</span>{schedule.created_by || "--"}</div>
+                                                                                            <div><span className="mr-2 text-[#B0B2B8] dark:text-[#86888F]">{isZh ? "面试地点" : "Location"}</span>{locationText}</div>
+                                                                                            <div><span className="mr-2 text-[#B0B2B8] dark:text-[#86888F]">{isZh ? "安排时间" : "Created"}</span>{formatInterviewDateTime(schedule.created_at, isZh)}</div>
                                                                                             {method === "video" ? (
                                                                                                 <div className="min-w-0">
-                                                                                                    <span className="mr-2 text-slate-400 dark:text-slate-500">{isZh ? "视频工具" : "Video tool"}</span>
+                                                                                                    <span className="mr-2 text-[#B0B2B8] dark:text-[#86888F]">{isZh ? "视频工具" : "Video tool"}</span>
                                                                                                     <span>{schedule.video_tool || "--"}</span>
                                                                                                     {meetingLink ? (
                                                                                                         <>
-                                                                                                            <span className="mx-1.5 text-slate-300">|</span>
+                                                                                                            <span className="mx-1.5 text-[#D6D8DD]">|</span>
                                                                                                             {meetingHref ? (
-                                                                                                                <a className="font-medium text-[#2438ff] hover:underline" href={meetingHref} target="_blank" rel="noreferrer">{isZh ? "查看链接" : "Open link"}</a>
+                                                                                                                <a className="font-medium text-[#0F23D9] hover:underline" href={meetingHref} target="_blank" rel="noreferrer">{isZh ? "查看链接" : "Open link"}</a>
                                                                                                             ) : (
-                                                                                                                <span className="break-all text-[#2438ff]">{meetingLink}</span>
+                                                                                                                <span className="break-all text-[#0F23D9]">{meetingLink}</span>
                                                                                                             )}
                                                                                                         </>
                                                                                                     ) : null}
                                                                                                 </div>
                                                                                             ) : null}
                                                                                             {method === "phone" ? (
-                                                                                                <div><span className="mr-2 text-slate-400 dark:text-slate-500">{isZh ? "联系电话" : "Phone"}</span>{schedule.contact_phone || "--"}</div>
+                                                                                                <div><span className="mr-2 text-[#B0B2B8] dark:text-[#86888F]">{isZh ? "联系电话" : "Phone"}</span>{schedule.contact_phone || "--"}</div>
                                                                                             ) : null}
                                                                                             {method === "onsite" && schedule.meeting_room ? (
-                                                                                                <div><span className="mr-2 text-slate-400 dark:text-slate-500">{isZh ? "会议室" : "Room"}</span>{schedule.meeting_room}</div>
+                                                                                                <div><span className="mr-2 text-[#B0B2B8] dark:text-[#86888F]">{isZh ? "会议室" : "Room"}</span>{schedule.meeting_room}</div>
                                                                                             ) : null}
                                                                                         </div>
                                                                                     </div>
@@ -6728,19 +7021,24 @@ export function CandidatesPage({
                                                                                         <Badge variant="outline" className={cn("h-7 rounded-[3px] px-2.5 text-[12px]", interviewScheduleStatusClass(schedule))}>
                                                                                             {interviewScheduleStatusLabel(schedule, isZh)}
                                                                                         </Badge>
-                                                                                        <Button size="sm" variant="outline" className="h-8 rounded-[4px] px-2.5 text-[12px]" onClick={() => { if (window.confirm(tr.confirmDeleteSchedule)) void deleteInterviewSchedule(schedule.id); }}>
+                                                                                        {permissions.manageInterview ? <Button
+                                                                                            size="sm"
+                                                                                            variant="outline"
+                                                                                            className="h-8 rounded-[4px] border-[#E6E7EB] bg-white px-2.5 text-[12px] text-[#F53F3F] shadow-none hover:border-[#F53F3F] hover:bg-[rgba(245,63,63,0.06)] hover:text-[#F53F3F]"
+                                                                                            onClick={() => setNestedDeleteTarget({kind: "interview", id: schedule.id, title: schedule.subject || schedule.round_name || (isZh ? "当前面试安排" : "Current interview")})}
+                                                                                        >
                                                                                             <Trash2 className="h-3.5 w-3.5"/>
                                                                                             {isZh ? "删除" : "Delete"}
-                                                                                        </Button>
+                                                                                        </Button> : null}
                                                                                     </div>
                                                                                 </div>
                                                                             </div>
                                                                             <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
-                                                                                <div className="min-w-0 text-[14px] text-slate-700 dark:text-slate-300">
-                                                                                    <span className="font-medium text-slate-900 dark:text-slate-100">{schedule.interviewer_name || schedule.interviewer_user_code || "--"}</span>
-                                                                                    {schedule.interviewer_user_code && schedule.interviewer_name ? <span className="ml-1 text-slate-400">({schedule.interviewer_user_code})</span> : null}
+                                                                                <div className="min-w-0 text-[14px] text-[#33353D] dark:text-[#D6D8DD]">
+                                                                                    <span className="font-medium text-[#0E1114] dark:text-[#F7F8FA]">{schedule.interviewer_name || schedule.interviewer_user_code || "--"}</span>
+                                                                                    {schedule.interviewer_user_code && schedule.interviewer_name ? <span className="ml-1 text-[#B0B2B8]">({schedule.interviewer_user_code})</span> : null}
                                                                                 </div>
-                                                                                {schedule.notes ? <p className="min-w-0 flex-1 truncate text-right text-[13px] text-slate-400 dark:text-slate-500">{schedule.notes}</p> : null}
+                                                                                {schedule.notes ? <p className="min-w-0 flex-1 truncate text-right text-[13px] text-[#B0B2B8] dark:text-[#86888F]">{schedule.notes}</p> : null}
                                                                             </div>
                                                                         </div>
                                                                     </div>
@@ -6757,11 +7055,11 @@ export function CandidatesPage({
                                     </div>
                                 </div>
                             </section>
-                            <aside className={cn("hidden min-h-0 overflow-y-auto bg-[#f4f7fb] px-4 py-4 dark:bg-slate-900/60 lg:block", SMOOTH_VERTICAL_SCROLLBAR_CLASS)}>
+                            <aside className={cn("hidden min-h-0 overflow-y-auto bg-[#F7F8FA] px-4 py-4 dark:bg-[#16181B]/60 md:block", SMOOTH_VERTICAL_SCROLLBAR_CLASS)}>
                                 <div className="space-y-3">
                                     {isDepartmentReviewDecisionMode ? (
                                         <>
-                                            <div className="rounded-[6px] bg-white px-5 py-5 dark:border dark:border-slate-800 dark:bg-slate-950">
+                                            <div className="rounded-[6px] bg-white px-5 py-5 dark:border dark:border-[#202226] dark:bg-[#0E1114]">
                                                 <div className="flex items-center justify-between">
                                                     {candidateDetailFlowSteps.map((step, index) => {
                                                         const isActive = index === candidateDetailFlowIndex;
@@ -6770,22 +7068,22 @@ export function CandidatesPage({
                                                             <React.Fragment key={step.status}>
                                                                 <span className={cn(
                                                                     "flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[12px] font-semibold",
-                                                                    isActive || isDone ? "bg-[#171717] text-white dark:bg-slate-100 dark:text-slate-950" : "bg-slate-300 text-white dark:bg-slate-700 dark:text-slate-300",
+                                                                    isActive || isDone ? "bg-[#1E3BFA] text-white dark:bg-[#F2F3F5] dark:text-[#0E1114]" : "bg-[#D6D8DD] text-white dark:bg-[#33353D] dark:text-[#D6D8DD]",
                                                                 )}>
                                                                     {index + 1}
                                                                 </span>
                                                                 {index < candidateDetailFlowSteps.length - 1 ? (
-                                                                    <span className={cn("h-px flex-1 border-t border-dashed", index < candidateDetailFlowIndex ? "border-[#171717] dark:border-slate-100" : "border-slate-300 dark:border-slate-700")}/>
+                                                                    <span className={cn("h-px flex-1 border-t border-dashed", index < candidateDetailFlowIndex ? "border-[#1E3BFA] dark:border-[#F2F3F5]" : "border-[#D6D8DD] dark:border-[#33353D]")}/>
                                                                 ) : null}
                                                             </React.Fragment>
                                                         );
                                                     })}
                                                 </div>
                                                 <div className="mt-3">
-                                                    <p className="text-[15px] font-medium text-slate-900 dark:text-slate-100">
+                                                    <p className="text-[15px] font-medium text-[#0E1114] dark:text-[#F7F8FA]">
                                                         {isZh ? "部门评审" : "Department Review"}
                                                     </p>
-                                                    <p className="mt-1 text-[13px] text-slate-500 dark:text-slate-400">
+                                                    <p className="mt-1 text-[13px] text-[#86888F] dark:text-[#B0B2B8]">
                                                         {departmentReviewDecisionContext?.reviewerName
                                                             ? (isZh ? `评审人：${departmentReviewDecisionContext.reviewerName}` : `Reviewer: ${departmentReviewDecisionContext.reviewerName}`)
                                                             : labelForCandidateStatus(candidateDetailDisplayStatus)}
@@ -6810,29 +7108,29 @@ export function CandidatesPage({
                                                     </RailActionButton>
                                                 </div>
                                             </div>
-                                            <div className="rounded-[6px] bg-white px-5 py-4 dark:border dark:border-slate-800 dark:bg-slate-950">
-                                                <div className="flex items-center gap-5 border-b border-slate-100 dark:border-slate-800">
-                                                    <button type="button" className="relative h-9 text-[15px] font-semibold text-[#171717] dark:text-slate-100">
+                                            <div className="rounded-[6px] bg-white px-5 py-4 dark:border dark:border-[#202226] dark:bg-[#0E1114]">
+                                                <div className="flex items-center gap-5 border-b border-[#F2F3F5] dark:border-[#202226]">
+                                                    <div className="relative flex h-9 items-center text-[15px] font-semibold text-[#0E1114] dark:text-[#F7F8FA]">
                                                         {isZh ? "备注" : "Notes"}
-                                                        <span className="absolute inset-x-0 bottom-0 h-0.5 bg-[#171717] dark:bg-slate-100"/>
-                                                    </button>
+                                                        <span className="absolute inset-x-0 bottom-0 h-0.5 bg-[#1E3BFA] dark:bg-[#F2F3F5]"/>
+                                                    </div>
                                                 </div>
                                                 <Textarea
                                                     value={departmentReviewDecisionComment}
                                                     onChange={(event) => setDepartmentReviewDecisionComment(event.target.value)}
                                                     rows={6}
                                                     maxLength={1000}
-                                                    className="mt-4 resize-none rounded-[4px] border-slate-200 text-[14px] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500"
+                                                    className="mt-4 resize-none rounded-[4px] border-[#E6E7EB] text-[14px] dark:border-[#33353D] dark:bg-[#16181B] dark:text-[#F7F8FA] dark:placeholder:text-[#86888F]"
                                                     placeholder={isZh ? "填写评审意见，点击通过或淘汰时会一并提交" : "Add review comments. They will be submitted with Pass or Reject."}
                                                 />
-                                                <div className="mt-3 flex items-center justify-end text-[13px] text-slate-500 dark:text-slate-400">
+                                                <div className="mt-3 flex items-center justify-end text-[13px] text-[#86888F] dark:text-[#B0B2B8]">
                                                     <span>{departmentReviewDecisionComment.length}/1000</span>
                                                 </div>
                                             </div>
                                         </>
                                     ) : (
                                         <>
-                                    <div className="rounded-[6px] bg-white px-5 py-5 dark:border dark:border-slate-800 dark:bg-slate-950">
+                                    <div className="rounded-[6px] bg-white px-5 py-5 dark:border dark:border-[#202226] dark:bg-[#0E1114]">
                                         <div className="flex items-center justify-between">
                                             {candidateDetailFlowSteps.map((step, index) => {
                                                 const isActive = index === candidateDetailFlowIndex;
@@ -6841,26 +7139,27 @@ export function CandidatesPage({
                                                     <React.Fragment key={step.status}>
                                                         <span className={cn(
                                                             "flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[12px] font-semibold",
-                                                            isActive || isDone ? "bg-[#171717] text-white dark:bg-slate-100 dark:text-slate-950" : "bg-slate-300 text-white dark:bg-slate-700 dark:text-slate-300",
+                                                            isActive || isDone ? "bg-[#1E3BFA] text-white dark:bg-[#F2F3F5] dark:text-[#0E1114]" : "bg-[#D6D8DD] text-white dark:bg-[#33353D] dark:text-[#D6D8DD]",
                                                         )}>
                                                             {index + 1}
                                                         </span>
                                                         {index < candidateDetailFlowSteps.length - 1 ? (
-                                                            <span className={cn("h-px flex-1 border-t border-dashed", index < candidateDetailFlowIndex ? "border-[#171717] dark:border-slate-100" : "border-slate-300 dark:border-slate-700")}/>
+                                                            <span className={cn("h-px flex-1 border-t border-dashed", index < candidateDetailFlowIndex ? "border-[#1E3BFA] dark:border-[#F2F3F5]" : "border-[#D6D8DD] dark:border-[#33353D]")}/>
                                                         ) : null}
                                                     </React.Fragment>
                                                 );
                                             })}
                                         </div>
                                         <div className="mt-3">
-                                            <p className="text-[15px] font-medium text-slate-900 dark:text-slate-100">
+                                            <p className="text-[15px] font-medium text-[#0E1114] dark:text-[#F7F8FA]">
                                                 {candidateDetailFlowSteps[candidateDetailFlowIndex]?.label || labelForCandidateStatus(candidateDetailDisplayStatus)}
                                             </p>
-                                            <p className="mt-1 text-[13px] text-slate-500 dark:text-slate-400">
+                                            <p className="mt-1 text-[13px] text-[#86888F] dark:text-[#B0B2B8]">
                                                 {labelForCandidateStatus(candidateDetailDisplayStatus)}
                                             </p>
                                         </div>
                                         <div className="mt-5 grid gap-2">
+                                            {permissions.executeProcess ? (
                                             <RailActionButton
                                                 tone="primary"
                                                 onClick={() => void handleCandidateDetailScreeningAction()}
@@ -6869,64 +7168,66 @@ export function CandidatesPage({
                                                 {screeningSubmitting || candidateDetailScreeningLive ? <Loader2 className="mr-1 h-4 w-4 animate-spin"/> : <Sparkles className="mr-1 h-4 w-4"/>}
                                                 {candidateDetailScreeningActionLabel}
                                             </RailActionButton>
-                                            <RailActionButton tone="success" onClick={() => void updateCandidateStatus("screening_passed")}>
+                                            ) : null}
+                                            {permissions.manageCandidate ? <>
+                                            <RailActionButton tone="success" onClick={() => setPendingStatus("screening_passed")}>
                                                 {isZh ? "通过" : "Pass"}
                                             </RailActionButton>
-                                            <RailActionButton tone="warning" onClick={() => void updateCandidateStatus("pending_screening")}>
+                                            <RailActionButton tone="warning" onClick={() => setPendingStatus("pending_screening")}>
                                                 {isZh ? "待定" : "Pending"}
                                             </RailActionButton>
-                                            <RailActionButton tone="danger" onClick={() => void updateCandidateStatus("screening_rejected")}>
+                                            <RailActionButton tone="danger" onClick={() => setPendingStatus("screening_rejected")}>
                                                 {isZh ? "淘汰" : "Reject"}
                                             </RailActionButton>
+                                            </> : null}
                                         </div>
                                         <div className="mt-2 grid grid-cols-2 gap-2">
-                                            <RailActionButton
-                                                onClick={openDepartmentReviewDialog}
-                                                disabled={!createDepartmentReview}
-                                            >
-                                                {isZh ? "提交部门评审" : "Submit Review"}
-                                            </RailActionButton>
-                                            <RailActionButton onClick={openCandidatePositionDialog}>
+                                            {permissions.manageReview ? (
+                                                <RailActionButton
+                                                    onClick={openDepartmentReviewDialog}
+                                                    disabled={!createDepartmentReview}
+                                                >
+                                                    {isZh ? "提交部门评审" : "Submit Review"}
+                                                </RailActionButton>
+                                            ) : null}
+                                            {permissions.manageCandidate ? <RailActionButton onClick={openCandidatePositionDialog}>
                                                 {isZh ? "转移" : "Transfer"}
+                                            </RailActionButton> : null}
+                                            <RailActionButton disabled>
+                                                {isZh ? "笔试待接入" : "Assessment Pending"}
                                             </RailActionButton>
-                                            <RailActionButton onClick={() => setCandidateDetailPanel("exam")}>
-                                                {isZh ? "邀请测评" : "Assessment"}
-                                            </RailActionButton>
-                                            <RailActionButton onClick={() => openResumeMailDialog([candidateDetail.candidate.id])}>
+                                            {permissions.sendMail ? <RailActionButton onClick={() => openResumeMailDialog([candidateDetail.candidate.id])}>
                                                 {isZh ? "邀请更新简历" : "Update Resume"}
-                                            </RailActionButton>
-                                            <RailActionButton onClick={openCandidatePositionDialog}>
+                                            </RailActionButton> : null}
+                                            {permissions.manageCandidate ? <RailActionButton onClick={openCandidatePositionDialog}>
                                                 {isZh ? "推荐到职位" : "Recommend"}
-                                            </RailActionButton>
-                                            <RailActionButton onClick={() => openResumeMailDialog([candidateDetail.candidate.id])}>
+                                            </RailActionButton> : null}
+                                            {permissions.sendMail ? <RailActionButton onClick={() => openResumeMailDialog([candidateDetail.candidate.id])}>
                                                 {isZh ? "转发简历" : "Forward Resume"}
-                                            </RailActionButton>
-                                            <RailActionButton onClick={() => void updateCandidateStatus("talent_pool")}>
+                                            </RailActionButton> : null}
+                                            {permissions.manageCandidate && permissions.viewTalentPool ? <RailActionButton onClick={() => setPendingStatus("talent_pool")}>
                                                 {isZh ? "储备至人才库" : "Talent Pool"}
-                                            </RailActionButton>
+                                            </RailActionButton> : null}
                                             <RailActionButton disabled>
                                                 {isZh ? "加入黑名单" : "Blacklist"}
                                             </RailActionButton>
-                                            <RailActionButton tone="danger" onClick={() => requestDeleteCandidate(candidateDetail.candidate)}>
+                                            {permissions.manageCandidate ? <RailActionButton tone="danger" onClick={() => requestDeleteCandidate(candidateDetail.candidate)}>
                                                 {isZh ? "删除" : "Delete"}
-                                            </RailActionButton>
+                                            </RailActionButton> : null}
                                             <RailActionButton disabled>
                                                 {isZh ? "加入人才地图" : "Talent Map"}
                                             </RailActionButton>
-                                            <RailActionButton onClick={() => void generateInterviewQuestions()} disabled={isCurrentInterviewTaskCancelling}>
+                                            {permissions.manageInterview && permissions.executeProcess ? <RailActionButton onClick={() => void generateInterviewQuestions()} disabled={isCurrentInterviewTaskCancelling}>
                                                 {isCurrentInterviewTaskCancelling ? tr.stopping : currentCandidateInterviewTaskId ? tr.stopGeneration : tr.interviewQuestions}
-                                            </RailActionButton>
+                                            </RailActionButton> : null}
                                         </div>
-                                        <button type="button" className="mt-4 w-full text-center text-[13px] font-medium text-[#171717] dark:text-slate-200">
-                                            {isZh ? "操作设置" : "Action Settings"}
-                                        </button>
                                     </div>
                                     {shouldShowCurrentScreeningTask ? (
-                                        <div className="rounded-[6px] bg-white px-5 py-4 dark:border dark:border-slate-800 dark:bg-slate-950">
+                                        <div className="rounded-[6px] bg-white px-5 py-4 dark:border dark:border-[#202226] dark:bg-[#0E1114]">
                                             <div className="flex items-center justify-between gap-2">
-                                                <p className="text-[15px] font-semibold text-slate-900 dark:text-slate-100">{tr.currentScreeningTask}</p>
+                                                <p className="text-[15px] font-semibold text-[#0E1114] dark:text-[#F7F8FA]">{tr.currentScreeningTask}</p>
                                                 {currentScreeningTaskStatus ? (
-                                                    <Badge className={cn("rounded-[3px] border", statusBadgeClass("task", currentScreeningTaskStatus))}>
+                                                    <Badge className={cn("rounded-[3px] border", prototypeStatusBadgeClass(currentScreeningTaskStatus))}>
                                                         {labelForTaskExecutionStatus(currentScreeningTaskStatus)}
                                                     </Badge>
                                                 ) : null}
@@ -6944,32 +7245,32 @@ export function CandidatesPage({
                                                     autoRetry,
                                                 );
                                                 const primary = displayReason || logMsg || tr.taskRunning;
-                                                return <p className="mt-2 text-[13px] leading-6 text-slate-500 dark:text-slate-400">{primary}</p>;
+                                                return <p className="mt-2 text-[13px] leading-6 text-[#86888F] dark:text-[#B0B2B8]">{primary}</p>;
                                             })()}
                                         </div>
                                     ) : null}
-                                    <div className="rounded-[6px] bg-white px-5 py-4 dark:border dark:border-slate-800 dark:bg-slate-950">
-                                        <div className="flex items-center gap-5 border-b border-slate-100 dark:border-slate-800">
+                                    <div className="rounded-[6px] bg-white px-5 py-4 dark:border dark:border-[#202226] dark:bg-[#0E1114]">
+                                        <div className="flex items-center gap-5 border-b border-[#F2F3F5] dark:border-[#202226]">
                                             <button
                                                 type="button"
                                                 onClick={() => setCandidateDetailSideRailTab("note")}
                                                 className={cn(
                                                     "relative h-9 text-[15px] transition",
                                                     candidateDetailSideRailTab === "note"
-                                                        ? "font-semibold text-[#171717] dark:text-slate-100"
-                                                        : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200",
+                                                        ? "font-semibold text-[#0E1114] dark:text-[#F7F8FA]"
+                                                        : "text-[#33353D] hover:text-[#0E1114] dark:text-[#B0B2B8] dark:hover:text-[#E6E7EB]",
                                                 )}
                                             >
                                                 {isZh ? "备注" : "Notes"}
-                                                {candidateDetailSideRailTab === "note" ? <span className="absolute inset-x-0 bottom-0 h-0.5 bg-[#171717] dark:bg-slate-100"/> : null}
+                                                {candidateDetailSideRailTab === "note" ? <span className="absolute inset-x-0 bottom-0 h-0.5 bg-[#1E3BFA] dark:bg-[#F2F3F5]"/> : null}
                                             </button>
                                             <button
                                                 type="button"
                                                 className={cn(
                                                     "relative h-9 text-[15px] transition",
                                                     candidateDetailSideRailTab === "followups"
-                                                        ? "font-semibold text-[#171717] dark:text-slate-100"
-                                                        : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200",
+                                                        ? "font-semibold text-[#0E1114] dark:text-[#F7F8FA]"
+                                                        : "text-[#33353D] hover:text-[#0E1114] dark:text-[#B0B2B8] dark:hover:text-[#E6E7EB]",
                                                 )}
                                                 onClick={() => {
                                                     setCandidateDetailSideRailTab("followups");
@@ -6977,27 +7278,27 @@ export function CandidatesPage({
                                                 }}
                                             >
                                                 {isZh ? "我的跟进" : "Follow-ups"}
-                                                {candidateDetailSideRailTab === "followups" ? <span className="absolute inset-x-0 bottom-0 h-0.5 bg-[#171717] dark:bg-slate-100"/> : null}
+                                                {candidateDetailSideRailTab === "followups" ? <span className="absolute inset-x-0 bottom-0 h-0.5 bg-[#1E3BFA] dark:bg-[#F2F3F5]"/> : null}
                                             </button>
                                         </div>
                                         {candidateDetailSideRailTab === "note" ? (
                                             <>
                                                 <Textarea
-                                                    value={statusUpdateReason}
-                                                    onChange={(event) => setStatusUpdateReason(event.target.value)}
+                                                    value={candidateNoteDraft}
+                                                    onChange={(event) => setCandidateNoteDraft(event.target.value)}
                                                     rows={5}
                                                     maxLength={1000}
-                                                    className="mt-4 resize-none rounded-[4px] border-slate-200 text-[14px] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500"
+                                                    className="mt-4 resize-none rounded-[4px] border-[#E6E7EB] text-[14px] dark:border-[#33353D] dark:bg-[#16181B] dark:text-[#F7F8FA] dark:placeholder:text-[#86888F]"
                                                     placeholder={isZh ? "填写候选人备注，保存后会进入跟进记录" : "Add a candidate note. It will be saved to follow-ups."}
                                                 />
-                                                <div className="mt-3 flex items-center justify-between gap-2 text-[13px] text-slate-500 dark:text-slate-400">
+                                                <div className="mt-3 flex items-center justify-between gap-2 text-[13px] text-[#86888F] dark:text-[#B0B2B8]">
                                                     <span>@ {isZh ? "同事" : "Colleague"}</span>
-                                                    <span>{statusUpdateReason.length}/1000</span>
+                                                    <span>{candidateNoteDraft.length}/1000</span>
                                                     <Button
                                                         size="sm"
-                                                        className="h-7 rounded-[4px] bg-[#6c7cff] px-3 text-[13px] text-white hover:bg-[#5264f6]"
+                                                        className="h-7 rounded-[4px] bg-[#1E3BFA] px-3 text-[13px] text-white hover:bg-[#0F23D9]"
                                                         onClick={() => void saveCandidateDetailNote()}
-                                                        disabled={candidateDetailNoteSubmitting || !statusUpdateReason.trim()}
+                                                        disabled={candidateDetailNoteSubmitting || !candidateNoteDraft.trim()}
                                                     >
                                                         {candidateDetailNoteSubmitting ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin"/> : null}
                                                         {isZh ? "确定" : "Confirm"}
@@ -7016,19 +7317,19 @@ export function CandidatesPage({
                                                             other: tr.followUpTypeOther,
                                                         };
                                                         return (
-                                                            <div key={followUp.id} className="rounded-[6px] border border-slate-100 bg-slate-50 px-3 py-2 dark:border-slate-800 dark:bg-slate-900">
+                                                            <div key={followUp.id} className="rounded-[6px] border border-[#F2F3F5] bg-[#F7F8FA] px-3 py-2 dark:border-[#202226] dark:bg-[#16181B]">
                                                                 <div className="flex items-center justify-between gap-2">
-                                                                    <span className="text-[12px] font-medium text-[#171717] dark:text-slate-100">
+                                                                    <span className="text-[12px] font-medium text-[#0E1114] dark:text-[#F7F8FA]">
                                                                         {typeLabels[followUp.follow_up_type] || followUp.follow_up_type}
                                                                     </span>
-                                                                    {followUp.created_at ? <span className="shrink-0 text-[12px] text-slate-400 dark:text-slate-500">{formatDateTime(followUp.created_at)}</span> : null}
+                                                                    {followUp.created_at ? <span className="shrink-0 text-[12px] text-[#B0B2B8] dark:text-[#86888F]">{formatDateTime(followUp.created_at)}</span> : null}
                                                                 </div>
-                                                                <p className="mt-1 line-clamp-3 whitespace-pre-wrap text-[13px] leading-5 text-slate-600 dark:text-slate-300">{followUp.content}</p>
+                                                                <p className="mt-1 line-clamp-3 whitespace-pre-wrap text-[13px] leading-5 text-[#33353D] dark:text-[#D6D8DD]">{followUp.content}</p>
                                                             </div>
                                                         );
                                                     })
                                                 ) : (
-                                                    <div className="rounded-[6px] border border-dashed border-slate-200 px-3 py-5 text-center text-[13px] text-slate-400 dark:border-slate-800 dark:text-slate-500">
+                                                    <div className="rounded-[6px] border border-dashed border-[#E6E7EB] px-3 py-5 text-center text-[13px] text-[#B0B2B8] dark:border-[#202226] dark:text-[#86888F]">
                                                         {isZh ? "暂无跟进记录" : "No follow-ups yet"}
                                                     </div>
                                                 )}
@@ -7041,65 +7342,34 @@ export function CandidatesPage({
                             </aside>
                         </div>
                     ) : (
-                        <div className="flex h-full min-h-0 flex-1 flex-col">
-                            <div className="border-b border-slate-200/80 px-5 py-4 dark:border-slate-800">
-                                <div className="space-y-1.5">
-                                    <h3 className="text-lg font-semibold tracking-tight text-slate-900 dark:text-slate-100">{tr.candidateWorkspace}</h3>
-                                    <p className="text-xs text-slate-500 dark:text-slate-400">{tr.candidateWorkspaceDesc}</p>
-                                </div>
-                            </div>
-                            <div className={cn("min-h-0 flex-1 overflow-y-auto", SMOOTH_VERTICAL_SCROLLBAR_CLASS)}>
-                                <div className="space-y-5 px-5 py-5">
-                                    <div className="grid gap-3 md:grid-cols-2">
-                                        {candidateOverviewStats.map((item) => (
-                                            <InfoTile key={item.label} label={item.label} value={item.value}/>
-                                        ))}
-                                    </div>
-
-                                    <Field label={tr.recentCandidates}>
-                                        <div className="space-y-3">
-                                            {candidatesLoading || !candidatesInitialLoaded ? (
-                                                <div className="flex items-center justify-center py-8">
-                                                    <LoadingPanel label={tr.loadingCandidateList}/>
-                                                </div>
-                                            ) : recentVisibleCandidates.length ? recentVisibleCandidates.map((candidate) => (
-                                                <button
-                                                    key={candidate.id}
-                                                    type="button"
-                                                    className="flex w-full items-start justify-between rounded-2xl border border-slate-200/80 px-4 py-4 text-left transition hover:border-slate-400 dark:border-slate-800 dark:bg-slate-950/60 dark:hover:border-slate-700"
-                                                    onClick={() => setSelectedCandidateId(candidate.id)}
-                                                >
-                                                    <div className="min-w-0">
-                                                        <p className="font-medium text-slate-900 dark:text-slate-100">{candidate.name}</p>
-                                                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                                                            {candidate.position_title || tr.unassignedPosition} · {labelForCandidateStatus(resolveCandidateDisplayStatus(candidate))} · {tr.matchBadge} {formatPercent(resolveCandidateSummaryMatchPercent(candidate))}
-                                                        </p>
-                                                        {candidate.ai_potential_position ? (
-                                                            <p className="mt-1 text-xs text-violet-600 dark:text-violet-300">
-                                                                {`${isZh ? "转岗潜力" : "Potential Transition"}：${candidate.ai_potential_position}`}
-                                                            </p>
-                                                        ) : null}
-                                                    </div>
-                                                    <p className="shrink-0 text-xs text-slate-500 dark:text-slate-400">{formatDateTime(candidate.updated_at)}</p>
-                                                </button>
-                                            )) : (
-                                                <EmptyState title={tr.noCandidates} description={tr.noCandidatesDesc}/>
-                                            )}
-                                        </div>
-                                    </Field>
-
-                                    <Field label={tr.recommendedActions}>
-                                        <div className="grid gap-3 md:grid-cols-2">
-                                            <div className="rounded-2xl border border-slate-200/80 bg-slate-50/70 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/60">
-                                                <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{tr.continueFiltering}</p>
-                                                <p className="mt-1 text-xs leading-6 text-slate-500 dark:text-slate-400">{tr.continueFilteringDesc}</p>
-                                            </div>
-                                            <div className="rounded-2xl border border-slate-200/80 bg-slate-50/70 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/60">
-                                                <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{tr.batchHandleResults}</p>
-                                                <p className="mt-1 text-xs leading-6 text-slate-500 dark:text-slate-400">{tr.batchHandleResultsDesc}</p>
-                                            </div>
-                                        </div>
-                                    </Field>
+                        <div className="flex h-full min-h-0 items-center justify-center bg-white px-8 py-10">
+                            <div className="max-w-[420px] text-center">
+                                <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-[8px] bg-[#F2F3F5] text-[#86888F]">
+                                    <Users className="h-5 w-5"/>
+                                </span>
+                                <h3 className="mt-4 text-[16px] font-semibold text-[#0E1114]">
+                                    {isZh ? "候选人详情加载失败" : "Candidate details unavailable"}
+                                </h3>
+                                <p className="mt-2 text-[13px] leading-6 text-[#86888F]">
+                                    {isZh ? "当前候选人可能已被删除、超出权限范围，或详情请求暂时失败。" : "The candidate may have been removed, be outside your access scope, or failed to load."}
+                                </p>
+                                <div className="mt-5 flex items-center justify-center gap-3">
+                                    <Button
+                                        variant="outline"
+                                        className="h-[34px] rounded-[6px] border-[#E6E7EB] bg-white px-[18px] text-[13px] text-[#33353D] shadow-none hover:border-[#1E3BFA] hover:bg-[#F7F8FA] hover:text-[#1E3BFA]"
+                                        onClick={() => setSelectedCandidateId(null)}
+                                    >
+                                        {tr.cancel}
+                                    </Button>
+                                    {selectedCandidateId && onRefreshCandidateDetail ? (
+                                        <Button
+                                            className="h-[34px] rounded-[6px] bg-[#1E3BFA] px-[18px] text-[13px] text-white shadow-none hover:bg-[#0F23D9]"
+                                            onClick={() => void onRefreshCandidateDetail(selectedCandidateId)}
+                                        >
+                                            <RotateCcw className="h-4 w-4"/>
+                                            {tr.refresh}
+                                        </Button>
+                                    ) : null}
                                 </div>
                             </div>
                         </div>
@@ -7108,50 +7378,50 @@ export function CandidatesPage({
                 </Dialog>
                 </div>
             <Dialog open={departmentReviewDialogOpen} onOpenChange={setDepartmentReviewDialogOpen}>
-                <DialogContent className="border-slate-200 bg-white text-slate-900 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100 sm:max-w-2xl">
-                    <DialogHeader>
+                <DialogContent aria-describedby={undefined} className={cn(candidateDialogClassName, "sm:max-w-[640px]")}>
+                    <DialogHeader className={candidateDialogHeaderClassName}>
                         <DialogTitle>{isZh ? "提交部门评审" : "Submit Department Review"}</DialogTitle>
                     </DialogHeader>
-                    <div className="space-y-4 py-2">
-                        <div className="rounded-md border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-900/60">
-                            <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                    <div className={candidateDialogBodyClassName}>
+                        <div className="rounded-[6px] bg-[#F7F8FA] px-4 py-3">
+                            <p className="text-[13px] font-medium text-[#0E1114]">
                                 {candidateDetail?.candidate.name || (isZh ? "当前候选人" : "Current candidate")}
                             </p>
-                            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                            <p className="mt-1 text-[11px] text-[#86888F]">
                                 {candidateDetail?.candidate.position_title || candidateDetail?.candidate.screened_position_title || (isZh ? "未分配岗位" : "Unassigned")}
                             </p>
                         </div>
                         <div className="space-y-1.5">
-                            <p className="text-sm font-medium text-slate-700 dark:text-slate-300">{isZh ? "评审人" : "Reviewers"}</p>
+                            <p className="text-[12px] font-medium text-[#33353D]">{isZh ? "评审人" : "Reviewers"}</p>
                             <Popover modal open={departmentReviewReviewerPickerOpen} onOpenChange={setDepartmentReviewReviewerPickerOpen}>
                                 <PopoverTrigger asChild>
                                     <button
                                         type="button"
-                                        className="flex min-h-10 w-full items-center justify-between rounded-md border border-slate-200 bg-white px-3 py-2 text-left text-sm text-slate-700 transition hover:border-[#D4D4D4] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:border-slate-600"
+                                        className="flex min-h-[34px] w-full items-center justify-between rounded-[4px] border border-[#E6E7EB] bg-white px-3 py-2 text-left text-[12px] text-[#33353D] transition hover:border-[#1E3BFA]"
                                     >
-                                        <span className={cn("truncate", selectedDepartmentReviewers.length ? "text-slate-900 dark:text-slate-100" : "text-slate-400 dark:text-slate-500")}>
+                                        <span className={cn("truncate", selectedDepartmentReviewers.length ? "text-[#0E1114] dark:text-[#F7F8FA]" : "text-[#B0B2B8] dark:text-[#86888F]")}>
                                             {selectedDepartmentReviewers.length
                                                 ? (isZh ? `已选择 ${selectedDepartmentReviewers.length} 位评审人` : `${selectedDepartmentReviewers.length} reviewers selected`)
                                                 : (isZh ? "请选择用人部门评审人" : "Select hiring reviewers")}
                                         </span>
-                                        <ChevronDown className="h-4 w-4 shrink-0 text-slate-400 dark:text-slate-500"/>
+                                        <ChevronDown className="h-4 w-4 shrink-0 text-[#B0B2B8] dark:text-[#86888F]"/>
                                     </button>
                                 </PopoverTrigger>
-                                <PopoverContent align="start" className="z-[10050] w-[var(--radix-popover-trigger-width)] border-slate-200 bg-white p-0 dark:border-slate-800 dark:bg-slate-950">
-                                    <div className="border-b border-slate-100 p-2 dark:border-slate-800">
+                                <PopoverContent align="start" className="z-[10050] w-[var(--radix-popover-trigger-width)] rounded-[6px] border-[#EBEEF5] bg-white p-0 shadow-[0_8px_24px_rgba(14,17,20,0.12)]">
+                                    <div className="border-b border-[#F2F3F5] p-2">
                                         <div className="relative">
-                                            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"/>
+                                            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#B0B2B8]"/>
                                             <Input
                                                 value={departmentReviewReviewerQuery}
                                                 onChange={(event) => setDepartmentReviewReviewerQuery(event.target.value)}
-                                                className="h-8 rounded-md pl-8 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500"
+                                                className="h-8 rounded-[4px] border-[#E6E7EB] pl-8 text-[12px] shadow-none placeholder:text-[#B0B2B8] focus-visible:border-[#1E3BFA] focus-visible:ring-1 focus-visible:ring-[#1E3BFA]"
                                                 placeholder={isZh ? "搜索姓名或账号" : "Search name or account"}
                                             />
                                         </div>
                                     </div>
                                     <div className={cn("max-h-64 overflow-y-auto p-1", SMOOTH_VERTICAL_SCROLLBAR_CLASS)}>
                                         {departmentReviewReviewerLoading ? (
-                                            <div className="flex items-center justify-center px-3 py-6 text-sm text-slate-500 dark:text-slate-400">
+                                            <div className="flex items-center justify-center px-3 py-6 text-sm text-[#86888F] dark:text-[#B0B2B8]">
                                                 <Loader2 className="mr-2 h-4 w-4 animate-spin"/>
                                                 {isZh ? "正在加载评审人..." : "Loading reviewers..."}
                                             </div>
@@ -7170,25 +7440,25 @@ export function CandidatesPage({
                                                             event.stopPropagation();
                                                         }}
                                                         className={cn(
-                                                            "flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm transition",
-                                                            selected ? "bg-[#F5F5F5] text-[#171717] dark:bg-slate-800 dark:text-slate-100" : "text-slate-700 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-900",
+                                                            "flex w-full items-center gap-3 rounded-[4px] px-3 py-2 text-left text-[12px] transition",
+                                                            selected ? "bg-[rgba(30,59,250,0.08)] text-[#1E3BFA]" : "text-[#33353D] hover:bg-[#F8F8F9]",
                                                         )}
                                                     >
                                                         <span className={cn(
                                                             "flex h-4 w-4 shrink-0 items-center justify-center rounded border",
-                                                            selected ? "border-[#171717] bg-[#171717] text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-950" : "border-slate-300 bg-white dark:border-slate-600 dark:bg-slate-900",
+                                                            selected ? "border-[#1E3BFA] bg-[#1E3BFA] text-white" : "border-[#D6D8DD] bg-white",
                                                         )}>
                                                             {selected ? <Check className="h-3 w-3"/> : null}
                                                         </span>
                                                         <span className="min-w-0 flex-1">
                                                             <span className="block truncate font-medium">{displayName}</span>
-                                                            <span className="block truncate text-xs text-slate-400 dark:text-slate-500">{reviewer.user_code} · {reviewer.primary_org_code || "-"}</span>
+                                                            <span className="block truncate text-xs text-[#B0B2B8] dark:text-[#86888F]">{reviewer.user_code} · {reviewer.primary_org_code || "-"}</span>
                                                         </span>
                                                     </button>
                                                 );
                                             })
                                         ) : (
-                                            <div className="px-3 py-6 text-center text-sm text-slate-500 dark:text-slate-400">
+                                            <div className="px-3 py-6 text-center text-sm text-[#86888F] dark:text-[#B0B2B8]">
                                                 {isZh ? "暂无可选评审人，请先给账号分配“用人部门评审”角色。" : "No reviewers. Assign the reviewer role first."}
                                             </div>
                                         )}
@@ -7204,7 +7474,7 @@ export function CandidatesPage({
                                                 key={userCode}
                                                 type="button"
                                                 onClick={() => toggleDepartmentReviewer(userCode)}
-                                                className="rounded-md border border-[#E5E5E5] bg-[#F5F5F5] px-2 py-1 text-xs text-[#171717] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                                                className="rounded-[4px] border border-[#E6E7EB] bg-[#F8F8F9] px-2 py-1 text-[12px] text-[#0E1114]"
                                                 title={isZh ? "点击移除" : "Click to remove"}
                                             >
                                                 {reviewer?.name || reviewer?.display_name || userCode}
@@ -7213,12 +7483,12 @@ export function CandidatesPage({
                                     })}
                                 </div>
                             ) : null}
-                            <p className="text-xs text-slate-500 dark:text-slate-400">
+                            <p className="text-[11px] text-[#B0B2B8]">
                                 {isZh ? "只显示已分配“用人部门评审”角色，或具备部门评审处理权限的账号。" : "Only users with reviewer permission are shown."}
                             </p>
                         </div>
                         <div className="space-y-2">
-                            <p className="text-sm font-medium text-slate-700 dark:text-slate-300">{isZh ? "可见内容" : "Visible content"}</p>
+                            <p className="text-[12px] font-medium text-[#33353D]">{isZh ? "可见内容" : "Visible content"}</p>
                             <div className="grid gap-2 sm:grid-cols-2">
                                 {[
                                     ["original_resume", isZh ? "原始简历" : "Original resume"],
@@ -7228,10 +7498,10 @@ export function CandidatesPage({
                                     ["interview_feedback", isZh ? "面试评价" : "Interview feedback"],
                                     ["attachments", isZh ? "附加资料" : "Attachments"],
                                 ].map(([value, label]) => (
-                                    <label key={value} className="flex items-center gap-2 rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-700 dark:border-slate-800 dark:bg-slate-900/50 dark:text-slate-300">
+                                    <label key={value} className={cn("flex cursor-pointer items-center gap-2 rounded-[6px] border px-3 py-2 text-[12px]", departmentReviewVisibleSections.includes(value) ? "border-[#1E3BFA] bg-[rgba(30,59,250,0.03)] text-[#0E1114]" : "border-[#EBEEF5] bg-white text-[#33353D]")}>
                                         <input
                                             type="checkbox"
-                                            className="accent-[#171717] dark:accent-slate-100"
+                                            className="accent-[#1E3BFA]"
                                             checked={departmentReviewVisibleSections.includes(value)}
                                             onChange={() => toggleDepartmentReviewSection(value)}
                                         />
@@ -7241,20 +7511,20 @@ export function CandidatesPage({
                             </div>
                         </div>
                         <div className="space-y-1.5">
-                            <p className="text-sm font-medium text-slate-700 dark:text-slate-300">{isZh ? "评审说明" : "Review note"}</p>
+                            <p className="text-[12px] font-medium text-[#33353D]">{isZh ? "评审说明" : "Review note"}</p>
                             <Textarea
                                 value={departmentReviewMessage}
                                 onChange={(event) => setDepartmentReviewMessage(event.target.value)}
                                 rows={3}
-                                className="dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500"
+                                className="rounded-[4px] border-[#E6E7EB] text-[12px] shadow-none placeholder:text-[#B0B2B8] focus-visible:border-[#1E3BFA] focus-visible:ring-1 focus-visible:ring-[#1E3BFA]"
                                 placeholder={isZh ? "例如：请重点评估硬件测试经验、项目复杂度和可面试方向" : "e.g. Please focus on relevant experience and interview direction"}
                             />
                         </div>
-                        <div className="flex justify-end gap-2">
-                            <Button variant="outline" onClick={() => setDepartmentReviewDialogOpen(false)}>
+                        <div className={candidateDialogFooterClassName}>
+                            <Button variant="outline" className={candidateDialogSecondaryButtonClassName} onClick={() => setDepartmentReviewDialogOpen(false)}>
                                 {tr.batchBindPositionCancel}
                             </Button>
-                            <Button disabled={departmentReviewSubmitting || selectedDepartmentReviewers.length === 0} onClick={() => void submitDepartmentReview()}>
+                            <Button className={candidateDialogPrimaryButtonClassName} disabled={departmentReviewSubmitting || selectedDepartmentReviewers.length === 0} onClick={() => void submitDepartmentReview()}>
                                 {departmentReviewSubmitting ? <Loader2 className="h-4 w-4 animate-spin"/> : null}
                                 {isZh ? "提交评审" : "Submit"}
                             </Button>
@@ -7271,15 +7541,15 @@ export function CandidatesPage({
                 generatedAt={latestResumeScoreLog?.created_at || candidateDetail?.score?.updated_at || candidateDetail?.score?.created_at}
             />
             <Dialog open={exportDialogOpen} onOpenChange={setExportDialogOpen}>
-                <DialogContent className="sm:max-w-xl">
-                    <DialogHeader>
+                <DialogContent aria-describedby={undefined} className={cn(candidateDialogClassName, "sm:max-w-[560px]")}>
+                    <DialogHeader className={candidateDialogHeaderClassName}>
                         <DialogTitle>{isZh ? "导出候选人" : "Export Candidates"}</DialogTitle>
                     </DialogHeader>
-                    <div className="space-y-4 py-2">
-                        <div className="rounded-xl border border-slate-200/80 bg-slate-50/80 px-4 py-3 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-300">
+                    <div className={candidateDialogBodyClassName}>
+                        <div className="rounded-[6px] bg-[#F7F8FA] px-4 py-3 text-[12px] text-[#33353D]">
                             {isZh ? `将导出 ${selectedCandidateIds.length} 位候选人，可自定义字段，并选择是否打包原始简历。` : `Export ${selectedCandidateIds.length} candidates with custom fields and optional resume files.`}
                         </div>
-                        <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+                        <label className="flex cursor-pointer items-center gap-2 text-[12px] text-[#33353D]">
                             <input
                                 type="checkbox"
                                 checked={exportIncludeResumes}
@@ -7289,10 +7559,11 @@ export function CandidatesPage({
                         </label>
                         <div className="space-y-2">
                             <div className="flex items-center justify-between">
-                                <p className="text-sm font-medium text-slate-700 dark:text-slate-300">{isZh ? "导出字段" : "Export Fields"}</p>
+                                <p className="text-[12px] font-medium text-[#33353D]">{isZh ? "导出字段" : "Export Fields"}</p>
                                 <Button
                                     size="sm"
                                     variant="outline"
+                                    className="h-[26px] rounded-[4px] border-[#E6E7EB] bg-white px-2.5 text-[12px] text-[#33353D] shadow-none hover:border-[#1E3BFA] hover:text-[#1E3BFA]"
                                     onClick={() => setExportFieldKeys(defaultExportFieldKeys)}
                                 >
                                     {isZh ? "恢复默认字段" : "Reset Defaults"}
@@ -7302,7 +7573,7 @@ export function CandidatesPage({
                                 {exportFieldOptions.map((field) => {
                                     const checked = exportFieldKeys.includes(field.key);
                                     return (
-                                        <label key={`export-field-${field.key}`} className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 dark:border-slate-800 dark:text-slate-300">
+                                        <label key={`export-field-${field.key}`} className={cn("flex cursor-pointer items-center gap-2 rounded-[6px] border px-3 py-2 text-[12px]", checked ? "border-[#1E3BFA] bg-[rgba(30,59,250,0.03)] text-[#0E1114]" : "border-[#EBEEF5] bg-white text-[#33353D]")}>
                                             <input
                                                 type="checkbox"
                                                 checked={checked}
@@ -7325,11 +7596,12 @@ export function CandidatesPage({
                                 })}
                             </div>
                         </div>
-                        <div className="flex justify-end gap-2">
-                            <Button variant="outline" onClick={() => setExportDialogOpen(false)}>
+                        <div className={candidateDialogFooterClassName}>
+                            <Button variant="outline" className={candidateDialogSecondaryButtonClassName} onClick={() => setExportDialogOpen(false)}>
                                 {tr.batchBindPositionCancel}
                             </Button>
                             <Button
+                                className={candidateDialogPrimaryButtonClassName}
                                 disabled={!exportFieldKeys.length || exporting}
                                 onClick={async () => {
                                     await exportCandidates(selectedCandidateIds, {
@@ -7347,22 +7619,23 @@ export function CandidatesPage({
                 </DialogContent>
             </Dialog>
             <Dialog open={batchBindDialogOpen} onOpenChange={setBatchBindDialogOpen}>
-                <DialogContent className="sm:max-w-md">
-                    <DialogHeader>
+                <DialogContent aria-describedby={undefined} className={cn(candidateDialogClassName, "sm:max-w-[460px]")}>
+                    <DialogHeader className={candidateDialogHeaderClassName}>
                         <DialogTitle>{tr.batchBindPositionTitle}</DialogTitle>
                     </DialogHeader>
-                    <div className="space-y-4 py-2">
-                        <NativeSelect value={batchBindPositionId} onChange={(event) => setBatchBindPositionId(event.target.value)}>
+                    <div className={candidateDialogBodyClassName}>
+                        <NativeSelect className="h-[34px] rounded-[4px] border-[#E6E7EB] bg-white text-[12px] shadow-none focus-visible:border-[#1E3BFA] focus-visible:ring-1 focus-visible:ring-[#1E3BFA]" value={batchBindPositionId} onChange={(event) => setBatchBindPositionId(event.target.value)}>
                             <option value="">{tr.unassignedPosition}</option>
                             {positions.map((p) => (
                                 <option key={p.id} value={String(p.id)}>{p.title}</option>
                             ))}
                         </NativeSelect>
-                        <div className="flex justify-end gap-2">
-                            <Button variant="outline" onClick={() => setBatchBindDialogOpen(false)}>
+                        <div className={candidateDialogFooterClassName}>
+                            <Button variant="outline" className={candidateDialogSecondaryButtonClassName} onClick={() => setBatchBindDialogOpen(false)}>
                                 {tr.batchBindPositionCancel}
                             </Button>
                             <Button
+                                className={candidateDialogPrimaryButtonClassName}
                                 disabled={batchBindSubmitting}
                                 onClick={async () => {
                                     setBatchBindSubmitting(true);
@@ -7382,14 +7655,14 @@ export function CandidatesPage({
                 </DialogContent>
             </Dialog>
             <Dialog open={batchStatusDialogOpen} onOpenChange={setBatchStatusDialogOpen}>
-                <DialogContent className="sm:max-w-md">
-                    <DialogHeader>
+                <DialogContent aria-describedby={undefined} className={cn(candidateDialogClassName, "sm:max-w-[480px]")}>
+                    <DialogHeader className={candidateDialogHeaderClassName}>
                         <DialogTitle>{tr.batchUpdateStatusTitle}</DialogTitle>
                     </DialogHeader>
-                    <div className="space-y-4 py-2">
+                    <div className={candidateDialogBodyClassName}>
                         <div className="space-y-1.5">
-                            <p className="text-sm font-medium text-slate-700 dark:text-slate-300">{tr.batchUpdateStatusLabel}</p>
-                            <NativeSelect value={batchStatusValue} onChange={(event) => setBatchStatusValue(event.target.value)}>
+                            <p className="text-[12px] font-medium text-[#33353D]">{tr.batchUpdateStatusLabel}</p>
+                            <NativeSelect className="h-[34px] rounded-[4px] border-[#E6E7EB] bg-white text-[12px] shadow-none focus-visible:border-[#1E3BFA] focus-visible:ring-1 focus-visible:ring-[#1E3BFA]" value={batchStatusValue} onChange={(event) => setBatchStatusValue(event.target.value)}>
                                 <option value="" disabled>{tr.batchUpdateStatusSelectPlaceholder}</option>
                                 {manualCandidateStatusOptions.map(([value, label]) => (
                                     <option key={value} value={value}>{label}</option>
@@ -7397,19 +7670,21 @@ export function CandidatesPage({
                             </NativeSelect>
                         </div>
                         <div className="space-y-1.5">
-                            <p className="text-sm font-medium text-slate-700 dark:text-slate-300">{tr.batchUpdateStatusReason}</p>
+                            <p className="text-[12px] font-medium text-[#33353D]">{tr.batchUpdateStatusReason}</p>
                             <Textarea
                                 value={batchStatusReason}
                                 onChange={(event) => setBatchStatusReason(event.target.value)}
                                 rows={3}
+                                className="rounded-[4px] border-[#E6E7EB] text-[12px] shadow-none placeholder:text-[#B0B2B8] focus-visible:border-[#1E3BFA] focus-visible:ring-1 focus-visible:ring-[#1E3BFA]"
                                 placeholder={tr.batchUpdateStatusReasonPlaceholder}
                             />
                         </div>
-                        <div className="flex justify-end gap-2">
-                            <Button variant="outline" onClick={() => setBatchStatusDialogOpen(false)}>
+                        <div className={candidateDialogFooterClassName}>
+                            <Button variant="outline" className={candidateDialogSecondaryButtonClassName} onClick={() => setBatchStatusDialogOpen(false)}>
                                 {tr.batchBindPositionCancel}
                             </Button>
                             <Button
+                                className={candidateDialogPrimaryButtonClassName}
                                 disabled={batchStatusSubmitting || !batchStatusValue}
                                 onClick={async () => {
                                     updateBatchStatusSubmitting(true);
@@ -7429,6 +7704,58 @@ export function CandidatesPage({
                 </DialogContent>
             </Dialog>
             <Dialog
+                open={Boolean(nestedDeleteTarget)}
+                onOpenChange={(open) => {
+                    if (!open && !nestedDeleteSubmitting) {
+                        setNestedDeleteTarget(null);
+                    }
+                }}
+            >
+                <DialogContent aria-describedby={undefined} className={cn(candidateDialogClassName, "sm:max-w-[420px]")}>
+                    <DialogHeader className={candidateDialogHeaderClassName}>
+                        <DialogTitle>
+                            {nestedDeleteTarget?.kind === "offer"
+                                ? (isZh ? "删除 Offer" : "Delete offer")
+                                : nestedDeleteTarget?.kind === "follow_up"
+                                    ? (isZh ? "删除跟进记录" : "Delete follow-up")
+                                    : (isZh ? "删除面试安排" : "Delete interview")}
+                        </DialogTitle>
+                    </DialogHeader>
+                    <div className={candidateDialogBodyClassName}>
+                        <div className="rounded-[6px] border border-[rgba(245,63,63,0.18)] bg-[rgba(245,63,63,0.05)] px-4 py-3">
+                            <p className="text-[13px] leading-5 text-[#33353D]">
+                                {nestedDeleteTarget?.kind === "offer"
+                                    ? tr.confirmDeleteOffer
+                                    : nestedDeleteTarget?.kind === "follow_up"
+                                        ? tr.confirmDeleteFollowUp
+                                        : tr.confirmDeleteSchedule}
+                            </p>
+                            {nestedDeleteTarget?.title ? (
+                                <p className="mt-1 truncate text-[12px] text-[#86888F]">{nestedDeleteTarget.title}</p>
+                            ) : null}
+                        </div>
+                        <div className={candidateDialogFooterClassName}>
+                            <Button
+                                variant="outline"
+                                className={candidateDialogSecondaryButtonClassName}
+                                disabled={nestedDeleteSubmitting}
+                                onClick={() => setNestedDeleteTarget(null)}
+                            >
+                                {tr.cancel}
+                            </Button>
+                            <Button
+                                className="h-[34px] rounded-[6px] bg-[#F53F3F] px-[18px] text-[13px] text-white shadow-none hover:bg-[#D9363E] disabled:bg-[#F53F3F] disabled:text-white disabled:opacity-50"
+                                disabled={nestedDeleteSubmitting}
+                                onClick={() => void confirmNestedDelete()}
+                            >
+                                {nestedDeleteSubmitting ? <Loader2 className="h-4 w-4 animate-spin"/> : <Trash2 className="h-4 w-4"/>}
+                                {isZh ? "确认删除" : "Delete"}
+                            </Button>
+                        </div>
+                    </div>
+                </DialogContent>
+            </Dialog>
+            <Dialog
                 open={Boolean(pendingStatusOption)}
                 onOpenChange={(open) => {
                     if (!open && !statusFlowSubmitting) {
@@ -7436,27 +7763,28 @@ export function CandidatesPage({
                     }
                 }}
             >
-                <DialogContent className="sm:max-w-sm">
-                    <DialogHeader>
+                <DialogContent aria-describedby={undefined} className={cn(candidateDialogClassName, "sm:max-w-[420px]")}>
+                    <DialogHeader className={candidateDialogHeaderClassName}>
                         <DialogTitle>
                             {pendingStatusOption ? tr.confirmStatusChange(pendingStatusOption[1]) : tr.statusFlow}
                         </DialogTitle>
                     </DialogHeader>
-                    <div className="space-y-3 py-2">
-                        <p className="text-sm text-slate-600 dark:text-slate-300">
+                    <div className={candidateDialogBodyClassName}>
+                        <p className="text-[13px] text-[#33353D]">
                             {candidateDetail
                                 ? tr.currentStatusLine(labelForCandidateStatus(resolveCandidateDisplayStatus(candidateDetail.candidate)))
                                 : null}
                         </p>
                         {statusUpdateReason.trim() ? (
-                            <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+                            <div className="rounded-[6px] border border-[#EBEEF5] bg-[#F7F8FA] px-3 py-2 text-[12px] text-[#33353D]">
                                 {statusUpdateReason.trim()}
                             </div>
                         ) : null}
-                        <div className="flex justify-end gap-2 pt-1">
+                        <div className={candidateDialogFooterClassName}>
                             <Button
                                 size="sm"
                                 variant="outline"
+                                className={candidateDialogSecondaryButtonClassName}
                                 onClick={() => setPendingStatus(null)}
                                 disabled={Boolean(statusFlowSubmitting)}
                             >
@@ -7464,6 +7792,7 @@ export function CandidatesPage({
                             </Button>
                             <Button
                                 size="sm"
+                                className={candidateDialogPrimaryButtonClassName}
                                 onClick={() => {
                                     if (pendingStatusOption) void handleStatusFlowUpdate(pendingStatusOption[0]);
                                 }}

@@ -433,6 +433,10 @@ def test_data_scope_enforces_lists_and_detail_endpoints(permission_app):
 
     self_candidates = _data(client.get("/recruitment/candidates", headers=_headers(permission_app, "self_user")))
     assert _candidate_names(self_candidates) == {"Company A Self Candidate"}
+    self_candidate_items = self_candidates["items"]
+    assert len(self_candidate_items) == 1
+    assert self_candidate_items[0]["created_by"] == "self-user"
+    assert "updated_by" in self_candidate_items[0]
     assert client.get(f"/recruitment/candidates/{resources['candidates']['company-a']}", headers=_headers(permission_app, "self_user")).status_code == 403
 
     cross_positions = _data(client.get("/recruitment/positions", headers=_headers(permission_app, "cross_admin")))

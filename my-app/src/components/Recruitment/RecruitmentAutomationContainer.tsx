@@ -203,7 +203,6 @@ import {
     LoadingPanel,
     NativeSelect,
     SearchField,
-    SettingsEntry,
 } from "./components/SharedComponents";
 import {
     BOSS_EDUCATION_OPTIONS,
@@ -1875,15 +1874,6 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         || canExecuteProcess
         || canViewLog
     );
-    const canManageSharing = Boolean(perms["resource-sharing-manage"]);
-    const canManageRBAC = Boolean(perms["rbac-manage"]);
-    // Derived: show settings button if any view/manage permission for config pages exists
-    const canManageRecruitment = Boolean(
-        canViewSkill || canManageSkill
-        || canViewMail || canManageMailConfig
-        || canViewLLMConfig || canManageLLMConfig
-        || canManageSharing || canManageRBAC,
-    );
     const recruitmentUiText = useMemo(() => ({
         loadingWorkspace: isZh ? "正在加载招聘工作台..." : "Loading recruiting workspace...",
         back: isZh ? "返回" : "Back",
@@ -2508,7 +2498,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const candidateMatchSortRequestTokenRef = useRef(0);
     const candidatePositionFilterRef = useRef<string[]>(candidatePositionFilter);
     candidatePositionFilterRef.current = candidatePositionFilter;
-    const [candidateViewMode, setCandidateViewMode] = useState<CandidateViewMode>("list");
+    const [candidateViewMode] = useState<CandidateViewMode>("list");
     const [candidateListColumnWidths, setCandidateListColumnWidths] = useState<Record<CandidateListColumnKey, number>>(
         candidateListColumnDefaultWidths,
     );
@@ -2665,7 +2655,6 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
 
     const [chatInput, setChatInput] = useState("");
     const [assistantDisplayMode, setAssistantDisplayMode] = useState<AssistantDisplayMode>("drawer");
-    const [settingsPopoverOpen, setSettingsPopoverOpen] = useState(false);
     const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
         {
             id: "intro",
@@ -3344,11 +3333,13 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     }, [aiLogs, logStatusFilter, logTaskTypeFilter]);
 
     const groupedCandidates = useMemo(() => {
-        const order = metadata?.candidate_statuses?.map((item) => item.value) || Object.keys(candidateStatusLabels);
+        const configuredOrder = metadata?.candidate_statuses?.map((item) => item.value) || Object.keys(candidateStatusLabels);
+        const displayStatuses = visibleCandidates.map((candidate) => resolveCandidateDisplayStatus(candidate));
+        const order = Array.from(new Set([...configuredOrder, ...displayStatuses]));
         return order.map((status) => ({
             status,
             label: labelForCandidateStatus(status),
-            items: visibleCandidates.filter((candidate) => candidate.status === status),
+            items: visibleCandidates.filter((candidate) => resolveCandidateDisplayStatus(candidate) === status),
         }));
     }, [language, metadata, visibleCandidates]);
 
@@ -3675,10 +3666,6 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         canViewMail,
         canManageMailConfig,
     ]);
-
-    useEffect(() => {
-        setSettingsPopoverOpen(false);
-    }, [activePage]);
 
     // 进入人才库页面时加载默认待处理列表；上传后的识别中入口只生效一次。
     useEffect(() => {
@@ -5521,7 +5508,6 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     }
 
     function renderCandidateListHeaderCell(key: CandidateListColumnKey, label: string) {
-        const width = candidateListDisplayColumnWidths[key];
         const isMatchColumn = key === "match";
         const nextMatchSortOrder = (
             candidateMatchSortOrder === ""
@@ -5534,10 +5520,9 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             <div
                 role="columnheader"
                 key={key}
-                style={{width, minWidth: width, maxWidth: width}}
-                className="flex h-10 items-center px-2 text-left font-medium whitespace-nowrap"
+                className="flex h-10 w-full min-w-0 items-center px-2 text-left font-medium whitespace-nowrap"
             >
-                <div className="group relative flex items-center gap-2 pr-3">
+                <div className="relative flex min-w-0 items-center gap-2">
                     {isMatchColumn ? (
                         <button
                             type="button"
@@ -5572,14 +5557,6 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                     ) : (
                         <span className="truncate">{label}</span>
                     )}
-                    <button
-                        type="button"
-                        className="absolute -right-2 top-1/2 h-7 w-3 -translate-y-1/2 cursor-col-resize rounded-full border border-transparent bg-transparent opacity-0 transition hover:border-slate-300 hover:bg-slate-100/90 group-hover:opacity-100 dark:hover:border-slate-600 dark:hover:bg-slate-800/90"
-                        onMouseDown={(event) => beginCandidateColumnResize(key, event)}
-                        onDoubleClick={(event) => resetCandidateColumnWidth(key, event)}
-                        aria-label={isZh ? `调整${label}列宽` : `Resize ${label} column`}
-                        title={isZh ? `拖拽调整${label}列宽，双击恢复默认` : `Drag to resize the ${label} column and double-click to reset`}
-                    />
                 </div>
             </div>
         );
@@ -5981,24 +5958,6 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 setCandidatesLoading(false);
             }
         }
-    }
-
-    async function refreshCandidatesManually() {
-        await Promise.all([
-            loadCandidates({
-                force: true,
-                useVisibleFilters: true,
-                pageIndex: candidatePageIndexRef.current,
-                pageSize: candidatePageSizeRef.current,
-            }),
-            refreshCandidateStats(),
-        ]);
-        scrollCandidateListToTop();
-        toast.success(
-            isZh
-                ? "已刷新当前候选人页"
-                : "Refreshed the current candidate page.",
-        );
     }
 
     async function refreshActiveCandidateList(options?: { silent?: boolean }) {
@@ -6619,11 +6578,6 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         } catch {
             // loadLogs already reports the error toast
         }
-    }
-
-    function navigateToSettingsPage(page: Extract<RecruitmentPage, "settings-skills" | "settings-models" | "settings-mail">) {
-        setSettingsPopoverOpen(false);
-        navigateToRecruitmentPage(page);
     }
 
     function openTaskLogDetail(logId?: number | null) {
@@ -7669,8 +7623,10 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     }
 
     const handlePositionCandidateSelect = useCallback((candidateId: number) => {
+        candidatePageTargetCandidateIdRef.current = candidateId;
         setCandidateDetailReviewContext(null);
         setSelectedCandidateId(candidateId);
+        navigateToRecruitmentPage("candidates");
     }, []);
 
     const handleTalentPoolCandidateSelect = useCallback((candidateId: number) => {
@@ -9021,9 +8977,10 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         const allItems: ResumeUploadResponse["items"] = [];
         let batchIndex = 0;
         let completedFiles = 0;
+        const activeBatchProgressFiles = new Map<number, number>();
 
         // 使用 XMLHttpRequest 获取真实的上传进度（字节级）
-        function uploadBatchWithProgress(formData: FormData, signal: AbortSignal): Promise<ResumeUploadResponse> {
+        function uploadBatchWithProgress(formData: FormData, signal: AbortSignal, currentBatchIndex: number, currentBatchSize: number): Promise<ResumeUploadResponse> {
             return new Promise((resolve, reject) => {
                 const xhr = new XMLHttpRequest();
                 const authHeaders = getScriptHubAuthHeaderRecord();
@@ -9034,10 +8991,11 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
 
                 xhr.upload.onprogress = (e) => {
                     if (e.lengthComputable && batches.length > 0) {
-                        // 计算全局进度：已完成批次 + 当批次上传比例
+                        // 计算全局进度：已完成文件 + 所有并发批次的字节级进度。
                         const batchProgress = e.loaded / e.total; // 0~1
-                        const currentBatchSize = batches[batchIndex - 1]?.length ?? 0;
-                        const globalCompleted = completedFiles + batchProgress * currentBatchSize;
+                        activeBatchProgressFiles.set(currentBatchIndex, batchProgress * currentBatchSize);
+                        const activeProgressFiles = Array.from(activeBatchProgressFiles.values()).reduce((sum, value) => sum + value, 0);
+                        const globalCompleted = completedFiles + activeProgressFiles;
                         const pct = Math.max(1, Math.min(99, Math.round(globalCompleted / total * 100)));
                         setUploadProgress(pct);
                         setUploadCompletedCount(Math.floor(globalCompleted));
@@ -9094,7 +9052,12 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 const batch = batches[idx];
                 const formData = new FormData();
                 batch.forEach((f) => formData.append("files", f));
-                const uploaded = await uploadBatchWithProgress(formData, abortControllerRef.current!.signal);
+                let uploaded: ResumeUploadResponse;
+                try {
+                    uploaded = await uploadBatchWithProgress(formData, abortControllerRef.current!.signal, idx, batch.length);
+                } finally {
+                    activeBatchProgressFiles.delete(idx);
+                }
                 uploadedCount += uploaded.uploaded_count;
                 skippedDuplicateCount += uploaded.skipped_duplicate_count
                     ?? uploaded.items.filter((item) => item.skipped_duplicate).length;
@@ -9256,356 +9219,503 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         }
     }
 
-    const handleResumeFileChange = React.useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    const selectResumeUploadFiles = React.useCallback((files: FileList | null) => {
+        if (!files?.length) {
+            setResumeUploadFileList(null);
+            return;
+        }
+        const unsupportedFile = Array.from(files).find((file) => {
+            const fileName = file.name.trim().toLowerCase();
+            return !fileName.endsWith(".pdf") && !fileName.endsWith(".docx");
+        });
+        if (unsupportedFile) {
+            setResumeUploadFileList(null);
+            setResumeUploadError(isZh
+                ? `不支持文件「${unsupportedFile.name}」，简历仅支持 PDF 和 DOCX 格式。`
+                : `Unsupported file "${unsupportedFile.name}". Resumes must be PDF or DOCX files.`);
+            if (fileInputRef.current) fileInputRef.current.value = "";
+            return;
+        }
         setResumeUploadError(null);
-        setResumeUploadFileList(event.target.files);
-    }, []);
+        setResumeUploadFileList(files);
+    }, [isZh]);
 
-    const resumeUploadDialogBody = React.useMemo(() => (
-        <DialogContent className="flex max-h-[88vh] flex-col overflow-hidden rounded-[8px] border-[#EBEEF5] shadow-[0_8px_24px_rgba(14,17,20,0.16)] sm:max-w-[600px]">
-            <DialogHeader>
-                <DialogTitle>{recruitmentUiText.uploadResumeTitle}</DialogTitle>
-                <DialogDescription>{recruitmentUiText.resumeUploadDescription}</DialogDescription>
-            </DialogHeader>
-            <ScrollArea className="min-h-0 flex-1">
-                <div className="space-y-4 px-1 py-1">
-                    {/* 上传模式选择 */}
-                <Field label={isZh ? "上传模式" : "Upload Mode"}>
-                    <NativeSelect
-                        value={resumeUploadMode}
-                        onChange={(event) => setResumeUploadMode(event.target.value as typeof resumeUploadMode)}
-                    >
-                        <option value="smart">{isZh ? "AI 智能匹配 - 自动识别简历匹配的岗位" : "AI Smart Match - Auto match resumes to positions"}</option>
-                        <option value="position">{isZh ? "指定岗位 - 手动选择简历归属的岗位" : "Assign Position - Manually select position"}</option>
-                        <option value="none">{isZh ? "暂不选择岗位 - 简历仅归入组织，后续手动分配" : "No Position - Add to organization only"}</option>
-                    </NativeSelect>
-                </Field>
+    const handleResumeFileChange = React.useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+        selectResumeUploadFiles(event.target.files);
+    }, [selectResumeUploadFiles]);
 
-                {/* 指定岗位模式：显示岗位选择 */}
-                {resumeUploadMode === "position" ? (
-                    <Field label={recruitmentUiText.linkPosition}>
-                        <NativeSelect
-                            value={resumeUploadPositionId}
-                            onChange={(event) => setResumeUploadPositionId(event.target.value)}
-                            disabled={positionsLoading}
-                        >
-                            <option value="">{positionsLoading ? recruitmentUiText.loading : isZh ? "请选择岗位" : "Select position"}</option>
-                            {positions.map((position) => (
-                                <option key={position.id} value={position.id}>{position.title}</option>
-                            ))}
-                        </NativeSelect>
-                    </Field>
-                ) : null}
+    const resetResumeUploadDraft = React.useCallback(() => {
+        setResumeUploadFileList(null);
+        setResumeUploadMode("smart");
+        setResumeUploadPositionId("");
+        setResumeUploadOrgCode(currentResumeUploadDefaultOrgCode);
+        setResumeUploadCity("");
+        setResumeUploadCitySource("auto");
+        setResumeUploadSource("manual");
+        setResumeUploadDuplicateStrategy("skip");
+        setShowAdvancedOptions(false);
+        setIsDraggingFile(false);
+        setUploadProgress(0);
+        setUploadCompletedCount(0);
+        setResumeUploadError(null);
+        if (fileInputRef.current) fileInputRef.current.value = "";
+    }, [currentResumeUploadDefaultOrgCode]);
 
-                {/* 智能匹配模式：显示说明 */}
-                {resumeUploadMode === "smart" ? (
-                    <div className="rounded-[6px] bg-[#1E3BFA]/5 px-3 py-2.5 text-xs leading-5 text-[#33353D] dark:bg-blue-950/30 dark:text-blue-100">
-                        {isZh
-                            ? "系统将分析每份简历内容，自动匹配到最合适的岗位。无法匹配的简历将归入人才库，您可稍后手动分配。"
-                            : "The system will analyze each resume and match it to the best-fitting position. Unmatched resumes will be added to the talent pool for manual assignment later."}
+    const resumeUploadDialogBody = React.useMemo(() => {
+        const uploadFiles = resumeUploadFileList ? Array.from(resumeUploadFileList) : [];
+        const uploadModeOptions: Array<{
+            value: typeof resumeUploadMode;
+            label: string;
+            description: string;
+        }> = [
+            {
+                value: "smart",
+                label: isZh ? "AI 智能匹配" : "AI Smart Match",
+                description: isZh
+                    ? "自动识别每份简历最匹配的岗位（推荐）"
+                    : "Automatically identify the best position for each resume (recommended)",
+            },
+            {
+                value: "position",
+                label: isZh ? "指定岗位" : "Assign Position",
+                description: isZh ? "手动选择简历归属的岗位" : "Manually select the position for these resumes",
+            },
+            {
+                value: "none",
+                label: isZh ? "暂不选择岗位" : "No Position Yet",
+                description: isZh ? "简历仅归入组织，后续手动分配" : "Add resumes to the organization for later assignment",
+            },
+        ];
+        const sourceOptions: Array<{value: typeof resumeUploadSource; label: string}> = [
+            {value: "manual", label: isZh ? "手动上传" : "Manual Upload"},
+            {value: "boss", label: isZh ? "Boss直聘" : "Boss Zhipin"},
+            {value: "liepin", label: isZh ? "猎聘" : "Liepin"},
+            {value: "headhunter", label: isZh ? "猎头推荐" : "Headhunter"},
+            {value: "other", label: isZh ? "其他渠道" : "Other"},
+        ];
+        const duplicateOptions: Array<{value: typeof resumeUploadDuplicateStrategy; label: string}> = [
+            {value: "skip", label: isZh ? "跳过重复简历" : "Skip Duplicates"},
+            {value: "overwrite", label: isZh ? "覆盖已有记录" : "Overwrite Existing"},
+        ];
+        const uploadInputClass = "h-[34px] rounded-[4px] border-[#E6E7EB] bg-white px-3 text-[12px] text-[#0F1014] shadow-none placeholder:text-[#B0B2B8] focus-visible:border-[#1E3BFA] focus-visible:ring-2 focus-visible:ring-[#1E3BFA]/15 dark:border-[#E6E7EB] dark:bg-white dark:text-[#0F1014] dark:placeholder:text-[#B0B2B8]";
+        const optionButtonClass = "h-[26px] rounded-[4px] border px-2.5 text-[12px] font-normal shadow-none transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1E3BFA]/15 disabled:cursor-not-allowed disabled:opacity-50";
+        const formatUploadFileSize = (size: number) => {
+            if (size >= 1024 * 1024) {
+                return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+            }
+            return `${Math.max(1, Math.round(size / 1024))} KB`;
+        };
+
+        const sourceAndDuplicateControls = (
+            <>
+                <div className="space-y-2">
+                    <p className="text-[12px] leading-4 text-[#33353D] dark:text-[#33353D]">
+                        {isZh ? "简历来源" : "Resume Source"}
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                        {sourceOptions.map((option) => {
+                            const selected = resumeUploadSource === option.value;
+                            return (
+                                <button
+                                    key={option.value}
+                                    type="button"
+                                    className={cn(
+                                        optionButtonClass,
+                                        selected
+                                            ? "border-[#1E3BFA] bg-[rgba(30,59,250,0.05)] text-[#1E3BFA] dark:border-[#1E3BFA] dark:bg-[rgba(30,59,250,0.05)] dark:text-[#1E3BFA]"
+                                            : "border-[#E6E7EB] bg-white text-[#33353D] hover:border-[#1E3BFA] hover:bg-[rgba(30,59,250,0.02)] dark:border-[#E6E7EB] dark:bg-white dark:text-[#33353D] dark:hover:border-[#1E3BFA] dark:hover:bg-[rgba(30,59,250,0.02)]",
+                                    )}
+                                    disabled={uploadingResume}
+                                    onClick={() => setResumeUploadSource(option.value)}
+                                >
+                                    {option.label}
+                                </button>
+                            );
+                        })}
                     </div>
-                ) : null}
+                </div>
+                <div className="space-y-2">
+                    <p className="text-[12px] leading-4 text-[#33353D] dark:text-[#33353D]">
+                        {isZh ? "重复处理" : "Duplicate Handling"}
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                        {duplicateOptions.map((option) => {
+                            const selected = resumeUploadDuplicateStrategy === option.value;
+                            return (
+                                <button
+                                    key={option.value}
+                                    type="button"
+                                    className={cn(
+                                        optionButtonClass,
+                                        selected
+                                            ? "border-[#1E3BFA] bg-[rgba(30,59,250,0.05)] text-[#1E3BFA] dark:border-[#1E3BFA] dark:bg-[rgba(30,59,250,0.05)] dark:text-[#1E3BFA]"
+                                            : "border-[#E6E7EB] bg-white text-[#33353D] hover:border-[#1E3BFA] hover:bg-[rgba(30,59,250,0.02)] dark:border-[#E6E7EB] dark:bg-white dark:text-[#33353D] dark:hover:border-[#1E3BFA] dark:hover:bg-[rgba(30,59,250,0.02)]",
+                                    )}
+                                    disabled={uploadingResume}
+                                    onClick={() => setResumeUploadDuplicateStrategy(option.value)}
+                                >
+                                    {option.label}
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
+            </>
+        );
 
-                {/* 组织归属（智能匹配和暂不选择模式都需要） */}
-                {(resumeUploadMode === "smart" || resumeUploadMode === "none") && showOrganizationFields && organizationSelectOptions.length > 1 ? (
-                    <Field label={recruitmentUiText.targetOrganization}>
-                        <NativeSelect
-                            value={resumeUploadOrgCode}
-                            onChange={(event) => setResumeUploadOrgCode(event.target.value)}
-                        >
-                            <option value="">{recruitmentUiText.chooseTargetOrganization}</option>
-                            {organizationSelectOptions.map((option) => (
-                                <option key={option.value} value={option.value}>{option.label}</option>
+        const cityControls = (
+            <div className="space-y-2">
+                <p className="text-[12px] leading-4 text-[#33353D] dark:text-[#33353D]">{recruitmentUiText.city}</p>
+                <div className="flex flex-wrap gap-2">
+                    {([
+                        {value: "manual" as const, label: recruitmentUiText.manualCityEntry},
+                        {value: "auto" as const, label: recruitmentUiText.autoDetectCity},
+                    ] as const).map((option) => {
+                        const selected = resumeUploadCitySource === option.value;
+                        return (
+                            <button
+                                key={option.value}
+                                type="button"
+                                className={cn(
+                                    optionButtonClass,
+                                    selected
+                                        ? "border-[#1E3BFA] bg-[rgba(30,59,250,0.05)] text-[#1E3BFA] dark:border-[#1E3BFA] dark:bg-[rgba(30,59,250,0.05)] dark:text-[#1E3BFA]"
+                                        : "border-[#E6E7EB] bg-white text-[#33353D] hover:border-[#1E3BFA] hover:bg-[rgba(30,59,250,0.02)] dark:border-[#E6E7EB] dark:bg-white dark:text-[#33353D] dark:hover:border-[#1E3BFA] dark:hover:bg-[rgba(30,59,250,0.02)]",
+                                )}
+                                disabled={uploadingResume}
+                                onClick={() => setResumeUploadCitySource(option.value)}
+                            >
+                                {option.label}
+                            </button>
+                        );
+                    })}
+                </div>
+                {resumeUploadCitySource === "manual" ? (
+                    <div className="space-y-2">
+                        <Input
+                            list="city-options"
+                            className={uploadInputClass}
+                            placeholder={recruitmentUiText.cityPlaceholder}
+                            value={resumeUploadCity}
+                            disabled={uploadingResume}
+                            onChange={(event) => setResumeUploadCity(event.target.value)}
+                        />
+                        <datalist id="city-options">
+                            {POPULAR_CITIES.map((city) => (
+                                <option key={city} value={city}/>
                             ))}
-                        </NativeSelect>
-                    </Field>
-                ) : null}
+                        </datalist>
+                        <div className="flex flex-wrap gap-1.5">
+                            {POPULAR_CITIES.slice(0, 8).map((city) => {
+                                const selected = resumeUploadCity === city;
+                                return (
+                                    <button
+                                        key={city}
+                                        type="button"
+                                        className={cn(
+                                            optionButtonClass,
+                                            selected
+                                                ? "border-[#1E3BFA] bg-[rgba(30,59,250,0.05)] text-[#1E3BFA] dark:border-[#1E3BFA] dark:bg-[rgba(30,59,250,0.05)] dark:text-[#1E3BFA]"
+                                                : "border-[#E6E7EB] bg-white text-[#33353D] hover:border-[#1E3BFA] hover:bg-[rgba(30,59,250,0.02)] dark:border-[#E6E7EB] dark:bg-white dark:text-[#33353D] dark:hover:border-[#1E3BFA] dark:hover:bg-[rgba(30,59,250,0.02)]",
+                                        )}
+                                        disabled={uploadingResume}
+                                        onClick={() => setResumeUploadCity(city)}
+                                    >
+                                        {city}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </div>
+                ) : (
+                    <p className="text-[11px] leading-[18px] text-[#86888F] dark:text-[#86888F]">
+                        {recruitmentUiText.cityAutoHint}
+                    </p>
+                )}
+            </div>
+        );
 
-                {/* 高级选项（仅智能匹配模式折叠） */}
-                {resumeUploadMode === "smart" ? (
-                    <>
-                        <button
-                            type="button"
-                            className="flex items-center gap-1 text-sm font-medium text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 transition-colors"
-                            onClick={() => setShowAdvancedOptions((v) => !v)}
-                        >
-                            {isZh ? "高级选项" : "Advanced Options"}
-                            <ChevronDown className={cn("h-4 w-4 transition-transform", showAdvancedOptions && "rotate-180")} />
-                        </button>
-                        {showAdvancedOptions ? (
-                            <div className="space-y-4 rounded-[6px] border border-[#EBEEF5] bg-[#F7F8FA] p-3 dark:border-slate-800 dark:bg-slate-900/50">
-                                {/* 简历来源 */}
-                                <Field label={isZh ? "简历来源" : "Resume Source"}>
-                                    <NativeSelect
-                                        value={resumeUploadSource}
-                                        onChange={(event) => setResumeUploadSource(event.target.value as typeof resumeUploadSource)}
-                                    >
-                                        <option value="manual">{isZh ? "手动上传" : "Manual Upload"}</option>
-                                        <option value="boss">{isZh ? "Boss直聘" : "Boss Zhipin"}</option>
-                                        <option value="liepin">{isZh ? "猎聘" : "Liepin"}</option>
-                                        <option value="headhunter">{isZh ? "猎头推荐" : "Headhunter"}</option>
-                                        <option value="other">{isZh ? "其他渠道" : "Other"}</option>
-                                    </NativeSelect>
-                                </Field>
-                                {/* 重复处理策略 */}
-                                <Field label={isZh ? "重复处理" : "Duplicate Handling"}>
-                                    <NativeSelect
-                                        value={resumeUploadDuplicateStrategy}
-                                        onChange={(event) => setResumeUploadDuplicateStrategy(event.target.value as typeof resumeUploadDuplicateStrategy)}
-                                    >
-                                        <option value="skip">{isZh ? "跳过重复简历" : "Skip duplicates"}</option>
-                                        <option value="overwrite">{isZh ? "覆盖已有记录" : "Overwrite existing"}</option>
-                                    </NativeSelect>
-                                </Field>
-                                {/* 城市 */}
-                                <Field label={recruitmentUiText.city}>
-                                    <div className="flex flex-col gap-2">
-                                        <div className="flex gap-1">
-                                            {([
-                                                {value: "manual" as const, label: recruitmentUiText.manualCityEntry},
-                                                {value: "auto" as const, label: recruitmentUiText.autoDetectCity},
-                                            ] as const).map((opt) => (
-                                                <button
-                                                    key={opt.value}
-                                                    type="button"
-                                                    className={cn(
-                                                        "rounded-md border px-2.5 py-1 text-xs transition-colors",
-                                                        resumeUploadCitySource === opt.value
-                                                            ? "border-[#1E3BFA] bg-[#1E3BFA] text-white dark:border-blue-400 dark:bg-blue-500 dark:text-white"
-                                                            : "border-[#E6E7EB] bg-white text-[#33353D] hover:border-[#1E3BFA]/40 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300 dark:hover:border-blue-700",
-                                                    )}
-                                                    onClick={() => setResumeUploadCitySource(opt.value)}
-                                                >
-                                                    {opt.label}
-                                                </button>
-                                            ))}
-                                        </div>
-                                        {resumeUploadCitySource === "manual" ? (
-                                            <div className="flex flex-col gap-1.5">
-                                                <Input
-                                                    list="city-options"
-                                                    placeholder={recruitmentUiText.cityPlaceholder}
-                                                    value={resumeUploadCity}
-                                                    onChange={(event) => setResumeUploadCity(event.target.value)}
-                                                />
-                                                <datalist id="city-options">
-                                                    {POPULAR_CITIES.map((city) => (
-                                                        <option key={city} value={city}/>
-                                                    ))}
-                                                </datalist>
-                                                <div className="flex flex-wrap gap-1">
-                                                    {POPULAR_CITIES.slice(0, 8).map((city) => (
-                                                        <button
-                                                            key={city}
-                                                            type="button"
-                                                            className={cn(
-                                                                "rounded-full border px-2 py-0.5 text-xs transition-colors",
-                                                                resumeUploadCity === city
-                                                                    ? "border-[#1E3BFA] bg-[#1E3BFA] text-white dark:border-blue-400 dark:bg-blue-500 dark:text-white"
-                                                                    : "border-[#E6E7EB] bg-white text-[#33353D] hover:border-[#1E3BFA]/40 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300 dark:hover:border-blue-700",
-                                                            )}
-                                                            onClick={() => setResumeUploadCity(city)}
-                                                        >
-                                                            {city}
-                                                        </button>
-                                                    ))}
-                                                </div>
-                                            </div>
-                                        ) : resumeUploadCitySource === "auto" ? (
-                                            <p className="text-xs text-slate-500 dark:text-slate-400">
-                                                {recruitmentUiText.cityAutoHint}
-                                            </p>
-                                        ) : null}
-                                    </div>
-                                </Field>
+        return (
+            <DialogContent showCloseButton={!uploadingResume} className="flex max-h-[88vh] flex-col gap-0 overflow-hidden rounded-[8px] border-[#EBEEF5] bg-white p-0 text-[#0E1114] shadow-[0_8px_24px_rgba(14,17,20,0.16)] sm:max-w-[600px] dark:border-[#EBEEF5] dark:bg-white dark:text-[#0E1114] [&_[data-slot=dialog-close]]:right-6 [&_[data-slot=dialog-close]]:top-[18px] [&_[data-slot=dialog-close]]:rounded-[4px] [&_[data-slot=dialog-close]]:text-[#86888F] [&_[data-slot=dialog-close]]:opacity-100 [&_[data-slot=dialog-close][data-state=open]]:bg-transparent [&_[data-slot=dialog-close][data-state=open]]:text-[#86888F] [&_[data-slot=dialog-close]]:hover:bg-[#F7F8FA] [&_[data-slot=dialog-close]]:hover:text-[#0E1114]">
+                <DialogHeader className="shrink-0 gap-1 border-b border-[#F2F3F5] px-6 pb-[14px] pr-14 pt-[18px] text-left">
+                    <DialogTitle className="text-[16px] font-semibold leading-5 text-[#0E1114] dark:text-[#0E1114]">
+                        {recruitmentUiText.uploadResumeTitle}
+                    </DialogTitle>
+                    <DialogDescription className="text-[12px] leading-5 text-[#86888F] dark:text-[#86888F]">
+                        {recruitmentUiText.resumeUploadDescription}
+                    </DialogDescription>
+                </DialogHeader>
+
+                <ScrollArea className="min-h-0 flex-1">
+                    <div className="space-y-4 px-6 py-5">
+                        <div className="space-y-2">
+                            <p className="text-[12px] leading-4 text-[#33353D] dark:text-[#33353D]">
+                                {isZh ? "上传模式" : "Upload Mode"}
+                            </p>
+                            <div className="space-y-2" role="radiogroup" aria-label={isZh ? "上传模式" : "Upload Mode"}>
+                                {uploadModeOptions.map((option) => {
+                                    const selected = resumeUploadMode === option.value;
+                                    return (
+                                        <button
+                                            key={option.value}
+                                            type="button"
+                                            role="radio"
+                                            aria-checked={selected}
+                                            className={cn(
+                                                "flex w-full items-start gap-3 rounded-[8px] border px-3.5 py-3 text-left shadow-none transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1E3BFA]/15 disabled:cursor-not-allowed disabled:opacity-60",
+                                                selected
+                                                    ? "border-[#1E3BFA] bg-[rgba(30,59,250,0.03)] dark:border-[#1E3BFA] dark:bg-[rgba(30,59,250,0.03)]"
+                                                    : "border-[#EBEEF5] bg-white hover:border-[#1E3BFA] hover:bg-[rgba(30,59,250,0.02)] dark:border-[#EBEEF5] dark:bg-white dark:hover:border-[#1E3BFA] dark:hover:bg-[rgba(30,59,250,0.02)]",
+                                            )}
+                                            disabled={uploadingResume}
+                                            onClick={() => {
+                                                setResumeUploadMode(option.value);
+                                                setResumeUploadError(null);
+                                            }}
+                                        >
+                                            <span
+                                                className={cn(
+                                                    "mt-px flex h-[15px] w-[15px] shrink-0 items-center justify-center rounded-[8px] border bg-white dark:bg-white",
+                                                    selected ? "border-[#1E3BFA] dark:border-[#1E3BFA]" : "border-[#D6D8DD] dark:border-[#D6D8DD]",
+                                                )}
+                                                aria-hidden="true"
+                                            >
+                                                {selected ? <span className="h-[7px] w-[7px] rounded-[4px] bg-[#1E3BFA]"/> : null}
+                                            </span>
+                                            <span className="min-w-0">
+                                                <span className="block text-[13px] font-medium leading-[18px] text-[#0E1114] dark:text-[#0E1114]">{option.label}</span>
+                                                <span className="mt-0.5 block text-[11px] leading-[18px] text-[#86888F] dark:text-[#86888F]">{option.description}</span>
+                                            </span>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+
+                        {resumeUploadMode === "smart" ? (
+                            <div className="rounded-[6px] bg-[rgba(30,59,250,0.05)] px-3 py-2.5 text-[12px] leading-5 text-[#33353D] dark:bg-[rgba(30,59,250,0.05)] dark:text-[#33353D]">
+                                {isZh
+                                    ? "系统将分析每份简历内容，自动匹配到最合适的岗位；无法匹配的简历将归入人才库，可稍后手动分配。"
+                                    : "The system will analyze each resume and match it to the best-fitting position. Unmatched resumes will be added to the talent pool for later assignment."}
                             </div>
                         ) : null}
-                    </>
-                ) : (
-                    <>
-                        {/* 非智能匹配模式：直接显示简历来源和重复处理 */}
-                        <Field label={isZh ? "简历来源" : "Resume Source"}>
-                            <NativeSelect
-                                value={resumeUploadSource}
-                                onChange={(event) => setResumeUploadSource(event.target.value as typeof resumeUploadSource)}
-                            >
-                                <option value="manual">{isZh ? "手动上传" : "Manual Upload"}</option>
-                                <option value="boss">{isZh ? "Boss直聘" : "Boss Zhipin"}</option>
-                                <option value="liepin">{isZh ? "猎聘" : "Liepin"}</option>
-                                <option value="headhunter">{isZh ? "猎头推荐" : "Headhunter"}</option>
-                                <option value="other">{isZh ? "其他渠道" : "Other"}</option>
-                            </NativeSelect>
-                        </Field>
-                        <Field label={isZh ? "重复处理" : "Duplicate Handling"}>
-                            <NativeSelect
-                                value={resumeUploadDuplicateStrategy}
-                                onChange={(event) => setResumeUploadDuplicateStrategy(event.target.value as typeof resumeUploadDuplicateStrategy)}
-                            >
-                                <option value="skip">{isZh ? "跳过重复简历" : "Skip duplicates"}</option>
-                                <option value="overwrite">{isZh ? "覆盖已有记录" : "Overwrite existing"}</option>
-                            </NativeSelect>
-                        </Field>
-                        <Field label={recruitmentUiText.city}>
-                            <div className="flex flex-col gap-2">
-                                <div className="flex gap-1">
-                                    {([
-                                        {value: "manual" as const, label: recruitmentUiText.manualCityEntry},
-                                        {value: "auto" as const, label: recruitmentUiText.autoDetectCity},
-                                    ] as const).map((opt) => (
-                                        <button
-                                            key={opt.value}
-                                            type="button"
-                                            className={cn(
-                                                "rounded-md border px-2.5 py-1 text-xs transition-colors",
-                                                resumeUploadCitySource === opt.value
-                                                    ? "border-[#1E3BFA] bg-[#1E3BFA] text-white dark:border-blue-400 dark:bg-blue-500 dark:text-white"
-                                                    : "border-[#E6E7EB] bg-white text-[#33353D] hover:border-[#1E3BFA]/40 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300 dark:hover:border-blue-700",
-                                            )}
-                                            onClick={() => setResumeUploadCitySource(opt.value)}
-                                        >
-                                            {opt.label}
-                                        </button>
+
+                        {resumeUploadMode === "position" ? (
+                            <div className="space-y-1.5">
+                                <p className="text-[12px] leading-4 text-[#33353D] dark:text-[#33353D]">{recruitmentUiText.linkPosition}</p>
+                                <NativeSelect
+                                    className={uploadInputClass}
+                                    value={resumeUploadPositionId}
+                                    onChange={(event) => setResumeUploadPositionId(event.target.value)}
+                                    disabled={positionsLoading || uploadingResume}
+                                >
+                                    <option value="">{positionsLoading ? recruitmentUiText.loading : isZh ? "请选择岗位" : "Select position"}</option>
+                                    {positions.map((position) => (
+                                        <option key={position.id} value={position.id}>{position.title}</option>
                                     ))}
-                                </div>
-                                {resumeUploadCitySource === "manual" ? (
-                                    <div className="flex flex-col gap-1.5">
-                                        <Input
-                                            list="city-options"
-                                            placeholder={recruitmentUiText.cityPlaceholder}
-                                            value={resumeUploadCity}
-                                            onChange={(event) => setResumeUploadCity(event.target.value)}
-                                        />
-                                        <datalist id="city-options">
-                                            {POPULAR_CITIES.map((city) => (
-                                                <option key={city} value={city}/>
-                                            ))}
-                                        </datalist>
-                                        <div className="flex flex-wrap gap-1">
-                                            {POPULAR_CITIES.slice(0, 8).map((city) => (
-                                                <button
-                                                    key={city}
-                                                    type="button"
-                                                    className={cn(
-                                                        "rounded-full border px-2 py-0.5 text-xs transition-colors",
-                                                        resumeUploadCity === city
-                                                            ? "border-[#1E3BFA] bg-[#1E3BFA] text-white dark:border-blue-400 dark:bg-blue-500 dark:text-white"
-                                                            : "border-[#E6E7EB] bg-white text-[#33353D] hover:border-[#1E3BFA]/40 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300 dark:hover:border-blue-700",
-                                                    )}
-                                                    onClick={() => setResumeUploadCity(city)}
-                                                >
-                                                    {city}
-                                                </button>
-                                            ))}
-                                        </div>
+                                </NativeSelect>
+                            </div>
+                        ) : null}
+
+                        {(resumeUploadMode === "smart" || resumeUploadMode === "none") && showOrganizationFields && organizationSelectOptions.length > 1 ? (
+                            <div className="space-y-1.5">
+                                <p className="text-[12px] leading-4 text-[#33353D] dark:text-[#33353D]">{recruitmentUiText.targetOrganization}</p>
+                                <NativeSelect
+                                    className={uploadInputClass}
+                                    value={resumeUploadOrgCode}
+                                    onChange={(event) => setResumeUploadOrgCode(event.target.value)}
+                                    disabled={uploadingResume}
+                                >
+                                    <option value="">{recruitmentUiText.chooseTargetOrganization}</option>
+                                    {organizationSelectOptions.map((option) => (
+                                        <option key={option.value} value={option.value}>{option.label}</option>
+                                    ))}
+                                </NativeSelect>
+                            </div>
+                        ) : null}
+
+                        {resumeUploadMode === "smart" ? (
+                            <div className="space-y-2.5">
+                                <button
+                                    type="button"
+                                    className="flex items-center gap-1 text-[12px] leading-4 text-[#33353D] transition-colors hover:text-[#1E3BFA] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1E3BFA]/15 disabled:cursor-not-allowed disabled:opacity-50 dark:text-[#33353D] dark:hover:text-[#1E3BFA]"
+                                    disabled={uploadingResume}
+                                    onClick={() => setShowAdvancedOptions((value) => !value)}
+                                >
+                                    {isZh ? "高级选项" : "Advanced Options"}
+                                    <ChevronDown className={cn("h-3 w-3 text-[#86888F] transition-transform", showAdvancedOptions && "rotate-180")}/>
+                                </button>
+                                {showAdvancedOptions ? (
+                                    <div className="space-y-3.5 rounded-[6px] bg-[#F7F8FA] px-4 py-3.5 dark:bg-[#F7F8FA]">
+                                        {sourceAndDuplicateControls}
+                                        {cityControls}
                                     </div>
-                                ) : resumeUploadCitySource === "auto" ? (
-                                    <p className="text-xs text-slate-500 dark:text-slate-400">
-                                        {recruitmentUiText.cityAutoHint}
-                                    </p>
                                 ) : null}
                             </div>
-                        </Field>
-                    </>
-                )}
+                        ) : (
+                            <div className="space-y-3.5">
+                                {sourceAndDuplicateControls}
+                                {cityControls}
+                            </div>
+                        )}
 
-                {/* 文件上传区域 */}
-                <label
-                    className={cn(
-                        "relative flex w-full cursor-pointer flex-col items-center justify-center gap-1.5 rounded-[8px] border border-dashed transition-colors",
-                        "h-28",
-                        isDraggingFile
-                            ? "border-[#1E3BFA] bg-[#1E3BFA]/5 dark:border-blue-400 dark:bg-blue-950/30"
-                            : "border-[#D6D8DD] bg-white hover:border-[#1E3BFA] hover:bg-[#1E3BFA]/[0.02] dark:border-slate-700 dark:bg-slate-900 dark:hover:border-blue-600 dark:hover:bg-blue-950/20",
-                    )}
-                    onClick={(e) => { if (resumeUploadFileList && resumeUploadFileList.length > 0) e.preventDefault(); }}
-                    onDragOver={(e) => { e.preventDefault(); setIsDraggingFile(true); }}
-                    onDragLeave={() => setIsDraggingFile(false)}
-                    onDrop={(e) => {
-                        e.preventDefault();
-                        setIsDraggingFile(false);
-                        const files = e.dataTransfer.files;
-                        if (files.length > 0) {
-                            setResumeUploadError(null);
-                            setResumeUploadFileList(files);
-                        }
-                    }}
-                >
-                    <input
-                        ref={fileInputRef}
-                        type="file"
-                        multiple
-                        accept=".pdf,.docx"
-                        className="sr-only"
-                        onChange={handleResumeFileChange}
-                    />
-                    {resumeUploadFileList && resumeUploadFileList.length > 0 ? (
-                        <>
-                            <FileText className="h-10 w-10 text-slate-600 dark:text-slate-300" />
-                            <p className="text-base font-medium text-slate-700 dark:text-slate-200 leading-tight">
-                                {resumeUploadFileList.length === 1
-                                    ? resumeUploadFileList[0].name
-                                    : `${resumeUploadFileList.length} ${isZh ? "个文件" : "files"}`}
-                            </p>
-                            <p className="text-xs text-slate-500 dark:text-slate-400">
-                                {recruitmentUiText.filesSelected(resumeUploadFileList.length)}
-                            </p>
-                            <button
-                                type="button"
-                                className="absolute right-2 top-2 rounded-full p-0.5 text-slate-400 hover:bg-slate-200 hover:text-slate-600 dark:hover:bg-slate-700 dark:hover:text-slate-300 transition-colors"
-                                onClick={(e) => {
-                                    e.preventDefault();
-                                    setResumeUploadFileList(null);
-                                    if (fileInputRef.current) fileInputRef.current.value = "";
-                                }}
-                            >
-                                <X className="h-4 w-4" />
-                            </button>
-                        </>
-                    ) : (
-                        <>
-                            <Upload className="h-10 w-10 text-[#1E3BFA] dark:text-blue-400" />
-                            <p className="text-base text-slate-600 dark:text-slate-300">
-                                {isZh ? "点击或拖拽上传简历" : "Click or drag to upload"}
-                            </p>
-                            <p className="text-sm text-slate-400 dark:text-slate-500">
-                                {isZh ? "支持 PDF / DOCX 格式" : "PDF / DOCX formats"}
-                            </p>
-                        </>
-                    )}
-                </label>
-                </div>
-            </ScrollArea>
-            <DialogFooter className="items-center justify-between gap-3 sm:justify-between">
-                <span className="min-h-[20px] flex-1 text-sm text-rose-600 dark:text-rose-300">
-                    {resumeUploadError ?? ""}
-                </span>
-                <div className="flex shrink-0 items-center gap-2">
-                    {uploadingResume ? (
-                        <Button variant="outline" className="rounded-[6px]" onClick={() => abortControllerRef.current?.abort()}>
-                            {recruitmentUiText.cancelUpload}
+                        <label
+                            className={cn(
+                                "flex min-h-[116px] w-full flex-col items-center justify-center gap-2 rounded-[8px] border border-dashed px-4 py-6 text-center transition-colors",
+                                uploadingResume || uploadFiles.length > 0 ? "cursor-default" : "cursor-pointer",
+                                isDraggingFile
+                                    ? "border-[#1E3BFA] bg-[rgba(30,59,250,0.03)] dark:border-[#1E3BFA] dark:bg-[rgba(30,59,250,0.03)]"
+                                    : "border-[#D6D8DD] bg-white hover:border-[#1E3BFA] hover:bg-[rgba(30,59,250,0.02)] dark:border-[#D6D8DD] dark:bg-white dark:hover:border-[#1E3BFA] dark:hover:bg-[rgba(30,59,250,0.02)]",
+                            )}
+                            aria-disabled={uploadingResume || uploadFiles.length > 0}
+                            onClick={(event) => {
+                                if (uploadingResume || uploadFiles.length > 0) {
+                                    event.preventDefault();
+                                }
+                            }}
+                            onDragOver={(event) => {
+                                event.preventDefault();
+                                if (!uploadingResume) setIsDraggingFile(true);
+                            }}
+                            onDragLeave={() => setIsDraggingFile(false)}
+                            onDrop={(event) => {
+                                event.preventDefault();
+                                setIsDraggingFile(false);
+                                if (uploadingResume) return;
+                                selectResumeUploadFiles(event.dataTransfer.files);
+                            }}
+                        >
+                            <input
+                                ref={fileInputRef}
+                                type="file"
+                                multiple
+                                accept=".pdf,.docx"
+                                className="sr-only"
+                                disabled={uploadingResume}
+                                onChange={handleResumeFileChange}
+                            />
+                            <Upload className="h-[26px] w-[26px] text-[#B0B2B8] dark:text-[#B0B2B8]" strokeWidth={1.6}/>
+                            <span className="text-[13px] leading-[18px] text-[#33353D] dark:text-[#33353D]">
+                                {uploadFiles.length > 0
+                                    ? recruitmentUiText.filesSelected(uploadFiles.length)
+                                    : isZh ? "点击选择或拖拽文件到此处" : "Click to select or drag files here"}
+                            </span>
+                            <span className="text-[11px] leading-[18px] text-[#B0B2B8] dark:text-[#B0B2B8]">
+                                {isZh ? "支持批量选择 PDF / DOCX 文件" : "Batch selection supports PDF / DOCX files"}
+                            </span>
+                        </label>
+
+                        {uploadFiles.length > 0 ? (
+                            <div className="space-y-2">
+                                <div className="flex items-center justify-between gap-3">
+                                    <p className="text-[12px] text-[#33353D] dark:text-[#33353D]">
+                                        {recruitmentUiText.filesSelected(uploadFiles.length)}
+                                    </p>
+                                    <button
+                                        type="button"
+                                        className="rounded-[4px] px-1.5 py-1 text-[11px] text-[#86888F] transition-colors hover:bg-[#F7F8FA] hover:text-[#1E3BFA] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1E3BFA]/15 disabled:cursor-not-allowed disabled:opacity-50 dark:text-[#86888F] dark:hover:bg-[#F7F8FA] dark:hover:text-[#1E3BFA]"
+                                        disabled={uploadingResume}
+                                        onClick={() => {
+                                            setResumeUploadFileList(null);
+                                            setResumeUploadError(null);
+                                            if (fileInputRef.current) fileInputRef.current.value = "";
+                                        }}
+                                    >
+                                        {isZh ? "清空并重新选择" : "Clear and reselect"}
+                                    </button>
+                                </div>
+                                <div className="space-y-2">
+                                    {uploadFiles.map((file, index) => {
+                                        const progressLabel = uploadingResume
+                                            ? (isZh ? "上传中" : "Uploading")
+                                            : (isZh ? "待上传" : "Pending");
+                                        return (
+                                            <div key={`${file.name}-${file.lastModified}-${index}`} className="flex items-center gap-2.5 rounded-[6px] border border-[#EBEEF5] bg-white px-3.5 py-2.5 dark:border-[#EBEEF5] dark:bg-white">
+                                                <FileText className="h-[15px] w-[15px] shrink-0 text-[#86888F] dark:text-[#86888F]" strokeWidth={1.8}/>
+                                                <div className="min-w-0 flex-1">
+                                                    <div className="flex items-center justify-between gap-3">
+                                                        <div className="flex min-w-0 items-center gap-2">
+                                                            <span className="truncate text-[12px] leading-4 text-[#0F1014] dark:text-[#0F1014]">{file.name}</span>
+                                                            <span className="shrink-0 text-[10px] text-[#B0B2B8] dark:text-[#B0B2B8]">{formatUploadFileSize(file.size)}</span>
+                                                        </div>
+                                                        <span className={cn(
+                                                            "shrink-0 text-[11px] leading-4",
+                                                            uploadingResume
+                                                                ? "text-[#1E3BFA] dark:text-[#1E3BFA]"
+                                                                : "text-[#B0B2B8] dark:text-[#B0B2B8]",
+                                                        )}>
+                                                            {progressLabel}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        ) : null}
+
+                        {resumeUploadError ? (
+                            <div className="rounded-[6px] bg-[rgba(245,63,63,0.08)] px-3 py-2.5 text-[12px] leading-5 text-[#F53F3F] dark:bg-[rgba(245,63,63,0.08)] dark:text-[#F53F3F]" role="alert">
+                                {resumeUploadError}
+                            </div>
+                        ) : null}
+                    </div>
+                </ScrollArea>
+
+                <DialogFooter className="h-16 shrink-0 flex-row items-center justify-between gap-3 border-t border-[#F2F3F5] px-6 py-0 sm:justify-between">
+                    <div className="min-w-0 flex-1">
+                        {uploadingResume ? (
+                            <div className="space-y-1.5">
+                                <div className="flex items-center justify-between gap-3 text-[11px] text-[#86888F] dark:text-[#86888F]">
+                                    <span className="truncate">{recruitmentUiText.uploadedProgress(uploadCompletedCount, uploadFiles.length)}</span>
+                                    <span className="shrink-0 tabular-nums text-[#1E3BFA] dark:text-[#1E3BFA]">{uploadProgress}%</span>
+                                </div>
+                                <div className="h-1 overflow-hidden rounded-[4px] bg-[#F2F3F5] dark:bg-[#F2F3F5]">
+                                    <div
+                                        className="h-full rounded-[4px] bg-[#1E3BFA] transition-[width] duration-200 dark:bg-[#1E3BFA]"
+                                        style={{width: `${uploadProgress}%`}}
+                                    />
+                                </div>
+                            </div>
+                        ) : (
+                            <span className="text-[11px] leading-[18px] text-[#B0B2B8] dark:text-[#B0B2B8]">
+                                {isZh ? "每批最多处理 50 份，大批量将自动分批" : "Up to 50 resumes per batch; larger sets are split automatically"}
+                            </span>
+                        )}
+                    </div>
+                    <div className="flex shrink-0 items-center gap-3">
+                        <Button
+                            variant="outline"
+                            className="h-[34px] rounded-[6px] border-[#E6E7EB] bg-white px-[18px] text-[13px] font-normal text-[#33353D] shadow-none hover:border-[#D6D8DD] hover:bg-[#F8F8F9] hover:text-[#33353D] dark:border-[#E6E7EB] dark:bg-white dark:text-[#33353D] dark:shadow-none dark:hover:border-[#D6D8DD] dark:hover:bg-[#F8F8F9] dark:hover:text-[#33353D]"
+                            onClick={() => {
+                                if (uploadingResume) {
+                                    abortControllerRef.current?.abort();
+                                    return;
+                                }
+                                resetResumeUploadDraft();
+                                setResumeUploadOpen(false);
+                            }}
+                        >
+                            {uploadingResume ? recruitmentUiText.cancelUpload : recruitmentUiText.cancelButton}
                         </Button>
-                    ) : (
-                        <Button variant="outline" className="rounded-[6px]" onClick={() => setResumeUploadOpen(false)}>{recruitmentUiText.cancelButton}</Button>
-                    )}
-                    <Button className="rounded-[6px] bg-[#1E3BFA] text-white hover:bg-[#0F23D9]" onClick={() => void uploadResumes()} disabled={uploadingResume}>
-                        {uploadingResume ? recruitmentUiText.uploading : recruitmentUiText.startUpload}
-                    </Button>
-                </div>
-            </DialogFooter>
-            {uploadingResume && (
-                <div className="space-y-1">
-                    <div className="flex justify-between text-xs text-slate-500 dark:text-slate-400">
-                        <span>{recruitmentUiText.uploadedProgress(uploadCompletedCount, resumeUploadFileList?.length ?? 0)}</span>
-                        <span>{uploadProgress}%</span>
+                        <Button
+                            className="h-[34px] rounded-[6px] bg-[#1E3BFA] px-[18px] text-[13px] font-normal text-white shadow-none hover:bg-[#0F23D9] focus-visible:border-[#1E3BFA] focus-visible:ring-[#1E3BFA]/20 dark:bg-[#1E3BFA] dark:text-white dark:shadow-none dark:hover:bg-[#0F23D9]"
+                            onClick={() => void uploadResumes()}
+                            disabled={uploadingResume}
+                        >
+                            {uploadingResume ? (
+                                <>
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin"/>
+                                    {recruitmentUiText.uploading}
+                                </>
+                            ) : recruitmentUiText.startUpload}
+                        </Button>
                     </div>
-                    <div className="h-1.5 rounded-full bg-slate-100 dark:bg-slate-800">
-                        <div className="h-1.5 rounded-full bg-[#1E3BFA] transition-all"
-                             style={{ width: `${uploadProgress}%` }}/>
-                    </div>
-                </div>
-            )}
-        </DialogContent>
-    ), [recruitmentUiText, positionsLoading, positions, resumeUploadPositionId, showOrganizationFields, organizationSelectOptions, resumeUploadOrgCode, resumeUploadCitySource, resumeUploadCity, resumeUploadFileList, resumeUploadError, uploadingResume, uploadCompletedCount, uploadProgress, resumeUploadMode, resumeUploadSource, resumeUploadDuplicateStrategy, isZh, showAdvancedOptions, isDraggingFile]);
+                </DialogFooter>
+            </DialogContent>
+        );
+    }, [recruitmentUiText, positionsLoading, positions, resumeUploadPositionId, showOrganizationFields, organizationSelectOptions, resumeUploadOrgCode, resumeUploadCitySource, resumeUploadCity, resumeUploadFileList, resumeUploadError, uploadingResume, uploadCompletedCount, uploadProgress, resumeUploadMode, resumeUploadSource, resumeUploadDuplicateStrategy, isZh, showAdvancedOptions, isDraggingFile, resetResumeUploadDraft, selectResumeUploadFiles]);
 
     function openResumeUploadDialog(positionId?: number | null) {
         const targetPositionId = typeof positionId === "number" && Number.isFinite(positionId) ? positionId : null;
@@ -12508,7 +12618,6 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 sourceStatsData={effectiveSourceStatsData}
                 userName={sessionUser?.name || sessionUser?.id || null}
                 organizationControl={renderWorkspaceOrganizationControl()}
-                settingsControl={renderWorkspaceSettingsControl()}
                 canManagePosition={canManagePosition}
                 canManageCandidate={canManageCandidate}
                 canViewAudit={canViewLog}
@@ -13087,7 +13196,6 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                     showOrganizationColumn={showOrganizationColumn}
                     getOrganizationLabel={getOrganizationLabel}
                     organizationControl={renderWorkspaceOrganizationControl()}
-                    settingsControl={renderWorkspaceSettingsControl()}
                     canManageCandidate={canManageCandidate}
                     onQueryChange={handlePositionQueryChange}
                     onStatusFilterChange={setPositionStatusFilter}
@@ -13918,10 +14026,24 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         const allPositionCandidateCount = candidateScopeTotal;
         return (
             <CandidatesPage
+                permissions={{
+                    manageCandidate: canManageCandidate,
+                    executeProcess: canExecuteProcess,
+                    viewReview: canViewReview || canActReview || canManageReview,
+                    actReview: canActReview,
+                    manageReview: canManageReview,
+                    viewInterview: canViewInterview || canActInterview || canManageInterview,
+                    manageInterview: canActInterview || canManageInterview,
+                    viewSkill: canViewSkill,
+                    bindSkill: canBindSkill,
+                    sendMail: canSendMail,
+                    viewLog: canViewLog,
+                    viewAssistant: canViewRecruitmentAssistant,
+                    viewTalentPool: canViewTalentPool,
+                }}
                 panelClass={panelClass}
                 candidateFilterSummary={candidateFilterSummary}
                 candidateViewMode={candidateViewMode}
-                setCandidateViewMode={setCandidateViewMode}
                 candidateQuery={candidateQuery}
                 setCandidateQuery={setCandidateQueryWithTransition}
                 candidatePositionFilter={candidatePositionFilter}
@@ -13948,7 +14070,6 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 openResumeMailDialog={openResumeMailDialog}
                 candidatesLoading={candidatesLoading}
                 candidatesInitialLoaded={candidatesInitialLoaded}
-                candidateListTransitionLoading={candidateListTransitionLoading}
                 candidateMatchSortLoading={candidateMatchSortLoading}
                 allCandidatesCount={effectiveAllCandidatesCount}
                 allPositionCandidateCount={allPositionCandidateCount}
@@ -14049,9 +14170,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                         await loadCandidateDetail(selectedCandidateId);
                     }
                 }}
-                onRefresh={async () => {
-                    await refreshCandidatesManually();
-                }}
+                onUploadResume={() => openResumeUploadDialog(null)}
                 onRefreshCandidateDetail={async (candidateId) => {
                     await Promise.all([
                         loadCandidateDetail(candidateId, { force: true, includeDuplicates: true }),
@@ -14470,48 +14589,6 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         );
     }
 
-    function renderWorkspaceSettingsControl() {
-        if (!canManageRecruitment) return null;
-        return (
-            <Popover open={settingsPopoverOpen} onOpenChange={setSettingsPopoverOpen}>
-                <PopoverTrigger asChild>
-                    <Button
-                        variant="outline"
-                        className="h-10 rounded-[6px] border-[#E6E7EB] bg-white px-3 text-[13px] font-medium text-[#33353D] shadow-none hover:border-[#1E3BFA] hover:bg-[#F7F8FA] hover:text-[#1E3BFA] dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200"
-                    >
-                        <Settings2 className="h-4 w-4"/>
-                        {recruitmentUiText.manageSettings}
-                    </Button>
-                </PopoverTrigger>
-                <PopoverContent align="end" className="w-80 rounded-[8px] border-[#EBEEF5] p-2 shadow-[0_12px_32px_rgba(14,17,20,0.12)] dark:border-slate-800">
-                    <div className="space-y-1">
-                        {(canViewSkill || canManageSkill) && (
-                            <SettingsEntry
-                                title={recruitmentUiText.settingsSkillsTitle}
-                                description={recruitmentUiText.settingsSkillsDescription}
-                                onClick={() => navigateToSettingsPage("settings-skills")}
-                            />
-                        )}
-                        {(canViewLLMConfig || canManageLLMConfig) && (
-                            <SettingsEntry
-                                title={recruitmentUiText.settingsModelsTitle}
-                                description={recruitmentUiText.settingsModelsDescription}
-                                onClick={() => navigateToSettingsPage("settings-models")}
-                            />
-                        )}
-                        {(canViewMail || canManageMailConfig) && (
-                            <SettingsEntry
-                                title={recruitmentUiText.settingsMailTitle}
-                                description={recruitmentUiText.settingsMailDescription}
-                                onClick={() => navigateToSettingsPage("settings-mail")}
-                            />
-                        )}
-                    </div>
-                </PopoverContent>
-            </Popover>
-        );
-    }
-
     const positionsPageNode = renderPositionsPage();
 
     if (bootstrapping) {
@@ -14530,16 +14607,16 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     return (
         <div
             className="relative flex h-full min-h-0 flex-col overflow-hidden bg-[var(--tr-page)] text-[var(--tr-ink)] dark:text-slate-300">
-            {activePage !== "workspace" && activePage !== "positions" ? <div
+            {activePage !== "workspace" && activePage !== "positions" && activePage !== "candidates" ? <div
                 className="shrink-0 border-b border-[var(--tr-border)] bg-white dark:border-slate-800 dark:bg-slate-950">
                 <div className="flex min-h-[62px] flex-wrap items-center justify-between gap-2 px-5 py-3 2xl:px-6">
                     <div className="flex min-w-0 items-center gap-2.5">
-                        <Button variant="outline" size="sm" onClick={handleSmartBack} className="h-8 rounded-md px-3 text-sm">
+                        <Button variant="outline" size="sm" onClick={handleSmartBack} className="h-8 rounded-[4px] border-[#E6E7EB] bg-white px-3 text-[13px] text-[#33353D] shadow-none hover:border-[#1E3BFA] hover:bg-[#F7F8FA] hover:text-[#1E3BFA]">
                             <ArrowLeft className="h-3.5 w-3.5"/>
                             {recruitmentUiText.back}
                         </Button>
                         <div className="flex min-w-0 items-center gap-2">
-                            <h1 className="shrink-0 text-[22px] font-semibold leading-7 tracking-normal text-[var(--tr-ink)] dark:text-slate-50">
+                            <h1 className="shrink-0 text-[20px] font-semibold leading-7 tracking-normal text-[#0E1114] dark:text-slate-50">
                                 {pageMeta[activePage].title}
                             </h1>
                             <span className="sr-only">{pageMeta[activePage].title}</span>
@@ -14558,13 +14635,13 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                             disabled={organizationCatalogLoading || orgSwitching}
                         />
                         {canManageCandidate && (
-                            <Button variant="outline" onClick={() => openResumeUploadDialog(null)} className="h-9 rounded-md px-3 text-sm">
+                            <Button onClick={() => openResumeUploadDialog(null)} className="h-9 rounded-[6px] bg-[#1E3BFA] px-4 text-[13px] text-white shadow-none hover:bg-[#0F23D9] dark:bg-[#1E3BFA] dark:text-white dark:hover:bg-[#0F23D9]">
                                 <Upload className="h-3.5 w-3.5"/>
                                 {recruitmentUiText.uploadResume}
                             </Button>
                         )}
                         {canManagePosition && (
-                            <Button onClick={openCreatePosition} className="h-9 rounded-md px-3 text-sm">
+                            <Button variant="outline" onClick={openCreatePosition} className="h-9 rounded-[6px] border-[#1E3BFA] bg-white px-4 text-[13px] text-[#1E3BFA] shadow-none hover:bg-[rgba(30,59,250,0.06)] hover:text-[#0F23D9] dark:border-[#1E3BFA] dark:bg-slate-950 dark:text-blue-300">
                                 <Plus className="h-3.5 w-3.5"/>
                                 {recruitmentUiText.createPosition}
                             </Button>
@@ -14577,42 +14654,6 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                 {recruitmentUiText.openAssistantDrawer}
                             </Button>
                         ) : null}
-                        {canManageRecruitment ? (
-                            <Popover open={settingsPopoverOpen} onOpenChange={setSettingsPopoverOpen}>
-                                <PopoverTrigger asChild>
-                                    <Button variant="outline" className="h-9 rounded-md px-3 text-sm">
-                                        <Settings2 className="h-3.5 w-3.5"/>
-                                        {recruitmentUiText.manageSettings}
-                                    </Button>
-                                </PopoverTrigger>
-                                <PopoverContent align="end"
-                                                className="w-80 rounded-2xl border-slate-200 p-2 dark:border-slate-800">
-                                    <div className="space-y-1">
-                                        {(canViewSkill || canManageSkill) && (
-                                            <SettingsEntry
-                                                title={recruitmentUiText.settingsSkillsTitle}
-                                                description={recruitmentUiText.settingsSkillsDescription}
-                                                onClick={() => navigateToSettingsPage("settings-skills")}
-                                            />
-                                        )}
-                                        {(canViewLLMConfig || canManageLLMConfig) && (
-                                            <SettingsEntry
-                                                title={recruitmentUiText.settingsModelsTitle}
-                                                description={recruitmentUiText.settingsModelsDescription}
-                                                onClick={() => navigateToSettingsPage("settings-models")}
-                                            />
-                                        )}
-                                        {(canViewMail || canManageMailConfig) && (
-                                            <SettingsEntry
-                                                title={recruitmentUiText.settingsMailTitle}
-                                                description={recruitmentUiText.settingsMailDescription}
-                                                onClick={() => navigateToSettingsPage("settings-mail")}
-                                            />
-                                        )}
-                                    </div>
-                                </PopoverContent>
-                            </Popover>
-                        ) : null}
                     </div>
                 </div>
             </div> : null}
@@ -14621,7 +14662,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                     {/* candidates/positions/audit 首次访问后保持挂载，用 hidden 控制 */}
                     {/* 原因：这三个页面有列表滚动位置、选中状态需要保持；未访问前不挂载以加快模块进入速度 */}
                     {visitedKeepAlivePagesRef.current.has("candidates") ? (
-                        <div className={cn("h-full min-h-0 px-3 py-3", activePage !== "candidates" && "hidden")}>
+                        <div className={cn("h-full min-h-0", activePage !== "candidates" && "hidden")}>
                             <KeepAliveFreeze frozen={activePage !== "candidates"}>
                                 {candidatesPageNode}
                             </KeepAliveFreeze>
@@ -15025,11 +15066,12 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             </Dialog>
 
             <Dialog open={resumeUploadOpen} onOpenChange={(open) => {
+                if (!open && uploadingResume) {
+                    return;
+                }
                 setResumeUploadOpen(open);
                 if (!open) {
-                    setResumeUploadError(null);
-                    setShowAdvancedOptions(false);
-                    setIsDraggingFile(false);
+                    resetResumeUploadDraft();
                 }
             }}>
                 {resumeUploadDialogBody}
@@ -15077,26 +15119,28 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                     setCandidateDeleteTarget(null);
                 }
             }}>
-                <DialogContent className="sm:max-w-md">
-                    <DialogHeader>
-                        <DialogTitle>{recruitmentUiText.confirmDeleteCandidate}</DialogTitle>
-                        <DialogDescription>
+                <DialogContent className="gap-0 overflow-hidden rounded-[8px] border-[#EBEEF5] bg-white p-0 text-[#0E1114] shadow-[0_8px_24px_rgba(14,17,20,0.16)] sm:max-w-[480px] dark:border-[#EBEEF5] dark:bg-white dark:text-[#0E1114] [&_[data-slot=dialog-close]]:right-6 [&_[data-slot=dialog-close]]:top-[18px] [&_[data-slot=dialog-close]]:rounded-[4px] [&_[data-slot=dialog-close]]:text-[#86888F] [&_[data-slot=dialog-close]]:opacity-100 [&_[data-slot=dialog-close][data-state=open]]:bg-transparent [&_[data-slot=dialog-close][data-state=open]]:text-[#86888F] [&_[data-slot=dialog-close]]:hover:bg-[#F7F8FA] [&_[data-slot=dialog-close]]:hover:text-[#0E1114]">
+                    <DialogHeader className="gap-1 border-b border-[#F2F3F5] px-6 pb-[14px] pr-14 pt-[18px] text-left">
+                        <DialogTitle className="text-[16px] font-semibold leading-5 text-[#0E1114]">{recruitmentUiText.confirmDeleteCandidate}</DialogTitle>
+                        <DialogDescription className="text-[12px] leading-5 text-[#86888F]">
                             {recruitmentUiText.candidateDeleteHint}
                         </DialogDescription>
                     </DialogHeader>
-                    <div className="rounded-2xl border border-slate-200/80 bg-slate-50/80 px-4 py-3 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-300">
-                        <p className="font-medium text-slate-900 dark:text-slate-100">{candidateDeleteTarget?.name || recruitmentUiText.currentCandidate}</p>
-                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                            {recruitmentUiText.candidateDeleteWarning}
-                        </p>
+                    <div className="px-6 py-5">
+                        <div className="rounded-[6px] border border-[#EBEEF5] bg-[#F7F8FA] px-4 py-3 text-[12px] leading-5 text-[#33353D] dark:border-[#EBEEF5] dark:bg-[#F7F8FA] dark:text-[#33353D]">
+                            <p className="text-[13px] font-medium text-[#0E1114] dark:text-[#0E1114]">{candidateDeleteTarget?.name || recruitmentUiText.currentCandidate}</p>
+                            <p className="mt-1 text-[11px] leading-[18px] text-[#86888F] dark:text-[#86888F]">
+                                {recruitmentUiText.candidateDeleteWarning}
+                            </p>
+                        </div>
+                        {candidateDeleteError ? (
+                            <p className="mt-3 text-[12px] leading-5 text-[#F53F3F]">{candidateDeleteError}</p>
+                        ) : null}
                     </div>
-                    <DialogFooter className="items-center justify-between gap-3 sm:justify-between">
-                        <span className="min-h-[20px] flex-1 text-sm text-rose-600 dark:text-rose-300">
-                            {candidateDeleteError ?? ""}
-                        </span>
-                        <div className="flex shrink-0 items-center gap-2">
+                    <DialogFooter className="h-16 shrink-0 items-center gap-3 border-t border-[#F2F3F5] px-6 sm:justify-end">
                         <Button
                             variant="outline"
+                            className="h-[34px] rounded-[6px] border-[#E6E7EB] bg-white px-[18px] text-[13px] font-normal text-[#33353D] shadow-none hover:border-[#1E3BFA] hover:bg-[#F7F8FA] hover:text-[#0F23D9] dark:border-[#E6E7EB] dark:bg-white dark:text-[#33353D] dark:shadow-none dark:hover:border-[#1E3BFA] dark:hover:bg-[#F7F8FA] dark:hover:text-[#0F23D9]"
                             onClick={() => {
                                 setCandidateDeleteError(null);
                                 setCandidateDeleteTarget(null);
@@ -15105,10 +15149,9 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                         >
                             {recruitmentUiText.cancelButton}
                         </Button>
-                        <Button variant="destructive" onClick={() => void deleteCandidate()} disabled={candidateDeleting}>
+                        <Button variant="destructive" className="h-[34px] rounded-[6px] bg-[#F53F3F] px-[18px] text-[13px] font-normal text-white shadow-none hover:bg-[#D9363E] focus-visible:ring-[#F53F3F]/20 dark:bg-[#F53F3F] dark:text-white dark:shadow-none dark:hover:bg-[#D9363E] dark:focus-visible:ring-[#F53F3F]/20" onClick={() => void deleteCandidate()} disabled={candidateDeleting}>
                             {candidateDeleting ? recruitmentUiText.deletingPosition : recruitmentUiText.confirmDeletePositionAction}
                         </Button>
-                        </div>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
@@ -15119,20 +15162,22 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                     setBatchDeleteTargetIds(null);
                 }
             }}>
-                <DialogContent className="sm:max-w-md">
-                    <DialogHeader>
-                        <DialogTitle>{recruitmentUiText.confirmDeleteCandidates}</DialogTitle>
-                        <DialogDescription>
+                <DialogContent className="gap-0 overflow-hidden rounded-[8px] border-[#EBEEF5] bg-white p-0 text-[#0E1114] shadow-[0_8px_24px_rgba(14,17,20,0.16)] sm:max-w-[480px] dark:border-[#EBEEF5] dark:bg-white dark:text-[#0E1114] [&_[data-slot=dialog-close]]:right-6 [&_[data-slot=dialog-close]]:top-[18px] [&_[data-slot=dialog-close]]:rounded-[4px] [&_[data-slot=dialog-close]]:text-[#86888F] [&_[data-slot=dialog-close]]:opacity-100 [&_[data-slot=dialog-close][data-state=open]]:bg-transparent [&_[data-slot=dialog-close][data-state=open]]:text-[#86888F] [&_[data-slot=dialog-close]]:hover:bg-[#F7F8FA] [&_[data-slot=dialog-close]]:hover:text-[#0E1114]">
+                    <DialogHeader className="border-b border-[#F2F3F5] px-6 pb-[14px] pr-14 pt-[18px] text-left">
+                        <DialogTitle className="text-[16px] font-semibold leading-5 text-[#0E1114]">{recruitmentUiText.confirmDeleteCandidates}</DialogTitle>
+                    </DialogHeader>
+                    <div className="px-6 py-5">
+                        <DialogDescription className="rounded-[6px] border border-[#EBEEF5] bg-[#F7F8FA] px-4 py-3 text-[12px] leading-5 text-[#33353D] dark:border-[#EBEEF5] dark:bg-[#F7F8FA] dark:text-[#33353D]">
                             {recruitmentUiText.batchDeleteDescription(batchDeleteTargetIds?.length ?? 0)}
                         </DialogDescription>
-                    </DialogHeader>
-                    <DialogFooter className="items-center justify-between gap-3 sm:justify-between">
-                        <span className="min-h-[20px] flex-1 text-sm text-rose-600 dark:text-rose-300">
-                            {batchDeleteError ?? ""}
-                        </span>
-                        <div className="flex shrink-0 items-center gap-2">
+                        {batchDeleteError ? (
+                            <p className="mt-3 text-[12px] leading-5 text-[#F53F3F]">{batchDeleteError}</p>
+                        ) : null}
+                    </div>
+                    <DialogFooter className="h-16 shrink-0 items-center gap-3 border-t border-[#F2F3F5] px-6 sm:justify-end">
                         <Button
                             variant="outline"
+                            className="h-[34px] rounded-[6px] border-[#E6E7EB] bg-white px-[18px] text-[13px] font-normal text-[#33353D] shadow-none hover:border-[#1E3BFA] hover:bg-[#F7F8FA] hover:text-[#0F23D9] dark:border-[#E6E7EB] dark:bg-white dark:text-[#33353D] dark:shadow-none dark:hover:border-[#1E3BFA] dark:hover:bg-[#F7F8FA] dark:hover:text-[#0F23D9]"
                             onClick={() => {
                                 setBatchDeleteError(null);
                                 setBatchDeleteTargetIds(null);
@@ -15141,10 +15186,9 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                         >
                             {recruitmentUiText.cancelButton}
                         </Button>
-                        <Button variant="destructive" onClick={() => void batchDeleteCandidates()} disabled={batchDeleting}>
+                        <Button variant="destructive" className="h-[34px] rounded-[6px] bg-[#F53F3F] px-[18px] text-[13px] font-normal text-white shadow-none hover:bg-[#D9363E] focus-visible:ring-[#F53F3F]/20 dark:bg-[#F53F3F] dark:text-white dark:shadow-none dark:hover:bg-[#D9363E] dark:focus-visible:ring-[#F53F3F]/20" onClick={() => void batchDeleteCandidates()} disabled={batchDeleting}>
                             {batchDeleting ? recruitmentUiText.deletingPosition : recruitmentUiText.confirmDeletePositionAction}
                         </Button>
-                        </div>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
@@ -15154,26 +15198,29 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                     setResumeDeleteTarget(null);
                 }
             }}>
-                <DialogContent className="sm:max-w-md">
-                    <DialogHeader>
-                        <DialogTitle>{recruitmentUiText.confirmDeleteResume}</DialogTitle>
-                        <DialogDescription>
+                <DialogContent className="gap-0 overflow-hidden rounded-[8px] border-[#EBEEF5] bg-white p-0 text-[#0E1114] shadow-[0_8px_24px_rgba(14,17,20,0.16)] sm:max-w-[480px] dark:border-[#EBEEF5] dark:bg-white dark:text-[#0E1114] [&_[data-slot=dialog-close]]:right-6 [&_[data-slot=dialog-close]]:top-[18px] [&_[data-slot=dialog-close]]:rounded-[4px] [&_[data-slot=dialog-close]]:text-[#86888F] [&_[data-slot=dialog-close]]:opacity-100 [&_[data-slot=dialog-close][data-state=open]]:bg-transparent [&_[data-slot=dialog-close][data-state=open]]:text-[#86888F] [&_[data-slot=dialog-close]]:hover:bg-[#F7F8FA] [&_[data-slot=dialog-close]]:hover:text-[#0E1114]">
+                    <DialogHeader className="gap-1 border-b border-[#F2F3F5] px-6 pb-[14px] pr-14 pt-[18px] text-left">
+                        <DialogTitle className="text-[16px] font-semibold leading-5 text-[#0E1114]">{recruitmentUiText.confirmDeleteResume}</DialogTitle>
+                        <DialogDescription className="text-[12px] leading-5 text-[#86888F]">
                             {recruitmentUiText.resumeDeleteDescription}
                         </DialogDescription>
                     </DialogHeader>
-                    <div className="rounded-2xl border border-slate-200/80 bg-slate-50/80 px-4 py-3 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-300">
-                        <p className="font-medium text-slate-900 dark:text-slate-100">{resumeDeleteTarget?.original_name || recruitmentUiText.currentResume}</p>
-                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{recruitmentUiText.resumeDeleteWarning}</p>
+                    <div className="px-6 py-5">
+                        <div className="rounded-[6px] border border-[#EBEEF5] bg-[#F7F8FA] px-4 py-3 text-[12px] leading-5 text-[#33353D] dark:border-[#EBEEF5] dark:bg-[#F7F8FA] dark:text-[#33353D]">
+                            <p className="text-[13px] font-medium text-[#0E1114] dark:text-[#0E1114]">{resumeDeleteTarget?.original_name || recruitmentUiText.currentResume}</p>
+                            <p className="mt-1 text-[11px] leading-[18px] text-[#86888F] dark:text-[#86888F]">{recruitmentUiText.resumeDeleteWarning}</p>
+                        </div>
                     </div>
-                    <DialogFooter>
+                    <DialogFooter className="h-16 shrink-0 items-center gap-3 border-t border-[#F2F3F5] px-6 sm:justify-end">
                         <Button
                             variant="outline"
+                            className="h-[34px] rounded-[6px] border-[#E6E7EB] bg-white px-[18px] text-[13px] font-normal text-[#33353D] shadow-none hover:border-[#1E3BFA] hover:bg-[#F7F8FA] hover:text-[#0F23D9] dark:border-[#E6E7EB] dark:bg-white dark:text-[#33353D] dark:shadow-none dark:hover:border-[#1E3BFA] dark:hover:bg-[#F7F8FA] dark:hover:text-[#0F23D9]"
                             onClick={() => setResumeDeleteTarget(null)}
                             disabled={resumeDeleting}
                         >
                             {recruitmentUiText.cancelButton}
                         </Button>
-                        <Button variant="destructive" onClick={() => void deleteResumeFile()} disabled={resumeDeleting}>
+                        <Button variant="destructive" className="h-[34px] rounded-[6px] bg-[#F53F3F] px-[18px] text-[13px] font-normal text-white shadow-none hover:bg-[#D9363E] focus-visible:ring-[#F53F3F]/20 dark:bg-[#F53F3F] dark:text-white dark:shadow-none dark:hover:bg-[#D9363E] dark:focus-visible:ring-[#F53F3F]/20" onClick={() => void deleteResumeFile()} disabled={resumeDeleting}>
                             {resumeDeleting ? recruitmentUiText.deletingPosition : recruitmentUiText.confirmDeletePositionAction}
                         </Button>
                     </DialogFooter>
@@ -15819,50 +15866,57 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                     }
                 }}
             >
-                <DialogContent className="sm:max-w-4xl">
-                    <DialogHeader>
-                        <DialogTitle>{resumeMailDialogTitle}</DialogTitle>
-                        <DialogDescription>{resumeMailDialogDescription}</DialogDescription>
+                <DialogContent className="flex max-h-[86vh] flex-col gap-0 overflow-hidden rounded-[8px] border-[#EBEEF5] bg-white p-0 text-[#0E1114] shadow-[0_8px_24px_rgba(14,17,20,0.16)] sm:max-w-[840px] dark:border-[#EBEEF5] dark:bg-white dark:text-[#0E1114] [&_[data-slot=dialog-close]]:right-6 [&_[data-slot=dialog-close]]:top-[18px] [&_[data-slot=dialog-close]]:rounded-[4px] [&_[data-slot=dialog-close]]:text-[#86888F] [&_[data-slot=dialog-close]]:opacity-100 [&_[data-slot=dialog-close][data-state=open]]:bg-transparent [&_[data-slot=dialog-close][data-state=open]]:text-[#86888F] [&_[data-slot=dialog-close]]:hover:bg-[#F7F8FA] [&_[data-slot=dialog-close]]:hover:text-[#0E1114]">
+                    <DialogHeader className="shrink-0 gap-1 border-b border-[#F2F3F5] px-6 pb-[14px] pr-14 pt-[18px] text-left">
+                        <DialogTitle className="text-[16px] font-semibold leading-5 text-[#0E1114]">{resumeMailDialogTitle}</DialogTitle>
+                        <DialogDescription className="text-[12px] leading-5 text-[#86888F]">{resumeMailDialogDescription}</DialogDescription>
                     </DialogHeader>
-                    <ScrollArea className="max-h-[70vh]">
-                        <div className="space-y-5 px-1 py-1">
-                            <Field label={recruitmentUiText.candidatesInThisSendLabel}>
-                                <div className="grid gap-3">
+                    <ScrollArea className="min-h-0 flex-1">
+                        <div className="space-y-5 px-6 py-5">
+                            <Field label={recruitmentUiText.candidatesInThisSendLabel} className="space-y-2 [&>p]:text-[12px] [&>p]:font-normal [&>p]:text-[#33353D] [&>p]:dark:text-[#33353D]">
+                                <div className="grid gap-2">
                                     {resumeMailTargetCandidates.length ? resumeMailTargetCandidates.map((candidate) => (
                                         <div key={candidate.id}
-                                             className="rounded-2xl border border-slate-200/80 px-4 py-4 dark:border-slate-800">
-                                            <div className="flex flex-wrap items-start justify-between gap-3">
-                                                <div>
-                                                    <p className="font-medium text-slate-900 dark:text-slate-100">{candidate.name}</p>
-                                                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{candidate.position_title || recruitmentUiText.resumeNoLinkedPosition}</p>
+                                             className="rounded-[8px] border border-[#EBEEF5] bg-white px-4 py-3 dark:border-[#EBEEF5] dark:bg-white">
+                                            <div className="flex items-center justify-between gap-4">
+                                                <div className="flex min-w-0 items-center gap-2.5">
+                                                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#1E3BFA] text-[12px] font-medium text-white">
+                                                        {candidate.name.trim().slice(0, 1) || "-"}
+                                                    </div>
+                                                    <div className="min-w-0">
+                                                        <p className="truncate text-[13px] font-medium leading-5 text-[#0E1114] dark:text-[#0E1114]">{candidate.name}</p>
+                                                        <p className="truncate text-[11px] leading-[18px] text-[#86888F] dark:text-[#86888F]">{candidate.position_title || recruitmentUiText.resumeNoLinkedPosition}</p>
+                                                        <p className={cn(
+                                                            "truncate text-[11px] leading-[18px]",
+                                                            getCandidateResumeMailSummary(candidate.id) ? "text-[#0CC991]" : "text-[#86888F]",
+                                                        )}>
+                                                            {getCandidateResumeMailSummary(candidate.id) || recruitmentUiText.noSendHistory}
+                                                        </p>
+                                                    </div>
                                                 </div>
-                                                <div className="flex flex-wrap gap-2">
+                                                <div className="flex shrink-0 flex-wrap gap-2">
                                                     {getCandidateResumeMailSummary(candidate.id) ? (
                                                         <Badge
-                                                            className="rounded-full border border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-900 dark:bg-violet-950/30 dark:text-violet-200">
+                                                            className="h-[22px] rounded-[4px] border-transparent bg-[rgba(12,201,145,0.1)] px-2 py-0 text-[12px] font-normal text-[#0CC991] shadow-none dark:border-transparent dark:bg-[rgba(12,201,145,0.1)] dark:text-[#0CC991]">
                                                             {recruitmentUiText.alreadySent}
                                                         </Badge>
                                                     ) : (
                                                         <Badge variant="outline"
-                                                               className="rounded-full">{recruitmentUiText.firstSend}</Badge>
+                                                               className="h-[22px] rounded-[4px] border-transparent bg-[rgba(30,59,250,0.08)] px-2 py-0 text-[12px] font-normal text-[#1E3BFA] shadow-none dark:border-transparent dark:bg-[rgba(30,59,250,0.08)] dark:text-[#1E3BFA]">{recruitmentUiText.firstSend}</Badge>
                                                     )}
                                                 </div>
                                             </div>
-                                            {getCandidateResumeMailSummary(candidate.id) ? (
-                                                <p className="mt-2 text-xs text-violet-600 dark:text-violet-300">{getCandidateResumeMailSummary(candidate.id)}</p>
-                                            ) : (
-                                                <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">{recruitmentUiText.noSendHistory}</p>
-                                            )}
                                         </div>
                                     )) : (
-                                        <p className="text-xs text-slate-500 dark:text-slate-400">{recruitmentUiText.noCandidateDetails}</p>
+                                        <p className="rounded-[6px] border border-[#EBEEF5] bg-[#F7F8FA] px-4 py-3 text-[12px] text-[#86888F] dark:border-[#EBEEF5] dark:bg-[#F7F8FA] dark:text-[#86888F]">{recruitmentUiText.noCandidateDetails}</p>
                                     )}
                                 </div>
                             </Field>
 
                             <div className="grid gap-4 md:grid-cols-2">
-                                <Field label={recruitmentUiText.senderConfig}>
+                                <Field label={recruitmentUiText.senderConfig} className="space-y-1.5 [&>p]:text-[12px] [&>p]:font-normal [&>p]:text-[#33353D] [&>p]:dark:text-[#33353D]">
                                     <NativeSelect value={resumeMailForm.senderConfigId}
+                                                  className="h-[34px] rounded-[4px] border-[#E6E7EB] bg-white text-[12px] text-[#0E1114] shadow-none focus-visible:border-[#1E3BFA] focus-visible:ring-[#1E3BFA]/15 dark:border-[#E6E7EB] dark:bg-white dark:text-[#0E1114]"
                                                   onChange={(event) => setResumeMailForm((current) => ({
                                                       ...current,
                                                       senderConfigId: event.target.value
@@ -15875,8 +15929,9 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                         ))}
                                     </NativeSelect>
                                 </Field>
-                                <Field label={recruitmentUiText.recipientEmailsOptional}>
+                                <Field label={recruitmentUiText.recipientEmailsOptional} className="space-y-1.5 [&>p]:text-[12px] [&>p]:font-normal [&>p]:text-[#33353D] [&>p]:dark:text-[#33353D]">
                                     <Input
+                                        className="h-[34px] rounded-[4px] border-[#E6E7EB] bg-white px-3 text-[12px] text-[#0E1114] shadow-none placeholder:text-[#B0B2B8] focus-visible:border-[#1E3BFA] focus-visible:ring-2 focus-visible:ring-[#1E3BFA]/15 dark:border-[#E6E7EB] dark:bg-white dark:text-[#0E1114] dark:placeholder:text-[#B0B2B8]"
                                         value={resumeMailForm.extraRecipientEmails}
                                         onChange={(event) => setResumeMailForm((current) => ({
                                             ...current,
@@ -15887,23 +15942,29 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                 </Field>
                             </div>
 
-                            <Field label={recruitmentUiText.selectInternalRecipients}>
-                                <div className="grid gap-3 md:grid-cols-2">
+                            <Field label={recruitmentUiText.selectInternalRecipients} className="space-y-2 [&>p]:text-[12px] [&>p]:font-normal [&>p]:text-[#33353D] [&>p]:dark:text-[#33353D]">
+                                <div className="grid gap-2.5 md:grid-cols-2">
                                     {enabledMailRecipients.length ? enabledMailRecipients.map((recipient) => (
                                         <label key={recipient.id}
-                                               className="flex items-start gap-3 rounded-2xl border border-slate-200/80 px-4 py-4 text-sm dark:border-slate-800">
+                                               className={cn(
+                                                   "flex cursor-pointer items-start gap-2.5 rounded-[8px] border px-3.5 py-3 text-[12px] transition-colors",
+                                                   resumeMailForm.recipientIds.includes(recipient.id)
+                                                       ? "border-[#1E3BFA] bg-[rgba(30,59,250,0.03)] dark:border-[#1E3BFA] dark:bg-[rgba(30,59,250,0.03)]"
+                                                       : "border-[#EBEEF5] bg-white hover:border-[#E6E7EB] dark:border-[#EBEEF5] dark:bg-white dark:hover:border-[#E6E7EB]",
+                                               )}>
                                             <input
                                                 type="checkbox"
+                                                className="mt-px h-[15px] w-[15px] shrink-0 cursor-pointer accent-[#1E3BFA]"
                                                 checked={resumeMailForm.recipientIds.includes(recipient.id)}
                                                 onChange={(event) => setResumeMailForm((current) => ({
                                                     ...current,
                                                     recipientIds: toggleIdInList(current.recipientIds, recipient.id, event.target.checked),
                                                 }))}
                                             />
-                                            <div>
-                                                <p className="font-medium text-slate-900 dark:text-slate-100">{recipient.name}</p>
-                                                <p className="mt-1 text-slate-500 dark:text-slate-400">{recipient.email}</p>
-                                                <p className="mt-1 text-slate-500 dark:text-slate-400">{recipient.department || recruitmentUiText.noDepartmentSet} / {recipient.role_title || recruitmentUiText.noRoleSet}</p>
+                                            <div className="min-w-0">
+                                                <p className="truncate text-[13px] font-medium leading-5 text-[#0E1114] dark:text-[#0E1114]">{recipient.name}</p>
+                                                <p className="truncate text-[11px] leading-[18px] text-[#86888F] dark:text-[#86888F]">{recipient.email}</p>
+                                                <p className="truncate text-[11px] leading-[18px] text-[#B0B2B8] dark:text-[#B0B2B8]">{recipient.department || recruitmentUiText.noDepartmentSet} / {recipient.role_title || recruitmentUiText.noRoleSet}</p>
                                             </div>
                                         </label>
                                     )) : (
@@ -15913,15 +15974,15 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                 </div>
                             </Field>
 
-                            <Field label={recruitmentUiText.emailSubjectOptional}>
-                                <Input value={resumeMailForm.subject}
+                            <Field label={recruitmentUiText.emailSubjectOptional} className="space-y-1.5 [&>p]:text-[12px] [&>p]:font-normal [&>p]:text-[#33353D] [&>p]:dark:text-[#33353D]">
+                                <Input className="h-[34px] rounded-[4px] border-[#E6E7EB] bg-white px-3 text-[12px] text-[#0E1114] shadow-none placeholder:text-[#B0B2B8] focus-visible:border-[#1E3BFA] focus-visible:ring-2 focus-visible:ring-[#1E3BFA]/15 dark:border-[#E6E7EB] dark:bg-white dark:text-[#0E1114] dark:placeholder:text-[#B0B2B8]" value={resumeMailForm.subject}
                                        onChange={(event) => setResumeMailForm((current) => ({
                                            ...current,
                                            subject: event.target.value
                                        }))} placeholder={recruitmentUiText.emailSubjectPlaceholder}/>
                             </Field>
-                            <Field label={recruitmentUiText.emailBodyOptional}>
-                                <Textarea value={resumeMailForm.bodyText}
+                            <Field label={recruitmentUiText.emailBodyOptional} className="space-y-1.5 [&>p]:text-[12px] [&>p]:font-normal [&>p]:text-[#33353D] [&>p]:dark:text-[#33353D]">
+                                <Textarea className="min-h-[96px] resize-y rounded-[4px] border-[#E6E7EB] bg-white px-3 py-2.5 text-[12px] leading-5 text-[#0E1114] shadow-none placeholder:text-[#B0B2B8] focus-visible:border-[#1E3BFA] focus-visible:ring-2 focus-visible:ring-[#1E3BFA]/15 dark:border-[#E6E7EB] dark:bg-white dark:text-[#0E1114] dark:placeholder:text-[#B0B2B8]" value={resumeMailForm.bodyText}
                                           onChange={(event) => setResumeMailForm((current) => ({
                                               ...current,
                                               bodyText: event.target.value
@@ -15930,13 +15991,13 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                             </Field>
                         </div>
                     </ScrollArea>
-                    <DialogFooter>
+                    <DialogFooter className="h-16 shrink-0 items-center gap-3 border-t border-[#F2F3F5] px-6 sm:justify-end">
                         {resumeMailError && (
-                            <p className="text-sm text-red-500 flex-1 text-left">{resumeMailError}</p>
+                            <p className="flex-1 text-left text-[12px] leading-5 text-[#F53F3F]">{resumeMailError}</p>
                         )}
-                        <Button variant="outline" onClick={() => setResumeMailDialogOpen(false)}>{recruitmentUiText.cancelButton}</Button>
-                        <Button onClick={() => void submitResumeMail()} disabled={resumeMailSubmitting}>
-                            <Send className="h-4 w-4"/>
+                        <Button variant="outline" className="h-[34px] rounded-[6px] border-[#E6E7EB] bg-white px-[18px] text-[13px] font-normal text-[#33353D] shadow-none hover:border-[#1E3BFA] hover:bg-[#F7F8FA] hover:text-[#0F23D9] dark:border-[#E6E7EB] dark:bg-white dark:text-[#33353D] dark:shadow-none dark:hover:border-[#1E3BFA] dark:hover:bg-[#F7F8FA] dark:hover:text-[#0F23D9]" onClick={() => setResumeMailDialogOpen(false)}>{recruitmentUiText.cancelButton}</Button>
+                        <Button className="h-[34px] rounded-[6px] bg-[#1E3BFA] px-[18px] text-[13px] font-normal text-white shadow-none hover:bg-[#0F23D9] focus-visible:ring-[#1E3BFA]/20 dark:bg-[#1E3BFA] dark:text-white dark:shadow-none dark:hover:bg-[#0F23D9] dark:focus-visible:ring-[#1E3BFA]/20" onClick={() => void submitResumeMail()} disabled={resumeMailSubmitting}>
+                            <Send className="h-[13px] w-[13px]"/>
                             {resumeMailSubmitLabel}
                         </Button>
                     </DialogFooter>
