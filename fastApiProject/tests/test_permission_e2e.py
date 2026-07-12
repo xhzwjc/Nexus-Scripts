@@ -375,6 +375,17 @@ def _seed_recruitment_data(db):
         "company-b": _seed_candidate(db, org_code="company-b", position_id=positions["company-b"].id, name="Company B Candidate", created_by="company-b-admin"),
         "company-c": _seed_candidate(db, org_code="company-c", position_id=positions["company-c"].id, name="Company C Candidate", created_by="group-admin"),
     }
+    talent_pool_candidate = _seed_candidate(
+        db,
+        org_code="company-a",
+        position_id=positions["company-a"].id,
+        name="Company A Talent Pool Candidate",
+        created_by="company-a-admin",
+    )
+    talent_pool_candidate.position_id = None
+    talent_pool_candidate.status = "talent_pool"
+    talent_pool_candidate.talent_pool_reason = "moved_by_hr"
+    candidates["company-a-talent-pool"] = talent_pool_candidate
     db.commit()
     return {
         "positions": {key: row.id for key, row in positions.items()},
@@ -456,6 +467,10 @@ def test_functional_permission_points_gate_direct_api_calls(permission_app, monk
     assert client.get("/recruitment/candidates/talent-pool", headers=_headers(permission_app, "talent_pool_viewer")).status_code == 200
     assert client.get("/recruitment/candidates/talent-pool", headers=_headers(permission_app, "viewer")).status_code == 403
     assert client.get("/recruitment/dashboard", headers=_headers(permission_app, "talent_pool_viewer")).status_code == 403
+    talent_pool_candidate_id = permission_app["resources"]["candidates"]["company-a-talent-pool"]
+    assert client.get(f"/recruitment/candidates/talent-pool/{talent_pool_candidate_id}", headers=_headers(permission_app, "talent_pool_viewer")).status_code == 200
+    assert client.get(f"/recruitment/candidates/{talent_pool_candidate_id}", headers=_headers(permission_app, "talent_pool_viewer")).status_code == 403
+    assert client.get(f"/recruitment/candidates/talent-pool/{candidate_id}", headers=_headers(permission_app, "talent_pool_viewer")).status_code == 404
 
     assert client.get("/recruitment/metadata", headers=_headers(permission_app, "assistant_viewer")).status_code == 200
     assert client.get("/recruitment/chat/context", headers=_headers(permission_app, "assistant_viewer")).status_code == 200

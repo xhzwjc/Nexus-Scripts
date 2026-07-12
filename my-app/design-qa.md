@@ -2,10 +2,10 @@
 
 ## 检查范围
 
-- 参考原型：`AI Recruitment Redesign Project/工作台 Workspace.dc.html`、`AI Recruitment Redesign Project/岗位管理 Positions.dc.html`、`AI Recruitment Redesign Project/候选人 Candidates.dc.html` 及同目录设计说明。
+- 参考原型：`AI Recruitment Redesign Project/工作台 Workspace.dc.html`、`AI Recruitment Redesign Project/岗位管理 Positions.dc.html`、`AI Recruitment Redesign Project/候选人 Candidates.dc.html`、`AI Recruitment Redesign Project/人才库 TalentPool.dc.html` 及同目录设计说明。
 - 实现地址：`http://localhost:3000/`
-- 检查环境：桌面端、1920 × 1080、浅色模式。
-- 已完成页面：工作台、岗位管理（列表、详情、新建、编辑及关联弹窗）、候选人（列表、看板、详情全部页签、内嵌表单与候选人专属弹窗）。
+- 检查环境：桌面端、浅色模式；原型基准为 1920 × 1080，人才库应用内浏览器运行截图为 1394 × 775，并使用相同 1394 × 775 左上视口裁切原型进行对照。
+- 已完成页面：工作台、岗位管理（列表、详情、新建、编辑及关联弹窗）、候选人（列表、看板、详情全部页签、内嵌表单与候选人专属弹窗）、人才库（统计、筛选、分组列表、分页、批量操作、上传、直属确认弹窗与详情抽屉）。
 - 左侧菜单右下角折叠/展开图标按用户要求保留并使用新风格，但不作为视觉对比项；除该图标外，其余框架与页面均正常检查。
 
 ## 工作台
@@ -103,5 +103,46 @@
 - `git diff --check`：通过。
 - 开发服务器重启后重新加载岗位管理，浏览器控制台无新增 error/warning。
 - 候选人主列表、真实详情和嵌套弹窗检查后，浏览器控制台无新增 error/warning。
+
+## 人才库
+
+### 对照目标与证据
+
+- 视觉真值：`AI Recruitment Redesign Project/人才库 TalentPool.dc.html`，原始截图 `.design-qa/talent-pool/00-talent-pool-source.png`。
+- 运行实现：`http://localhost:3000/` 的人才库模块，截图 `.design-qa/talent-pool/01-talent-pool-implementation.png`。
+- 全视图同屏证据：`.design-qa/talent-pool/02-talent-pool-comparison.png`；重点区域证据：`.design-qa/talent-pool/03-talent-pool-focus-comparison.png`。
+- 状态：原型使用示例分组数据；实际 QA 数据库当前人才库为 0 条，因此实现证据展示真实空状态。页头、六张指标卡、筛选工具栏、分页与上传弹窗可直接同状态核对；分组行使用真实字段映射和 56px 行结构完成代码与类型检查，但本轮没有改写用户数据来制造截图样本。
+
+### 必查设计面
+
+- 字体与层级：沿用 Inter / PingFang SC 字体栈；标题 18px/600、统计数字 28px/600、正文与操作 12px、候选人姓名 13px，截断和行高与原型一致。
+- 间距与布局：页面内边距 20px 32px 48px；页头、统计卡、筛选、分组头、56px 行和分页均按原型节奏实现。候选人、标签/说明、来源、时间和操作列使用内容权重铺满，窄桌面只在分组列表内部保留最小宽度与横向滚动，不再让整个页面隐藏右侧固定操作。
+- 颜色与表面：主色 `#1E3BFA`，链接 `#0F23D9`，语义蓝/橙/红/绿、文字、边框和浅底均使用原型 token；卡片与弹窗为 4/6/8px 圆角，无旧红色主题、玻璃渐变、大圆角或深蓝按钮残留。
+- 图标与图像：页面没有产品图片或装饰位图；图标统一使用 Lucide 描边图标，头像仅在真实列表行根据候选人姓名生成原型同类的彩色首字圆形标识，没有引入伪造业务图片。
+- 文案与业务：保留系统真实字段、状态和接口；将原型“全部标签”明确为后端实际筛选的“全部推荐岗位”，搜索提示也改为接口真实覆盖的姓名、手机号、邮箱、公司和岗位，未复制原型示例姓名或技能。
+
+### 页面、弹窗与交互
+
+- 已移除人才库旧模块顶部的返回、重复标题、组织切换和新增招聘需求；页内只保留原型式标题、上传简历和刷新。
+- 六类指标默认选中“总候选人”，已实际验证“待处理”点击筛选、再次点击恢复全部；来源筛选包含“其他”，推荐岗位和排序保留服务端分页查询。
+- 已实际验证高级筛选展开/收起、重置入口、空数据、批量操作禁用态和上传简历完整弹窗；上传弹窗仍复用候选人模块的三种上传模式、来源、重复策略、城市和批次流程。
+- 分组表格按实际状态生成 AI 识别、识别中、待处理和人才库中分组；保留分组全选、批量分配、批量重新识别、批量删除、单人分配、重新识别、停止匹配和查看。
+- 人才详情旧断路已修复：人才库现在挂载 760px 右侧抽屉，并使用独立只读详情接口；只有 `matching / unmatched / talent_pool` 状态可由人才库查看权限读取，普通候选人详情权限未被放宽。
+- 应用内浏览器 `error / warn / warning` 日志为 0；开发服务运行日志无编译或请求错误。
+
+### 比较历史
+
+- 预检查 P2：1394px 桌面视口下，页面级最小宽度会造成整体横向滚动并让右侧持续操作落出视口。已移除页面级最小宽度、允许筛选工具栏按需换行，并把最小宽度限制在分组列表内部。
+- 修复后证据：`.design-qa/talent-pool/01-talent-pool-implementation.png` 与 `.design-qa/talent-pool/03-talent-pool-focus-comparison.png`。再次同屏检查未发现可执行的 P0/P1/P2 差异。
+- 接受差异：共享框架的实际侧栏宽度与原型裁切存在轻微偏差，该框架已在前序模块单独验收；“全部推荐岗位”是为保持真实业务语义而保留的文案差异。
+- 残余测试空档：当前真实人才库无数据，无法在浏览器中触发有数据时的四个页面自有确认弹窗和详情抽屉视觉；这些路径已完成类型检查、生产编译和人才库详情权限端到端测试，不以修改实际人才数据换取截图。
+
+### 人才库验证
+
+- `npm run build`：通过。
+- `npm run typecheck`：通过。
+- 人才库相关前端文件 ESLint（errors only）：通过，0 error。
+- `fastApiProject/venv/bin/python -m pytest tests/test_permission_e2e.py::test_functional_permission_points_gate_direct_api_calls -q`：通过，1 passed。
+- `git diff --check`：通过。
 
 final result: passed

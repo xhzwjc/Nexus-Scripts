@@ -2,15 +2,12 @@
 
 import React from "react";
 import {
-    Briefcase,
-    Check,
-    Eye,
+    BadgeCheck,
+    ChevronDown,
     Loader2,
-    Plus,
     RefreshCw,
     RotateCcw,
     Search,
-    Square,
     Trash2,
     Upload,
     Users,
@@ -26,110 +23,114 @@ import {cn} from "@/lib/utils";
 import {Button} from "@/components/ui/button";
 import {Input} from "@/components/ui/input";
 import {
-    isTalentPoolReidentifiable,
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog";
+import {
     formatDateTime,
-    resolveTalentPoolDisplayStatus,
+    isTalentPoolReidentifiable,
     sanitizeCandidateFacingErrorText,
 } from "../utils";
-import {useColumnResizeDrag} from "../hooks/useColumnResizeDrag";
-
-const TALENT_POOL_SCOPE_DEFAULT_WIDTH = 196;
-const TALENT_POOL_SCOPE_MIN_WIDTH = 18;
-const TALENT_POOL_SCOPE_MAX_WIDTH = 420;
 
 function getTalentPoolLocale(language = getCurrentLanguage()) {
     const isZh = language !== "en-US";
     return {
         title: isZh ? "人才库" : "Talent Pool",
-        description: isZh ? "未分配岗位的候选人，可按 AI 识别标签批量分配岗位" : "Candidates without assigned positions, batch assign by AI-recognized tags",
+        description: isZh
+            ? "未分配岗位的候选人，可按 AI 识别标签批量分配岗位"
+            : "Candidates without assigned positions, batch assign by AI-recognized tags",
         uploadResume: isZh ? "上传简历" : "Upload Resume",
         refresh: isZh ? "刷新" : "Refresh",
         totalCandidates: isZh ? "总候选人" : "Total Candidates",
         totalHint: isZh ? "当前人才库" : "Current talent pool",
         matchingStat: isZh ? "识别中" : "Identifying",
-        matchingStatHint: isZh ? "AI处理中" : "AI in progress",
+        matchingStatHint: isZh ? "AI 处理中" : "AI in progress",
         pendingAction: isZh ? "待处理" : "Action Needed",
-        pendingActionHint: isZh ? "未匹配+异常" : "No match + errors",
+        pendingActionHint: isZh ? "未匹配 + 异常" : "No match + errors",
         noSystemPosition: isZh ? "未匹配岗位" : "No Position Match",
         noSystemPositionHint: isZh ? "需手动分配" : "Manual assignment",
         identifyError: isZh ? "识别异常" : "AI Errors",
         identifyErrorHint: isZh ? "可重新识别" : "Can re-identify",
         newThisWeek: isZh ? "本周入库" : "Added This Week",
         newThisWeekHint: isZh ? "最近 7 天入库" : "Added in last 7 days",
-        activeStatFilter: (label: string) => isZh ? `正在查看：${label}` : `Viewing: ${label}`,
-        clearStatFilter: isZh ? "再次点击指标可恢复全部" : "Click the metric again to show all",
-        statSelectHint: isZh ? "点击指标筛选列表，选中后再次点击恢复全部" : "Click a metric to filter; click it again to show all",
-        statFiltering: isZh ? "筛选中" : "Filtering",
         updatingList: isZh ? "正在更新列表" : "Updating list",
-        searchPlaceholder: isZh ? "搜索候选人姓名、技能…" : "Search candidates by name, skills...",
+        searchPlaceholder: isZh
+            ? "搜索姓名、手机号、邮箱、公司或岗位…"
+            : "Search name, phone, email, company, or position...",
         allSources: isZh ? "全部来源" : "All Sources",
-        allTags: isZh ? "全部标签" : "All Tags",
+        allRecommendedPositions: isZh ? "全部推荐岗位" : "All Recommended Positions",
         sortByTime: isZh ? "入库时间 ↓" : "Talent Pool Time ↓",
         sortByName: isZh ? "姓名 A-Z" : "Name A-Z",
         sortByNameDesc: isZh ? "姓名 Z-A" : "Name Z-A",
-        selectedCount: (n: number) => isZh ? `已选 ${n} 人` : `${n} selected`,
+        advancedFilter: isZh ? "高级筛选" : "Advanced Filters",
+        filterSummary: isZh
+            ? "可组合筛选来源、推荐岗位、入库时间，并搜索姓名、手机号、邮箱、公司或岗位。"
+            : "Combine source, recommended-position and date sorting with candidate search.",
+        resetFilters: isZh ? "重置筛选" : "Reset Filters",
+        selectedCount: (count: number) => isZh ? "已选 " + count + " 人" : count + " selected",
         clearSelection: isZh ? "清空选择" : "Clear Selection",
+        selectCurrentPage: isZh ? "全选当前页" : "Select Current Page",
         batchAssign: isZh ? "批量分配岗位" : "Batch Assign Position",
         batchReIdentify: isZh ? "批量重新识别" : "Batch Re-identify",
         batchDelete: isZh ? "批量删除" : "Batch Delete",
-        reIdentifyConfirmTitle: isZh ? "确认重新识别岗位" : "Confirm Re-identification",
-        reIdentifyConfirmDescription: (count: number) => isZh
-            ? `将对 ${count} 位人才重新识别匹配岗位。`
-            : `Re-identify matching positions for ${count} talent record(s).`,
-        reIdentifyConfirmWarning: isZh
-            ? "已选择的数据中包含非待识别人才。确认后这些人才也会重新进入岗位识别流程，原有来源阶段可能随新的识别结果更新。"
-            : "The selection includes records that are not pending identification. Confirming will send them through position matching again, and their source stage may update with the new result.",
-        reIdentifyConfirmIncludes: isZh ? "本次包含" : "Included",
-        reIdentifyConfirmCandidates: isZh ? "涉及人才" : "Candidates",
-        reIdentifyConfirmMore: (count: number) => isZh ? `等 ${count} 人` : `and ${count} more`,
-        confirmReIdentify: isZh ? "确认重新识别" : "Confirm Re-identify",
+        activeStatFilter: (label: string) => isZh ? "正在查看：" + label : "Viewing: " + label,
+        clearStatFilter: isZh ? "再次点击指标恢复全部" : "Click again to show all",
+        statFiltering: isZh ? "筛选中" : "Filtering",
         aiRecognized: isZh ? "AI 识别" : "AI Match",
+        aiMatchingGroup: isZh ? "AI 匹配中" : "AI Matching",
+        aiMatchingHint: isZh
+            ? "AI 正在分析简历匹配岗位，请稍候…"
+            : "AI is analyzing resumes to match positions...",
+        pendingGroup: isZh ? "待处理" : "Pending",
         unmatchedGroup: isZh ? "无法识别岗位" : "Unmatched",
-        selectAllGroup: isZh ? "全选此分组" : "Select All",
+        pendingGroupDesc: isZh
+            ? "AI 未找到岗位，可重新识别或手动分配"
+            : "AI did not find a position. Re-identify or assign manually.",
+        archivedGroup: isZh ? "人才库中" : "In Talent Pool",
+        archivedGroupTitle: isZh ? "已入库人才" : "Talent Pool Records",
+        archivedGroupDesc: isZh
+            ? "已进入人才库，可按来源阶段继续分配岗位"
+            : "Already in the talent pool and ready for reassignment.",
+        selectAllGroup: isZh ? "全选此分组" : "Select This Group",
         oneClickAssign: isZh ? "一键分配到此岗位" : "Assign to This Position",
-        confirmMatch: isZh ? "确认归岗" : "Confirm",
-        changePosition: isZh ? "换岗位" : "Reassign",
+        confirmMatch: isZh ? "确认归岗" : "Confirm Position",
+        changePosition: isZh ? "换岗位" : "Change Position",
+        manualAssign: isZh ? "手动分配" : "Manual Assign",
+        assignPosition: isZh ? "分配岗位" : "Assign Position",
         reIdentify: isZh ? "重新识别" : "Re-identify",
         reIdentifying: isZh ? "识别中…" : "Identifying...",
-        manualAssign: isZh ? "手动分配" : "Manual Assign",
+        stopMatch: isZh ? "停止匹配" : "Stop Matching",
         view: isZh ? "查看" : "View",
-        aiIdentified: isZh ? "AI 已识别" : "AI Matched",
-        pendingIdentify: isZh ? "待识别" : "Pending",
-        matching: isZh ? "匹配中" : "Matching",
-        aiMatchingGroup: isZh ? "AI 匹配中" : "AI Matching",
-        aiMatchingHint: isZh ? "AI 正在分析简历匹配岗位，请稍候…" : "AI is analyzing resume to match positions...",
-        aiRecommendInto: (title: string) => isZh ? `AI 推荐归入：${title}` : `AI recommends: ${title}`,
-        aiNoMatch: isZh ? "AI 未能匹配到系统现有岗位，请手动分配" : "AI could not match to existing positions, please assign manually",
-        aiStillNoMatch: isZh ? "重新识别后仍未找到匹配岗位" : "Still no match after re-identification",
-        stopMatch: isZh ? "停止匹配" : "Stop",
-        pendingGroup: isZh ? "待处理" : "Pending",
-        archivedGroup: isZh ? "人才库中" : "In Talent Pool",
-        pendingGroupDesc: isZh ? "AI 未找到岗位，可重新识别或手动分配" : "AI did not find a position. Re-identify or assign manually.",
-        archivedGroupDesc: isZh ? "已进入人才库，可按来源阶段继续分配岗位" : "Already in the talent pool and ready for reassignment.",
-        archived: isZh ? "人才库中" : "In Talent Pool",
+        aiNoMatch: isZh
+            ? "AI 未能匹配到系统现有岗位，请手动分配"
+            : "AI could not match an existing position. Please assign manually.",
+        aiStillNoMatch: isZh
+            ? "重新识别后仍未找到匹配岗位"
+            : "Still no match after re-identification",
         aiErrorDesc: isZh ? "AI 识别异常，请重新识别" : "AI error, please re-identify",
-        autoArchivedDesc: isZh ? "初筛完成，系统自动归入" : "Auto-archived after screening",
-        movedByHRDesc: (by: string, date: string, from: string) => isZh
-            ? `由 ${by} 于 ${date} 归入，来自：${from}`
-            : `Moved by ${by} on ${date}, from: ${from}`,
         sourceStage: isZh ? "来源阶段" : "Source Stage",
-        enteredAt: isZh ? "入库时间" : "Added",
-        uploadedAt: isZh ? "上传时间" : "Uploaded",
         sourceAiUnmatched: isZh ? "未匹配系统岗位" : "No System Position Match",
         sourceAiError: isZh ? "AI 识别异常" : "AI Error",
         sourceScreeningArchived: isZh ? "初筛完成后入库" : "Archived After Screening",
         sourceLegacyArchived: isZh ? "历史人才库数据" : "Legacy Talent Pool Record",
-        candidatesCount: (count: number) => isZh ? `${count} 人` : `${count}`,
-        noCandidates: isZh ? "人才库暂无候选人" : "No candidates in talent pool",
-        noCandidatesDesc: isZh ? '上传简历时选择「暂不选择岗位」或「AI智能匹配」，未匹配的候选人将出现在这里' : 'Candidates will appear here when uploaded with "No Position" or "AI Smart Match" mode',
-        noFilteredCandidates: isZh ? "当前指标下暂无候选人" : "No candidates for this metric",
-        noFilteredCandidatesDesc: isZh ? "再次点击上方指标可恢复全部人才库" : "Click the selected metric again to show all candidates",
-        currentView: isZh ? "当前工作列表" : "Current Worklist",
-        visibleResultCount: (shown: number, total: number) => isZh ? `已显示 ${shown} / ${total} 人` : `${shown} / ${total} shown`,
-        selectAllVisible: isZh ? "全选当前列表" : "Select visible",
-        pageRange: (start: number, end: number, total: number) => (
-            isZh ? `${start}-${end} / 共 ${total} 条` : `${start}-${end} of ${total}`
-        ),
+        archived: isZh ? "人才库中" : "In Talent Pool",
+        matching: isZh ? "匹配中" : "Matching",
+        candidatesCount: (count: number) => isZh ? count + " 人" : String(count),
+        noCandidates: isZh ? "人才库暂无候选人" : "No candidates in the talent pool",
+        noCandidatesDesc: isZh
+            ? "上传简历时选择「暂不选择岗位」或「AI 智能匹配」，相关人才会出现在这里"
+            : "Candidates uploaded without a position or through AI matching appear here.",
+        noFilteredCandidates: isZh ? "当前筛选下暂无候选人" : "No candidates match these filters",
+        noFilteredCandidatesDesc: isZh
+            ? "调整指标或筛选条件后再试"
+            : "Adjust the metric or filters and try again.",
+        pageRange: (start: number, end: number, total: number) => isZh
+            ? start + "-" + end + " / 共 " + total + " 条"
+            : start + "-" + end + " of " + total,
         rowsPerPage: isZh ? "条/页" : "Rows/Page",
         previousPage: isZh ? "上一页" : "Previous",
         nextPage: isZh ? "下一页" : "Next",
@@ -138,70 +139,26 @@ function getTalentPoolLocale(language = getCurrentLanguage()) {
         liepin: isZh ? "猎聘" : "Liepin",
         headhunter: isZh ? "猎头推荐" : "Headhunter",
         otherSource: isZh ? "其他" : "Other",
-        deleteConfirmTitle: isZh ? "确认删除" : "Confirm Delete",
-        deleteConfirmMsg: (n: number) => isZh
-            ? `确认删除已选 ${n} 位候选人？此操作不可撤销，简历数据将被永久移除。`
-            : `Delete ${n} candidate(s)? This cannot be undone. Resume data will be permanently removed.`,
+        selectPosition: isZh ? "请选择岗位" : "Select a position",
+        confirmAssign: isZh ? "确认分配" : "Confirm Assign",
         cancel: isZh ? "取消" : "Cancel",
         confirm: isZh ? "确认" : "Confirm",
-        confirmAssign: isZh ? "确认分配" : "Confirm Assign",
-        selectPosition: isZh ? "请选择岗位" : "Select a position",
-        drawerTitle: isZh ? "候选人详情" : "Candidate Details",
-        experience: isZh ? "经验" : "Experience",
-        education: isZh ? "学历" : "Education",
-        contact: isZh ? "联系方式" : "Contact",
-        workExperience: isZh ? "工作经历" : "Work Experience",
-        skills: isZh ? "技能" : "Skills",
-        resumeContent: isZh ? "简历内容" : "Resume Content",
-        noResumeContent: isZh ? "暂无解析内容" : "No parsed content available",
-        screeningPosition: isZh ? "初筛岗位" : "Screening Position",
-        aiRecommendedPosition: isZh ? "AI推荐岗位" : "AI Recommended Position",
-        potentialDirection: isZh ? "转岗潜力方向" : "Potential Transition Direction",
-        potentialReason: isZh ? "潜力原因" : "Potential Reason",
-        potentialSuggested: isZh ? "建议" : "Suggested",
-        noPotentialSuggestion: isZh ? "暂无转岗建议" : "No transfer suggestion",
-        expandReason: isZh ? "展开原因" : "Show reason",
-        collapseReason: isZh ? "收起原因" : "Hide reason",
+        reIdentifyConfirmTitle: isZh ? "确认重新识别岗位" : "Confirm Re-identification",
+        reIdentifyConfirmDescription: (count: number) => isZh
+            ? "将对 " + count + " 位人才重新识别匹配岗位。"
+            : "Re-identify matching positions for " + count + " talent record(s).",
+        reIdentifyConfirmWarning: isZh
+            ? "所选数据中包含非待识别人才。确认后这些人才也会重新进入岗位识别流程，原有来源阶段可能随新的识别结果更新。"
+            : "The selection includes records that are not pending identification. Their source stage may change after re-identification.",
+        reIdentifyConfirmIncludes: isZh ? "本次包含" : "Included",
+        reIdentifyConfirmMore: (count: number) => isZh ? "等 " + count + " 人" : "and " + count + " more",
+        confirmReIdentify: isZh ? "确认重新识别" : "Confirm Re-identify",
+        deleteConfirmTitle: isZh ? "确认删除" : "Confirm Delete",
+        deleteConfirmMsg: (count: number) => isZh
+            ? "确认删除已选 " + count + " 位候选人？此操作不可撤销，简历数据将被永久移除。"
+            : "Delete " + count + " candidate(s)? This cannot be undone.",
+        potentialPrefix: isZh ? "转岗：" : "Potential: ",
     };
-}
-
-type TalentPoolPageProps = {
-    candidates: CandidateSummary[];
-    positions: PositionSummary[];
-    loading: boolean;
-    onAssignPosition: (candidateIds: number[], positionId: number | null) => Promise<void>;
-    onCreatePosition: (suggestedTitle: string) => void;
-    onViewCandidate: (candidateId: number) => void;
-    onDeleteCandidates?: (candidateIds: number[]) => Promise<void>;
-    onRefresh?: () => void | Promise<void>;
-    onUploadResume?: () => void;
-    onReIdentify?: (candidateId: number) => Promise<void>;
-    onBatchReIdentify?: (candidateIds: number[]) => Promise<void>;
-    onCancelMatch?: (candidateId: number) => Promise<void>;
-    total?: number;
-    stats?: TalentPoolStats | null;
-    availableTags?: string[];
-    onQueryChange?: (query: TalentPoolQuery) => void | Promise<void>;
-    pageIndex: number;
-    pageSize: number;
-    pageSizeOptions: number[];
-    setPageIndex: (pageIndex: number) => void;
-    setPageSize: (pageSize: number) => void;
-    panelClass?: string;
-    preferredStatFilter?: TalentPoolStatFilter | null;
-    onPreferredStatFilterApplied?: () => void;
-};
-
-function sourceLabel(source: string | null | undefined, tr: ReturnType<typeof getTalentPoolLocale>) {
-    if (!source) return tr.manualUpload;
-    const map: Record<string, string> = {
-        manual_upload: tr.manualUpload,
-        boss_zhipin: tr.bossZhipin,
-        liepin: tr.liepin,
-        headhunter: tr.headhunter,
-        other: tr.otherSource,
-    };
-    return map[source] || source;
 }
 
 type TalentPoolStatFilter = "all" | "matching" | "pending" | "no_match" | "ai_error" | "week_new";
@@ -220,13 +177,77 @@ type TalentPoolQuery = {
     tagFilter: string;
     sortBy: "time" | "name" | "name_desc";
 };
+type TalentPoolPageProps = {
+    candidates: CandidateSummary[];
+    positions: PositionSummary[];
+    loading: boolean;
+    onAssignPosition: (candidateIds: number[], positionId: number | null) => Promise<void>;
+    onViewCandidate: (candidateId: number) => void;
+    onDeleteCandidates?: (candidateIds: number[]) => Promise<void>;
+    onRefresh?: () => void | Promise<void>;
+    onUploadResume?: () => void;
+    onReIdentify?: (candidateId: number) => Promise<void>;
+    onBatchReIdentify?: (candidateIds: number[]) => Promise<void>;
+    onCancelMatch?: (candidateId: number) => Promise<void>;
+    total?: number;
+    stats?: TalentPoolStats | null;
+    availableTags?: string[];
+    onQueryChange?: (query: TalentPoolQuery) => void | Promise<void>;
+    pageIndex: number;
+    pageSize: number;
+    pageSizeOptions: number[];
+    setPageIndex: (pageIndex: number) => void;
+    setPageSize: (pageSize: number) => void;
+    canManageCandidates?: boolean;
+    preferredStatFilter?: TalentPoolStatFilter | null;
+    onPreferredStatFilterApplied?: () => void;
+};
+type TalentPoolGroupTone = "primary" | "sky" | "amber" | "emerald";
+type TalentPoolCandidateGroup = {
+    key: string;
+    badge: string;
+    title: string;
+    description: string;
+    tone: TalentPoolGroupTone;
+    candidates: CandidateSummary[];
+    assignPositionId?: number | null;
+};
 
-function isTalentPoolMatching(candidate: CandidateSummary) {
-    return String(candidate.status || "").trim().toLowerCase() === "matching";
+const STATUS_LABEL_MAP: Record<string, string> = {
+    pending_screening: "待初筛",
+    screening_running: "初筛中",
+    screening_passed: "初筛通过",
+    screening_rejected: "初筛淘汰",
+    pending_interview: "待面试",
+    interview_passed: "面试通过",
+    interview_rejected: "面试淘汰",
+    pending_offer: "待发 Offer",
+    offer_sent: "已发 Offer",
+    hired: "已入职",
+    new_imported: "新导入",
+    matching: "匹配中",
+    unmatched: "待识别",
+    talent_pool: "人才库",
+};
+
+function sourceLabel(source: string | null | undefined, tr: ReturnType<typeof getTalentPoolLocale>) {
+    if (!source) return tr.manualUpload;
+    const labels: Record<string, string> = {
+        manual_upload: tr.manualUpload,
+        boss_zhipin: tr.bossZhipin,
+        liepin: tr.liepin,
+        headhunter: tr.headhunter,
+        other: tr.otherSource,
+    };
+    return labels[source] || source;
 }
 
 function talentPoolReason(candidate: CandidateSummary) {
     return String(candidate.talent_pool_reason || "").trim().toLowerCase();
+}
+
+function isTalentPoolMatching(candidate: CandidateSummary) {
+    return String(candidate.status || "").trim().toLowerCase() === "matching";
 }
 
 function isNoSystemPositionCandidate(candidate: CandidateSummary) {
@@ -249,53 +270,14 @@ function needsTalentPoolReidentifyConfirmation(candidate?: CandidateSummary | nu
     return Boolean(candidate && isTalentPoolReidentifyTarget(candidate) && !isTalentPoolReidentifiable(candidate));
 }
 
-function talentPoolCandidateName(candidate: CandidateSummary) {
-    const name = String(candidate.name || "").trim() || `ID:${candidate.id}`;
-    const code = String(candidate.candidate_code || "").trim();
-    return code ? `${name}（${code}）` : name;
-}
-
-function talentPoolSourceStageLabel(candidate: CandidateSummary, tr: ReturnType<typeof getTalentPoolLocale>) {
-    const reason = String(candidate.talent_pool_reason || "").trim().toLowerCase();
-    if (reason === "unmatched_by_ai") {
-        return tr.sourceAiUnmatched;
-    }
-    if (reason === "ai_error") {
-        return tr.sourceAiError;
-    }
-    if (reason === "auto_archived") {
-        return tr.sourceScreeningArchived;
-    }
-    if (reason === "moved_by_hr") {
-        const sourceLabel = STATUS_LABEL_MAP[candidate.talent_pool_source_status || ""] || candidate.talent_pool_source_status || "";
-        return sourceLabel ? sourceLabel : tr.archived;
-    }
-    return tr.sourceLegacyArchived;
-}
-
-function talentPoolReidentifyGroupLabel(candidate: CandidateSummary, tr: ReturnType<typeof getTalentPoolLocale>) {
-    const normalizedStatus = String(candidate.status || "").trim().toLowerCase();
-    const reason = String(candidate.talent_pool_reason || "").trim().toLowerCase();
-    if (normalizedStatus === "matching") {
-        return tr.matching;
-    }
-    if (reason === "unmatched_by_ai") {
-        return tr.pendingIdentify;
-    }
-    if (reason === "ai_error") {
-        return tr.identifyError;
-    }
-    return talentPoolSourceStageLabel(candidate, tr);
-}
-
 function resolveTalentPoolEnteredAt(candidate: CandidateSummary) {
     return candidate.talent_pool_moved_at || candidate.created_at || candidate.updated_at || null;
 }
 
 function isRecentTalentPoolCandidate(candidate: CandidateSummary, cutoffMs: number) {
     const enteredAt = resolveTalentPoolEnteredAt(candidate);
-    const enteredAtMs = enteredAt ? Date.parse(enteredAt) : Number.NaN;
-    return Number.isFinite(enteredAtMs) && enteredAtMs >= cutoffMs;
+    const timestamp = enteredAt ? Date.parse(enteredAt) : Number.NaN;
+    return Number.isFinite(timestamp) && timestamp >= cutoffMs;
 }
 
 function matchesTalentPoolStatFilter(candidate: CandidateSummary, filter: TalentPoolStatFilter, cutoffMs: number) {
@@ -308,32 +290,37 @@ function matchesTalentPoolStatFilter(candidate: CandidateSummary, filter: Talent
     return true;
 }
 
-const STATUS_LABEL_MAP: Record<string, string> = {
-    pending_screening: "待初筛",
-    screening_running: "初筛中",
-    screening_passed: "初筛通过",
-    screening_rejected: "初筛淘汰",
-    pending_interview: "待面试",
-    interview_passed: "面试通过",
-    interview_rejected: "面试淘汰",
-    pending_offer: "待发offer",
-    offer_sent: "已发offer",
-    hired: "已入职",
-    new_imported: "新导入",
-    matching: "匹配中",
-    unmatched: "待识别",
-    talent_pool: "人才库",
-};
+function talentPoolSourceStageLabel(candidate: CandidateSummary, tr: ReturnType<typeof getTalentPoolLocale>) {
+    const reason = talentPoolReason(candidate);
+    if (reason === "unmatched_by_ai") return tr.sourceAiUnmatched;
+    if (reason === "ai_error") return tr.sourceAiError;
+    if (reason === "auto_archived") return tr.sourceScreeningArchived;
+    if (reason === "moved_by_hr") {
+        return STATUS_LABEL_MAP[candidate.talent_pool_source_status || ""]
+            || candidate.talent_pool_source_status
+            || tr.archived;
+    }
+    return tr.sourceLegacyArchived;
+}
 
-/* ════════════════════════════════════════════════════════════════
- * 主组件
- * ════════════════════════════════════════════════════════════════ */
+function talentPoolReidentifyGroupLabel(candidate: CandidateSummary, tr: ReturnType<typeof getTalentPoolLocale>) {
+    if (isTalentPoolMatching(candidate)) return tr.matching;
+    if (isNoSystemPositionCandidate(candidate)) return tr.unmatchedGroup;
+    if (isIdentifyErrorCandidate(candidate)) return tr.identifyError;
+    return talentPoolSourceStageLabel(candidate, tr);
+}
+
+function talentPoolCandidateName(candidate: CandidateSummary) {
+    const name = String(candidate.name || "").trim() || "ID:" + candidate.id;
+    const code = String(candidate.candidate_code || "").trim();
+    return code ? name + "（" + code + "）" : name;
+}
+
 export function TalentPoolPage({
     candidates,
     positions,
     loading,
     onAssignPosition,
-    onCreatePosition,
     onViewCandidate,
     onDeleteCandidates,
     onRefresh,
@@ -350,169 +337,93 @@ export function TalentPoolPage({
     pageSizeOptions,
     setPageIndex,
     setPageSize,
+    canManageCandidates = true,
     preferredStatFilter,
     onPreferredStatFilterApplied,
 }: TalentPoolPageProps) {
     const {language} = useI18n();
     const tr = React.useMemo(() => getTalentPoolLocale(language), [language]);
-    const isZh = language === "zh-CN";
-
-    /* ── 筛选/排序状态 ── */
     const [searchQuery, setSearchQuery] = React.useState("");
     const [sourceFilter, setSourceFilter] = React.useState("all");
     const [tagFilter, setTagFilter] = React.useState("all");
     const [sortBy, setSortBy] = React.useState<"time" | "name" | "name_desc">("time");
-    const [activeStatFilter, setActiveStatFilter] = React.useState<TalentPoolStatFilter>(() => preferredStatFilter || "pending");
+    const [activeStatFilter, setActiveStatFilter] = React.useState<TalentPoolStatFilter>(() => preferredStatFilter || "all");
     const [statFilterPending, setStatFilterPending] = React.useState(false);
+    const [advancedFilterOpen, setAdvancedFilterOpen] = React.useState(false);
     const [selectedIds, setSelectedIds] = React.useState<Set<number>>(new Set());
     const [initialLoadComplete, setInitialLoadComplete] = React.useState(candidates.length > 0);
+    const [refreshing, setRefreshing] = React.useState(false);
+    const [assignDialogOpen, setAssignDialogOpen] = React.useState(false);
+    const [assignPositionId, setAssignPositionId] = React.useState("");
+    const [assigning, setAssigning] = React.useState(false);
+    const [singleAssignOpen, setSingleAssignOpen] = React.useState(false);
+    const [singleAssignCandidateId, setSingleAssignCandidateId] = React.useState<number | null>(null);
+    const [singleAssignPositionId, setSingleAssignPositionId] = React.useState("");
+    const [singleAssigning, setSingleAssigning] = React.useState(false);
+    const [groupAssigningKey, setGroupAssigningKey] = React.useState<string | null>(null);
+    const [deleteDialogOpen, setDeleteDialogOpen] = React.useState(false);
+    const [deleting, setDeleting] = React.useState(false);
+    const [reIdentifyConfirmOpen, setReIdentifyConfirmOpen] = React.useState(false);
+    const [reIdentifyConfirmMode, setReIdentifyConfirmMode] = React.useState<"single" | "batch">("batch");
+    const [reIdentifyConfirmCandidates, setReIdentifyConfirmCandidates] = React.useState<CandidateSummary[]>([]);
+    const [reIdentifyConfirmSubmitting, setReIdentifyConfirmSubmitting] = React.useState(false);
+    const [reIdentifyingIds, setReIdentifyingIds] = React.useState<Set<number>>(new Set());
+    const [reIdentifyFailedIds, setReIdentifyFailedIds] = React.useState<Set<number>>(new Set());
     const statFilterTimerRef = React.useRef<number | null>(null);
     const queryChangeInitializedRef = React.useRef(false);
     const onQueryChangeRef = React.useRef(onQueryChange);
     const hasSeenInitialLoadingRef = React.useRef(false);
     const listScrollRef = React.useRef<HTMLDivElement | null>(null);
-    const [talentPoolScopeWidth, setTalentPoolScopeWidth] = React.useState(TALENT_POOL_SCOPE_DEFAULT_WIDTH);
-    const talentPoolScopeCollapsed = talentPoolScopeWidth <= TALENT_POOL_SCOPE_MIN_WIDTH + 1;
-    const talentPoolScopeGridStyle = React.useMemo(() => ({
-        "--talent-pool-scope-width": `${talentPoolScopeWidth}px`,
-    }) as React.CSSProperties, [talentPoolScopeWidth]);
+    const selectAllVisibleRef = React.useRef<HTMLInputElement | null>(null);
 
-    const handleTalentPoolScopeResizeStart = useColumnResizeDrag({
-        currentWidth: talentPoolScopeWidth,
-        maxWidth: TALENT_POOL_SCOPE_MAX_WIDTH,
-        minWidth: TALENT_POOL_SCOPE_MIN_WIDTH,
-        setWidth: setTalentPoolScopeWidth,
-    });
-
-    const handleTalentPoolScopeResizeKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLButtonElement>) => {
-        const normalizeWidth = (width: number) => Math.max(
-            TALENT_POOL_SCOPE_MIN_WIDTH,
-            Math.min(TALENT_POOL_SCOPE_MAX_WIDTH, width),
-        );
-
-        if (event.key === "ArrowLeft") {
-            event.preventDefault();
-            setTalentPoolScopeWidth((width) => normalizeWidth(width - 24));
-            return;
-        }
-
-        if (event.key === "ArrowRight") {
-            event.preventDefault();
-            setTalentPoolScopeWidth((width) => normalizeWidth(width + 24));
-            return;
-        }
-
-        if (event.key === "Home") {
-            event.preventDefault();
-            setTalentPoolScopeWidth(TALENT_POOL_SCOPE_MIN_WIDTH);
-            return;
-        }
-
-        if (event.key === "End") {
-            event.preventDefault();
-            setTalentPoolScopeWidth(TALENT_POOL_SCOPE_MAX_WIDTH);
-        }
-    }, []);
-
-    /* ── 弹窗状态 ── */
-    const [assignDialogOpen, setAssignDialogOpen] = React.useState(false);
-    const [assignPositionId, setAssignPositionId] = React.useState("");
-    const [assigning, setAssigning] = React.useState(false);
-    const [deleteDialogOpen, setDeleteDialogOpen] = React.useState(false);
-    const [deleting, setDeleting] = React.useState(false);
-    const [singleAssignOpen, setSingleAssignOpen] = React.useState(false);
-    const [singleAssignCandidateId, setSingleAssignCandidateId] = React.useState<number | null>(null);
-    const [singleAssignPositionId, setSingleAssignPositionId] = React.useState("");
-    const [singleAssigning, setSingleAssigning] = React.useState(false);
-    const [reIdentifyConfirmOpen, setReIdentifyConfirmOpen] = React.useState(false);
-    const [reIdentifyConfirmMode, setReIdentifyConfirmMode] = React.useState<"single" | "batch">("batch");
-    const [reIdentifyConfirmCandidates, setReIdentifyConfirmCandidates] = React.useState<CandidateSummary[]>([]);
-    const [reIdentifyConfirmSubmitting, setReIdentifyConfirmSubmitting] = React.useState(false);
-
-    /* ── 重新识别 loading ── */
-    const [reIdentifyingIds, setReIdentifyingIds] = React.useState<Set<number>>(new Set());
-    const [reIdentifyFailedIds, setReIdentifyFailedIds] = React.useState<Set<number>>(new Set());
-
-    /* ── 刷新 loading ── */
-    const [refreshing, setRefreshing] = React.useState(false);
-
-    /* ── 统计 ── */
     const recentCutoffMs = React.useMemo(() => Date.now() - 7 * 24 * 60 * 60 * 1000, [candidates]);
-    const localStats = React.useMemo(() => {
-        const total = candidates.length;
+    const localStats = React.useMemo<TalentPoolStats>(() => {
         const matching = candidates.filter(isTalentPoolMatching).length;
         const noSystemPosition = candidates.filter(isNoSystemPositionCandidate).length;
         const identifyError = candidates.filter(isIdentifyErrorCandidate).length;
-        const pendingAction = noSystemPosition + identifyError;
-        const weekNew = candidates.filter(c => isRecentTalentPoolCandidate(c, recentCutoffMs)).length;
         return {
-            total,
+            total: candidates.length,
             matching,
-            pending_action: pendingAction,
+            pending_action: noSystemPosition + identifyError,
             no_system_position: noSystemPosition,
             identify_error: identifyError,
-            week_new: weekNew,
+            week_new: candidates.filter((candidate) => isRecentTalentPoolCandidate(candidate, recentCutoffMs)).length,
         };
     }, [candidates, recentCutoffMs]);
     const stats = serverStats || localStats;
-
     const statCards = React.useMemo(() => ([
-        { filter: "pending" as const, label: tr.pendingAction, value: stats.pending_action, hint: tr.pendingActionHint, tone: "amber" as const },
-        { filter: "no_match" as const, label: tr.noSystemPosition, value: stats.no_system_position, hint: tr.noSystemPositionHint, tone: "orange" as const },
-        { filter: "ai_error" as const, label: tr.identifyError, value: stats.identify_error, hint: tr.identifyErrorHint, tone: "rose" as const },
-        { filter: "matching" as const, label: tr.matchingStat, value: stats.matching, hint: tr.matchingStatHint, tone: "sky" as const },
-        { filter: "week_new" as const, label: tr.newThisWeek, value: stats.week_new, hint: tr.newThisWeekHint, tone: "emerald" as const },
-        { filter: "all" as const, label: tr.totalCandidates, value: stats.total, hint: tr.totalHint, tone: "slate" as const },
-    ]), [stats.identify_error, stats.matching, stats.no_system_position, stats.pending_action, stats.total, stats.week_new, tr]);
-
+        {filter: "all" as const, label: tr.totalCandidates, value: stats.total, hint: tr.totalHint, tone: "primary" as const},
+        {filter: "matching" as const, label: tr.matchingStat, value: stats.matching, hint: tr.matchingStatHint, tone: "sky" as const},
+        {filter: "pending" as const, label: tr.pendingAction, value: stats.pending_action, hint: tr.pendingActionHint, tone: "amber" as const},
+        {filter: "no_match" as const, label: tr.noSystemPosition, value: stats.no_system_position, hint: tr.noSystemPositionHint, tone: "orange" as const},
+        {filter: "ai_error" as const, label: tr.identifyError, value: stats.identify_error, hint: tr.identifyErrorHint, tone: "rose" as const},
+        {filter: "week_new" as const, label: tr.newThisWeek, value: stats.week_new, hint: tr.newThisWeekHint, tone: "emerald" as const},
+    ]), [stats, tr]);
     const activeStatCard = React.useMemo(
         () => statCards.find((card) => card.filter === activeStatFilter) || statCards[0],
         [activeStatFilter, statCards],
     );
-
-    const handleStatFilterClick = React.useCallback((filter: TalentPoolStatFilter) => {
-        const nextFilter = activeStatFilter === filter ? "all" : filter;
-        if (statFilterTimerRef.current) {
-            window.clearTimeout(statFilterTimerRef.current);
-        }
-        setStatFilterPending(true);
-        React.startTransition(() => {
-            setActiveStatFilter(nextFilter);
-            setSelectedIds(new Set());
-        });
-        statFilterTimerRef.current = window.setTimeout(() => {
-            setStatFilterPending(false);
-            statFilterTimerRef.current = null;
-        }, 180);
-    }, [activeStatFilter]);
-
     const availableTags = React.useMemo(() => {
-        if (serverAvailableTags?.length) {
-            return serverAvailableTags;
-        }
-        const tags = new Set<string>();
-        for (const c of candidates) if (c.ai_match_position_title) tags.add(c.ai_match_position_title);
-        return Array.from(tags).sort();
+        if (serverAvailableTags?.length) return serverAvailableTags;
+        return Array.from(new Set(candidates
+            .map((candidate) => candidate.ai_match_position_title)
+            .filter((value): value is string => Boolean(value)))).sort();
     }, [candidates, serverAvailableTags]);
-
-    React.useEffect(() => () => {
-        if (statFilterTimerRef.current) {
-            window.clearTimeout(statFilterTimerRef.current);
-        }
-    }, []);
-
-    React.useEffect(() => {
-        if (!preferredStatFilter) {
-            return;
-        }
-        setActiveStatFilter(preferredStatFilter);
-        setSelectedIds(new Set());
-        onPreferredStatFilterApplied?.();
-    }, [onPreferredStatFilterApplied, preferredStatFilter]);
 
     React.useEffect(() => {
         onQueryChangeRef.current = onQueryChange;
     }, [onQueryChange]);
+
+    React.useEffect(() => () => {
+        if (statFilterTimerRef.current) window.clearTimeout(statFilterTimerRef.current);
+    }, []);
+
+    React.useEffect(() => {
+        if (!preferredStatFilter) return;
+        setActiveStatFilter(preferredStatFilter);
+        setSelectedIds(new Set());
+        onPreferredStatFilterApplied?.();
+    }, [onPreferredStatFilterApplied, preferredStatFilter]);
 
     React.useEffect(() => {
         if (candidates.length > 0 && !initialLoadComplete) {
@@ -530,9 +441,7 @@ export function TalentPoolPage({
 
     React.useEffect(() => {
         const queryHandler = onQueryChangeRef.current;
-        if (!queryHandler) {
-            return undefined;
-        }
+        if (!queryHandler) return undefined;
         if (!queryChangeInitializedRef.current) {
             queryChangeInitializedRef.current = true;
             return undefined;
@@ -549,32 +458,104 @@ export function TalentPoolPage({
         return () => window.clearTimeout(timer);
     }, [activeStatFilter, searchQuery, sourceFilter, tagFilter, sortBy]);
 
-    /* ── 过滤 + 排序 ── */
     const filteredCandidates = React.useMemo(() => {
         let result = candidates.filter((candidate) => matchesTalentPoolStatFilter(candidate, activeStatFilter, recentCutoffMs));
-        if (searchQuery.trim()) {
-            const q = searchQuery.toLowerCase();
-            result = result.filter(c =>
-                c.name.toLowerCase().includes(q) ||
-                c.phone?.toLowerCase().includes(q) ||
-                c.email?.toLowerCase().includes(q) ||
-                c.current_company?.toLowerCase().includes(q) ||
-                c.ai_match_position_title?.toLowerCase().includes(q)
-            );
+        const query = searchQuery.trim().toLowerCase();
+        if (query) {
+            result = result.filter((candidate) => [
+                candidate.name,
+                candidate.phone,
+                candidate.email,
+                candidate.current_company,
+                candidate.ai_match_position_title,
+                candidate.ai_potential_position,
+            ].some((value) => String(value || "").toLowerCase().includes(query)));
         }
-        if (sourceFilter !== "all") result = result.filter(c => (c.source || "manual_upload") === sourceFilter);
+        if (sourceFilter !== "all") {
+            result = result.filter((candidate) => (candidate.source || "manual_upload") === sourceFilter);
+        }
         if (tagFilter !== "all") {
             result = tagFilter === "__none"
-                ? result.filter(c => !c.ai_match_position_title)
-                : result.filter(c => c.ai_match_position_title === tagFilter);
+                ? result.filter((candidate) => !candidate.ai_match_position_title)
+                : result.filter((candidate) => candidate.ai_match_position_title === tagFilter);
         }
         if (sortBy === "time") {
-            result.sort((a, b) => (resolveTalentPoolEnteredAt(b) || "").localeCompare(resolveTalentPoolEnteredAt(a) || ""));
+            result.sort((left, right) => String(resolveTalentPoolEnteredAt(right) || "").localeCompare(String(resolveTalentPoolEnteredAt(left) || "")));
+        } else if (sortBy === "name") {
+            result.sort((left, right) => String(left.name || "").localeCompare(String(right.name || ""), "zh-CN"));
+        } else {
+            result.sort((left, right) => String(right.name || "").localeCompare(String(left.name || ""), "zh-CN"));
         }
-        else if (sortBy === "name") result.sort((a, b) => a.name.localeCompare(b.name, "zh-CN"));
-        else if (sortBy === "name_desc") result.sort((a, b) => b.name.localeCompare(a.name, "zh-CN"));
         return result;
-    }, [activeStatFilter, candidates, recentCutoffMs, searchQuery, sourceFilter, tagFilter, sortBy]);
+    }, [activeStatFilter, candidates, recentCutoffMs, searchQuery, sortBy, sourceFilter, tagFilter]);
+
+    const candidateGroups = React.useMemo<TalentPoolCandidateGroup[]>(() => {
+        const recognized = new Map<string, TalentPoolCandidateGroup>();
+        const matching: CandidateSummary[] = [];
+        const pending: CandidateSummary[] = [];
+        const archived: CandidateSummary[] = [];
+        filteredCandidates.forEach((candidate) => {
+            if (isTalentPoolMatching(candidate)) {
+                matching.push(candidate);
+                return;
+            }
+            if (isPendingActionCandidate(candidate)) {
+                pending.push(candidate);
+                return;
+            }
+            if (candidate.ai_match_position_id && candidate.ai_match_position_title) {
+                const key = "recognized-" + candidate.ai_match_position_id;
+                const current = recognized.get(key) || {
+                    key,
+                    badge: tr.aiRecognized,
+                    title: candidate.ai_match_position_title,
+                    description: sanitizeCandidateFacingErrorText(candidate.ai_match_reason || "", {
+                        context: "position_match",
+                        language,
+                    }) || tr.aiRecognized,
+                    tone: "primary" as const,
+                    candidates: [],
+                    assignPositionId: candidate.ai_match_position_id,
+                };
+                current.candidates.push(candidate);
+                recognized.set(key, current);
+                return;
+            }
+            archived.push(candidate);
+        });
+        const groups = Array.from(recognized.values());
+        if (matching.length) {
+            groups.push({
+                key: "matching",
+                badge: tr.matchingStat,
+                title: tr.aiMatchingGroup,
+                description: tr.aiMatchingHint,
+                tone: "sky",
+                candidates: matching,
+            });
+        }
+        if (pending.length) {
+            groups.push({
+                key: "pending",
+                badge: tr.pendingGroup,
+                title: tr.unmatchedGroup,
+                description: tr.pendingGroupDesc,
+                tone: "amber",
+                candidates: pending,
+            });
+        }
+        if (archived.length) {
+            groups.push({
+                key: "archived",
+                badge: tr.archivedGroup,
+                title: tr.archivedGroupTitle,
+                description: tr.archivedGroupDesc,
+                tone: "emerald",
+                candidates: archived,
+            });
+        }
+        return groups;
+    }, [filteredCandidates, language, tr]);
 
     const totalForPagination = total ?? filteredCandidates.length;
     const totalPages = Math.max(1, Math.ceil(Math.max(0, totalForPagination) / Math.max(1, pageSize)));
@@ -582,82 +563,88 @@ export function TalentPoolPage({
         if (totalForPagination > 0 && pageIndex >= totalPages) {
             setPageIndex(totalPages - 1);
         }
-    }, [pageIndex, totalForPagination, totalPages, setPageIndex]);
+    }, [pageIndex, setPageIndex, totalForPagination, totalPages]);
 
     React.useEffect(() => {
         listScrollRef.current?.scrollTo({top: 0, behavior: "auto"});
-        setSelectedIds(prev => prev.size === 0 ? prev : new Set());
+        setSelectedIds((current) => current.size === 0 ? current : new Set());
     }, [activeStatFilter, pageIndex, pageSize, searchQuery, sourceFilter, tagFilter, sortBy]);
 
-    const selectedCandidates = React.useMemo(() => (
-        Array.from(selectedIds)
-            .map((candidateId) => candidates.find((item) => item.id === candidateId))
-            .filter((candidate): candidate is CandidateSummary => Boolean(candidate))
-    ), [candidates, selectedIds]);
-    const selectedReidentifyCandidates = React.useMemo(() => (
-        selectedCandidates.filter(isTalentPoolReidentifyTarget)
-    ), [selectedCandidates]);
-    const selectedReidentifiableCount = React.useMemo(() => (
-        selectedReidentifyCandidates.length
-    ), [selectedReidentifyCandidates]);
-    const reIdentifyConfirmGroups = React.useMemo(() => {
-        const groups = new Map<string, {label: string; candidates: CandidateSummary[]}>();
-        reIdentifyConfirmCandidates.forEach((candidate) => {
-            const label = talentPoolReidentifyGroupLabel(candidate, tr);
-            const current = groups.get(label) || {label, candidates: []};
-            current.candidates.push(candidate);
-            groups.set(label, current);
-        });
-        return Array.from(groups.values());
-    }, [reIdentifyConfirmCandidates, tr]);
-    const reIdentifyConfirmHasNonPending = React.useMemo(() => (
-        reIdentifyConfirmCandidates.some(needsTalentPoolReidentifyConfirmation)
-    ), [reIdentifyConfirmCandidates]);
-    const selectedVisibleCount = React.useMemo(() => (
-        filteredCandidates.reduce((count, candidate) => count + (selectedIds.has(candidate.id) ? 1 : 0), 0)
-    ), [filteredCandidates, selectedIds]);
+    const selectedCandidates = React.useMemo(() => Array.from(selectedIds)
+        .map((candidateId) => candidates.find((candidate) => candidate.id === candidateId))
+        .filter((candidate): candidate is CandidateSummary => Boolean(candidate)), [candidates, selectedIds]);
+    const selectedReidentifyCandidates = React.useMemo(
+        () => selectedCandidates.filter(isTalentPoolReidentifyTarget),
+        [selectedCandidates],
+    );
+    const selectedVisibleCount = React.useMemo(
+        () => filteredCandidates.reduce((count, candidate) => count + (selectedIds.has(candidate.id) ? 1 : 0), 0),
+        [filteredCandidates, selectedIds],
+    );
     const allVisibleSelected = filteredCandidates.length > 0 && selectedVisibleCount === filteredCandidates.length;
     const someVisibleSelected = selectedVisibleCount > 0 && !allVisibleSelected;
-    const selectAllVisibleRef = React.useRef<HTMLInputElement | null>(null);
     React.useEffect(() => {
-        if (selectAllVisibleRef.current) {
-            selectAllVisibleRef.current.indeterminate = someVisibleSelected;
-        }
+        if (selectAllVisibleRef.current) selectAllVisibleRef.current.indeterminate = someVisibleSelected;
     }, [someVisibleSelected]);
 
-    // 当候选人离开待处理分组（SSE驱动进入匹配中或从人才库移除），清除 reIdentifying 标记
     React.useEffect(() => {
-        const allCurrentIds = new Set(filteredCandidates.map(c => c.id));
-        setReIdentifyingIds(prev => {
-            if (prev.size === 0) return prev;
+        setReIdentifyingIds((current) => {
+            if (current.size === 0) return current;
             const next = new Set<number>();
-            for (const id of prev) {
-                // 只保留在人才库中且是 unmatched 状态的候选人
-                // 如果候选人已进入 matching 或已从人才库移除，清除标记
-                const candidate = filteredCandidates.find(c => c.id === id);
-                if (candidate && candidate.status === "unmatched") {
-                    next.add(id);
+            current.forEach((candidateId) => {
+                const candidate = candidates.find((item) => item.id === candidateId);
+                if (candidate && String(candidate.status || "").toLowerCase() === "unmatched") {
+                    next.add(candidateId);
                 }
-            }
-            return next.size === prev.size ? prev : next;
+            });
+            return next.size === current.size ? current : next;
         });
-    }, [filteredCandidates]);
+    }, [candidates]);
 
-    /* ── 选择操作 ── */
-    const toggleSelect = React.useCallback((id: number) => {
-        setSelectedIds(prev => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; });
-    }, []);
+    const handleStatFilterClick = React.useCallback((filter: TalentPoolStatFilter) => {
+        const nextFilter = activeStatFilter === filter ? "all" : filter;
+        if (statFilterTimerRef.current) window.clearTimeout(statFilterTimerRef.current);
+        setStatFilterPending(true);
+        React.startTransition(() => {
+            setActiveStatFilter(nextFilter);
+            setSelectedIds(new Set());
+        });
+        statFilterTimerRef.current = window.setTimeout(() => {
+            setStatFilterPending(false);
+            statFilterTimerRef.current = null;
+        }, 180);
+    }, [activeStatFilter]);
 
-    const selectGroup = React.useCallback((ids: number[]) => {
-        setSelectedIds(prev => {
-            const next = new Set(prev);
-            const allSelected = ids.every(id => next.has(id));
-            ids.forEach(id => allSelected ? next.delete(id) : next.add(id));
+    const toggleSelect = React.useCallback((candidateId: number) => {
+        setSelectedIds((current) => {
+            const next = new Set(current);
+            if (next.has(candidateId)) next.delete(candidateId);
+            else next.add(candidateId);
             return next;
         });
     }, []);
 
-    /* ── 批量分配 ── */
+    const selectGroup = React.useCallback((candidateIds: number[]) => {
+        setSelectedIds((current) => {
+            const next = new Set(current);
+            const allSelected = candidateIds.every((candidateId) => next.has(candidateId));
+            candidateIds.forEach((candidateId) => {
+                if (allSelected) next.delete(candidateId);
+                else next.add(candidateId);
+            });
+            return next;
+        });
+    }, []);
+
+    const resetFilters = React.useCallback(() => {
+        setSearchQuery("");
+        setSourceFilter("all");
+        setTagFilter("all");
+        setSortBy("time");
+        setActiveStatFilter("all");
+        setSelectedIds(new Set());
+    }, []);
+
     const handleBatchAssign = React.useCallback(async () => {
         if (!assignPositionId || selectedIds.size === 0) return;
         setAssigning(true);
@@ -666,12 +653,13 @@ export function TalentPoolPage({
             setSelectedIds(new Set());
             setAssignDialogOpen(false);
             setAssignPositionId("");
+        } catch {
+            // 容器负责展示接口错误；保留弹窗和当前选择，便于用户重试。
         } finally {
             setAssigning(false);
         }
-    }, [assignPositionId, selectedIds, onAssignPosition]);
+    }, [assignPositionId, onAssignPosition, selectedIds]);
 
-    /* ── 单个分配（手动分配 / 换岗位） ── */
     const openSingleAssign = React.useCallback((candidateId: number) => {
         setSingleAssignCandidateId(candidateId);
         setSingleAssignPositionId("");
@@ -684,27 +672,46 @@ export function TalentPoolPage({
         try {
             await onAssignPosition([singleAssignCandidateId], Number(singleAssignPositionId));
             setSingleAssignOpen(false);
-            if (onRefresh) await onRefresh();
+            setSingleAssignCandidateId(null);
+            setSingleAssignPositionId("");
+            await onRefresh?.();
+        } catch {
+            // 容器负责展示接口错误；保留弹窗，避免失败后误判为已分配。
         } finally {
             setSingleAssigning(false);
         }
-    }, [singleAssignPositionId, singleAssignCandidateId, onAssignPosition, onRefresh]);
+    }, [onAssignPosition, onRefresh, singleAssignCandidateId, singleAssignPositionId]);
+
+    const handleGroupAssign = React.useCallback(async (group: TalentPoolCandidateGroup) => {
+        if (!group.assignPositionId || group.candidates.length === 0 || groupAssigningKey) return;
+        setGroupAssigningKey(group.key);
+        try {
+            await onAssignPosition(group.candidates.map((candidate) => candidate.id), group.assignPositionId);
+            setSelectedIds((current) => {
+                const next = new Set(current);
+                group.candidates.forEach((candidate) => next.delete(candidate.id));
+                return next;
+            });
+        } catch {
+            // 容器负责展示接口错误；分组仍保留在当前列表中。
+        } finally {
+            setGroupAssigningKey(null);
+        }
+    }, [groupAssigningKey, onAssignPosition]);
 
     const runReIdentify = React.useCallback(async (
         candidateIds: number[],
         options: {single?: boolean; clearSelection?: boolean} = {},
     ) => {
         const uniqueIds = Array.from(new Set(candidateIds));
-        if (!uniqueIds.length) {
-            return;
-        }
-        setReIdentifyingIds(prev => {
-            const next = new Set(prev);
+        if (!uniqueIds.length) return;
+        setReIdentifyingIds((current) => {
+            const next = new Set(current);
             uniqueIds.forEach((candidateId) => next.add(candidateId));
             return next;
         });
-        setReIdentifyFailedIds(prev => {
-            const next = new Set(prev);
+        setReIdentifyFailedIds((current) => {
+            const next = new Set(current);
             uniqueIds.forEach((candidateId) => next.delete(candidateId));
             return next;
         });
@@ -716,30 +723,25 @@ export function TalentPoolPage({
             } else {
                 await triggerAIPositionMatch(uniqueIds);
             }
-            if (options.clearSelection) {
-                setSelectedIds(new Set());
-            }
-        } catch {
-            setReIdentifyFailedIds(prev => {
-                const next = new Set(prev);
+            if (options.clearSelection) setSelectedIds(new Set());
+        } catch (error) {
+            setReIdentifyFailedIds((current) => {
+                const next = new Set(current);
                 uniqueIds.forEach((candidateId) => next.add(candidateId));
                 return next;
             });
-            setReIdentifyingIds(prev => {
-                const next = new Set(prev);
+            setReIdentifyingIds((current) => {
+                const next = new Set(current);
                 uniqueIds.forEach((candidateId) => next.delete(candidateId));
                 return next;
             });
-            throw new Error("reidentify_failed");
+            throw error;
         }
     }, [onBatchReIdentify, onReIdentify]);
 
-    /* ── 重新识别（异步，结果通过SSE推送） ── */
     const requestReIdentify = React.useCallback((targetCandidates: CandidateSummary[], mode: "single" | "batch") => {
         const candidatesToIdentify = targetCandidates.filter(isTalentPoolReidentifyTarget);
-        if (!candidatesToIdentify.length) {
-            return;
-        }
+        if (!candidatesToIdentify.length) return;
         if (candidatesToIdentify.some(needsTalentPoolReidentifyConfirmation)) {
             setReIdentifyConfirmMode(mode);
             setReIdentifyConfirmCandidates(candidatesToIdentify);
@@ -752,15 +754,11 @@ export function TalentPoolPage({
         }).catch(() => undefined);
     }, [runReIdentify]);
 
-    const handleBatchReIdentify = React.useCallback(async () => {
-        requestReIdentify(selectedReidentifyCandidates, "batch");
-    }, [requestReIdentify, selectedReidentifyCandidates]);
-
     const handleConfirmReIdentify = React.useCallback(async () => {
-        const candidateIds = reIdentifyConfirmCandidates.filter(isTalentPoolReidentifyTarget).map((candidate) => candidate.id);
-        if (!candidateIds.length || reIdentifyConfirmSubmitting) {
-            return;
-        }
+        const candidateIds = reIdentifyConfirmCandidates
+            .filter(isTalentPoolReidentifyTarget)
+            .map((candidate) => candidate.id);
+        if (!candidateIds.length || reIdentifyConfirmSubmitting) return;
         setReIdentifyConfirmSubmitting(true);
         try {
             await runReIdentify(candidateIds, {
@@ -770,114 +768,96 @@ export function TalentPoolPage({
             setReIdentifyConfirmOpen(false);
             setReIdentifyConfirmCandidates([]);
         } catch {
-            // runReIdentify 已经标记失败状态，这里保留弹窗让用户确认发生了什么。
+            // runReIdentify 已记录失败项，保留确认弹窗供用户重试。
         } finally {
             setReIdentifyConfirmSubmitting(false);
         }
     }, [reIdentifyConfirmCandidates, reIdentifyConfirmMode, reIdentifyConfirmSubmitting, runReIdentify]);
 
-    /* ── 批量删除 ── */
     const handleBatchDelete = React.useCallback(async () => {
         if (!onDeleteCandidates || selectedIds.size === 0) return;
         setDeleting(true);
-        setDeleteDialogOpen(false);
         try {
             await onDeleteCandidates(Array.from(selectedIds));
             setSelectedIds(new Set());
+            setDeleteDialogOpen(false);
+        } catch {
+            // 容器负责展示接口错误；保留确认弹窗和选择。
         } finally {
             setDeleting(false);
         }
     }, [onDeleteCandidates, selectedIds]);
 
+    const reIdentifyConfirmGroups = React.useMemo(() => {
+        const groups = new Map<string, {label: string; candidates: CandidateSummary[]}>();
+        reIdentifyConfirmCandidates.forEach((candidate) => {
+            const label = talentPoolReidentifyGroupLabel(candidate, tr);
+            const group = groups.get(label) || {label, candidates: []};
+            group.candidates.push(candidate);
+            groups.set(label, group);
+        });
+        return Array.from(groups.values());
+    }, [reIdentifyConfirmCandidates, tr]);
+    const reIdentifyConfirmHasNonPending = React.useMemo(
+        () => reIdentifyConfirmCandidates.some(needsTalentPoolReidentifyConfirmation),
+        [reIdentifyConfirmCandidates],
+    );
     const showInitialPageLoading = loading && candidates.length === 0 && !initialLoadComplete;
     const showInlineUpdating = loading && !showInitialPageLoading;
 
     if (showInitialPageLoading) {
         return (
-            <div className="flex h-full items-center justify-center">
-                <Loader2 className="h-6 w-6 animate-spin text-slate-400"/>
+            <div className="flex h-full items-center justify-center bg-white">
+                <div className="flex items-center gap-2 text-[12px] text-[#86888F]">
+                    <Loader2 className="h-4 w-4 animate-spin text-[#1E3BFA]"/>
+                    {tr.updatingList}
+                </div>
             </div>
         );
     }
 
     return (
-        <div
-            className="grid h-full min-h-0 grid-cols-1 gap-3 overflow-hidden bg-[var(--tr-page)] dark:bg-slate-950 xl:grid-cols-[var(--talent-pool-scope-width)_minmax(0,1fr)]"
-            style={talentPoolScopeGridStyle}
-        >
-            <div className="relative hidden min-h-0 overflow-visible xl:block">
-                <aside
-                    className={cn(
-                        "flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-md border border-[var(--tr-border)] bg-white transition-opacity duration-150 dark:border-slate-800 dark:bg-slate-950",
-                        talentPoolScopeCollapsed && "pointer-events-none opacity-0",
-                    )}
-                    aria-hidden={talentPoolScopeCollapsed}
-                >
-                    <div className="min-w-0 border-b border-[var(--tr-border-soft)] px-4 py-4 dark:border-slate-800">
-                        <p className="truncate whitespace-nowrap text-base font-semibold text-slate-950 dark:text-slate-50">{tr.title}</p>
+        <div ref={listScrollRef} data-talent-pool-list-scroll="true" className="h-full min-h-0 overflow-auto bg-white text-[#0E1114]">
+            <div className="min-w-0 px-8 pb-12 pt-5">
+                <header className="mb-4 flex items-center justify-between gap-6">
+                    <div className="flex min-w-0 items-center gap-3.5">
+                        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[6px] bg-[#1E3BFA] text-white">
+                            <BadgeCheck className="h-[15px] w-[15px]" strokeWidth={1.9}/>
+                        </span>
+                        <div className="flex min-w-0 items-baseline gap-3">
+                            <h1 className="shrink-0 text-[18px] font-semibold leading-7 text-[#0E1114]">{tr.title}</h1>
+                            <p className="truncate text-[12px] leading-5 text-[#B0B2B8]">{tr.description}</p>
+                        </div>
                     </div>
-                    <div className="min-h-0 flex-1 overflow-y-auto p-2">
-                        {statCards.map((card) => (
-                            <button
-                                key={card.filter}
-                                type="button"
-                                aria-pressed={activeStatFilter === card.filter}
-                                onClick={() => handleStatFilterClick(card.filter)}
-                                className={cn(
-                                    "mb-1 flex w-full min-w-0 items-start justify-between gap-2 rounded-md px-3 py-2.5 text-left text-sm transition",
-                                    activeStatFilter === card.filter
-                                        ? "bg-[var(--tr-red-soft)] text-[var(--tr-red)]"
-                                        : "text-slate-700 hover:bg-rose-50/70 hover:text-[var(--tr-red)] dark:text-slate-200 dark:hover:bg-slate-900",
-                                )}
+                    <div className="flex shrink-0 items-center gap-3">
+                        {canManageCandidates && onUploadResume ? (
+                            <Button className="h-9 rounded-[6px] bg-[#1E3BFA] px-[18px] text-[14px] font-normal text-white shadow-none hover:bg-[#0F23D9]" onClick={onUploadResume}>
+                                <Upload className="mr-1.5 h-3.5 w-3.5"/>
+                                {tr.uploadResume}
+                            </Button>
+                        ) : null}
+                        {onRefresh ? (
+                            <Button
+                                variant="outline"
+                                className="h-9 rounded-[6px] border-[#E6E7EB] bg-white px-4 text-[14px] font-normal text-[#33353D] shadow-none hover:border-[#1E3BFA]/40 hover:bg-[#F7F8FA] hover:text-[#1E3BFA]"
+                                disabled={refreshing || loading}
+                                onClick={async () => {
+                                    setRefreshing(true);
+                                    try {
+                                        await onRefresh();
+                                    } finally {
+                                        setRefreshing(false);
+                                    }
+                                }}
                             >
-                                <span className="min-w-0">
-                                    <span className="block truncate whitespace-nowrap font-medium">{card.label}</span>
-                                    <span className={cn("mt-0.5 block truncate whitespace-nowrap text-xs", activeStatFilter === card.filter ? "text-[var(--tr-red)]/70" : "text-slate-400")}>
-                                        {card.hint}
-                                    </span>
-                                </span>
-                                <span className={cn("shrink-0 rounded px-1.5 py-0.5 text-xs tabular-nums", activeStatFilter === card.filter ? "border border-rose-200 bg-white text-[var(--tr-red)]" : "bg-slate-100 text-slate-500 dark:bg-slate-900 dark:text-slate-300")}>
-                                    {card.value}
-                                </span>
-                            </button>
-                        ))}
-                    </div>
-                    <div className="min-w-0 border-t border-slate-200 p-3 dark:border-slate-800">
-                        {onUploadResume ? (
-                            <Button size="sm" className="w-full min-w-0 rounded-md bg-[#071f45] px-2 text-white shadow-none hover:bg-[#102b58]" onClick={onUploadResume}>
-                                <Upload className="mr-1.5 h-3.5 w-3.5 shrink-0"/>
-                                <span className="min-w-0 truncate whitespace-nowrap">{tr.uploadResume}</span>
+                                <RefreshCw className={cn("mr-1.5 h-3.5 w-3.5", refreshing && "animate-spin")}/>
+                                {tr.refresh}
                             </Button>
                         ) : null}
                     </div>
-                </aside>
-                <button
-                    type="button"
-                    aria-label={isZh ? "拖拽调整人才库队列宽度" : "Drag to resize talent pool list"}
-                    title={isZh ? "拖拽调整人才库队列宽度，双击恢复默认宽度" : "Drag to resize, double click to reset"}
-                    onPointerDown={handleTalentPoolScopeResizeStart}
-                    onKeyDown={handleTalentPoolScopeResizeKeyDown}
-                    onDoubleClick={() => setTalentPoolScopeWidth(TALENT_POOL_SCOPE_DEFAULT_WIDTH)}
-                    className={cn(
-                        "group absolute -right-2 top-0 z-20 flex h-full w-4 cursor-col-resize touch-none items-center justify-center rounded-full outline-none transition focus-visible:ring-2 focus-visible:ring-[var(--tr-red)] focus-visible:ring-offset-2",
-                        "hover:bg-slate-100/80 dark:hover:bg-slate-900/80",
-                        talentPoolScopeCollapsed && "bg-white/80 dark:bg-slate-950/80",
-                    )}
-                >
-                    <span
-                        className={cn(
-                            "block h-12 w-1 rounded-full bg-slate-300 transition dark:bg-slate-700",
-                            talentPoolScopeCollapsed
-                                ? "bg-[var(--tr-red)] dark:bg-[var(--tr-red)]"
-                                : "group-hover:bg-slate-400",
-                        )}
-                    />
-                </button>
-            </div>
-            {/* ── 主内容区 ── */}
-            <div className="flex min-h-0 flex-1 flex-col rounded-md border border-[var(--tr-border)] bg-white p-0 dark:border-slate-800 dark:bg-slate-950">
-                {/* 统计卡片 */}
-                <div className="mb-4 shrink-0 grid grid-cols-2 gap-2.5 md:grid-cols-3 xl:hidden">
+                </header>
+
+                <section className="mb-4 grid grid-cols-6 gap-4" aria-label={tr.clearStatFilter}>
                     {statCards.map((card) => (
                         <StatCard
                             key={card.filter}
@@ -890,377 +870,540 @@ export function TalentPoolPage({
                             onClick={() => handleStatFilterClick(card.filter)}
                         />
                     ))}
-                </div>
+                </section>
 
-                {/* 工具栏 */}
-                <div
-                    className={cn(
-                        "sticky top-0 z-30 flex items-center gap-2 border-b border-[var(--tr-border-soft)] bg-white px-4 py-2 dark:border-slate-800 dark:bg-slate-950/95",
-                        selectedIds.size > 0
-                            ? "min-h-[38px] bg-slate-50 shadow-sm dark:bg-neutral-900/85"
-                            : "flex-wrap justify-between",
-                    )}
-                >
-                    {selectedIds.size > 0 ? (
-                        <>
-                            <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                                {filteredCandidates.length > 0 ? (
-                                    <label className="inline-flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 text-xs text-slate-600 shadow-sm transition hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300 dark:hover:bg-slate-900">
-                                        <input
-                                            ref={selectAllVisibleRef}
-                                            type="checkbox"
-                                            className="h-3.5 w-3.5 accent-neutral-900"
-                                            checked={allVisibleSelected}
-                                            onChange={() => selectGroup(filteredCandidates.map(c => c.id))}
-                                        />
-                                        {tr.selectAllVisible}
-                                    </label>
-                                ) : null}
-                                <span className="inline-flex h-8 shrink-0 items-center rounded-md border border-neutral-200 bg-white px-2.5 text-xs font-medium text-neutral-700 dark:border-neutral-800 dark:bg-slate-950 dark:text-neutral-200">
-                                    {tr.selectedCount(selectedIds.size)}
-                                </span>
-                                <Button size="sm" variant="outline" className="h-8 shrink-0 rounded-md border-neutral-300 px-3 text-xs text-neutral-700 hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-900/50" onClick={() => setAssignDialogOpen(true)}>
-                                    <Briefcase className="mr-1 h-3.5 w-3.5"/>
-                                    {tr.batchAssign}
-                                </Button>
-                                <Button
-                                    size="sm"
-                                    variant="outline"
-                                    className="h-8 shrink-0 rounded-md border-neutral-300 px-3 text-xs text-neutral-700 hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-900/50"
-                                    onClick={() => void handleBatchReIdentify()}
-                                    disabled={selectedReidentifiableCount === 0}
-                                >
-                                    <RotateCcw className="mr-1 h-3.5 w-3.5"/>
-                                    {tr.batchReIdentify}
-                                </Button>
-                                {onDeleteCandidates ? (
-                                    <Button size="sm" variant="outline" className="h-8 shrink-0 rounded-md px-3 text-xs text-rose-600 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-950/30" onClick={() => setDeleteDialogOpen(true)}>
-                                        <Trash2 className="mr-1 h-3.5 w-3.5"/>
-                                        {tr.batchDelete}
-                                    </Button>
-                                ) : null}
-                            </div>
-                            <div className="ml-auto flex shrink-0 items-center gap-2">
-                                <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    className="h-8 rounded-md px-2 text-xs font-normal text-slate-600 hover:bg-white hover:text-slate-950 dark:text-slate-300 dark:hover:bg-slate-900"
-                                    onClick={() => setSelectedIds(new Set())}
-                                >
-                                    {tr.clearSelection}
-                                </Button>
-                                {onRefresh ? (
-                                    <Button
-                                        size="sm"
-                                        variant="outline"
-                                        className="h-8 rounded-md px-2 text-xs"
-                                        disabled={refreshing || loading}
-                                        onClick={async () => {
-                                            setRefreshing(true);
-                                            try {
-                                                await onRefresh();
-                                            } finally {
-                                                setRefreshing(false);
-                                            }
-                                        }}
-                                    >
-                                        <RotateCcw className={cn("h-3.5 w-3.5", refreshing && "animate-spin")}/>
-                                        {tr.refresh}
-                                    </Button>
-                                ) : null}
-                            </div>
-                        </>
-                    ) : (
-                        <>
-                            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-                                <div className="relative w-full max-w-[330px]">
-                                    <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400"/>
-                                    <Input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder={tr.searchPlaceholder} className="h-8 rounded-md border-[var(--tr-border)] pl-8 text-xs shadow-none"/>
-                                </div>
-                                <select value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)} className="h-8 rounded-md border border-[var(--tr-border)] bg-white px-2.5 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
-                                    <option value="all">{tr.allSources}</option>
-                                    <option value="boss_zhipin">{tr.bossZhipin}</option>
-                                    <option value="liepin">{tr.liepin}</option>
-                                    <option value="manual_upload">{tr.manualUpload}</option>
-                                    <option value="headhunter">{tr.headhunter}</option>
-                                </select>
-                                <select value={tagFilter} onChange={(e) => setTagFilter(e.target.value)} className="h-8 rounded-md border border-[var(--tr-border)] bg-white px-2.5 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
-                                    <option value="all">{tr.allTags}</option>
-                                    {availableTags.map(tag => <option key={tag} value={tag}>{tag}</option>)}
-                                    <option value="__none">{tr.unmatchedGroup}</option>
-                                </select>
-                                <select value={sortBy} onChange={(e) => setSortBy(e.target.value as typeof sortBy)} className="h-8 rounded-md border border-[var(--tr-border)] bg-white px-2.5 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
-                                    <option value="time">{tr.sortByTime}</option>
-                                    <option value="name">{tr.sortByName}</option>
-                                    <option value="name_desc">{tr.sortByNameDesc}</option>
-                                </select>
-                                {activeStatFilter !== "all" ? (
-                                    <button
-                                        type="button"
-                                        onClick={() => handleStatFilterClick(activeStatFilter)}
-                                        className="inline-flex h-8 items-center gap-1.5 rounded-md border border-rose-200 bg-rose-50 px-2.5 text-xs text-[var(--tr-red)] transition hover:border-rose-300 dark:border-neutral-800 dark:bg-neutral-900/40 dark:text-neutral-200"
-                                        title={tr.clearStatFilter}
-                                    >
-                                        <span className="h-1.5 w-1.5 rounded-full bg-neutral-900"/>
-                                        {activeStatCard.label}
-                                    </button>
-                                ) : null}
-                                {statFilterPending ? (
-                                    <span className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-slate-100 px-2.5 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-300">
-                                        <Loader2 className="h-3 w-3 animate-spin"/>
-                                        {tr.statFiltering}
-                                    </span>
-                                ) : null}
-                                <span className="text-xs text-slate-400 dark:text-slate-500">
-                                    {tr.visibleResultCount(filteredCandidates.length, total ?? filteredCandidates.length)}
-                                </span>
-                            </div>
-                            <div className="flex shrink-0 items-center gap-2">
-                                {filteredCandidates.length > 0 ? (
-                                    <label className="flex cursor-pointer items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
-                                        <input
-                                            ref={selectAllVisibleRef}
-                                            type="checkbox"
-                                            className="h-3.5 w-3.5 accent-neutral-900"
-                                            checked={allVisibleSelected}
-                                            onChange={() => selectGroup(filteredCandidates.map(c => c.id))}
-                                        />
-                                        {tr.selectAllVisible}
-                                    </label>
-                                ) : null}
-                                {onRefresh ? (
-                                    <Button
-                                        size="sm"
-                                        variant="outline"
-                                        className="h-8 rounded-md px-2 text-xs"
-                                        disabled={refreshing || loading}
-                                        onClick={async () => {
-                                            setRefreshing(true);
-                                            try {
-                                                await onRefresh();
-                                            } finally {
-                                                setRefreshing(false);
-                                            }
-                                        }}
-                                    >
-                                        <RotateCcw className={cn("h-3.5 w-3.5", refreshing && "animate-spin")}/>
-                                        {tr.refresh}
-                                    </Button>
-                                ) : null}
-                            </div>
-                        </>
-                    )}
-                </div>
-
-                {/* 候选人列表 */}
-                <div className="flex min-h-0 flex-1 flex-col">
-                    <div ref={listScrollRef} data-talent-pool-list-scroll="true" className="min-h-0 flex-1 overflow-y-auto bg-[#f8fafc] px-3 py-3 dark:bg-slate-950">
-                        {showInlineUpdating ? (
-                            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-neutral-200 bg-white/80 px-3 py-1.5 text-sm text-neutral-700 shadow-sm backdrop-blur-xl dark:border-neutral-800 dark:bg-slate-950/75 dark:text-neutral-200">
-                                <span className="relative flex h-3 w-3">
-                                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-neutral-400 opacity-60"/>
-                                    <span className="relative inline-flex h-3 w-3 rounded-full bg-neutral-900"/>
-                                </span>
-                                {tr.updatingList}
-                            </div>
+                <div className="mb-4 flex min-h-8 flex-wrap items-center justify-between gap-x-6 gap-y-3 2xl:flex-nowrap">
+                    <div className="flex shrink-0 items-center gap-6">
+                        <ToolbarSelect value={sourceFilter} onChange={setSourceFilter} label={tr.allSources}>
+                            <option value="all">{tr.allSources}</option>
+                            <option value="boss_zhipin">{tr.bossZhipin}</option>
+                            <option value="liepin">{tr.liepin}</option>
+                            <option value="manual_upload">{tr.manualUpload}</option>
+                            <option value="headhunter">{tr.headhunter}</option>
+                            <option value="other">{tr.otherSource}</option>
+                        </ToolbarSelect>
+                        <ToolbarSelect value={tagFilter} onChange={setTagFilter} label={tr.allRecommendedPositions}>
+                            <option value="all">{tr.allRecommendedPositions}</option>
+                            {availableTags.map((tag) => <option key={tag} value={tag}>{tag}</option>)}
+                            <option value="__none">{tr.unmatchedGroup}</option>
+                        </ToolbarSelect>
+                        <ToolbarSelect value={sortBy} onChange={(value) => setSortBy(value as typeof sortBy)} label={tr.sortByTime}>
+                            <option value="time">{tr.sortByTime}</option>
+                            <option value="name">{tr.sortByName}</option>
+                            <option value="name_desc">{tr.sortByNameDesc}</option>
+                        </ToolbarSelect>
+                        <button type="button" className="text-[12px] text-[#0F23D9] hover:text-[#1E3BFA]" onClick={() => setAdvancedFilterOpen((open) => !open)}>
+                            {tr.advancedFilter}
+                        </button>
+                        {statFilterPending ? (
+                            <span className="inline-flex items-center gap-1.5 text-[12px] text-[#86888F]">
+                                <Loader2 className="h-3 w-3 animate-spin text-[#1E3BFA]"/>
+                                {tr.statFiltering}
+                            </span>
+                        ) : activeStatFilter !== "all" ? (
+                            <button type="button" title={tr.clearStatFilter} className="text-[12px] text-[#86888F] hover:text-[#1E3BFA]" onClick={() => handleStatFilterClick(activeStatFilter)}>
+                                {tr.activeStatFilter(activeStatCard.label)}
+                            </button>
                         ) : null}
-                        {filteredCandidates.length === 0 ? (
-                            <div className="flex h-full items-center justify-center">
-                                {showInlineUpdating ? (
-                                    <div className="flex flex-col items-center rounded-3xl border border-neutral-200 bg-white/75 px-8 py-7 text-center shadow-[0_18px_48px_-36px_rgba(15,23,42,0.35)] backdrop-blur-2xl dark:border-neutral-800 dark:bg-slate-950/70">
-                                        <span className="relative flex h-8 w-8">
-                                            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-neutral-400 opacity-35"/>
-                                            <span className="relative inline-flex h-8 w-8 items-center justify-center rounded-full bg-neutral-900 text-white shadow-[0_16px_36px_-22px_rgba(15,23,42,0.65)]">
-                                                <Loader2 className="h-4 w-4 animate-spin"/>
-                                            </span>
-                                        </span>
-                                        <span className="mt-3 text-base font-medium text-slate-700 dark:text-slate-200">{tr.updatingList}</span>
-                                    </div>
-                                ) : (
-                                    <div className="text-center">
-                                        <Users className="mx-auto h-12 w-12 text-slate-300 dark:text-slate-600"/>
-                                        <h3 className="mt-2 text-base font-medium text-slate-900 dark:text-slate-100">
-                                            {activeStatFilter === "all" ? tr.noCandidates : tr.noFilteredCandidates}
-                                        </h3>
-                                        <p className="mt-1 text-base text-slate-500 dark:text-slate-400">
-                                            {activeStatFilter === "all" ? tr.noCandidatesDesc : tr.noFilteredCandidatesDesc}
-                                        </p>
-                                    </div>
-                                )}
-                            </div>
-                        ) : (
-                            <div className={cn("transition duration-200 ease-out", statFilterPending && "scale-[0.998] opacity-70")}>
-                                <div className="flex flex-col gap-2.5">
-                                    {filteredCandidates.map(candidate => {
-                                        const matching = isTalentPoolMatching(candidate);
-                                        const archived = !matching && !isPendingActionCandidate(candidate);
-                                        return (
-                                            <CandidateCard
-                                                key={candidate.id}
-                                                candidate={candidate}
-                                                selected={selectedIds.has(candidate.id)}
-                                                reIdentifying={reIdentifyingIds.has(candidate.id)}
-                                                reIdentifyFailed={reIdentifyFailedIds.has(candidate.id)}
-                                                onToggleSelect={() => toggleSelect(candidate.id)}
-                                                onCancelMatch={matching && onCancelMatch ? () => onCancelMatch(candidate.id) : undefined}
-                                                onReIdentify={!matching ? () => requestReIdentify([candidate], "single") : undefined}
-                                                onManualAssign={!matching ? () => openSingleAssign(candidate.id) : undefined}
-                                                onView={() => onViewCandidate(candidate.id)}
-                                                tr={tr}
-                                                language={language}
-                                                isMatching={matching}
-                                                isArchived={archived}
-                                            />
-                                        );
-                                    })}
-                                </div>
-                            </div>
-                        )}
                     </div>
-                    <PaginationBar
-                        total={total ?? filteredCandidates.length}
-                        pageIndex={pageIndex}
-                        pageSize={pageSize}
-                        pageSizeOptions={pageSizeOptions}
-                        loading={loading}
-                        visibleCount={filteredCandidates.length}
-                        setPageIndex={setPageIndex}
-                        setPageSize={setPageSize}
-                        tr={tr}
-                    />
+                    <div className="flex min-w-0 items-center gap-4">
+                        <div className="relative w-[300px] shrink-0">
+                            <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#B0B2B8]"/>
+                            <Input
+                                value={searchQuery}
+                                onChange={(event) => setSearchQuery(event.target.value)}
+                                placeholder={tr.searchPlaceholder}
+                                className="h-8 rounded-[4px] border-[#E6E7EB] bg-white pl-9 pr-3 text-[12px] text-[#33353D] shadow-none placeholder:text-[#B0B2B8] focus-visible:border-[#1E3BFA] focus-visible:ring-[#1E3BFA]/10"
+                            />
+                        </div>
+                        {canManageCandidates ? (
+                            <>
+                                <button type="button" disabled={selectedIds.size === 0} className="whitespace-nowrap text-[12px] text-[#0F23D9] hover:text-[#1E3BFA] disabled:cursor-not-allowed disabled:text-[#B0B2B8]" onClick={() => setAssignDialogOpen(true)}>{tr.batchAssign}</button>
+                                <button type="button" disabled={selectedReidentifyCandidates.length === 0} className="whitespace-nowrap text-[12px] text-[#0F23D9] hover:text-[#1E3BFA] disabled:cursor-not-allowed disabled:text-[#B0B2B8]" onClick={() => requestReIdentify(selectedReidentifyCandidates, "batch")}>{tr.batchReIdentify}</button>
+                                {onDeleteCandidates ? (
+                                    <button type="button" disabled={selectedIds.size === 0} className="whitespace-nowrap text-[12px] text-[#F53F3F] hover:text-[#d92d2d] disabled:cursor-not-allowed disabled:text-[#B0B2B8]" onClick={() => setDeleteDialogOpen(true)}>{tr.batchDelete}</button>
+                                ) : null}
+                            </>
+                        ) : null}
+                    </div>
                 </div>
+
+                {advancedFilterOpen ? (
+                    <div className="mb-4 flex h-10 items-center justify-between rounded-[6px] border border-[#EBEEF5] bg-[#F7F8FA] px-4 text-[12px] text-[#86888F]">
+                        <span>{tr.filterSummary}</span>
+                        <button type="button" className="text-[#0F23D9] hover:text-[#1E3BFA]" onClick={resetFilters}>{tr.resetFilters}</button>
+                    </div>
+                ) : null}
+
+                {canManageCandidates && filteredCandidates.length > 0 ? (
+                    <div className={cn("mb-3 flex h-8 items-center justify-end gap-4 text-[12px]", selectedIds.size > 0 ? "text-[#33353D]" : "text-[#86888F]")}>
+                        <label className="inline-flex cursor-pointer items-center gap-2">
+                            <input
+                                ref={selectAllVisibleRef}
+                                type="checkbox"
+                                checked={allVisibleSelected}
+                                onChange={() => selectGroup(filteredCandidates.map((candidate) => candidate.id))}
+                                className="h-3.5 w-3.5 rounded-[3px] border-[#D6D8DD] accent-[#1E3BFA]"
+                            />
+                            {tr.selectCurrentPage}
+                        </label>
+                        {selectedIds.size > 0 ? (
+                            <>
+                                <span className="text-[#1E3BFA]">{tr.selectedCount(selectedIds.size)}</span>
+                                <button type="button" className="text-[#86888F] hover:text-[#1E3BFA]" onClick={() => setSelectedIds(new Set())}>{tr.clearSelection}</button>
+                            </>
+                        ) : null}
+                    </div>
+                ) : null}
+
+                {showInlineUpdating ? (
+                    <div className="mb-3 flex h-8 items-center gap-2 rounded-[6px] border border-[#E6E7EB] bg-[#F7F8FA] px-3 text-[12px] text-[#86888F]">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin text-[#1E3BFA]"/>
+                        {tr.updatingList}
+                    </div>
+                ) : null}
+
+                {filteredCandidates.length === 0 ? (
+                    <div className="flex min-h-[360px] items-center justify-center rounded-[8px] border border-[#EBEEF5] bg-white text-center">
+                        <div>
+                            <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-[rgba(30,59,250,0.06)] text-[#1E3BFA]">
+                                <Users className="h-5 w-5"/>
+                            </span>
+                            <h3 className="mt-3 text-[14px] font-medium text-[#33353D]">{activeStatFilter === "all" ? tr.noCandidates : tr.noFilteredCandidates}</h3>
+                            <p className="mt-1 max-w-[520px] text-[12px] leading-5 text-[#86888F]">{activeStatFilter === "all" ? tr.noCandidatesDesc : tr.noFilteredCandidatesDesc}</p>
+                            {(activeStatFilter !== "all" || sourceFilter !== "all" || tagFilter !== "all" || searchQuery) ? (
+                                <button type="button" className="mt-3 text-[12px] text-[#0F23D9] hover:text-[#1E3BFA]" onClick={resetFilters}>{tr.resetFilters}</button>
+                            ) : null}
+                        </div>
+                    </div>
+                ) : (
+                    <div className={cn("space-y-5 transition-opacity", statFilterPending && "opacity-60")}>
+                        {candidateGroups.map((group) => {
+                            const groupIds = group.candidates.map((candidate) => candidate.id);
+                            const groupSelected = groupIds.length > 0 && groupIds.every((candidateId) => selectedIds.has(candidateId));
+                            return (
+                                <section key={group.key} className="overflow-x-auto rounded-[8px] border border-[#EBEEF5] bg-white">
+                                    <div className="flex h-[46px] min-w-[1020px] items-center justify-between border-b border-[#F2F3F5] bg-[#F8F8F9] px-5">
+                                        <div className="flex min-w-0 items-center gap-2.5">
+                                            <GroupBadge tone={group.tone}>{group.badge}</GroupBadge>
+                                            <h2 className="shrink-0 text-[14px] font-semibold text-[#0E1114]">{group.title}</h2>
+                                            <span className="truncate text-[12px] text-[#B0B2B8]">{tr.candidatesCount(group.candidates.length)} · {group.description}</span>
+                                        </div>
+                                        {canManageCandidates ? (
+                                            <div className="flex shrink-0 items-center gap-4">
+                                                <button type="button" className={cn("text-[12px] hover:text-[#1E3BFA]", groupSelected ? "text-[#1E3BFA]" : "text-[#0F23D9]")} onClick={() => selectGroup(groupIds)}>{tr.selectAllGroup}</button>
+                                                {group.assignPositionId ? (
+                                                    <button type="button" disabled={groupAssigningKey !== null} className="inline-flex h-7 items-center gap-1.5 rounded-[6px] border border-[#1E3BFA] px-3 text-[12px] text-[#1E3BFA] hover:bg-[rgba(30,59,250,0.06)] disabled:cursor-not-allowed disabled:opacity-50" onClick={() => void handleGroupAssign(group)}>
+                                                        {groupAssigningKey === group.key ? <Loader2 className="h-3 w-3 animate-spin"/> : null}
+                                                        {tr.oneClickAssign}
+                                                    </button>
+                                                ) : null}
+                                            </div>
+                                        ) : null}
+                                    </div>
+                                    <div>
+                                        {group.candidates.map((candidate) => {
+                                            const matching = isTalentPoolMatching(candidate);
+                                            const archived = !matching && !isPendingActionCandidate(candidate);
+                                            const recognizedPositionId = candidate.ai_match_position_id || null;
+                                            return (
+                                                <CandidateRow
+                                                    key={candidate.id}
+                                                    candidate={candidate}
+                                                    selected={selectedIds.has(candidate.id)}
+                                                    reIdentifying={reIdentifyingIds.has(candidate.id)}
+                                                    reIdentifyFailed={reIdentifyFailedIds.has(candidate.id)}
+                                                    onToggleSelect={canManageCandidates ? () => toggleSelect(candidate.id) : undefined}
+                                                    onConfirmMatch={canManageCandidates && recognizedPositionId ? () => void onAssignPosition([candidate.id], recognizedPositionId).catch(() => undefined) : undefined}
+                                                    onChangePosition={canManageCandidates && recognizedPositionId ? () => openSingleAssign(candidate.id) : undefined}
+                                                    onCancelMatch={canManageCandidates && matching && onCancelMatch ? () => void onCancelMatch(candidate.id) : undefined}
+                                                    onReIdentify={canManageCandidates && !matching ? () => requestReIdentify([candidate], "single") : undefined}
+                                                    onManualAssign={canManageCandidates && !matching && !recognizedPositionId ? () => openSingleAssign(candidate.id) : undefined}
+                                                    onView={() => onViewCandidate(candidate.id)}
+                                                    tr={tr}
+                                                    language={language}
+                                                    isMatching={matching}
+                                                    isArchived={archived}
+                                                />
+                                            );
+                                        })}
+                                    </div>
+                                </section>
+                            );
+                        })}
+                    </div>
+                )}
+
+                <PaginationBar
+                    total={total ?? filteredCandidates.length}
+                    pageIndex={pageIndex}
+                    pageSize={pageSize}
+                    pageSizeOptions={pageSizeOptions}
+                    loading={loading}
+                    visibleCount={filteredCandidates.length}
+                    setPageIndex={setPageIndex}
+                    setPageSize={setPageSize}
+                    tr={tr}
+                />
             </div>
 
-            {/* ── 批量分配弹窗 ── */}
-            {assignDialogOpen && (
-                <DialogOverlay onClose={() => setAssignDialogOpen(false)}>
-                    <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl dark:bg-slate-950">
-                        <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">{tr.batchAssign}</h2>
-                        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{tr.selectedCount(selectedIds.size)}</p>
-                        <select value={assignPositionId} onChange={(e) => setAssignPositionId(e.target.value)} className="mt-3 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-950">
-                            <option value="">{tr.selectPosition}</option>
-                            {positions.map(p => <option key={p.id} value={p.id}>{p.title}</option>)}
-                        </select>
-                        <div className="mt-4 flex justify-end gap-2">
-                            <Button variant="outline" onClick={() => setAssignDialogOpen(false)}>{tr.cancel}</Button>
-                            <Button onClick={() => void handleBatchAssign()} disabled={!assignPositionId || assigning}>{assigning && <Loader2 className="mr-1 h-4 w-4 animate-spin"/>}{tr.confirmAssign}</Button>
-                        </div>
-                    </div>
-                </DialogOverlay>
-            )}
+            <AssignmentDialog
+                open={assignDialogOpen}
+                onOpenChange={(open) => !assigning && setAssignDialogOpen(open)}
+                title={tr.batchAssign}
+                description={tr.selectedCount(selectedIds.size)}
+                value={assignPositionId}
+                onValueChange={setAssignPositionId}
+                positions={positions}
+                placeholder={tr.selectPosition}
+                cancelLabel={tr.cancel}
+                confirmLabel={tr.confirmAssign}
+                submitting={assigning}
+                onConfirm={() => void handleBatchAssign()}
+            />
+            <AssignmentDialog
+                open={singleAssignOpen}
+                onOpenChange={(open) => !singleAssigning && setSingleAssignOpen(open)}
+                title={tr.manualAssign}
+                description={tr.selectPosition}
+                value={singleAssignPositionId}
+                onValueChange={setSingleAssignPositionId}
+                positions={positions}
+                placeholder={tr.selectPosition}
+                cancelLabel={tr.cancel}
+                confirmLabel={tr.confirmAssign}
+                submitting={singleAssigning}
+                onConfirm={() => void handleSingleAssign()}
+            />
 
-            {/* ── 单个分配弹窗（手动分配 / 换岗位） ── */}
-            {singleAssignOpen && (
-                <DialogOverlay onClose={() => setSingleAssignOpen(false)}>
-                    <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl dark:bg-slate-950">
-                        <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">{tr.manualAssign}</h2>
-                        <select value={singleAssignPositionId} onChange={(e) => setSingleAssignPositionId(e.target.value)} className="mt-3 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-950">
-                            <option value="">{tr.selectPosition}</option>
-                            {positions.map(p => <option key={p.id} value={p.id}>{p.title}</option>)}
-                        </select>
-                        <div className="mt-4 flex justify-end gap-2">
-                            <Button variant="outline" onClick={() => setSingleAssignOpen(false)}>{tr.cancel}</Button>
-                            <Button onClick={() => void handleSingleAssign()} disabled={!singleAssignPositionId || singleAssigning}>{singleAssigning && <Loader2 className="mr-1 h-4 w-4 animate-spin"/>}{tr.confirmAssign}</Button>
-                        </div>
-                    </div>
-                </DialogOverlay>
-            )}
-
-            {/* ── 重新识别二次确认弹窗 ── */}
-            {reIdentifyConfirmOpen && (
-                <DialogOverlay
-                    onClose={() => {
-                        if (reIdentifyConfirmSubmitting) return;
-                        setReIdentifyConfirmOpen(false);
-                    }}
-                >
-                    <div className="w-full max-w-xl rounded-2xl bg-white p-6 shadow-xl dark:bg-slate-950">
-                        <div className="flex items-start gap-3">
-                            <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-amber-50 text-amber-600 dark:bg-amber-950/40 dark:text-amber-300">
-                                <RotateCcw className="h-4 w-4"/>
-                            </div>
-                            <div className="min-w-0 flex-1">
-                                <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">{tr.reIdentifyConfirmTitle}</h2>
-                                <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-                                    {tr.reIdentifyConfirmDescription(reIdentifyConfirmCandidates.length)}
-                                </p>
-                            </div>
-                        </div>
+            <Dialog open={reIdentifyConfirmOpen} onOpenChange={(open) => !reIdentifyConfirmSubmitting && setReIdentifyConfirmOpen(open)}>
+                <DialogContent className="max-h-[86vh] gap-0 overflow-hidden rounded-[8px] border-[#EBEEF5] bg-white p-0 text-[#0E1114] shadow-[0_8px_24px_rgba(14,17,20,0.16)] sm:max-w-[600px]">
+                    <DialogHeader className="gap-1 border-b border-[#F2F3F5] px-6 pb-3.5 pr-14 pt-[18px] text-left">
+                        <DialogTitle className="text-[16px] font-semibold text-[#0E1114]">{tr.reIdentifyConfirmTitle}</DialogTitle>
+                        <DialogDescription className="text-[12px] text-[#86888F]">{tr.reIdentifyConfirmDescription(reIdentifyConfirmCandidates.length)}</DialogDescription>
+                    </DialogHeader>
+                    <div className="min-h-0 overflow-y-auto px-6 py-5">
                         {reIdentifyConfirmHasNonPending ? (
-                            <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm leading-6 text-amber-800 dark:border-amber-900/70 dark:bg-amber-950/30 dark:text-amber-200">
-                                {tr.reIdentifyConfirmWarning}
-                            </div>
+                            <div className="mb-4 rounded-[6px] border border-[rgba(255,171,36,0.35)] bg-[rgba(255,171,36,0.08)] px-3 py-2 text-[12px] leading-5 text-[#D48806]">{tr.reIdentifyConfirmWarning}</div>
                         ) : null}
-                        <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50/70 p-3 dark:border-slate-800 dark:bg-slate-900/40">
-                            <div className="mb-2 text-xs font-medium text-slate-500 dark:text-slate-400">{tr.reIdentifyConfirmIncludes}</div>
+                        <div className="rounded-[6px] border border-[#EBEEF5] bg-[#F7F8FA] p-3">
+                            <div className="mb-2 text-[12px] font-medium text-[#5E5F66]">{tr.reIdentifyConfirmIncludes}</div>
                             <div className="space-y-2">
                                 {reIdentifyConfirmGroups.map((group) => {
                                     const visibleNames = group.candidates.slice(0, 4).map(talentPoolCandidateName);
                                     const hiddenCount = Math.max(0, group.candidates.length - visibleNames.length);
                                     return (
-                                        <div key={group.label} className="rounded-lg bg-white px-3 py-2 text-sm shadow-sm ring-1 ring-slate-100 dark:bg-slate-950 dark:ring-slate-800">
-                                            <div className="flex items-center justify-between gap-3">
-                                                <span className="font-medium text-slate-800 dark:text-slate-100">{group.label}</span>
-                                                <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-300">
-                                                    {tr.candidatesCount(group.candidates.length)}
-                                                </span>
+                                        <div key={group.label} className="rounded-[6px] border border-[#F2F3F5] bg-white px-3 py-2">
+                                            <div className="flex items-center justify-between gap-3 text-[12px]">
+                                                <span className="font-medium text-[#33353D]">{group.label}</span>
+                                                <span className="text-[#86888F]">{tr.candidatesCount(group.candidates.length)}</span>
                                             </div>
-                                            <div className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">
-                                                {visibleNames.join("、")}
-                                                {hiddenCount > 0 ? `，${tr.reIdentifyConfirmMore(hiddenCount)}` : ""}
-                                            </div>
+                                            <p className="mt-1 text-[11px] leading-[18px] text-[#86888F]">{visibleNames.join("、")}{hiddenCount > 0 ? "，" + tr.reIdentifyConfirmMore(hiddenCount) : ""}</p>
                                         </div>
                                     );
                                 })}
                             </div>
                         </div>
-                        <div className="mt-5 flex justify-end gap-2">
-                            <Button
-                                variant="outline"
-                                onClick={() => setReIdentifyConfirmOpen(false)}
-                                disabled={reIdentifyConfirmSubmitting}
-                            >
-                                {tr.cancel}
-                            </Button>
-                            <Button onClick={() => void handleConfirmReIdentify()} disabled={reIdentifyConfirmSubmitting}>
-                                {reIdentifyConfirmSubmitting ? <Loader2 className="mr-1 h-4 w-4 animate-spin"/> : <RotateCcw className="mr-1 h-4 w-4"/>}
-                                {tr.confirmReIdentify}
-                            </Button>
-                        </div>
                     </div>
-                </DialogOverlay>
-            )}
+                    <DialogFooter className="h-16 items-center gap-3 border-t border-[#F2F3F5] px-6 sm:justify-end">
+                        <Button variant="outline" className="h-9 rounded-[6px] border-[#E6E7EB] px-4 shadow-none" onClick={() => setReIdentifyConfirmOpen(false)} disabled={reIdentifyConfirmSubmitting}>{tr.cancel}</Button>
+                        <Button className="h-9 rounded-[6px] bg-[#1E3BFA] px-4 text-white shadow-none hover:bg-[#0F23D9]" onClick={() => void handleConfirmReIdentify()} disabled={reIdentifyConfirmSubmitting}>
+                            {reIdentifyConfirmSubmitting ? <Loader2 className="mr-1 h-4 w-4 animate-spin"/> : <RotateCcw className="mr-1 h-4 w-4"/>}
+                            {tr.confirmReIdentify}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
 
-            {/* ── 批量删除确认弹窗 ── */}
-            {deleteDialogOpen && (
-                <DialogOverlay onClose={() => setDeleteDialogOpen(false)}>
-                    <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl dark:bg-slate-950">
-                        <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">{tr.deleteConfirmTitle}</h2>
-                        <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">{tr.deleteConfirmMsg(selectedIds.size)}</p>
-                        <div className="mt-4 flex justify-end gap-2">
-                            <Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>{tr.cancel}</Button>
-                            <Button variant="destructive" onClick={() => void handleBatchDelete()} disabled={deleting}>{deleting && <Loader2 className="mr-1 h-4 w-4 animate-spin"/>}{tr.confirm}</Button>
-                        </div>
+            <Dialog open={deleteDialogOpen} onOpenChange={(open) => !deleting && setDeleteDialogOpen(open)}>
+                <DialogContent className="gap-0 overflow-hidden rounded-[8px] border-[#EBEEF5] bg-white p-0 text-[#0E1114] shadow-[0_8px_24px_rgba(14,17,20,0.16)] sm:max-w-[480px]">
+                    <DialogHeader className="gap-1 border-b border-[#F2F3F5] px-6 pb-3.5 pr-14 pt-[18px] text-left">
+                        <DialogTitle className="text-[16px] font-semibold text-[#0E1114]">{tr.deleteConfirmTitle}</DialogTitle>
+                        <DialogDescription className="text-[12px] leading-5 text-[#86888F]">{tr.deleteConfirmMsg(selectedIds.size)}</DialogDescription>
+                    </DialogHeader>
+                    <div className="px-6 py-5">
+                        <div className="rounded-[6px] border border-[rgba(245,63,63,0.22)] bg-[rgba(245,63,63,0.05)] px-4 py-3 text-[12px] text-[#F53F3F]">{tr.selectedCount(selectedIds.size)}</div>
                     </div>
-                </DialogOverlay>
-            )}
+                    <DialogFooter className="h-16 items-center gap-3 border-t border-[#F2F3F5] px-6 sm:justify-end">
+                        <Button variant="outline" className="h-9 rounded-[6px] border-[#E6E7EB] px-4 shadow-none" onClick={() => setDeleteDialogOpen(false)} disabled={deleting}>{tr.cancel}</Button>
+                        <Button className="h-9 rounded-[6px] bg-[#F53F3F] px-4 text-white shadow-none hover:bg-[#d92d2d]" onClick={() => void handleBatchDelete()} disabled={deleting}>
+                            {deleting ? <Loader2 className="mr-1 h-4 w-4 animate-spin"/> : <Trash2 className="mr-1 h-4 w-4"/>}
+                            {tr.confirm}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }
 
-/* ════════════════════════════════════════════════════════════════
- * 子组件
- * ════════════════════════════════════════════════════════════════ */
-
-function DialogOverlay({children, onClose}: {children: React.ReactNode; onClose: () => void}) {
+function ToolbarSelect({
+    value,
+    onChange,
+    label,
+    children,
+}: {
+    value: string;
+    onChange: (value: string) => void;
+    label: string;
+    children: React.ReactNode;
+}) {
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
-            <div onClick={e => e.stopPropagation()}>{children}</div>
+        <label className="relative inline-flex h-8 items-center">
+            <span className="sr-only">{label}</span>
+            <select value={value} onChange={(event) => onChange(event.target.value)} className="h-8 max-w-[180px] appearance-none bg-transparent py-0 pl-0 pr-5 text-[12px] text-[#33353D] outline-none hover:text-[#1E3BFA]">
+                {children}
+            </select>
+            <ChevronDown className="pointer-events-none absolute right-0 h-3 w-3 text-[#86888F]"/>
+        </label>
+    );
+}
+
+function StatCard({
+    label,
+    value,
+    hint,
+    tone,
+    active,
+    loading,
+    onClick,
+}: {
+    label: string;
+    value: number;
+    hint: string;
+    tone: "primary" | "sky" | "amber" | "orange" | "rose" | "emerald";
+    active: boolean;
+    loading: boolean;
+    onClick: () => void;
+}) {
+    const accent: Record<typeof tone, string> = {
+        primary: "bg-[#1E3BFA]",
+        sky: "bg-[#2E9CFF]",
+        amber: "bg-[#FFAB24]",
+        orange: "bg-[#FFAB24]",
+        rose: "bg-[#F53F3F]",
+        emerald: "bg-[#0CC991]",
+    };
+    return (
+        <button
+            type="button"
+            aria-pressed={active}
+            onClick={onClick}
+            className={cn(
+                "relative min-w-0 rounded-[8px] border bg-white px-5 py-4 text-left transition-colors",
+                active ? "border-[#1E3BFA]" : "border-[#EBEEF5] hover:border-[#1E3BFA]/45",
+            )}
+        >
+            {loading ? <span className="absolute inset-x-0 bottom-0 h-0.5 animate-pulse bg-[#1E3BFA]"/> : null}
+            <span className="flex items-center gap-2 text-[12px] text-[#33353D]">
+                <span className={cn("h-3 w-[3px] rounded-[2px]", accent[tone])}/>
+                <span className="truncate">{label}</span>
+            </span>
+            <span className="mt-1.5 block text-[28px] font-semibold leading-8 tabular-nums text-[#0E1114]">{value}</span>
+            <span className="mt-1 block truncate text-[11px] leading-[18px] text-[#B0B2B8]">{hint}</span>
+        </button>
+    );
+}
+
+function GroupBadge({tone, children}: {tone: TalentPoolGroupTone; children: React.ReactNode}) {
+    const toneClass: Record<TalentPoolGroupTone, string> = {
+        primary: "bg-[rgba(30,59,250,0.08)] text-[#1E3BFA]",
+        sky: "bg-[rgba(46,156,255,0.10)] text-[#2E9CFF]",
+        amber: "bg-[rgba(255,171,36,0.12)] text-[#D48806]",
+        emerald: "bg-[rgba(12,201,145,0.10)] text-[#0A9C71]",
+    };
+    return <span className={cn("inline-flex h-[22px] shrink-0 items-center rounded-[4px] px-2 text-[12px]", toneClass[tone])}>{children}</span>;
+}
+
+function CandidateRow({
+    candidate,
+    selected,
+    reIdentifying,
+    reIdentifyFailed,
+    onToggleSelect,
+    onConfirmMatch,
+    onChangePosition,
+    onReIdentify,
+    onCancelMatch,
+    onManualAssign,
+    onView,
+    tr,
+    language,
+    isMatching,
+    isArchived,
+}: {
+    candidate: CandidateSummary;
+    selected: boolean;
+    reIdentifying: boolean;
+    reIdentifyFailed: boolean;
+    onToggleSelect?: () => void;
+    onConfirmMatch?: () => void;
+    onChangePosition?: () => void;
+    onReIdentify?: () => void;
+    onCancelMatch?: () => void;
+    onManualAssign?: () => void;
+    onView: () => void;
+    tr: ReturnType<typeof getTalentPoolLocale>;
+    language: string;
+    isMatching: boolean;
+    isArchived: boolean;
+}) {
+    const enteredAt = resolveTalentPoolEnteredAt(candidate);
+    const sourceStage = talentPoolSourceStageLabel(candidate, tr);
+    const profile = [
+        candidate.years_of_experience,
+        candidate.education,
+        candidate.city,
+        candidate.phone || candidate.candidate_code,
+    ].filter(Boolean).join(" · ");
+    const tags = Array.isArray(candidate.tags) ? candidate.tags.filter(Boolean).slice(0, 3) : [];
+    const explanation = reIdentifyFailed
+        ? tr.aiStillNoMatch
+        : sanitizeCandidateFacingErrorText(candidate.ai_match_reason || "", {
+            context: "position_match",
+            language,
+        }) || (isMatching ? tr.aiMatchingHint : (isPendingActionCandidate(candidate) ? tr.aiNoMatch : ""));
+    const sourceTone = isIdentifyErrorCandidate(candidate)
+        ? "text-[#F53F3F]"
+        : isNoSystemPositionCandidate(candidate)
+            ? "text-[#D48806]"
+            : isMatching
+                ? "text-[#2E9CFF]"
+                : talentPoolReason(candidate) === "auto_archived"
+                    ? "text-[#0A9C71]"
+                    : "text-[#86888F]";
+    const avatarColors = ["bg-[#1E3BFA]", "bg-[#2E9CFF]", "bg-[#0CC991]", "bg-[#7B61FF]", "bg-[#FFAB24]", "bg-[#F53F3F]"];
+    const avatarClass = avatarColors[Math.abs(candidate.id) % avatarColors.length];
+    const actionClass = "whitespace-nowrap text-[12px] text-[#0F23D9] hover:text-[#1E3BFA] disabled:cursor-not-allowed disabled:text-[#B0B2B8]";
+    return (
+        <div className={cn(
+            "grid min-h-14 min-w-[1020px] items-center border-b border-[#F2F3F5] text-[12px] text-[#0F1014] last:border-b-0 hover:bg-[#F8F8F9]",
+            "[grid-template-columns:40px_minmax(210px,1.2fr)_minmax(250px,1.8fr)_minmax(132px,.8fr)_minmax(138px,.8fr)_minmax(230px,1.12fr)]",
+            selected && "bg-[rgba(30,59,250,0.025)]",
+        )}>
+            <div className="flex items-center justify-center">
+                {onToggleSelect ? (
+                    <input type="checkbox" checked={selected} onChange={onToggleSelect} className="h-3.5 w-3.5 rounded-[3px] border-[#D6D8DD] accent-[#1E3BFA]"/>
+                ) : null}
+            </div>
+            <div className="flex min-w-0 items-center gap-2.5 pr-4">
+                <span className={cn("flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[11px] text-white", avatarClass)}>
+                    {String(candidate.name || "?").trim().slice(0, 1)}
+                </span>
+                <div className="min-w-0">
+                    <button type="button" className="block max-w-full truncate text-left text-[13px] font-medium text-[#0F23D9] hover:text-[#1E3BFA]" onClick={onView}>
+                        {candidate.name || "ID:" + candidate.id}
+                    </button>
+                    <p className="mt-0.5 truncate text-[11px] leading-4 text-[#B0B2B8]" title={profile}>{profile || sourceLabel(candidate.source, tr)}</p>
+                </div>
+            </div>
+            <div className="min-w-0 pr-5">
+                <div className="flex min-w-0 items-center gap-1.5 overflow-hidden">
+                    {tags.map((tag) => (
+                        <span key={tag} className="inline-flex h-5 max-w-[110px] shrink-0 items-center truncate rounded-[4px] bg-[rgba(30,59,250,0.06)] px-2 text-[11px] text-[#1E3BFA]" title={tag}>{tag}</span>
+                    ))}
+                    {candidate.ai_potential_position ? (
+                        <span className="inline-flex h-5 max-w-[150px] shrink-0 items-center truncate rounded-[4px] bg-[rgba(12,201,145,0.08)] px-2 text-[11px] text-[#0A9C71]" title={candidate.ai_potential_reason || candidate.ai_potential_position}>
+                            {tr.potentialPrefix}{candidate.ai_potential_position}
+                        </span>
+                    ) : null}
+                    {!tags.length && !candidate.ai_potential_position ? <span className="text-[#B0B2B8]">—</span> : null}
+                </div>
+                {explanation ? <p className="mt-0.5 truncate text-[11px] leading-4 text-[#B0B2B8]" title={explanation}>{explanation}</p> : null}
+            </div>
+            <div className={cn("min-w-0 truncate pr-4 text-[12px]", sourceTone)} title={tr.sourceStage + "：" + sourceStage}>
+                {sourceStage}
+            </div>
+            <div className="min-w-0 truncate pr-4 tabular-nums text-[#86888F]" title={enteredAt ? formatDateTime(enteredAt) : undefined}>
+                {enteredAt ? formatDateTime(enteredAt) : "—"}
+            </div>
+            <div className="flex min-w-0 flex-wrap items-center gap-x-3.5 gap-y-1 pr-4">
+                {onConfirmMatch ? <button type="button" className={actionClass} onClick={onConfirmMatch}>{tr.confirmMatch}</button> : null}
+                {onChangePosition ? <button type="button" className={actionClass} onClick={onChangePosition}>{tr.changePosition}</button> : null}
+                {onReIdentify ? (
+                    <button type="button" className={actionClass} onClick={onReIdentify} disabled={reIdentifying}>
+                        {reIdentifying ? tr.reIdentifying : tr.reIdentify}
+                    </button>
+                ) : null}
+                {onManualAssign ? <button type="button" className={actionClass} onClick={onManualAssign}>{isArchived ? tr.assignPosition : tr.manualAssign}</button> : null}
+                {onCancelMatch ? <button type="button" className="whitespace-nowrap text-[12px] text-[#F53F3F] hover:text-[#d92d2d]" onClick={onCancelMatch}>{tr.stopMatch}</button> : null}
+                <button type="button" className={actionClass} onClick={onView}>{tr.view}</button>
+            </div>
         </div>
     );
 }
 
-/* ── 分页控件 ── */
+function PositionSelect({
+    value,
+    onChange,
+    positions,
+    placeholder,
+}: {
+    value: string;
+    onChange: (value: string) => void;
+    positions: PositionSummary[];
+    placeholder: string;
+}) {
+    return (
+        <div className="relative">
+            <select value={value} onChange={(event) => onChange(event.target.value)} className="h-10 w-full appearance-none rounded-[6px] border border-[#E6E7EB] bg-white px-3 pr-9 text-[13px] text-[#33353D] outline-none focus:border-[#1E3BFA] focus:ring-2 focus:ring-[#1E3BFA]/10">
+                <option value="">{placeholder}</option>
+                {positions.map((position) => <option key={position.id} value={position.id}>{position.title}</option>)}
+            </select>
+            <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#86888F]"/>
+        </div>
+    );
+}
+
+function AssignmentDialog({
+    open,
+    onOpenChange,
+    title,
+    description,
+    value,
+    onValueChange,
+    positions,
+    placeholder,
+    cancelLabel,
+    confirmLabel,
+    submitting,
+    onConfirm,
+}: {
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
+    title: string;
+    description: string;
+    value: string;
+    onValueChange: (value: string) => void;
+    positions: PositionSummary[];
+    placeholder: string;
+    cancelLabel: string;
+    confirmLabel: string;
+    submitting: boolean;
+    onConfirm: () => void;
+}) {
+    return (
+        <Dialog open={open} onOpenChange={onOpenChange}>
+            <DialogContent className="gap-0 overflow-hidden rounded-[8px] border-[#EBEEF5] bg-white p-0 text-[#0E1114] shadow-[0_8px_24px_rgba(14,17,20,0.16)] sm:max-w-[480px]">
+                <DialogHeader className="gap-1 border-b border-[#F2F3F5] px-6 pb-3.5 pr-14 pt-[18px] text-left">
+                    <DialogTitle className="text-[16px] font-semibold text-[#0E1114]">{title}</DialogTitle>
+                    <DialogDescription className="text-[12px] text-[#86888F]">{description}</DialogDescription>
+                </DialogHeader>
+                <div className="px-6 py-5">
+                    <PositionSelect value={value} onChange={onValueChange} positions={positions} placeholder={placeholder}/>
+                </div>
+                <DialogFooter className="h-16 items-center gap-3 border-t border-[#F2F3F5] px-6 sm:justify-end">
+                    <Button variant="outline" className="h-9 rounded-[6px] border-[#E6E7EB] px-4 shadow-none" onClick={() => onOpenChange(false)} disabled={submitting}>{cancelLabel}</Button>
+                    <Button className="h-9 rounded-[6px] bg-[#1E3BFA] px-4 text-white shadow-none hover:bg-[#0F23D9]" onClick={onConfirm} disabled={!value || submitting}>
+                        {submitting ? <Loader2 className="mr-1 h-4 w-4 animate-spin"/> : null}
+                        {confirmLabel}
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    );
+}
+
 function PaginationBar({
     total,
     pageIndex,
@@ -1282,494 +1425,38 @@ function PaginationBar({
     setPageSize: (pageSize: number) => void;
     tr: ReturnType<typeof getTalentPoolLocale>;
 }) {
-    const totalPages = React.useMemo(() => (
-        Math.max(1, Math.ceil(Math.max(0, total) / Math.max(1, pageSize)))
-    ), [pageSize, total]);
-    const paginationPages = React.useMemo(() => {
+    const totalPages = Math.max(1, Math.ceil(Math.max(0, total) / Math.max(1, pageSize)));
+    const pages = React.useMemo(() => {
         const currentPage = Math.min(Math.max(0, pageIndex), totalPages - 1);
         const first = Math.max(0, Math.min(currentPage - 2, totalPages - 5));
         const last = Math.min(totalPages - 1, first + 4);
-        const pages: number[] = [];
-        for (let i = first; i <= last; i += 1) pages.push(i);
-        return pages;
+        const result: number[] = [];
+        for (let index = first; index <= last; index += 1) result.push(index);
+        return result;
     }, [pageIndex, totalPages]);
     const pageStart = total > 0 ? pageIndex * pageSize + 1 : 0;
     const pageEnd = total > 0 ? Math.min(total, pageIndex * pageSize + visibleCount) : 0;
-
+    const pageButtonClass = "h-7 min-w-7 rounded-[4px] border border-[#E6E7EB] bg-white px-2 text-[12px] font-normal text-[#33353D] shadow-none hover:border-[#1E3BFA] hover:bg-white hover:text-[#1E3BFA] disabled:border-[#E6E7EB] disabled:text-[#B0B2B8]";
     return (
-        <div className="mt-1.5 flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-slate-200/80 px-4 py-1.5 text-xs leading-5 text-slate-500 dark:border-slate-800 dark:text-slate-400">
+        <div className="flex items-center justify-between py-4 text-[12px] text-[#86888F]">
             <span>{tr.pageRange(pageStart, pageEnd, total)}</span>
-            <div className="flex flex-wrap items-center gap-1.5">
-                <select
-                    value={String(pageSize)}
-                    title={tr.rowsPerPage}
-                    onChange={(event) => setPageSize(Number(event.target.value))}
-                    className="h-7 w-[96px] shrink-0 rounded-md border border-slate-200 bg-white px-2 pr-7 text-xs text-slate-700 shadow-none dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300"
-                >
-                    {pageSizeOptions.map((option) => (
-                        <option key={option} value={option}>{option}{tr.rowsPerPage}</option>
-                    ))}
+            <div className="flex items-center gap-2">
+                <select value={String(pageSize)} onChange={(event) => setPageSize(Number(event.target.value))} title={tr.rowsPerPage} className="h-7 rounded-[4px] border border-[#E6E7EB] bg-white px-2 text-[12px] text-[#33353D] outline-none">
+                    {pageSizeOptions.map((option) => <option key={option} value={option}>{option}{tr.rowsPerPage}</option>)}
                 </select>
-                <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-6 rounded-md px-2 text-xs leading-4"
-                    disabled={pageIndex <= 0 || loading}
-                    onClick={() => setPageIndex(pageIndex - 1)}
-                >
-                    {tr.previousPage}
-                </Button>
-                {paginationPages.map((p) => (
-                    <Button
-                        key={p}
-                        size="sm"
-                        variant={p === pageIndex ? "default" : "outline"}
-                        className="h-6 min-w-6 rounded-md px-1.5 text-xs leading-4"
+                <button type="button" className={pageButtonClass} disabled={pageIndex <= 0 || loading} onClick={() => setPageIndex(pageIndex - 1)}>{tr.previousPage}</button>
+                {pages.map((page) => (
+                    <button
+                        key={page}
+                        type="button"
                         disabled={loading}
-                        onClick={() => setPageIndex(p)}
+                        className={cn(pageButtonClass, page === pageIndex && "border-[#1E3BFA] bg-[#1E3BFA] text-white hover:bg-[#1E3BFA] hover:text-white")}
+                        onClick={() => setPageIndex(page)}
                     >
-                        {p + 1}
-                    </Button>
+                        {page + 1}
+                    </button>
                 ))}
-                <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-6 rounded-md px-2 text-xs leading-4"
-                    disabled={pageIndex >= totalPages - 1 || loading}
-                    onClick={() => setPageIndex(pageIndex + 1)}
-                >
-                    {tr.nextPage}
-                </Button>
-            </div>
-        </div>
-    );
-}
-
-function StatCard({
-    label,
-    value,
-    hint,
-    tone,
-    active,
-    loading,
-    onClick,
-}: {
-    label: string;
-    value: number;
-    hint: string;
-    tone: "slate" | "sky" | "amber" | "orange" | "rose" | "emerald";
-    active: boolean;
-    loading: boolean;
-    onClick: () => void;
-}) {
-    const toneClasses: Record<typeof tone, string> = {
-        slate: "from-slate-500/16 via-slate-100/80 to-white dark:from-slate-500/20 dark:via-slate-900/85 dark:to-slate-950",
-        sky: "from-neutral-400/14 via-neutral-50/90 to-white dark:from-neutral-400/18 dark:via-slate-900/85 dark:to-slate-950",
-        amber: "from-neutral-400/14 via-neutral-50/90 to-white dark:from-neutral-400/18 dark:via-slate-900/85 dark:to-slate-950",
-        orange: "from-neutral-400/14 via-neutral-50/90 to-white dark:from-neutral-400/18 dark:via-slate-900/85 dark:to-slate-950",
-        rose: "from-neutral-400/14 via-neutral-50/90 to-white dark:from-neutral-400/18 dark:via-slate-900/85 dark:to-slate-950",
-        emerald: "from-neutral-400/14 via-neutral-50/90 to-white dark:from-neutral-400/18 dark:via-slate-900/85 dark:to-slate-950",
-    };
-    const activeToneClasses: Record<typeof tone, string> = {
-        slate: "border-slate-700/80 from-slate-700/24 via-slate-100 to-white ring-2 ring-slate-500/25 shadow-[0_22px_62px_-28px_rgba(15,23,42,0.86)] dark:border-slate-300/80 dark:from-slate-300/16 dark:ring-slate-300/20",
-        sky: "border-neutral-400 from-neutral-500/20 via-neutral-100 to-white ring-2 ring-neutral-300/40 shadow-[0_18px_42px_-28px_rgba(15,23,42,0.55)] dark:border-neutral-400 dark:from-neutral-400/18 dark:ring-neutral-400/25",
-        amber: "border-neutral-400 from-neutral-500/20 via-neutral-100 to-white ring-2 ring-neutral-300/40 shadow-[0_18px_42px_-28px_rgba(15,23,42,0.55)] dark:border-neutral-400 dark:from-neutral-400/18 dark:ring-neutral-400/25",
-        orange: "border-neutral-400 from-neutral-500/20 via-neutral-100 to-white ring-2 ring-neutral-300/40 shadow-[0_18px_42px_-28px_rgba(15,23,42,0.55)] dark:border-neutral-400 dark:from-neutral-400/18 dark:ring-neutral-400/25",
-        rose: "border-neutral-400 from-neutral-500/20 via-neutral-100 to-white ring-2 ring-neutral-300/40 shadow-[0_18px_42px_-28px_rgba(15,23,42,0.55)] dark:border-neutral-400 dark:from-neutral-400/18 dark:ring-neutral-400/25",
-        emerald: "border-neutral-400 from-neutral-500/20 via-neutral-100 to-white ring-2 ring-neutral-300/40 shadow-[0_18px_42px_-28px_rgba(15,23,42,0.55)] dark:border-neutral-400 dark:from-neutral-400/18 dark:ring-neutral-400/25",
-    };
-    const accentTextClasses: Record<typeof tone, string> = {
-        slate: "text-slate-800 dark:text-slate-100",
-        sky: "text-neutral-700 dark:text-neutral-200",
-        amber: "text-neutral-700 dark:text-neutral-200",
-        orange: "text-neutral-700 dark:text-neutral-200",
-        rose: "text-neutral-700 dark:text-neutral-200",
-        emerald: "text-neutral-700 dark:text-neutral-200",
-    };
-    const accentFillClasses: Record<typeof tone, string> = {
-        slate: "bg-slate-700 text-white dark:bg-slate-200 dark:text-slate-950",
-        sky: "bg-neutral-900 text-white dark:bg-neutral-400 dark:text-slate-950",
-        amber: "bg-neutral-900 text-white dark:bg-neutral-400 dark:text-slate-950",
-        orange: "bg-neutral-900 text-white dark:bg-neutral-400 dark:text-slate-950",
-        rose: "bg-neutral-900 text-white dark:bg-neutral-400 dark:text-slate-950",
-        emerald: "bg-neutral-900 text-white dark:bg-neutral-400 dark:text-slate-950",
-    };
-    return (
-        <button
-            type="button"
-            aria-pressed={active}
-            onClick={onClick}
-            className={cn(
-                "group relative overflow-hidden rounded-2xl border px-4 py-3.5 text-left backdrop-blur-2xl transition-all duration-300 ease-out active:scale-[0.985]",
-                "bg-gradient-to-br shadow-[0_14px_42px_-30px_rgba(15,23,42,0.55)] hover:-translate-y-0.5 hover:shadow-[0_20px_54px_-34px_rgba(15,23,42,0.7)]",
-                toneClasses[tone],
-                active
-                    ? cn("-translate-y-0.5", activeToneClasses[tone])
-                    : "border-white/70 dark:border-slate-800/80",
-            )}
-        >
-            <span className={cn(
-                "pointer-events-none absolute inset-y-3 left-0 w-1 rounded-r-full transition-opacity",
-                active ? accentFillClasses[tone] : "bg-transparent opacity-0",
-            )}/>
-            <span className={cn(
-                "pointer-events-none absolute inset-x-4 top-2 h-px rounded-full bg-gradient-to-r from-transparent via-white/90 to-transparent transition-opacity",
-                active ? "opacity-100" : "opacity-50 group-hover:opacity-90",
-            )}/>
-            <span className={cn(
-                "pointer-events-none absolute -right-8 -top-10 h-24 w-24 rounded-full blur-2xl transition-opacity",
-                active ? "bg-neutral-300/30 opacity-100 dark:bg-neutral-900/20" : "bg-white/55 opacity-0 group-hover:opacity-80 dark:bg-white/10",
-            )}/>
-            {active ? (
-                <span className={cn(
-                    "pointer-events-none absolute right-3 top-3 inline-flex h-5 w-5 items-center justify-center rounded-full shadow-[0_8px_18px_-10px_rgba(15,23,42,0.9)]",
-                    accentFillClasses[tone],
-                )}>
-                    <Check className="h-3.5 w-3.5"/>
-                </span>
-            ) : null}
-            {loading ? (
-                <span className="pointer-events-none absolute inset-x-0 bottom-0 h-0.5 overflow-hidden bg-slate-200/70 dark:bg-slate-700/70">
-                    <span className="block h-full w-1/2 animate-pulse rounded-full bg-neutral-400 shadow-[0_0_14px_rgba(15,23,42,0.45)]"/>
-                </span>
-            ) : null}
-            <span className={cn(
-                "relative block pr-7 text-sm font-medium transition-colors",
-                active ? accentTextClasses[tone] : "text-slate-500 dark:text-slate-400",
-            )}>{label}</span>
-            <span className={cn(
-                "relative mt-1.5 block text-[26px] font-semibold leading-none tabular-nums text-slate-950 transition-all duration-300 group-hover:translate-x-0.5 dark:text-slate-50",
-                active && cn("font-bold", accentTextClasses[tone]),
-            )}>{value}</span>
-            <span className={cn(
-                "relative mt-1.5 block text-[15px] transition-colors",
-                active ? "font-medium text-slate-600 dark:text-slate-300" : "text-slate-400 dark:text-slate-500",
-            )}>{hint}</span>
-        </button>
-    );
-}
-
-function InstantTooltip({
-    label,
-    children,
-    className,
-    tooltipClassName,
-    onlyWhenOverflow = false,
-}: {
-    label?: string | null;
-    children: React.ReactNode;
-    className?: string;
-    tooltipClassName?: string;
-    onlyWhenOverflow?: boolean;
-}) {
-    const text = String(label || "").trim();
-    const triggerRef = React.useRef<HTMLSpanElement | null>(null);
-    const [visible, setVisible] = React.useState(!onlyWhenOverflow);
-    const [placement, setPlacement] = React.useState<"top" | "bottom">("top");
-
-    const updateVisibility = React.useCallback(() => {
-        const trigger = triggerRef.current;
-        if (trigger) {
-            const triggerRect = trigger.getBoundingClientRect();
-            const scrollRoot = trigger.closest("[data-talent-pool-list-scroll='true']");
-            const rootRect = scrollRoot?.getBoundingClientRect();
-            const topBoundary = rootRect?.top ?? 0;
-            setPlacement(triggerRect.top - topBoundary < 52 ? "bottom" : "top");
-        }
-
-        if (!onlyWhenOverflow) {
-            setVisible(true);
-            return;
-        }
-        const content = trigger?.firstElementChild as HTMLElement | null;
-        if (!content) {
-            setVisible(false);
-            return;
-        }
-        const isOverflowing = content.scrollWidth > content.clientWidth + 1
-            || content.scrollHeight > content.clientHeight + 1;
-        setVisible(isOverflowing);
-    }, [onlyWhenOverflow]);
-
-    if (!text) {
-        return <>{children}</>;
-    }
-    return (
-        <span
-            ref={triggerRef}
-            className={cn("group relative inline-flex min-w-0", className)}
-            onPointerEnter={updateVisibility}
-            onFocus={updateVisibility}
-        >
-            {children}
-            {visible ? (
-                <span
-                    role="tooltip"
-                    className={cn(
-                        "pointer-events-none absolute left-1/2 z-[80] max-w-[420px] -translate-x-1/2 whitespace-normal break-words rounded-md bg-slate-950 px-2 py-1 text-left text-[11px] font-medium leading-4 text-white opacity-0 shadow-[0_8px_18px_rgba(15,23,42,0.18)] transition-none group-hover:opacity-100 group-focus-within:opacity-100 dark:bg-slate-100 dark:text-slate-950",
-                        placement === "bottom" ? "top-full mt-1.5" : "bottom-full mb-1.5",
-                        tooltipClassName,
-                    )}
-                >
-                    {text}
-                </span>
-            ) : null}
-        </span>
-    );
-}
-
-function TalentActionIconButton({
-    label,
-    onClick,
-    disabled,
-    danger,
-    children,
-}: {
-    label: string;
-    onClick?: () => void;
-    disabled?: boolean;
-    danger?: boolean;
-    children: React.ReactNode;
-}) {
-    return (
-        <InstantTooltip label={label} className="inline-flex" tooltipClassName="whitespace-nowrap">
-            <Button
-                size="sm"
-                variant="ghost"
-                className={cn(
-                    "h-8 w-8 shrink-0 rounded-md bg-transparent p-0 text-slate-500 shadow-none hover:bg-transparent hover:text-[var(--tr-red)]",
-                    danger && "text-rose-500 hover:text-rose-600 dark:text-rose-400",
-                )}
-                onClick={(event) => {
-                    event.stopPropagation();
-                    onClick?.();
-                }}
-                disabled={disabled}
-                aria-label={label}
-            >
-                <span className={cn(
-                    "flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 shadow-none dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300",
-                    danger && "border-rose-200 text-rose-500 dark:border-rose-900/70 dark:text-rose-400",
-                )}>
-                    {children}
-                </span>
-            </Button>
-        </InstantTooltip>
-    );
-}
-
-/* ── 候选人卡片 ── */
-function CandidateCard({
-    candidate, selected, reIdentifying, reIdentifyFailed,
-    onToggleSelect, onConfirmMatch, onChangePosition, onReIdentify, onCancelMatch, onManualAssign, onView, tr, language,
-    isMatching, isArchived,
-}: {
-    candidate: CandidateSummary;
-    selected: boolean;
-    reIdentifying: boolean;
-    reIdentifyFailed: boolean;
-    onToggleSelect: () => void;
-    onConfirmMatch?: () => void;
-    onChangePosition?: () => void;
-    onReIdentify?: () => void;
-    onCancelMatch?: () => void;
-    onManualAssign?: () => void;
-    onView: () => void;
-    tr: ReturnType<typeof getTalentPoolLocale>;
-    language: string;
-    isMatching?: boolean;
-    isArchived?: boolean;
-}) {
-    const hasAIMatch = !!candidate.ai_match_position_title;
-    const talentPoolDisplayStatus = resolveTalentPoolDisplayStatus(candidate);
-    const screeningPositionTitle = candidate.screened_position_title || candidate.position_title;
-    const aiRecommendedTitle = candidate.ai_match_position_title || null;
-    const enteredAt = resolveTalentPoolEnteredAt(candidate);
-    const contactLine = candidate.phone || candidate.candidate_code || "";
-    const profileParts = [
-        candidate.years_of_experience,
-        candidate.education,
-        candidate.city,
-        contactLine,
-    ].filter(Boolean);
-    const sourceStageLabel = React.useMemo(() => {
-        const reason = String(candidate.talent_pool_reason || "").trim().toLowerCase();
-        if (reason === "unmatched_by_ai") {
-            return tr.sourceAiUnmatched;
-        }
-        if (reason === "ai_error") {
-            return tr.sourceAiError;
-        }
-        if (reason === "auto_archived") {
-            return tr.sourceScreeningArchived;
-        }
-        if (reason === "moved_by_hr") {
-            const sourceLabel = STATUS_LABEL_MAP[candidate.talent_pool_source_status || ""] || candidate.talent_pool_source_status || "";
-            return sourceLabel ? sourceLabel : tr.archived;
-        }
-        return tr.sourceLegacyArchived;
-    }, [candidate.talent_pool_reason, candidate.talent_pool_source_status, tr]);
-
-    const fallbackDescription = (() => {
-        if (isMatching) return tr.aiMatchingHint;
-        if (isArchived) {
-            if (candidate.talent_pool_reason === "auto_archived") return tr.autoArchivedDesc;
-            if (candidate.talent_pool_reason === "moved_by_hr") {
-                const sourceLabel = STATUS_LABEL_MAP[candidate.talent_pool_source_status || ""] || candidate.talent_pool_source_status || "";
-                const moveDate = candidate.talent_pool_moved_at ? formatDateTime(candidate.talent_pool_moved_at) : "";
-                return tr.movedByHRDesc(candidate.talent_pool_moved_by || "", moveDate, sourceLabel);
-            }
-            return tr.archivedGroupDesc;
-        }
-        if (candidate.talent_pool_reason === "ai_error") {
-            return sanitizeCandidateFacingErrorText(candidate.ai_match_reason || tr.aiErrorDesc, {
-                context: "position_match",
-                language,
-            });
-        }
-        if (reIdentifyFailed) return tr.aiStillNoMatch;
-        return tr.aiNoMatch;
-    })();
-    const aiRecommendationDescription = isMatching
-        ? tr.aiMatchingHint
-        : sanitizeCandidateFacingErrorText(candidate.ai_match_reason || "", {
-            context: "position_match",
-            language,
-        }) || fallbackDescription;
-    const potentialReasonText = candidate.ai_potential_reason || "";
-    const handleRowKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
-        if (event.key !== "Enter" && event.key !== " ") {
-            return;
-        }
-        event.preventDefault();
-        onView();
-    }, [onView]);
-
-    return (
-        <div className={cn(
-            "grid min-h-[116px] cursor-pointer items-center gap-3 rounded-lg border border-[var(--tr-border-soft)] bg-white px-3 py-3 shadow-[0_1px_2px_rgba(16,32,63,0.03)] transition-colors [grid-template-columns:24px_minmax(0,1fr)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--tr-red)]/30 dark:border-slate-800 dark:bg-slate-950 xl:grid-cols-[24px_minmax(190px,1fr)_minmax(188px,.95fr)_minmax(200px,1.05fr)_112px_104px]",
-            selected ? "border-rose-200 bg-rose-50/50 shadow-[inset_3px_0_0_var(--tr-red)] dark:border-neutral-700 dark:bg-neutral-900/40" : "hover:border-slate-300 hover:bg-[#fbfcfe] dark:hover:bg-slate-900"
-        )}
-             role="button"
-             tabIndex={0}
-             onClick={onView}
-             onKeyDown={handleRowKeyDown}
-        >
-            <input
-                type="checkbox"
-                checked={selected}
-                onClick={(event) => event.stopPropagation()}
-                onChange={onToggleSelect}
-                className="h-[15px] w-[15px] flex-shrink-0 accent-[var(--tr-red)]"
-            />
-
-            <div className="col-start-2 min-w-0 xl:col-start-auto">
-                <InstantTooltip label={candidate.name} className="block min-w-0" onlyWhenOverflow>
-                    <span className="block truncate text-[15px] font-semibold leading-5 text-[var(--tr-ink)] dark:text-slate-100">{candidate.name}</span>
-                </InstantTooltip>
-                {profileParts.length ? (
-                    <InstantTooltip label={profileParts.join("  |  ")} className="mt-1 block min-w-0" onlyWhenOverflow>
-                        <span className="block truncate text-xs leading-5 text-[var(--tr-ink-muted)] dark:text-slate-400">
-                            {profileParts.join("  |  ")}
-                        </span>
-                    </InstantTooltip>
-                ) : null}
-                <div className="mt-2 flex min-w-0 flex-wrap items-center gap-1.5">
-                    <span className="inline-flex items-center rounded-md bg-blue-50 px-2 py-0.5 text-[11px] font-medium leading-4 text-blue-600 dark:bg-slate-800 dark:text-slate-300">{sourceLabel(candidate.source, tr)}</span>
-                    {isMatching ? (
-                        <span className="inline-flex items-center gap-1 rounded-md bg-blue-50 px-1.5 py-0.5 text-[11px] font-medium leading-4 text-blue-700 dark:bg-slate-800 dark:text-slate-400">
-                            <Loader2 className="h-3 w-3 animate-spin"/>
-                            {tr.matching}
-                        </span>
-                    ) : talentPoolDisplayStatus === "talent_pool" ? (
-                        <span className="inline-flex items-center rounded-md bg-violet-50 px-1.5 py-0.5 text-[11px] font-medium leading-4 text-violet-600 dark:bg-slate-800 dark:text-slate-400">{tr.archived}</span>
-                    ) : (
-                        <span className="inline-flex items-center rounded-md bg-amber-50 px-1.5 py-0.5 text-[11px] font-medium leading-4 text-amber-600 dark:bg-amber-900/40 dark:text-amber-300">{tr.pendingIdentify}</span>
-                    )}
-                </div>
-                <InstantTooltip label={sourceStageLabel} className="mt-2 block min-w-0" onlyWhenOverflow>
-                    <span className="block truncate text-xs leading-5 text-[var(--tr-ink-muted)] dark:text-slate-400">
-                        {tr.sourceStage}：{sourceStageLabel}
-                    </span>
-                </InstantTooltip>
-            </div>
-
-            <div className="col-start-2 min-w-0 border-t border-slate-100 pt-3 xl:col-start-auto xl:border-l xl:border-t-0 xl:pl-3 xl:pt-0 dark:border-slate-800">
-                <span className="block text-[11px] leading-4 text-slate-400">{tr.aiRecommendedPosition}</span>
-                <InstantTooltip label={isMatching ? tr.matching : (aiRecommendedTitle || screeningPositionTitle || tr.unmatchedGroup)} className="block min-w-0" onlyWhenOverflow>
-                    <span className="mt-1 block truncate text-[13px] font-semibold leading-5 text-[var(--tr-ink)] dark:text-slate-100">
-                        {isMatching ? tr.matching : (aiRecommendedTitle || screeningPositionTitle || tr.unmatchedGroup)}
-                    </span>
-                </InstantTooltip>
-                <InstantTooltip label={aiRecommendationDescription} className="mt-1.5 block min-w-0" onlyWhenOverflow>
-                    <span className="block line-clamp-2 text-xs leading-5 text-[var(--tr-ink-muted)] dark:text-slate-400">
-                        {aiRecommendationDescription}
-                    </span>
-                </InstantTooltip>
-            </div>
-
-            <div className="col-start-2 min-w-0 border-t border-slate-100 pt-3 xl:col-start-auto xl:border-l xl:border-t-0 xl:pl-3 xl:pt-0 dark:border-slate-800">
-                {candidate.ai_potential_position ? (
-                    <>
-                        <span className="inline-flex rounded-md bg-emerald-50 px-2 py-0.5 text-[11px] font-medium leading-4 text-emerald-600">{tr.potentialSuggested}</span>
-                        <InstantTooltip label={candidate.ai_potential_position} className="mt-2 block min-w-0" onlyWhenOverflow>
-                            <span className="block truncate text-[13px] font-semibold leading-5 text-[var(--tr-ink)] dark:text-slate-100">{candidate.ai_potential_position}</span>
-                        </InstantTooltip>
-                        {potentialReasonText ? (
-                            <InstantTooltip label={potentialReasonText} className="mt-1 block min-w-0" onlyWhenOverflow>
-                                <span className="block line-clamp-2 text-xs leading-5 text-[var(--tr-ink-muted)] dark:text-slate-400">{potentialReasonText}</span>
-                            </InstantTooltip>
-                        ) : null}
-                    </>
-                ) : (
-                    <InstantTooltip label={tr.noPotentialSuggestion} className="block min-w-0" onlyWhenOverflow>
-                        <span className="block text-xs leading-5 text-slate-400">{tr.noPotentialSuggestion}</span>
-                    </InstantTooltip>
-                )}
-            </div>
-
-            <div className="col-start-2 min-w-0 border-t border-slate-100 pt-3 xl:col-start-auto xl:border-l xl:border-t-0 xl:pl-3 xl:pt-0 dark:border-slate-800">
-                <span className="block text-[11px] leading-4 text-slate-400">{tr.enteredAt}</span>
-                {enteredAt ? (
-                    <InstantTooltip label={formatDateTime(enteredAt)} className="block min-w-0" onlyWhenOverflow>
-                        <span className="mt-1 block truncate text-[13px] font-medium leading-5 tabular-nums text-[var(--tr-ink)]">
-                            {formatDateTime(enteredAt)}
-                        </span>
-                    </InstantTooltip>
-                ) : (
-                    <p className="text-xs text-slate-400">-</p>
-                )}
-            </div>
-
-            <div className="col-start-2 flex flex-nowrap items-center justify-end gap-1.5 border-t border-slate-100 pt-3 xl:col-start-auto xl:border-l xl:border-t-0 xl:pl-3 xl:pt-0 dark:border-slate-800">
-                {hasAIMatch && onConfirmMatch && (
-                    <TalentActionIconButton label={tr.confirmMatch} onClick={onConfirmMatch}>
-                        <Check className="h-3.5 w-3.5"/>
-                    </TalentActionIconButton>
-                )}
-                {hasAIMatch && onChangePosition && (
-                    <TalentActionIconButton label={tr.changePosition} onClick={onChangePosition}>
-                        <Briefcase className="h-3.5 w-3.5"/>
-                    </TalentActionIconButton>
-                )}
-                {onReIdentify && !isMatching && (
-                    <TalentActionIconButton label={reIdentifying ? tr.reIdentifying : tr.reIdentify} onClick={onReIdentify} disabled={reIdentifying}>
-                        {reIdentifying ? <Loader2 className="h-3.5 w-3.5 animate-spin"/> : <RefreshCw className="h-3.5 w-3.5"/>}
-                    </TalentActionIconButton>
-                )}
-                {onManualAssign && (
-                    <TalentActionIconButton label={tr.manualAssign} onClick={onManualAssign}>
-                        <Briefcase className="h-3.5 w-3.5"/>
-                    </TalentActionIconButton>
-                )}
-                {isMatching && onCancelMatch && (
-                    <TalentActionIconButton label={tr.stopMatch} onClick={onCancelMatch} danger>
-                        <Square className="h-3.5 w-3.5"/>
-                    </TalentActionIconButton>
-                )}
-                <TalentActionIconButton label={tr.view} onClick={onView}>
-                    <Eye className="h-3.5 w-3.5"/>
-                </TalentActionIconButton>
+                <button type="button" className={pageButtonClass} disabled={pageIndex >= totalPages - 1 || loading} onClick={() => setPageIndex(pageIndex + 1)}>{tr.nextPage}</button>
             </div>
         </div>
     );

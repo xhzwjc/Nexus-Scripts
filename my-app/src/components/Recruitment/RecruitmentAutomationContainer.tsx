@@ -464,7 +464,7 @@ const DEFAULT_POSITION_SKILL_SECTION_EXPANDED_STATE: PositionSkillSectionExpande
 const TALENT_POOL_PAGE_SIZE = 15;
 const TALENT_POOL_PAGE_SIZE_OPTIONS = [15, 30, 50, 100, 200, 500];
 const DEFAULT_TALENT_POOL_QUERY: TalentPoolQueryState = {
-    statFilter: "pending",
+    statFilter: "all",
     searchQuery: "",
     sourceFilter: "all",
     tagFilter: "all",
@@ -3667,7 +3667,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         canManageMailConfig,
     ]);
 
-    // 进入人才库页面时加载默认待处理列表；上传后的识别中入口只生效一次。
+    // 进入人才库页面时加载完整列表；上传后的识别中入口只生效一次。
     useEffect(() => {
         if (activePage === "talent-pool") {
             const nextStatFilter = talentPoolPreferredStatFilter || DEFAULT_TALENT_POOL_QUERY.statFilter;
@@ -6063,9 +6063,12 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                     ? candidateDetailReviewContext.assignmentId
                     : null
             );
+            const isTalentPoolDetailRequest = activePage === "talent-pool" && talentPoolCandidateDetailOpen;
             const detailPath = reviewAssignmentId
                 ? `/department-reviews/assignments/${reviewAssignmentId}/candidate`
-                : `/candidates/${candidateId}`;
+                : isTalentPoolDetailRequest
+                    ? `/candidates/talent-pool/${candidateId}`
+                    : `/candidates/${candidateId}`;
             const request = () => recruitmentApi<CandidateDetail>(detailPath);
             const data = options?.force
                 ? await request()
@@ -10933,6 +10936,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                     ? `批量更新岗位失败：${formatActionError(error)}`
                     : `Failed to batch update position: ${formatActionError(error)}`
             );
+            throw error;
         }
     }
 
@@ -14225,24 +14229,29 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     }
 
     async function deleteTalentPoolCandidates(candidateIds: number[]) {
-        const result = await recruitmentApi<{ deleted_count: number; skipped: { candidate_id: number; reason: string }[] }>("/candidates/batch-delete", {
-            method: "POST",
-            body: JSON.stringify({ candidate_ids: candidateIds }),
-        });
-        const deletedCount = result.deleted_count ?? 0;
-        const skipped = result.skipped ?? [];
-        if (skipped.length > 0) {
-            const names = skipped.map((s) => `ID:${s.candidate_id}`).join(", ");
-            toast.warning(recruitmentToast.candidatesDeletedWithSkipped(deletedCount, skipped.length, names));
-        } else {
-            toast.success(recruitmentToast.candidatesDeleted(deletedCount));
+        try {
+            const result = await recruitmentApi<{ deleted_count: number; skipped: { candidate_id: number; reason: string }[] }>("/candidates/batch-delete", {
+                method: "POST",
+                body: JSON.stringify({ candidate_ids: candidateIds }),
+            });
+            const deletedCount = result.deleted_count ?? 0;
+            const skipped = result.skipped ?? [];
+            if (skipped.length > 0) {
+                const names = skipped.map((s) => `ID:${s.candidate_id}`).join(", ");
+                toast.warning(recruitmentToast.candidatesDeletedWithSkipped(deletedCount, skipped.length, names));
+            } else {
+                toast.success(recruitmentToast.candidatesDeleted(deletedCount));
+            }
+            await Promise.allSettled([
+                loadCandidates({ silent: true, force: true }),
+                loadPositions({ force: true }),
+                refreshCandidateStats(),
+                loadTalentPoolCandidates(),
+            ]);
+        } catch (error) {
+            toast.error(isZh ? `删除人才失败：${formatActionError(error)}` : `Failed to delete talent: ${formatActionError(error)}`);
+            throw error;
         }
-        await Promise.allSettled([
-            loadCandidates({ silent: true, force: true }),
-            loadPositions({ force: true }),
-            refreshCandidateStats(),
-            loadTalentPoolCandidates(),
-        ]);
     }
 
     function renderTalentPoolPage() {
@@ -14253,15 +14262,9 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                     positions={positions}
                     loading={talentPoolLoading}
                     onAssignPosition={batchBindPosition}
-                    onCreatePosition={(suggestedTitle) => {
-                        setPositionForm((prev) => ({ ...prev, title: suggestedTitle }));
-                        setPositionDialogMode("create");
-                        setPositionDialogOpen(true);
-                        navigateToRecruitmentPage("positions");
-                    }}
                     onViewCandidate={handleTalentPoolCandidateSelect}
-                    onUploadResume={() => openResumeUploadDialog(null)}
-                    onDeleteCandidates={deleteTalentPoolCandidates}
+                    onUploadResume={canManageCandidate ? () => openResumeUploadDialog(null) : undefined}
+                    onDeleteCandidates={canManageCandidate ? deleteTalentPoolCandidates : undefined}
                     onRefresh={async () => {
                         setTalentPoolPageIndex(0);
                         talentPoolPageIndexRef.current = 0;
@@ -14309,7 +14312,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                             void loadTalentPoolCandidates({ silent: true });
                         }
                     }}
-                    onBatchReIdentify={async (candidateIds) => {
+                    onBatchReIdentify={canManageCandidate ? async (candidateIds) => {
                         const result = await triggerAIPositionMatch(candidateIds);
                         if ((result.total_candidates || 0) > 0) {
                             const idSet = new Set(candidateIds);
@@ -14318,8 +14321,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                             )));
                             void loadTalentPoolCandidates({ silent: true });
                         }
-                    }}
-                    onCancelMatch={async (candidateId) => {
+                    } : undefined}
+                    onCancelMatch={canManageCandidate ? async (candidateId) => {
                         try {
                             const result = await recruitmentApi<{
                                 cancelled?: boolean;
@@ -14340,8 +14343,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                             await loadTalentPoolCandidates({ silent: true });
                             toast.info(isZh ? "匹配状态已更新" : "Match status updated");
                         }
-                    }}
-                    panelClass={panelClass}
+                    } : undefined}
+                    canManageCandidates={canManageCandidate}
                     preferredStatFilter={talentPoolPreferredStatFilter}
                     onPreferredStatFilterApplied={clearTalentPoolPreferredStatFilter}
                 />
@@ -14607,7 +14610,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     return (
         <div
             className="relative flex h-full min-h-0 flex-col overflow-hidden bg-[var(--tr-page)] text-[var(--tr-ink)] dark:text-slate-300">
-            {activePage !== "workspace" && activePage !== "positions" && activePage !== "candidates" ? <div
+            {activePage !== "workspace" && activePage !== "positions" && activePage !== "candidates" && activePage !== "talent-pool" ? <div
                 className="shrink-0 border-b border-[var(--tr-border)] bg-white dark:border-slate-800 dark:bg-slate-950">
                 <div className="flex min-h-[62px] flex-wrap items-center justify-between gap-2 px-5 py-3 2xl:px-6">
                     <div className="flex min-w-0 items-center gap-2.5">
@@ -14685,7 +14688,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
 
                     {/* 以下改为条件渲染，切换时重新挂载，无需保持状态 */}
                     {activePage === "talent-pool" && canViewTalentPool && (
-                        <div className="h-full min-h-0 px-3 py-3">
+                        <div className="h-full min-h-0">
                             {renderTalentPoolPage()}
                         </div>
                     )}
@@ -14762,6 +14765,27 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                         <DialogDescription>{recruitmentUiText.assistantPanelDescription}</DialogDescription>
                     </DialogHeader>
                     {renderAssistantConsole(assistantDisplayMode)}
+                </DialogContent>
+            </Dialog>
+
+            <Dialog
+                open={activePage === "talent-pool" && talentPoolCandidateDetailOpen}
+                onOpenChange={(open) => {
+                    if (!open) {
+                        setTalentPoolCandidateDetailOpen(false);
+                        setCandidateDetailReviewContext(null);
+                    }
+                }}
+            >
+                <DialogContent className="left-auto right-0 top-0 h-dvh max-h-none w-[min(760px,100vw)] max-w-none translate-x-0 translate-y-0 gap-0 overflow-hidden rounded-none border-y-0 border-r-0 border-l border-[#EBEEF5] bg-white p-0 shadow-[-8px_0_24px_rgba(14,17,20,0.12)] sm:max-w-none [&_[data-slot=dialog-close]]:hidden">
+                    <DialogHeader className="sr-only">
+                        <DialogTitle>{isZh ? "人才详情" : "Talent Details"}</DialogTitle>
+                        <DialogDescription>{isZh ? "查看人才库候选人的完整资料" : "View the complete talent pool candidate profile"}</DialogDescription>
+                    </DialogHeader>
+                    {renderSharedCandidateDrawerContent(() => {
+                        setTalentPoolCandidateDetailOpen(false);
+                        setCandidateDetailReviewContext(null);
+                    })}
                 </DialogContent>
             </Dialog>
 

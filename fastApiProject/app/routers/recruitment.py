@@ -618,6 +618,21 @@ async def get_talent_pool_candidates(
         raise HTTPException(status_code=500, detail=str(exc))
 
 
+@recruitment_router.get("/candidates/talent-pool/{candidate_id}")
+async def get_talent_pool_candidate_detail(candidate_id: int, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-talent-pool-view")), service: RecruitmentService = Depends(get_recruitment_service)):
+    try:
+        data = service.get_candidate_detail(candidate_id)
+        candidate = data.get("candidate") if isinstance(data, dict) else None
+        candidate_status = str((candidate or {}).get("status") or "").strip().lower()
+        if candidate_status not in {"matching", "unmatched", "talent_pool"}:
+            raise HTTPException(status_code=404, detail="Talent pool candidate not found")
+        return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+
+
 @recruitment_router.get("/candidates/{candidate_id}")
 async def get_candidate_detail(candidate_id: int, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-dashboard-view")), service: RecruitmentService = Depends(get_recruitment_service)):
     try:

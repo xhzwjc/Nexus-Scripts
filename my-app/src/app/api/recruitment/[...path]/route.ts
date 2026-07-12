@@ -48,6 +48,10 @@ function resolveRecruitmentPermission(path: string, method: string): string | st
       : "recruitment-candidate-manage";
   }
 
+  if (/^candidates\/talent-pool\/\d+$/.test(path)) {
+    return "recruitment-talent-pool-view";
+  }
+
   if (path === "llm-configs" || path.startsWith("llm-configs/")) {
     return normalizedMethod === "GET" || normalizedMethod === "HEAD"
       ? "recruitment-llm-config-view"
