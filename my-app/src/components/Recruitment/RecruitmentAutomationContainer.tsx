@@ -2392,6 +2392,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const [departmentReviewLoading, setDepartmentReviewLoading] = useState(false);
     const [departmentReviewFilter, setDepartmentReviewFilter] = useState<"todo" | "completed" | "pending" | "deferred" | "passed" | "rejected">("todo");
     const [interviewWorkbenchTasks, setInterviewWorkbenchTasks] = useState<InterviewTask[]>([]);
+    const [myInterviewCalendarTasks, setMyInterviewCalendarTasks] = useState<InterviewTask[]>([]);
     const [interviewWorkbenchCounts, setInterviewWorkbenchCounts] = useState({todo: 0, today: 0, completed: 0, cancelled: 0});
     const [interviewWorkbenchLoading, setInterviewWorkbenchLoading] = useState(false);
     const [interviewWorkbenchFilter, setInterviewWorkbenchFilter] = useState<"todo" | "today" | "completed" | "cancelled">("todo");
@@ -4237,6 +4238,14 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     }, [activePage, interviewWorkbenchFilter]);
 
     useEffect(() => {
+        if (activePage === "interviews" && canActInterview) {
+            void loadMyInterviewCalendarTasks({silent: true});
+        } else if (activePage !== "interviews" || !canActInterview) {
+            setMyInterviewCalendarTasks([]);
+        }
+    }, [activePage, canActInterview]);
+
+    useEffect(() => {
         if (activePage === "settings-skills") {
             void ensureSkillsLoaded();
         }
@@ -5062,6 +5071,9 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 }
                 if (event.task_type === "interview_schedule" && activePageRef.current === "interviews") {
                     void loadMyInterviewTasks({silent: true});
+                    if (canActInterview) {
+                        void loadMyInterviewCalendarTasks({silent: true});
+                    }
                     void loadMyInterviewAvailability({silent: true});
                     const assignedInterviewer = String(event.interviewer_user_code || "").trim();
                     if (
@@ -11336,6 +11348,28 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         }
     }
 
+    async function loadMyInterviewCalendarTasks(options?: {silent?: boolean}) {
+        if (!canActInterview) {
+            if (mountedRef.current) {
+                setMyInterviewCalendarTasks([]);
+            }
+            return;
+        }
+        try {
+            const data = await recruitmentApi<InterviewTaskList>("/interviews/my?status=todo");
+            if (mountedRef.current) {
+                setMyInterviewCalendarTasks(data?.items || []);
+            }
+        } catch (error) {
+            if (mountedRef.current) {
+                setMyInterviewCalendarTasks([]);
+            }
+            if (!options?.silent) {
+                toast.error(isZh ? `加载我的面试日历失败：${formatActionError(error)}` : `Failed to load my interview calendar: ${formatActionError(error)}`);
+            }
+        }
+    }
+
     async function submitInterviewResult(
         scheduleId: number,
         resultStatus: "passed" | "next_round" | "hold" | "rejected" | "no_show",
@@ -11353,6 +11387,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         toast.success(isZh ? "面试结果已提交" : "Interview result submitted");
         await Promise.allSettled([
             loadMyInterviewTasks({silent: true}),
+            loadMyInterviewCalendarTasks({silent: true}),
             loadMyInterviewAvailability({silent: true}),
             loadCandidates({silent: true, force: true}),
             refreshCandidateStats(),
@@ -11388,6 +11423,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         toast.success(recruitmentToast.interviewScheduleCreated);
         await Promise.allSettled([
             loadMyInterviewTasks({silent: true}),
+            loadMyInterviewCalendarTasks({silent: true}),
             loadMyInterviewAvailability({silent: true}),
             loadCandidates({silent: true, force: true}),
             refreshCandidateStats(),
@@ -11423,6 +11459,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         toast.success(isZh ? "面试已更新" : "Interview updated");
         await Promise.allSettled([
             loadMyInterviewTasks({silent: true}),
+            loadMyInterviewCalendarTasks({silent: true}),
             loadMyInterviewAvailability({silent: true}),
             loadCandidates({silent: true, force: true}),
             refreshCandidateStats(),
@@ -11438,6 +11475,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         toast.success(recruitmentToast.interviewScheduleDeleted);
         await Promise.allSettled([
             loadMyInterviewTasks({silent: true}),
+            loadMyInterviewCalendarTasks({silent: true}),
             loadMyInterviewAvailability({silent: true}),
             loadCandidates({silent: true, force: true}),
             refreshCandidateStats(),
@@ -14487,6 +14525,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         return (
             <InterviewWorkbenchPage
                 tasks={interviewWorkbenchTasks}
+                calendarTasks={myInterviewCalendarTasks}
                 counts={interviewWorkbenchCounts}
                 loading={interviewWorkbenchLoading}
                 activeFilter={interviewWorkbenchFilter}
@@ -14500,6 +14539,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 onRefresh={async () => {
                     await Promise.allSettled([
                         loadMyInterviewTasks(),
+                        loadMyInterviewCalendarTasks({silent: true}),
                         loadMyInterviewAvailability({silent: true}),
                     ]);
                 }}
@@ -14702,7 +14742,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     return (
         <div
             className="relative flex h-full min-h-0 flex-col overflow-hidden bg-[var(--tr-page)] text-[var(--tr-ink)] dark:text-slate-300">
-            {activePage !== "workspace" && activePage !== "positions" && activePage !== "candidates" && activePage !== "talent-pool" ? <div
+            {activePage !== "workspace" && activePage !== "positions" && activePage !== "candidates" && activePage !== "talent-pool" && activePage !== "interviews" ? <div
                 className="shrink-0 border-b border-[var(--tr-border)] bg-white dark:border-slate-800 dark:bg-slate-950">
                 <div className="flex min-h-[62px] flex-wrap items-center justify-between gap-2 px-5 py-3 2xl:px-6">
                     <div className="flex min-w-0 items-center gap-2.5">

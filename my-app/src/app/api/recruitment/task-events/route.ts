@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { getBackendBaseUrl } from "@/lib/server/backendBaseUrl";
+import { RECRUITMENT_TASK_EVENT_PERMISSIONS } from "@/lib/server/recruitmentRoutePermissions";
 import { requireScriptHubAnyPermission } from "@/lib/server/scriptHubSession";
 
 export const dynamic = "force-dynamic";
@@ -97,7 +98,7 @@ function createVersionedSSEStream(source: ReadableStream<Uint8Array>, version: s
 
 export async function GET(request: NextRequest) {
   // 权限检查
-  const auth = requireScriptHubAnyPermission(request, ["recruitment-process-execute", "recruitment-log-view"]);
+  const auth = requireScriptHubAnyPermission(request, RECRUITMENT_TASK_EVENT_PERMISSIONS);
   if ("response" in auth) {
     return auth.response;
   }

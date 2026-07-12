@@ -5966,6 +5966,26 @@ class RecruitmentService:
             return False
         return True
 
+    def _is_business_row_org_visible(self, row: Any) -> bool:
+        """Check organization scope without applying SELF ownership.
+
+        Assigned interview work is owned by the recruiter who created the schedule,
+        while the interviewer is authorized by ``interviewer_user_code``.  Those
+        reads still honor organization scope, but must not require the interviewer
+        to also be the creator of the schedule or candidate.
+        """
+        if not self.permission_context or self.permission_context.has_all_orgs:
+            return True
+        row_org_code = normalize_org_code(getattr(row, "org_code", None))
+        return row_org_code in set(self.permission_context.visible_org_codes or ())
+
+    def _assert_business_row_org_visible(self, row: Any) -> None:
+        if self._is_business_row_org_visible(row):
+            return
+        row_org_code = normalize_org_code(getattr(row, "org_code", None))
+        visible = ", ".join(self.permission_context.visible_org_codes or []) if self.permission_context else ""
+        raise ValueError(f"无权访问此资源，该资源属于组织 {row_org_code}，当前用户可访问的组织为 {visible}")
+
     def _assert_resource_manageable(self, row: Any, actor_id: str) -> None:
         if not self.permission_context or self.permission_context.has_all_orgs:
             return
@@ -7429,11 +7449,14 @@ class RecruitmentService:
         self._assert_business_row_visible(row)
         return row
 
-    def _get_candidate(self, candidate_id: int) -> RecruitmentCandidate:
+    def _get_candidate(self, candidate_id: int, *, ignore_self_scope: bool = False) -> RecruitmentCandidate:
         row = self.db.query(RecruitmentCandidate).filter(RecruitmentCandidate.id == candidate_id, RecruitmentCandidate.deleted.is_(False)).first()
         if not row:
             raise ValueError(f"候选人 ID={candidate_id} 不存在或已删除")
-        self._assert_business_row_visible(row)
+        if ignore_self_scope:
+            self._assert_business_row_org_visible(row)
+        else:
+            self._assert_business_row_visible(row)
         return row
 
     def _get_skill(self, skill_id: int) -> RecruitmentSkill:
@@ -7446,11 +7469,14 @@ class RecruitmentService:
             raise ValueError(f"无权操作此 Skill，该 Skill 属于组织 {row_org_code}，当前用户可访问的组织为 {visible}")
         return row
 
-    def _get_resume_file(self, resume_file_id: int) -> RecruitmentResumeFile:
+    def _get_resume_file(self, resume_file_id: int, *, ignore_self_scope: bool = False) -> RecruitmentResumeFile:
         row = self.db.query(RecruitmentResumeFile).filter(RecruitmentResumeFile.id == resume_file_id).first()
         if not row:
             raise ValueError("简历文件不存在")
-        self._assert_business_row_visible(row)
+        if ignore_self_scope:
+            self._assert_business_row_org_visible(row)
+        else:
+            self._assert_business_row_visible(row)
         return row
 
     def _rebuild_candidate_resume_references(self, candidate: RecruitmentCandidate, actor_id: str) -> None:
@@ -11080,8 +11106,8 @@ class RecruitmentService:
             ))
         return {"items": serialized_rows, "total": total}
 
-    def get_candidate_detail(self, candidate_id: int) -> Dict[str, Any]:
-        candidate = self._get_candidate(candidate_id)
+    def get_candidate_detail(self, candidate_id: int, *, assigned_interviewer_access: bool = False) -> Dict[str, Any]:
+        candidate = self._get_candidate(candidate_id, ignore_self_scope=assigned_interviewer_access)
         resume_files = self.db.query(RecruitmentResumeFile).filter(RecruitmentResumeFile.candidate_id == candidate.id).order_by(RecruitmentResumeFile.created_at.desc(), RecruitmentResumeFile.id.desc()).all()
         parse_row = self.db.query(RecruitmentResumeParseResult).filter(RecruitmentResumeParseResult.id == candidate.latest_parse_result_id).first() if candidate.latest_parse_result_id else None
         score_row = self.db.query(RecruitmentCandidateScore).filter(RecruitmentCandidateScore.id == candidate.latest_score_id).first() if candidate.latest_score_id else None
@@ -11503,18 +11529,25 @@ class RecruitmentService:
         self.db.add(slot)
         self.db.add(schedule)
 
-    def _emit_interview_candidate_updated(self, candidate: Optional[RecruitmentCandidate], *, schedule_id: Optional[int] = None) -> None:
+    def _emit_interview_candidate_updated(
+        self,
+        candidate: Optional[RecruitmentCandidate],
+        *,
+        schedule_id: Optional[int] = None,
+        schedule_context: Optional[Dict[str, Any]] = None,
+    ) -> None:
         if not candidate:
             return
         try:
             from .task_event_bus import TaskEventBus
-            schedule_payload: Dict[str, Any] = {}
+            schedule_payload: Dict[str, Any] = dict(schedule_context or {})
             if schedule_id:
                 schedule = self.db.query(RecruitmentInterviewSchedule).filter(
                     RecruitmentInterviewSchedule.id == schedule_id,
                 ).first()
                 if schedule:
                     schedule_payload = {
+                        **schedule_payload,
                         "schedule_status": schedule.status,
                         "interviewer_user_code": schedule.interviewer_user_code,
                         "interviewer_name": schedule.interviewer_name,
@@ -11525,6 +11558,7 @@ class RecruitmentService:
                 "candidate_id": candidate.id,
                 "schedule_id": schedule_id,
                 "task_type": "interview_schedule",
+                "org_code": normalize_org_code(getattr(candidate, "org_code", None)),
                 "status": candidate.status,
                 **schedule_payload,
                 "candidate_snapshot": self._serialize_realtime_candidate_item(candidate),
@@ -11543,8 +11577,19 @@ class RecruitmentService:
             created_by=actor_id,
         ))
 
-    def list_interview_schedules(self, candidate_id: int) -> List[Dict[str, Any]]:
+    def list_interview_schedules(
+        self,
+        candidate_id: int,
+        *,
+        actor_id: Optional[str] = None,
+        schedule_id: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
         self._get_candidate(candidate_id)
+        if actor_id is not None:
+            if not schedule_id:
+                raise ValueError("查看自己的面试安排时必须指定当前面试任务")
+            row = self._get_interview_schedule_for_actor(candidate_id, actor_id, schedule_id)
+            return [self._serialize_interview_schedule(row)]
         rows = self.db.query(RecruitmentInterviewSchedule).filter(
             RecruitmentInterviewSchedule.candidate_id == candidate_id,
         ).order_by(RecruitmentInterviewSchedule.scheduled_at.is_(None), RecruitmentInterviewSchedule.scheduled_at.desc(), RecruitmentInterviewSchedule.id.desc()).all()
@@ -11810,7 +11855,18 @@ class RecruitmentService:
             RecruitmentCandidate.deleted.is_(False),
         ).first()
         if candidate:
-            self._emit_interview_candidate_updated(candidate, schedule_id=row.id)
+            assignment_changed = (
+                bool(previous_interviewer_user_code)
+                and previous_interviewer_user_code != row.interviewer_user_code
+            )
+            self._emit_interview_candidate_updated(
+                candidate,
+                schedule_id=row.id,
+                schedule_context={
+                    "previous_interviewer_user_code": previous_interviewer_user_code if assignment_changed else None,
+                    "assignment_changed": assignment_changed,
+                },
+            )
         return self._serialize_interview_schedule(row)
 
     def delete_interview_schedule(self, schedule_id: int, actor_id: str) -> None:
@@ -11819,6 +11875,13 @@ class RecruitmentService:
             raise ValueError(f"面试安排 ID={schedule_id} 不存在")
         self._assert_business_row_visible(row)
         candidate_id = row.candidate_id
+        schedule_context = {
+            "schedule_status": "deleted",
+            "interviewer_user_code": row.interviewer_user_code,
+            "interviewer_name": row.interviewer_name,
+            "interview_result_status": row.result_status,
+            "notification_status": row.notification_status,
+        }
         self._release_interview_availability_slot(getattr(row, "availability_slot_id", None))
         self.db.delete(row)
         self.db.commit()
@@ -11827,7 +11890,11 @@ class RecruitmentService:
             RecruitmentCandidate.deleted.is_(False),
         ).first()
         if candidate:
-            self._emit_interview_candidate_updated(candidate, schedule_id=schedule_id)
+            self._emit_interview_candidate_updated(
+                candidate,
+                schedule_id=schedule_id,
+                schedule_context=schedule_context,
+            )
 
     def list_my_interview_tasks(self, actor_id: str, status: Optional[str] = None) -> Dict[str, Any]:
         return self._list_interview_tasks(status=status, interviewer_user_code=actor_id)
@@ -11898,7 +11965,7 @@ class RecruitmentService:
             query = query.filter(RecruitmentInterviewSchedule.id == schedule_id)
         rows = query.order_by(RecruitmentInterviewSchedule.scheduled_at.desc(), RecruitmentInterviewSchedule.id.desc()).all()
         for row in rows:
-            if self._is_business_row_visible(row):
+            if self._is_business_row_org_visible(row):
                 return row
         if schedule_id:
             raise ValueError("只能查看分配给自己的当前面试任务")
@@ -11907,9 +11974,40 @@ class RecruitmentService:
     def _assert_interview_candidate_assigned_to_user(self, candidate_id: int, actor_id: str) -> None:
         self._get_interview_schedule_for_actor(candidate_id, actor_id)
 
-    def get_interview_candidate_detail(self, candidate_id: int, actor_id: str, schedule_id: Optional[int] = None) -> Dict[str, Any]:
+    def _get_interview_schedule_for_manager(
+        self,
+        candidate_id: int,
+        schedule_id: int,
+    ) -> RecruitmentInterviewSchedule:
+        schedule = self.db.query(RecruitmentInterviewSchedule).filter(
+            RecruitmentInterviewSchedule.id == schedule_id,
+            RecruitmentInterviewSchedule.candidate_id == candidate_id,
+        ).first()
+        if not schedule:
+            raise ValueError("面试任务不存在或与候选人不匹配")
+        self._assert_business_row_visible(schedule)
+        return schedule
+
+    def get_interview_candidate_detail(
+        self,
+        candidate_id: int,
+        actor_id: str,
+        schedule_id: Optional[int] = None,
+        *,
+        can_manage: bool = False,
+    ) -> Dict[str, Any]:
+        if can_manage:
+            detail = self.get_candidate_detail(candidate_id)
+            if schedule_id:
+                schedule = self._get_interview_schedule_for_manager(candidate_id, schedule_id)
+                detail["interview_context"] = {
+                    "schedule": self._serialize_interview_schedule(schedule),
+                }
+            return detail
+        if not schedule_id:
+            raise ValueError("查看面试候选人详情时必须指定当前面试任务")
         schedule = self._get_interview_schedule_for_actor(candidate_id, actor_id, schedule_id)
-        detail = self.get_candidate_detail(candidate_id)
+        detail = self.get_candidate_detail(candidate_id, assigned_interviewer_access=True)
         visible_sections = self._interview_visible_sections_for_schedule(schedule)
         detail = self._sanitize_department_review_candidate_detail(detail, visible_sections)
         detail["interview_context"] = {
@@ -11917,15 +12015,28 @@ class RecruitmentService:
         }
         return detail
 
-    def get_interview_resume_file_download(self, resume_file_id: int, actor_id: str, schedule_id: Optional[int] = None) -> Dict[str, Any]:
-        resume_file = self._get_resume_file(resume_file_id)
+    def get_interview_resume_file_download(
+        self,
+        resume_file_id: int,
+        actor_id: str,
+        schedule_id: Optional[int] = None,
+        *,
+        can_manage: bool = False,
+    ) -> Dict[str, Any]:
+        resume_file = self._get_resume_file(resume_file_id, ignore_self_scope=not can_manage)
+        if can_manage:
+            if schedule_id:
+                self._get_interview_schedule_for_manager(resume_file.candidate_id, schedule_id)
+            return self.get_resume_file_download(resume_file_id)
+        if not schedule_id:
+            raise ValueError("查看面试候选人简历时必须指定当前面试任务")
         schedule = self._get_interview_schedule_for_actor(resume_file.candidate_id, actor_id, schedule_id)
         visible_sections = self._interview_visible_sections_for_schedule(schedule)
         if "original_resume" not in visible_sections:
             raise ValueError("当前面试安排未开放原始简历查看")
         if resume_file.candidate_id != schedule.candidate_id:
             raise ValueError("只能查看分配给自己的面试候选人")
-        return self.get_resume_file_download(resume_file_id)
+        return self.get_resume_file_download(resume_file_id, assigned_interviewer_access=True)
 
     def _list_interview_tasks(
         self,
@@ -11956,7 +12067,8 @@ class RecruitmentService:
                 or_(RecruitmentInterviewSchedule.scheduled_at.is_(None), RecruitmentInterviewSchedule.scheduled_at >= now),
             )
         rows = builder.order_by(RecruitmentInterviewSchedule.scheduled_at.is_(None), RecruitmentInterviewSchedule.scheduled_at.asc(), RecruitmentInterviewSchedule.id.desc()).all()
-        rows = [row for row in rows if self._is_business_row_visible(row)]
+        visibility_check = self._is_business_row_org_visible if interviewer_user_code else self._is_business_row_visible
+        rows = [row for row in rows if visibility_check(row)]
         candidate_ids = [row.candidate_id for row in rows]
         position_ids = [row.position_id for row in rows if row.position_id]
         candidates = {
@@ -12014,6 +12126,9 @@ class RecruitmentService:
                     RecruitmentInterviewSchedule.status.in_(["completed", "no_show"]),
                 ).order_by(
                     RecruitmentInterviewSchedule.candidate_id.asc(),
+                    RecruitmentInterviewSchedule.round_index.desc(),
+                    RecruitmentInterviewSchedule.result_submitted_at.is_(None),
+                    RecruitmentInterviewSchedule.result_submitted_at.desc(),
                     RecruitmentInterviewSchedule.scheduled_at.is_(None),
                     RecruitmentInterviewSchedule.scheduled_at.desc(),
                     RecruitmentInterviewSchedule.id.desc(),
@@ -12049,7 +12164,7 @@ class RecruitmentService:
             )
             if interviewer_user_code:
                 query = query.filter(RecruitmentInterviewSchedule.interviewer_user_code == interviewer_user_code)
-            return len([row for row in query.all() if self._is_business_row_visible(row)])
+            return len([row for row in query.all() if visibility_check(row)])
 
         counts = {
             "todo": count_schedules(["scheduled", "confirmed", "in_progress"]),
@@ -12069,7 +12184,7 @@ class RecruitmentService:
         )
         if interviewer_user_code:
             today_query = today_query.filter(RecruitmentInterviewSchedule.interviewer_user_code == interviewer_user_code)
-        counts["today"] = len([row for row in today_query.all() if self._is_business_row_visible(row)])
+        counts["today"] = len([row for row in today_query.all() if visibility_check(row)])
         items = [*unscheduled_items, *scheduled_items] if should_include_unscheduled else scheduled_items
         return {"items": items, "total": len(items), "counts": counts}
 
@@ -12081,6 +12196,10 @@ class RecruitmentService:
             raise ValueError(f"面试安排 ID={schedule_id} 不存在")
         if schedule.interviewer_user_code and schedule.interviewer_user_code != actor_id:
             raise ValueError("只能处理分配给自己的面试任务")
+        if schedule.status not in INTERVIEW_ACTIVE_SCHEDULE_STATUSES:
+            raise ValueError("当前面试任务已结束或已取消，不能重复提交结果")
+        if schedule.result_status or schedule.result_submitted_at:
+            raise ValueError("当前面试任务已提交结果，不能重复提交")
         normalized_result = str(payload.get("result_status") or "").strip()
         result_mapping = {
             "passed": "passed",
@@ -12096,6 +12215,11 @@ class RecruitmentService:
         result_status = result_mapping.get(normalized_result)
         if result_status not in {"passed", "next_round", "hold", "rejected", "no_show"}:
             raise ValueError("面试结果只能是 passed/next_round/hold/rejected/no_show")
+        if result_status == "next_round":
+            round_name = str(schedule.round_name or "").strip()
+            round_index = max(1, int(schedule.round_index or 1))
+            if round_index >= 4 or "终" in round_name:
+                raise ValueError("终试不能进入下一轮，请提交通过、暂缓、未到场或淘汰")
         comment = str(payload.get("result_comment") or "").strip()
         schedule.result_status = result_status
         schedule.result_comment = comment or None
@@ -19272,8 +19396,8 @@ class RecruitmentService:
         file_name = f"interview-question-{safe_file_stem(candidate.name)}-{safe_file_stem(row.round_name)}.html".replace(" ", "-")
         return {"file_name": file_name, "html_content": ensure_interview_html_document(file_name, html_content=row.html_content or "", markdown_content=row.markdown_content or "")}
 
-    def get_resume_file_download(self, resume_file_id: int) -> Dict[str, Any]:
-        resume_file = self._get_resume_file(resume_file_id)
+    def get_resume_file_download(self, resume_file_id: int, *, assigned_interviewer_access: bool = False) -> Dict[str, Any]:
+        resume_file = self._get_resume_file(resume_file_id, ignore_self_scope=assigned_interviewer_access)
         path = _resolve_resume_storage_path(resume_file.storage_path)
         if not path.exists():
             raise ValueError(f"简历文件（ID={resume_file_id}）存储路径不存在，可能已被删除")

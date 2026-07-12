@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import {createPortal} from "react-dom";
 import {
     Briefcase,
     CalendarCheck,
@@ -13,6 +14,7 @@ import {
     ExternalLink,
     FileText,
     GraduationCap,
+    Info,
     Loader2,
     Mail,
     MapPin,
@@ -197,6 +199,7 @@ type InterviewSchedulePayload = {
 
 type InterviewWorkbenchPageProps = {
     tasks: InterviewTask[];
+    calendarTasks?: InterviewTask[];
     counts: {todo: number; today: number; completed: number; cancelled: number};
     loading: boolean;
     activeFilter: InterviewFilter;
@@ -593,17 +596,17 @@ function TimeSelect({
                     if (!disabled) setOpen((current) => !current);
                 }}
                 className={cn(
-                    "flex h-9 w-full items-center justify-between rounded-lg border border-gray-100 bg-gray-50 px-2.5 text-left text-sm outline-none transition hover:border-neutral-200 focus:border-[#171717] dark:border-slate-700 dark:bg-slate-900 dark:hover:border-slate-600 dark:focus:border-slate-500",
-                    value ? "text-slate-800 dark:text-slate-100" : "text-slate-400 dark:text-slate-500",
-                    disabled ? "cursor-not-allowed text-slate-300 hover:border-gray-100 dark:text-slate-600 dark:hover:border-slate-700" : "",
+                    "flex h-[34px] w-full items-center justify-between rounded border border-[#E6E7EB] bg-white px-2.5 text-left text-xs outline-none transition hover:border-[#1E3BFA] focus:border-[#1E3BFA]",
+                    value ? "text-[#0E1114]" : "text-[#B0B2B8]",
+                    disabled ? "cursor-not-allowed bg-[#FAFAFB] text-[#B0B2B8] hover:border-[#E6E7EB]" : "",
                     buttonClassName,
                 )}
             >
                 <TruncatedTooltipText text={value || placeholder}>{value || placeholder}</TruncatedTooltipText>
-                <Clock3 className="h-3.5 w-3.5 shrink-0 text-slate-300 dark:text-slate-500"/>
+                <Clock3 className="h-3.5 w-3.5 shrink-0 text-[#B0B2B8]"/>
             </button>
             {open && !disabled ? (
-                <div className="absolute left-0 top-[calc(100%+4px)] z-30 max-h-56 w-full overflow-y-auto rounded-lg border border-gray-100 bg-white py-1 shadow-xl dark:border-slate-700 dark:bg-slate-950">
+                <div className="absolute left-0 top-[calc(100%+4px)] z-30 max-h-56 w-full overflow-y-auto rounded-md border border-[#EBEEF5] bg-white py-1 shadow-[0_8px_24px_rgba(14,17,20,0.12)]">
                     {options.map((time) => {
                         const optionContent = formatOption ? formatOption(time) : time;
                         const optionText = typeof optionContent === "string" ? optionContent : time;
@@ -617,10 +620,10 @@ function TimeSelect({
                                     setOpen(false);
                                 }}
                                 className={cn(
-                                    "flex h-8 w-full min-w-0 items-center px-3 text-left text-sm transition",
+                                    "flex h-8 w-full min-w-0 items-center px-3 text-left text-xs transition",
                                     time === value
-                                        ? "bg-neutral-100 text-[#171717] dark:bg-slate-800 dark:text-slate-100"
-                                        : "text-slate-700 hover:bg-gray-50 dark:text-slate-300 dark:hover:bg-slate-900",
+                                        ? "bg-[rgba(30,59,250,0.06)] text-[#1E3BFA]"
+                                        : "text-[#33353D] hover:bg-[#F7F8FA]",
                                 )}
                             >
                                 <TruncatedTooltipText text={optionText}>{optionContent}</TruncatedTooltipText>
@@ -766,17 +769,21 @@ function labelForScheduleStatus(status?: string | null, isZh = true) {
 function scheduleBadgeClass(status?: string | null) {
     switch (status) {
         case "needs_scheduling":
-            return "border-neutral-200 bg-neutral-100 text-neutral-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200";
+            return "border-[rgba(255,171,36,0.35)] bg-[rgba(255,171,36,0.10)] text-[#D48806]";
+        case "scheduled":
+            return "border-[rgba(30,59,250,0.22)] bg-[rgba(30,59,250,0.07)] text-[#1E3BFA]";
+        case "confirmed":
+            return "border-[rgba(12,201,145,0.28)] bg-[rgba(12,201,145,0.10)] text-[#0A9C71]";
         case "completed":
-            return "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/70 dark:bg-emerald-950/40 dark:text-emerald-200";
+            return "border-[rgba(12,201,145,0.28)] bg-[rgba(12,201,145,0.10)] text-[#0A9C71]";
         case "cancelled":
-            return "border-slate-200 bg-slate-50 text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400";
+            return "border-[#E6E7EB] bg-[#F2F3F5] text-[#86888F]";
         case "no_show":
-            return "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/70 dark:bg-amber-950/40 dark:text-amber-200";
+            return "border-[rgba(255,171,36,0.35)] bg-[rgba(255,171,36,0.10)] text-[#D48806]";
         case "in_progress":
-            return "border-neutral-200 bg-neutral-100 text-neutral-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200";
+            return "border-[rgba(30,59,250,0.25)] bg-[rgba(30,59,250,0.08)] text-[#1E3BFA]";
         default:
-            return "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/70 dark:bg-amber-950/40 dark:text-amber-200";
+            return "border-[rgba(255,171,36,0.35)] bg-[rgba(255,171,36,0.10)] text-[#D48806]";
     }
 }
 
@@ -982,6 +989,7 @@ function InterviewResumePdfPreview({
 
 export function InterviewWorkbenchPage({
     tasks,
+    calendarTasks = [],
     counts,
     loading,
     activeFilter,
@@ -1038,7 +1046,7 @@ export function InterviewWorkbenchPage({
     const availabilityDragSelectionRef = React.useRef<AvailabilityDragSelection | null>(null);
     const availabilityCloseTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
     const normalizedCurrentUserCode = React.useMemo(() => String(currentUserCode || "").trim(), [currentUserCode]);
-    const showAvailabilityEditor = canSubmitInterviewResults && !canManageInterview;
+    const showAvailabilityEditor = canSubmitInterviewResults;
     const scheduleRequiredText = isZh ? "必填" : "Required";
     const scheduleRequiredErrorClass = "border-rose-500 bg-rose-50/30 focus:border-rose-500 dark:border-rose-500 dark:bg-rose-950/10 dark:focus:border-rose-500";
     const clearScheduleFormError = React.useCallback((field: ScheduleFormErrorKey) => {
@@ -1066,6 +1074,25 @@ export function InterviewWorkbenchPage({
             clearTimeout(availabilityCloseTimerRef.current);
         }
     }, []);
+
+    React.useEffect(() => {
+        if (!selectedTask) return;
+        const currentTask = tasks.find((task) => (
+            selectedTask.schedule?.id
+                ? task.schedule?.id === selectedTask.schedule.id
+                : !task.schedule && task.candidate.id === selectedTask.candidate.id
+        ));
+        if (!currentTask) {
+            setSelectedTask(null);
+            setSelectedCandidateDetail(null);
+            setSelectedCandidateDetailError(null);
+            setSelectedResumeFileId(null);
+            return;
+        }
+        if (currentTask !== selectedTask) {
+            setSelectedTask(currentTask);
+        }
+    }, [selectedTask, tasks]);
 
     const availabilityBaselineKey = React.useMemo(() => (
         serializeAvailabilityDraftSlots(buildAvailabilityDraftSlots(availabilitySlots))
@@ -1133,16 +1160,27 @@ export function InterviewWorkbenchPage({
         }).length;
     }, [availabilityWeekDays, availableDraftSlots]);
 
-    const upcomingBookedSlots = React.useMemo(() => {
-        const now = new Date();
-        return [...bookedSlots]
-            .filter((slot) => {
-                const start = slot.start_at ? new Date(slot.start_at) : null;
-                return start && !Number.isNaN(start.getTime()) && start >= now;
+    const currentWeekUnavailableDraftCount = currentWeekDraftCount - currentWeekAvailableDraftCount;
+    const currentWeekBookedCount = React.useMemo(() => {
+        const dayKeys = new Set(availabilityWeekDays.map(formatLocalDateValue));
+        return bookedSlots.filter((slot) => {
+            const range = availabilitySlotRange(slot);
+            return range ? dayKeys.has(range.dateKey) : false;
+        }).length;
+    }, [availabilityWeekDays, bookedSlots]);
+
+    const mainCalendarWeekDays = React.useMemo(() => getAvailabilityWeekDays(startOfAvailabilityWeek(new Date())), []);
+    const mainCalendarDayKeys = React.useMemo(() => new Set(mainCalendarWeekDays.map(formatLocalDateValue)), [mainCalendarWeekDays]);
+    const mainCalendarTasks = React.useMemo(() => (
+        calendarTasks
+            .filter((task) => {
+                const value = task.schedule?.scheduled_at;
+                if (!value) return false;
+                const date = new Date(value);
+                return !Number.isNaN(date.getTime()) && mainCalendarDayKeys.has(formatLocalDateValue(date));
             })
-            .sort((left, right) => new Date(left.start_at || "").getTime() - new Date(right.start_at || "").getTime())
-            .slice(0, 4);
-    }, [bookedSlots]);
+            .sort((left, right) => new Date(left.schedule?.scheduled_at || "").getTime() - new Date(right.schedule?.scheduled_at || "").getTime())
+    ), [calendarTasks, mainCalendarDayKeys]);
 
     const resetAvailabilityDrafts = React.useCallback(() => {
         setDraftSlots(buildAvailabilityDraftSlots(availabilitySlots));
@@ -1339,12 +1377,10 @@ export function InterviewWorkbenchPage({
         setSelectedCandidateDetailError(null);
         setSelectedResumeFileId(null);
 
-        const detailParams = !canManageInterview && selectedTask.schedule?.id
+        const detailParams = selectedTask.schedule?.id
             ? `?${new URLSearchParams({schedule_id: String(selectedTask.schedule.id)}).toString()}`
             : "";
-        const detailPath = canManageInterview
-            ? `/candidates/${selectedTask.candidate.id}`
-            : `/interviews/candidates/${selectedTask.candidate.id}${detailParams}`;
+        const detailPath = `/interviews/candidates/${selectedTask.candidate.id}${detailParams}`;
         void recruitmentApi<CandidateDetail>(detailPath, {
             signal: abortController.signal,
         })
@@ -1363,7 +1399,7 @@ export function InterviewWorkbenchPage({
             });
 
         return () => abortController.abort();
-    }, [canManageInterview, selectedTask]);
+    }, [selectedTask]);
 
     const selectedResumeFiles = React.useMemo(() => (
         selectedCandidateDetail?.resume_files || []
@@ -1408,12 +1444,10 @@ export function InterviewWorkbenchPage({
         }
 
         setResumePreviewLoading(true);
-        const downloadParams = !canManageInterview && selectedTask.schedule?.id
+        const downloadParams = selectedTask.schedule?.id
             ? `?${new URLSearchParams({schedule_id: String(selectedTask.schedule.id)}).toString()}`
             : "";
-        const downloadPath = canManageInterview
-            ? `/api/recruitment/resume-files/${selectedResumeFile.id}/download`
-            : `/api/recruitment/interviews/resume-files/${selectedResumeFile.id}/download${downloadParams}`;
+        const downloadPath = `/api/recruitment/interviews/resume-files/${selectedResumeFile.id}/download${downloadParams}`;
         void authenticatedFetch(downloadPath, {
             method: "GET",
             cache: "no-store",
@@ -1452,7 +1486,7 @@ export function InterviewWorkbenchPage({
                 URL.revokeObjectURL(objectUrl);
             }
         };
-    }, [canManageInterview, selectedResumeFile, selectedTask]);
+    }, [selectedResumeFile, selectedTask]);
 
     const openTaskDetail = React.useCallback((task: InterviewTask) => {
         setScheduleTask(null);
@@ -1792,13 +1826,13 @@ export function InterviewWorkbenchPage({
             Number(schedule.round_index || (schedule.round_name ? interviewRoundIndexForName(schedule.round_name, 1) : 1)),
         );
         return (
-            <div className={cn("flex flex-wrap justify-end gap-1.5", compact && "justify-start")}>
+            <div className={cn(compact ? "grid grid-cols-2 gap-2" : "flex flex-wrap items-center gap-2.5")}>
                 {([
-                    ["passed", isZh ? "通过" : "Pass", "border-emerald-200 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-900/70 dark:bg-slate-900 dark:text-emerald-300 dark:hover:bg-emerald-950/30"],
-                    ["next_round", isZh ? "下一轮" : "Next", "border-neutral-200 text-neutral-700 hover:bg-neutral-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"],
-                    ["hold", isZh ? "暂缓" : "Hold", "border-amber-200 text-amber-700 hover:bg-amber-50 dark:border-amber-900/70 dark:bg-slate-900 dark:text-amber-300 dark:hover:bg-amber-950/30"],
-                    ["no_show", isZh ? "未到场" : "No show", "border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"],
-                    ["rejected", isZh ? "淘汰" : "Reject", "border-rose-200 text-rose-700 hover:bg-rose-50 dark:border-rose-900/70 dark:bg-slate-900 dark:text-rose-300 dark:hover:bg-rose-950/30"],
+                    ["passed", isZh ? "通过" : "Pass", "border-[rgba(12,201,145,0.4)] text-[#0CC991] hover:bg-[rgba(12,201,145,0.06)]"],
+                    ["next_round", isZh ? "下一轮" : "Next", "border-[#E6E7EB] text-[#33353D] hover:border-[#1E3BFA] hover:text-[#1E3BFA]"],
+                    ["hold", isZh ? "暂缓" : "Hold", "border-[rgba(255,171,36,0.5)] text-[#D48806] hover:bg-[rgba(255,171,36,0.06)]"],
+                    ["no_show", isZh ? "未到场" : "No show", "border-[#E6E7EB] text-[#86888F] hover:bg-[#F7F8FA]"],
+                    ["rejected", isZh ? "淘汰" : "Reject", "border-[rgba(245,63,63,0.4)] text-[#F53F3F] hover:bg-[rgba(245,63,63,0.05)]"],
                 ] as const).filter(([result]) => result !== "next_round" || canEnterNextRound).map(([result, label, className]) => {
                     const loadingKey = submittingKey === `${schedule.id}:${result}`;
                     return (
@@ -1807,7 +1841,12 @@ export function InterviewWorkbenchPage({
                             variant="outline"
                             size="sm"
                             disabled={Boolean(submittingKey) || !canSubmitResult}
-                            className={cn("h-7 rounded-md px-2 text-xs", className)}
+                            className={cn(
+                                "h-7 rounded-md bg-white px-3.5 text-xs shadow-none disabled:cursor-not-allowed disabled:opacity-45",
+                                compact && "h-[34px] w-full rounded-lg px-2 text-[13px]",
+                                compact && result === "rejected" && "col-span-2",
+                                className,
+                            )}
                             onClick={() => void submitResult(task, result)}
                         >
                             {loadingKey ? <Loader2 className="h-3 w-3 animate-spin"/> : null}
@@ -1883,7 +1922,7 @@ export function InterviewWorkbenchPage({
         return (
             <div
                 key={dayKey}
-                className="relative cursor-crosshair select-none border-l border-gray-100 bg-white dark:border-slate-800 dark:bg-slate-950"
+                className="relative cursor-crosshair select-none border-l border-[#F2F3F5] bg-white"
                 style={{height: AVAILABILITY_CALENDAR_HEIGHT}}
                 onPointerDown={(event) => {
                     if (event.button !== 0) return;
@@ -1917,12 +1956,12 @@ export function InterviewWorkbenchPage({
                             key={`${dayKey}-${minutes}`}
                             aria-label={`${formatCalendarDateLabel(day, isZh)} ${formatTimeValue(minutes)}`}
                             className={cn(
-                                "absolute left-0 w-full border-t border-gray-100 text-left transition focus:outline-none dark:border-slate-800",
+                                "absolute left-0 w-full border-t border-[#F2F3F5] text-left transition focus:outline-none",
                                 pastCell
-                                    ? "cursor-not-allowed bg-slate-50/60 dark:bg-slate-900/50"
+                                    ? "cursor-not-allowed bg-[#FAFAFB]"
                                     : availabilityEditMode === "available"
-                                        ? "hover:bg-emerald-50/60 focus:bg-emerald-50/80 dark:hover:bg-emerald-950/20 dark:focus:bg-emerald-950/30"
-                                        : "hover:bg-slate-100/70 focus:bg-slate-100/90 dark:hover:bg-slate-800/45 dark:focus:bg-slate-800/60",
+                                        ? "hover:bg-[rgba(12,201,145,0.06)] focus:bg-[rgba(12,201,145,0.10)]"
+                                        : "hover:bg-[#F7F8FA] focus:bg-[#F2F3F5]",
                             )}
                             style={{
                                 top: ((minutes - AVAILABILITY_CALENDAR_START_MINUTES) / 60) * AVAILABILITY_HOUR_HEIGHT,
@@ -1936,8 +1975,8 @@ export function InterviewWorkbenchPage({
                         className={cn(
                             "pointer-events-none absolute left-1.5 right-1.5 z-10 rounded-md border border-dashed px-2 text-xs",
                             activeDragMode === "available"
-                                ? "border-emerald-300 bg-emerald-100/55 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-200"
-                                : "border-slate-300 bg-slate-100/70 text-slate-700 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-200",
+                                ? "border-[rgba(12,201,145,0.5)] bg-[rgba(12,201,145,0.12)] text-[#0A9C71]"
+                                : "border-[#B0B2B8] bg-[#F2F3F5] text-[#86888F]",
                             activeDragCompact ? "py-1" : "py-1.5",
                         )}
                         style={{
@@ -1957,7 +1996,7 @@ export function InterviewWorkbenchPage({
                         <div
                             key={`booked-${slot.id}`}
                             className={cn(
-                                "absolute left-1.5 right-1.5 z-20 overflow-hidden rounded-md border border-neutral-200 bg-neutral-100 px-2 text-xs text-neutral-700 shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200",
+                                "absolute left-1.5 right-1.5 z-20 overflow-hidden rounded-md border border-[rgba(30,59,250,0.22)] bg-[rgba(30,59,250,0.10)] px-2 text-xs text-[#1E3BFA]",
                                 compactBlock ? "py-1" : "py-1.5",
                             )}
                             style={{
@@ -1967,7 +2006,7 @@ export function InterviewWorkbenchPage({
                         >
                             <p className="truncate font-medium">{formatCalendarBlockRange(range.startMinutes, range.endMinutes)}</p>
                             {!compactBlock ? (
-                                <p className="mt-0.5 truncate text-[11px] text-neutral-500 dark:text-slate-400">{isZh ? "已占用" : "Booked"}</p>
+                                <p className="mt-0.5 truncate text-[11px] text-[#0F23D9]">{isZh ? "已占用" : "Booked"}</p>
                             ) : null}
                         </div>
                     );
@@ -1985,8 +2024,8 @@ export function InterviewWorkbenchPage({
                             className={cn(
                                 "absolute left-1.5 right-1.5 z-30 overflow-hidden rounded-md border px-2 text-xs shadow-sm",
                                 isAvailableBlock
-                                    ? "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900/70 dark:bg-emerald-950/40 dark:text-emerald-200"
-                                    : "border-slate-200 bg-slate-100 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200",
+                                    ? "border-[rgba(12,201,145,0.32)] bg-[rgba(12,201,145,0.12)] text-[#0A9C71]"
+                                    : "border-[#E6E7EB] bg-[#F2F3F5] text-[#86888F]",
                                 compactBlock ? "py-1" : "py-1.5",
                             )}
                             style={{
@@ -2001,7 +2040,7 @@ export function InterviewWorkbenchPage({
                                         <p
                                             className={cn(
                                                 "mt-0.5 truncate text-[11px]",
-                                                isAvailableBlock ? "text-emerald-700 dark:text-emerald-300" : "text-slate-500 dark:text-slate-300",
+                                                isAvailableBlock ? "text-[#0A9C71]" : "text-[#86888F]",
                                             )}
                                         >
                                             {slot.notes || (isAvailableBlock ? (isZh ? "可面试" : "Available") : (isZh ? "不可面试" : "Unavailable"))}
@@ -2013,8 +2052,8 @@ export function InterviewWorkbenchPage({
                                         type="button"
                                         data-availability-delete="true"
                                         className={cn(
-                                            "absolute right-1.5 rounded hover:bg-white hover:text-rose-500 dark:hover:bg-slate-900 dark:hover:text-rose-300",
-                                            isAvailableBlock ? "text-emerald-500 dark:text-emerald-300" : "text-slate-500 dark:text-slate-300",
+                                            "absolute right-1.5 rounded hover:bg-white hover:text-[#F53F3F]",
+                                            isAvailableBlock ? "text-[#0CC991]" : "text-[#86888F]",
                                             compactBlock ? "top-[2px] p-0" : "top-1 p-0.5",
                                         )}
                                         onPointerDown={(event) => event.stopPropagation()}
@@ -2036,252 +2075,245 @@ export function InterviewWorkbenchPage({
     };
 
     return (
-        <div className="flex h-full min-h-0 flex-col bg-gray-50 px-5 py-4 text-slate-800 dark:bg-slate-950 dark:text-slate-300">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-                <div className="inline-flex rounded-xl bg-white p-1 shadow-sm ring-1 ring-gray-100 dark:bg-slate-950 dark:ring-slate-800">
-                    {tabs.map((tab) => {
-                        const active = activeFilter === tab.key;
-                        return (
-                            <button
-                                key={tab.key}
-                                type="button"
-                                onClick={() => setActiveFilter(tab.key)}
-                                className={cn(
-                                    "inline-flex h-9 items-center gap-2 rounded-lg px-3 text-sm transition",
-                                    active
-                                        ? "bg-slate-950 text-white shadow-sm dark:bg-slate-100 dark:text-slate-900"
-                                        : "text-slate-500 hover:bg-gray-50 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:text-slate-200",
-                                )}
-                            >
-                                {active && tab.key === "todo" ? <CalendarCheck className="h-4 w-4"/> : null}
-                                <span>{tab.label}</span>
-                                <span className={cn("rounded-full px-1.5 py-0.5 text-xs", active ? "bg-white/15 text-white dark:bg-slate-900/15 dark:text-slate-900" : "bg-gray-100 text-slate-400 dark:bg-slate-900 dark:text-slate-500")}>
-                                    {tab.count}
-                                </span>
-                            </button>
-                        );
-                    })}
+        <div className="flex h-full min-h-0 flex-col overflow-auto bg-white px-8 pb-12 pt-5 font-sans text-[#0E1114]">
+            <div className="mb-3 flex shrink-0 flex-wrap items-center justify-between gap-4">
+                <div className="flex min-w-0 items-center gap-3.5">
+                    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[#1E3BFA] text-white">
+                        <UserRound className="h-[15px] w-[15px]" strokeWidth={1.9}/>
+                    </div>
+                    <div className="flex min-w-0 items-center gap-7">
+                        {tabs.map((tab) => {
+                            const active = activeFilter === tab.key;
+                            return (
+                                <button
+                                    key={tab.key}
+                                    type="button"
+                                    onClick={() => setActiveFilter(tab.key)}
+                                    className="relative inline-flex h-10 items-center gap-1.5 px-0.5 text-left"
+                                >
+                                    <span className={cn("text-base transition-colors", active ? "font-semibold text-[#0E1114]" : "font-normal text-[#86888F] hover:text-[#33353D]")}>{tab.label}</span>
+                                    <span className="text-xs tabular-nums text-[#B0B2B8]">{tab.count}</span>
+                                    {active ? <span className="absolute bottom-0 left-1/2 h-[3px] w-8 -translate-x-1/2 rounded-sm bg-[#1E3BFA]"/> : null}
+                                </button>
+                            );
+                        })}
+                    </div>
                 </div>
-                <div className="flex min-w-[320px] items-center gap-2 rounded-xl border border-gray-100 bg-white px-3 py-2 shadow-sm dark:border-slate-800 dark:bg-slate-950">
-                    <Search className="h-4 w-4 text-slate-300 dark:text-slate-500"/>
+                <div className="flex items-center gap-3">
+                    {showAvailabilityEditor ? (
+                        <Button
+                            variant="outline"
+                            className="h-9 rounded-md border-[#1E3BFA] bg-white px-4 text-sm font-normal text-[#1E3BFA] shadow-none hover:bg-[rgba(30,59,250,0.04)] hover:text-[#1E3BFA]"
+                            onClick={openAvailabilityDialog}
+                        >
+                            <CalendarClock className="h-3.5 w-3.5"/>
+                            {isZh ? "设置可面试时间" : "Set availability"}
+                        </Button>
+                    ) : null}
+                    <Button
+                        variant="outline"
+                        className="h-9 rounded-md border-[#E6E7EB] bg-white px-4 text-sm font-normal text-[#33353D] shadow-none hover:bg-[#F7F8FA] hover:text-[#0E1114]"
+                        onClick={() => void onRefresh()}
+                    >
+                        {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin"/> : <RefreshCw className="h-3.5 w-3.5"/>}
+                        {isZh ? "刷新" : "Refresh"}
+                    </Button>
+                </div>
+            </div>
+
+            <div className="mb-4 flex h-[38px] shrink-0 items-center gap-2 rounded bg-[#F7F8FA] px-3.5 text-xs text-[#33353D]">
+                <Info className="h-3.5 w-3.5 shrink-0 text-[#1E3BFA]" strokeWidth={1.9}/>
+                <span>{showAvailabilityEditor
+                    ? (isZh ? "先查看左侧候选人资料，再提交本轮结论。招聘人事排期时会看到你的可面试时间段。" : "Review the candidate profile before submitting the conclusion. HR can see your availability when scheduling.")
+                    : (isZh ? "查看候选人资料并维护面试安排，面试结论由指定面试官提交。" : "Review candidate profiles and maintain interview schedules. Assigned interviewers submit conclusions.")}</span>
+            </div>
+
+            <div className="mb-4 flex shrink-0 flex-wrap items-center justify-between gap-4">
+                <div className="flex items-center gap-6">
+                    <select
+                        value={positionFilter}
+                        onChange={(event) => setPositionFilter(event.target.value)}
+                        className="h-8 min-w-[92px] cursor-pointer border-0 bg-white px-0 text-xs text-[#33353D] outline-none"
+                    >
+                        <option value="all">{isZh ? "全部岗位" : "All positions"}</option>
+                        {positionOptions.map((position) => <option key={position} value={position}>{position}</option>)}
+                    </select>
+                    <select
+                        value={resultFilter}
+                        onChange={(event) => setResultFilter(event.target.value)}
+                        className="h-8 min-w-[92px] cursor-pointer border-0 bg-white px-0 text-xs text-[#33353D] outline-none"
+                    >
+                        <option value="all">{isZh ? "全部结果" : "All results"}</option>
+                        <option value="passed">{isZh ? "已通过" : "Passed"}</option>
+                        <option value="next_round">{isZh ? "下一轮" : "Next round"}</option>
+                        <option value="hold">{isZh ? "暂缓" : "Hold"}</option>
+                        <option value="rejected">{isZh ? "已淘汰" : "Rejected"}</option>
+                        <option value="no_show">{isZh ? "未到场" : "No show"}</option>
+                    </select>
+                    <button type="button" onClick={clearFilters} className="text-xs text-[#0F23D9] hover:text-[#1E3BFA]">{isZh ? "清空筛选" : "Clear filters"}</button>
+                </div>
+                <div className="flex h-8 w-[340px] items-center gap-2 rounded border border-[#E6E7EB] bg-white px-3 focus-within:border-[#1E3BFA]">
+                    <Search className="h-[13px] w-[13px] shrink-0 text-[#B0B2B8]"/>
                     <Input
                         value={query}
                         onChange={(event) => setQuery(event.target.value)}
                         placeholder={isZh ? "搜索候选人、岗位、联系方式" : "Search candidate, position, contact"}
-                        className="h-6 border-0 bg-transparent px-0 text-sm shadow-none focus-visible:ring-0 dark:text-slate-200 dark:placeholder:text-slate-500"
+                        className="h-7 min-w-0 border-0 bg-transparent px-0 text-xs text-[#33353D] shadow-none placeholder:text-[#B0B2B8] focus-visible:ring-0"
                     />
-                    {query ? (
-                        <button type="button" onClick={() => setQuery("")} className="text-slate-300 hover:text-slate-500 dark:text-slate-500 dark:hover:text-slate-300">
-                            <X className="h-4 w-4"/>
-                        </button>
-                    ) : null}
+                    {query ? <button type="button" onClick={() => setQuery("")} className="text-[#B0B2B8] hover:text-[#33353D]"><X className="h-3.5 w-3.5"/></button> : null}
                 </div>
             </div>
 
-            <div className={cn("grid min-h-0 flex-1 gap-4", showAvailabilityEditor ? "grid-cols-[minmax(0,1fr)_360px]" : "grid-cols-1")}>
-                <section className="flex min-h-0 flex-col rounded-xl border border-gray-100 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
-                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 px-4 py-3 dark:border-slate-800">
-                        <div className="flex flex-wrap items-center gap-2">
-                            <select
-                                value={positionFilter}
-                                onChange={(event) => setPositionFilter(event.target.value)}
-                                className="h-8 rounded-lg border border-gray-200 bg-gray-50 px-2.5 text-xs text-slate-600 outline-none hover:border-gray-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:border-slate-600"
-                            >
-                                <option value="all">{isZh ? "全部岗位" : "All positions"}</option>
-                                {positionOptions.map((position) => (
-                                    <option key={position} value={position}>{position}</option>
-                                ))}
-                            </select>
-                            <select
-                                value={resultFilter}
-                                onChange={(event) => setResultFilter(event.target.value)}
-                                className="h-8 rounded-lg border border-gray-200 bg-gray-50 px-2.5 text-xs text-slate-600 outline-none hover:border-gray-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:border-slate-600"
-                            >
-                                <option value="all">{isZh ? "全部结果" : "All results"}</option>
-                                <option value="passed">{isZh ? "已通过" : "Passed"}</option>
-                                <option value="next_round">{isZh ? "下一轮" : "Next round"}</option>
-                                <option value="hold">{isZh ? "暂缓" : "Hold"}</option>
-                                <option value="rejected">{isZh ? "已淘汰" : "Rejected"}</option>
-                                <option value="no_show">{isZh ? "未到场" : "No show"}</option>
-                            </select>
-                            {(positionFilter !== "all" || resultFilter !== "all" || query) ? (
-                                <Button variant="ghost" size="sm" className="h-8 px-2 text-xs text-[#171717] dark:text-slate-100 dark:hover:bg-slate-800" onClick={clearFilters}>
-                                    {isZh ? "清空筛选" : "Clear"}
-                                </Button>
-                            ) : null}
-                            <span className="text-xs text-slate-400 dark:text-slate-500">
-                                {isZh ? `显示 ${visibleTasks.length} / ${tasks.length}` : `${visibleTasks.length} / ${tasks.length}`}
-                            </span>
+            <div className={cn("grid min-h-0 flex-1 items-start gap-5", showAvailabilityEditor ? "grid-cols-[minmax(0,1fr)_400px]" : "grid-cols-1")}>
+                <section className="flex min-w-0 flex-col gap-3.5">
+                    {loading ? (
+                        <div className="flex min-h-[360px] items-center justify-center rounded-lg border border-[#EBEEF5] text-sm text-[#86888F]">
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin text-[#1E3BFA]"/>{isZh ? "正在加载面试任务" : "Loading interviews"}
                         </div>
-                        <Button variant="outline" size="sm" className="h-8 rounded-lg px-2.5 text-xs dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800" onClick={() => void onRefresh()}>
-                            {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin"/> : <RefreshCw className="h-3.5 w-3.5"/>}
-                            {isZh ? "刷新" : "Refresh"}
-                        </Button>
-                    </div>
-
-                    <div className="min-h-0 flex-1 overflow-auto">
-                        {loading ? (
-                            <div className="flex h-full min-h-[360px] items-center justify-center text-sm text-slate-400 dark:text-slate-500">
-                                <Loader2 className="mr-2 h-4 w-4 animate-spin"/>
-                                {isZh ? "正在加载面试任务" : "Loading interviews"}
+                    ) : visibleTasks.length === 0 ? (
+                        <div className="flex min-h-[420px] flex-col items-center justify-center gap-3 rounded-lg border border-[#EBEEF5] text-center">
+                            <div className="flex h-11 w-11 items-center justify-center rounded-full bg-[#F7F8FA]"><CalendarCheck className="h-5 w-5 text-[#1E3BFA]"/></div>
+                            <div>
+                                <p className="text-sm font-medium text-[#0E1114]">{isZh ? "暂无面试任务" : "No interview tasks"}</p>
+                                <p className="mt-1 text-xs text-[#B0B2B8]">{isZh ? "当前筛选条件下没有需要处理的面试" : "No interviews match the current filters."}</p>
                             </div>
-                        ) : visibleTasks.length === 0 ? (
-                            <div className="flex h-full min-h-[420px] flex-col items-center justify-center gap-3 text-center">
-                                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-neutral-100 dark:bg-slate-900">
-                                    <Check className="h-5 w-5 text-[#171717] dark:text-slate-200"/>
+                            {(positionFilter !== "all" || resultFilter !== "all" || query) ? (
+                                <Button variant="outline" className="h-8 rounded-md border-[#E6E7EB] bg-white text-xs text-[#33353D] shadow-none" onClick={clearFilters}>{isZh ? "清空筛选，查看全部" : "Clear filters"}</Button>
+                            ) : null}
+                        </div>
+                    ) : visibleTasks.map((task) => {
+                        const schedule = task.schedule;
+                        const candidate = task.candidate;
+                        const positionTitle = candidateTitle(task, isZh);
+                        const canSubmitResult = canSubmitTaskResult(task);
+                        const lockMessage = canSubmitResult ? "" : resultLockMessage(task);
+                        const interviewerName = schedule?.interviewer_name || schedule?.interviewer_user_code || (isZh ? "未指定面试官" : "No interviewer");
+                        const commentValue = canSubmitResult ? (commentBySchedule[schedule?.id || 0] || "") : (schedule?.result_comment || "");
+                        const avatarColors = ["#1E3BFA", "#0CC991", "#FFAB24", "#F53F3F"];
+                        const avatarColor = avatarColors[Math.abs(Number(candidate.id || 0)) % avatarColors.length];
+                        const methodLabel = schedule?.interview_method === "video"
+                            ? (isZh ? "视频面试" : "Video")
+                            : schedule?.interview_method === "phone"
+                                ? (isZh ? "电话面试" : "Phone")
+                                : (isZh ? "现场面试" : "Onsite");
+                        const methodDetail = schedule?.meeting_room || schedule?.location || schedule?.video_tool || "";
+                        const scheduledAtLabel = schedule?.scheduled_at
+                            ? formatDateTime(schedule.scheduled_at)
+                            : (isZh ? "时间待定" : "Time TBD");
+                        return (
+                            <article
+                                key={schedule?.id ? `schedule-${schedule.id}` : `candidate-${candidate.id}`}
+                                className="flex min-w-0 flex-col gap-3.5 rounded-lg border border-[#EBEEF5] bg-white px-5 py-[18px] transition-shadow hover:shadow-[0_4px_12px_rgba(14,17,20,0.06)]"
+                            >
+                                <div className="flex min-w-0 items-start justify-between gap-5">
+                                    <button type="button" onClick={() => openTaskDetail(task)} className="flex min-w-0 items-center gap-3 text-left">
+                                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[13px] font-medium text-white" style={{backgroundColor: avatarColor}}>
+                                            {(candidate.name || "?").trim().charAt(0) || "?"}
+                                        </span>
+                                        <span className="flex min-w-0 flex-col gap-[3px]">
+                                            <span className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1">
+                                                <span className="truncate text-[15px] font-semibold text-[#0E1114]">{candidate.name || (isZh ? "未命名候选人" : "Unnamed")}</span>
+                                                <span className="truncate text-xs text-[#86888F]">{positionTitle}</span>
+                                                <Badge variant="outline" className={cn("h-[22px] rounded px-2 text-xs font-normal shadow-none", scheduleBadgeClass(schedule?.status || "needs_scheduling"))}>{labelForScheduleStatus(schedule?.status || "needs_scheduling", isZh)}</Badge>
+                                            </span>
+                                            <span className="truncate text-xs text-[#86888F]">
+                                                {schedule?.round_name || (isZh ? "待安排面试" : "Interview to schedule")} · {isZh ? "面试官" : "Interviewer"}：{interviewerName} · {scheduledAtLabel} · {methodLabel}{methodDetail ? ` · ${methodDetail}` : ""}
+                                            </span>
+                                        </span>
+                                    </button>
+                                    <div className="flex shrink-0 items-center gap-2.5">
+                                        <Button variant="outline" className="h-[30px] rounded-md border-[#1E3BFA] bg-white px-3.5 text-xs font-normal text-[#1E3BFA] shadow-none hover:bg-[rgba(30,59,250,0.04)] hover:text-[#1E3BFA]" onClick={() => openTaskDetail(task)}>
+                                            {canSubmitResult ? (isZh ? "面试评价" : "Evaluate") : (isZh ? "查看" : "View")}
+                                        </Button>
+                                        {canEditTaskSchedule(task) ? (
+                                            <button type="button" className="text-xs text-[#0F23D9] hover:text-[#1E3BFA]" onClick={() => openEditScheduleDrawer(task)}>{isZh ? "编辑面试" : "Edit interview"}</button>
+                                        ) : null}
+                                    </div>
                                 </div>
-                                <div>
-                                    <p className="text-sm font-medium text-slate-800 dark:text-slate-200">{isZh ? "暂无面试任务" : "No interview tasks"}</p>
-                                    <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">{isZh ? "当前筛选条件下没有需要处理的面试" : "No interviews match the current filters."}</p>
-                                </div>
-                                {(positionFilter !== "all" || resultFilter !== "all" || query) ? (
-                                    <Button variant="outline" size="sm" className="h-8 rounded-lg text-xs text-[#171717] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800" onClick={clearFilters}>
-                                        {isZh ? "清空筛选，查看全部" : "Clear filters"}
-                                    </Button>
-                                ) : null}
-                            </div>
-                        ) : (
-                            <div className="divide-y divide-gray-50 dark:divide-slate-800/70">
-                                {visibleTasks.map((task) => {
-                                    const schedule = task.schedule;
-                                    const candidate = task.candidate;
-                                    const positionTitle = candidateTitle(task, isZh);
-                                    const canSubmitResult = canSubmitTaskResult(task);
-                                    const lockMessage = canSubmitResult ? "" : resultLockMessage(task);
-                                    const interviewerName = schedule?.interviewer_name || schedule?.interviewer_user_code || (isZh ? "未指定面试官" : "No interviewer");
-                                    const commentValue = canSubmitResult
-                                        ? (commentBySchedule[schedule?.id || 0] || "")
-                                        : (schedule?.result_comment || "");
-                                    return (
-                                        <article key={schedule?.id ? `schedule-${schedule.id}` : `candidate-${candidate.id}`} className="px-4 py-3 transition hover:bg-gray-50/70 dark:hover:bg-slate-900/60">
-                                            <div className="grid grid-cols-[minmax(0,1fr)_280px] gap-4">
-                                                <button type="button" onClick={() => openTaskDetail(task)} className="min-w-0 text-left">
-                                                    <div className="flex flex-wrap items-center gap-2">
-                                                        <span className="text-base font-semibold text-slate-950 dark:text-slate-100">{candidate.name || (isZh ? "未命名候选人" : "Unnamed")}</span>
-                                                        <span className="text-xs text-slate-400 dark:text-slate-500">{candidate.age ? `${candidate.age}${isZh ? "岁" : ""}` : null}</span>
-                                                        <span className="text-xs text-slate-400 dark:text-slate-500">{candidate.education || "-"}</span>
-                                                        <Badge variant="outline" className={cn("h-6 rounded-md", scheduleBadgeClass(schedule?.status || "needs_scheduling"))}>
-                                                            {labelForScheduleStatus(schedule?.status || "needs_scheduling", isZh)}
-                                                        </Badge>
-                                                    </div>
-                                                    <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
-                                                        <span>{positionTitle}</span>
-                                                        <span className="text-slate-300 dark:text-slate-700">|</span>
-                                                        <span>{schedule?.round_name || (isZh ? "待安排面试" : "Interview to schedule")}</span>
-                                                        <span className="text-slate-300 dark:text-slate-700">|</span>
-                                                        <span>{isZh ? "面试官" : "Interviewer"}：{interviewerName}</span>
-                                                        <span className="text-slate-300 dark:text-slate-700">|</span>
-                                                        <Clock3 className="h-3.5 w-3.5 text-slate-300 dark:text-slate-500"/>
-                                                        <span>{formatDateTime(schedule?.scheduled_at) || (isZh ? "时间待定" : "Time TBD")}</span>
-                                                    </div>
-                                                    {schedule?.notes ? (
-                                                        <p className="mt-2 line-clamp-2 text-xs text-slate-500 dark:text-slate-400">{schedule.notes}</p>
-                                                    ) : null}
-                                                </button>
-                                                <div className="space-y-2">
-                                                    {!schedule ? (
-                                                        <div className="rounded-lg border border-neutral-200 bg-neutral-100/70 px-3 py-3 text-right dark:border-slate-700 dark:bg-slate-900/70">
-                                                            <p className="text-left text-xs leading-5 text-neutral-700 dark:text-slate-300">
-                                                                {isZh ? "该候选人已进入面试阶段，尚未安排面试官和时间。" : "This candidate is ready for interview but has not been scheduled yet."}
-                                                            </p>
-                                                            {canManageInterview ? (
-                                                                <Button
-                                                                    size="sm"
-                                                                    className="mt-3 h-8 rounded-md bg-[#171717] px-3 text-xs text-white hover:bg-[#262626] dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200"
-                                                                    onClick={() => openScheduleDrawer(task)}
-                                                                >
-                                                                    {isZh ? "安排面试" : "Schedule interview"}
-                                                                </Button>
-                                                            ) : null}
-                                                        </div>
-                                                    ) : (
-                                                        <>
-                                                            <Textarea
-                                                                value={commentValue}
-                                                                onChange={(event) => setCommentBySchedule((current) => ({...current, [schedule.id]: event.target.value}))}
-                                                                disabled={!canSubmitResult}
-                                                                placeholder={lockMessage || (isZh ? "填写面试结论、风险点或下一轮建议" : "Add conclusion, risks, or next-round suggestions")}
-                                                                className={cn(
-                                                                    "min-h-[62px] resize-none rounded-lg border-gray-100 bg-gray-50 text-xs shadow-none",
-                                                                    "dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:placeholder:text-slate-500",
-                                                                    !canSubmitResult && "cursor-default text-slate-500 opacity-100 dark:text-slate-400",
-                                                                )}
-                                                            />
-                                                            {lockMessage ? <p className="text-right text-xs text-slate-400 dark:text-slate-500">{lockMessage}</p> : null}
-                                                            <div className="flex flex-wrap justify-end gap-1.5">
-                                                                {canEditTaskSchedule(task) ? (
-                                                                    <Button
-                                                                        size="sm"
-                                                                        className="h-7 rounded-md bg-[#2438ff] px-2 text-xs text-white hover:bg-[#1f31db]"
-                                                                        onClick={() => openEditScheduleDrawer(task)}
-                                                                    >
-                                                                        <PencilLine className="h-3.5 w-3.5"/>
-                                                                        {isZh ? "编辑面试" : "Edit interview"}
-                                                                    </Button>
-                                                                ) : null}
-                                                                {renderResultActions(task)}
-                                                            </div>
-                                                        </>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        </article>
-                                    );
-                                })}
-                            </div>
-                        )}
-                    </div>
+                                {schedule?.notes ? <p className="line-clamp-2 pl-12 text-xs leading-5 text-[#86888F]">{schedule.notes}</p> : null}
+                                {!schedule ? (
+                                    <div className="flex items-center justify-between gap-4 rounded-md bg-[#F7F8FA] px-3.5 py-3">
+                                        <span className="text-xs text-[#33353D]">{isZh ? "该候选人已进入面试阶段，尚未安排面试官和时间。" : "This candidate is ready for interview but has not been scheduled yet."}</span>
+                                        {canManageInterview ? <Button className="h-7 shrink-0 rounded-md bg-[#1E3BFA] px-3.5 text-xs text-white shadow-none hover:bg-[#0F23D9]" onClick={() => openScheduleDrawer(task)}>{isZh ? "安排面试" : "Schedule interview"}</Button> : null}
+                                    </div>
+                                ) : (
+                                    <div className="flex flex-col gap-2.5 border-t border-[#F2F3F5] pt-3">
+                                        <Textarea
+                                            value={commentValue}
+                                            onChange={(event) => setCommentBySchedule((current) => ({...current, [schedule.id]: event.target.value}))}
+                                            disabled={!canSubmitResult}
+                                            placeholder={lockMessage || (isZh ? "填写面试结论、风险点或下一轮建议" : "Add conclusion, risks, or next-round suggestions")}
+                                            className="min-h-14 resize-none rounded-md border-[#E6E7EB] bg-white px-3 py-2.5 text-xs text-[#33353D] shadow-none placeholder:text-[#B0B2B8] focus-visible:border-[#1E3BFA] focus-visible:ring-0 disabled:cursor-default disabled:bg-[#FAFAFB] disabled:opacity-100"
+                                        />
+                                        <div className="flex flex-wrap items-center justify-between gap-3">
+                                            {lockMessage ? <p className="text-xs text-[#B0B2B8]">{lockMessage}</p> : <span/>}
+                                            {renderResultActions(task)}
+                                        </div>
+                                    </div>
+                                )}
+                            </article>
+                        );
+                    })}
                 </section>
 
                 {showAvailabilityEditor ? (
-                    <aside className="flex min-h-0 flex-col gap-4 overflow-auto">
-                        <section className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950">
-                            <div className="flex items-start justify-between gap-3">
-                                <div className="min-w-0">
-                                    <div className="flex items-center gap-2">
-                                        <CalendarCheck className="h-4 w-4 text-[#171717] dark:text-slate-200"/>
-                                        <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{isZh ? "我的可面试时间" : "My availability"}</p>
-                                        {availabilityLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-300 dark:text-slate-500"/> : null}
-                                    </div>
-                                    <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">{isZh ? "招聘人事排期时会看到这些时间段" : "HR sees these slots when scheduling."}</p>
-                                </div>
-                                <Button variant="outline" size="sm" className="h-8 shrink-0 rounded-lg px-2.5 text-xs dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800" onClick={openAvailabilityDialog}>
-                                    <CalendarClock className="h-3.5 w-3.5"/>
-                                    {isZh ? "设置" : "Set"}
-                                </Button>
+                    <aside className="flex min-w-0 flex-col gap-4">
+                        <section className="rounded-lg border border-[#EBEEF5] bg-white px-5 py-[18px]">
+                            <div className="flex items-center justify-between gap-3">
+                                <p className="text-sm font-semibold text-[#0E1114]">{isZh ? "我的可面试时间" : "My availability"}</p>
+                                <Button variant="outline" className="h-7 rounded-md border-[#1E3BFA] bg-white px-3 text-xs font-normal text-[#1E3BFA] shadow-none hover:bg-[rgba(30,59,250,0.04)] hover:text-[#1E3BFA]" onClick={openAvailabilityDialog}>{isZh ? "设置" : "Set"}</Button>
                             </div>
-                            <div className="mt-4 grid grid-cols-3 divide-x divide-gray-100 rounded-lg border border-gray-100 bg-gray-50 text-center dark:divide-slate-800 dark:border-slate-800 dark:bg-slate-900/70">
-                                <div className="px-2 py-3">
-                                    <p className="text-lg font-semibold text-slate-900 dark:text-slate-100">{availableDraftSlots.length}</p>
-                                    <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">{isZh ? "可面试" : "Available"}</p>
-                                </div>
-                                <div className="px-2 py-3">
-                                    <p className="text-lg font-semibold text-slate-900 dark:text-slate-100">{currentWeekAvailableDraftCount}</p>
-                                    <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">{isZh ? "本周" : "This week"}</p>
-                                </div>
-                                <div className="px-2 py-3">
-                                    <p className="text-lg font-semibold text-slate-900 dark:text-slate-100">{bookedSlots.length}</p>
-                                    <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">{isZh ? "已占用" : "Booked"}</p>
-                                </div>
+                            <p className="mt-1.5 text-[11px] text-[#B0B2B8]">{isZh ? "招聘人事排期时会看到这些时间段" : "HR sees these slots when scheduling."}</p>
+                            <div className="mt-4 grid grid-cols-3 gap-3">
+                                <div className="flex flex-col items-center gap-0.5 rounded-md bg-[#F7F8FA] py-3"><span className="text-xl font-semibold tabular-nums text-[#0CC991]">{availableDraftSlots.length}</span><span className="text-[11px] text-[#86888F]">{isZh ? "可面试" : "Available"}</span></div>
+                                <div className="flex flex-col items-center gap-0.5 rounded-md bg-[#F7F8FA] py-3"><span className="text-xl font-semibold tabular-nums text-[#0E1114]">{currentWeekAvailableDraftCount}</span><span className="text-[11px] text-[#86888F]">{isZh ? "本周" : "This week"}</span></div>
+                                <div className="flex flex-col items-center gap-0.5 rounded-md bg-[#F7F8FA] py-3"><span className="text-xl font-semibold tabular-nums text-[#86888F]">{bookedSlots.length}</span><span className="text-[11px] text-[#86888F]">{isZh ? "已占用" : "Booked"}</span></div>
                             </div>
                         </section>
 
-                        <section className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950">
-                            <div className="flex items-center justify-between">
-                                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{isZh ? "已占用时间" : "Booked slots"}</p>
-                                {availabilityLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-300 dark:text-slate-500"/> : null}
+                        <section className="rounded-lg border border-[#EBEEF5] bg-white px-5 py-[18px]">
+                            <div className="flex items-center justify-between gap-3">
+                                <p className="text-sm font-semibold text-[#0E1114]">{isZh ? "面试日历" : "Interview calendar"}</p>
+                                {availabilityLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin text-[#1E3BFA]"/> : null}
                             </div>
-                            <div className="mt-3 divide-y divide-gray-100 dark:divide-slate-800">
-                                {upcomingBookedSlots.length ? upcomingBookedSlots.map((slot) => (
-                                    <div key={slot.id} className="py-2.5">
-                                        <p className="text-xs font-medium text-slate-700 dark:text-slate-300">{formatRange(slot.start_at, slot.end_at)}</p>
-                                        <p className="mt-0.5 text-[11px] text-neutral-700 dark:text-slate-400">{isZh ? "已安排面试" : "Interview scheduled"}</p>
-                                    </div>
-                                )) : (
-                                    <p className="py-6 text-center text-xs text-slate-400 dark:text-slate-500">
-                                        {isZh ? "暂无已占用时间" : "No booked slots"}
-                                    </p>
-                                )}
+                            <div className="mt-3.5 grid grid-cols-7 gap-1 text-center">
+                                {mainCalendarWeekDays.map((day) => <span key={`weekday-${formatLocalDateValue(day)}`} className="text-[11px] text-[#B0B2B8]">{new Intl.DateTimeFormat(isZh ? "zh-CN" : "en-US", {weekday: "short"}).format(day)}</span>)}
+                                {mainCalendarWeekDays.map((day) => {
+                                    const dayKey = formatLocalDateValue(day);
+                                    const isToday = dayKey === todayDateValue();
+                                    const hasAvailable = availableDraftSlots.some((slot) => draftSlotRange(slot)?.dateKey === dayKey);
+                                    const hasUnavailable = draftSlots.some((slot) => slot.status === "unavailable" && draftSlotRange(slot)?.dateKey === dayKey);
+                                    const hasBooked = bookedSlots.some((slot) => availabilitySlotRange(slot)?.dateKey === dayKey);
+                                    return (
+                                        <div key={dayKey} className="flex h-10 flex-col items-center justify-center gap-0.5">
+                                            <span className={cn("flex h-8 w-8 items-center justify-center rounded-full text-[13px]", isToday ? "bg-[#1E3BFA] text-white" : day.getDay() === 0 || day.getDay() === 6 ? "text-[#B0B2B8]" : "text-[#33353D]")}>{isToday ? (isZh ? "今" : day.getDate()) : day.getDate()}</span>
+                                            <span className="flex h-1 items-center gap-0.5">{hasAvailable ? <i className="h-1 w-1 rounded-full bg-[#0CC991]"/> : null}{hasUnavailable ? <i className="h-1 w-1 rounded-full bg-[#B0B2B8]"/> : null}{hasBooked ? <i className="h-1 w-1 rounded-full bg-[#1E3BFA]"/> : null}</span>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                            <div className="mt-3.5 flex flex-col gap-2">
+                                {mainCalendarTasks.length ? mainCalendarTasks.slice(0, 4).map((task, index) => {
+                                    const schedule = task.schedule!;
+                                    const scheduledAt = new Date(schedule.scheduled_at || "");
+                                    const endAt = new Date(scheduledAt.getTime() + Number(schedule.duration_minutes || 60) * 60000);
+                                    const timeFormatter = new Intl.DateTimeFormat(isZh ? "zh-CN" : "en-US", {hour: "2-digit", minute: "2-digit", hour12: false});
+                                    const methodLabel = schedule.interview_method === "video" ? (isZh ? "视频面试" : "Video") : schedule.interview_method === "phone" ? (isZh ? "电话面试" : "Phone") : (isZh ? "现场面试" : "Onsite");
+                                    return (
+                                        <button key={schedule.id} type="button" onClick={() => openTaskDetail(task)} className={cn("flex items-center gap-2.5 rounded-md px-3 py-2.5 text-left", index % 2 === 0 ? "bg-[rgba(12,201,145,0.06)]" : "bg-[rgba(30,59,250,0.05)]")}>
+                                            <span className={cn("h-[26px] w-[3px] shrink-0 rounded-sm", index % 2 === 0 ? "bg-[#0CC991]" : "bg-[#1E3BFA]")}/>
+                                            <span className="min-w-0">
+                                                <span className="block truncate text-xs text-[#0E1114]">{timeFormatter.format(scheduledAt)} - {timeFormatter.format(endAt)} · {task.candidate.name} · {candidateTitle(task, isZh)}</span>
+                                                <span className="mt-0.5 block truncate text-[11px] text-[#86888F]">{schedule.round_name || "-"} · {methodLabel} · {schedule.meeting_room || schedule.location || schedule.video_tool || "-"}</span>
+                                            </span>
+                                        </button>
+                                    );
+                                }) : <p className="rounded-md bg-[#F7F8FA] px-3 py-5 text-center text-xs text-[#B0B2B8]">{isZh ? "本周暂无已安排面试" : "No interviews scheduled this week"}</p>}
+                            </div>
+                            <div className="mt-3.5 flex items-center gap-3.5 text-[11px] text-[#86888F]">
+                                <span className="inline-flex items-center gap-1.5"><i className="h-[9px] w-[9px] rounded-sm bg-[rgba(12,201,145,0.25)]"/>{isZh ? "可面试" : "Available"}</span>
+                                <span className="inline-flex items-center gap-1.5"><i className="h-[9px] w-[9px] rounded-sm bg-[#F2F3F5]"/>{isZh ? "不可面试" : "Unavailable"}</span>
+                                <span className="inline-flex items-center gap-1.5"><i className="h-[9px] w-[9px] rounded-sm bg-[rgba(30,59,250,0.2)]"/>{isZh ? "已占用" : "Booked"}</span>
                             </div>
                         </section>
                     </aside>
@@ -2289,25 +2321,25 @@ export function InterviewWorkbenchPage({
             </div>
 
             <Dialog open={availabilityDialogOpen} onOpenChange={handleAvailabilityDialogOpenChange}>
-                <DialogContent className="flex h-[min(88vh,840px)] max-h-[88vh] flex-col overflow-hidden border-slate-200 bg-white p-0 text-slate-900 shadow-2xl dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100 sm:max-w-[1180px]">
-                    <DialogHeader className="shrink-0 border-b border-gray-100 px-6 py-4 pr-12 dark:border-slate-800">
+                <DialogContent className="flex h-[88vh] max-h-[88vh] flex-col overflow-hidden rounded-[10px] border-[#EBEEF5] bg-white p-0 text-[#0E1114] shadow-[0_12px_40px_rgba(14,17,20,0.2)] sm:max-w-[1120px]">
+                    <DialogHeader className="shrink-0 border-b border-[#F2F3F5] px-6 py-[18px] pr-12">
                         <div className="flex flex-wrap items-start justify-between gap-3">
                             <div className="min-w-0">
-                                <DialogTitle className="flex items-center gap-2 text-base">
-                                    <CalendarClock className="h-4 w-4 text-[#171717] dark:text-slate-100"/>
+                                <DialogTitle className="flex items-center gap-2 text-base font-semibold text-[#0E1114]">
+                                    <span className="flex h-7 w-7 items-center justify-center rounded-md bg-[rgba(30,59,250,0.08)] text-[#1E3BFA]"><CalendarClock className="h-4 w-4"/></span>
                                     {isZh ? "设置面试时间" : "Set interview time"}
                                 </DialogTitle>
-                                <DialogDescription className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                                    {isZh ? "HR 排期时会查看这些时间段" : "HR uses these slots when scheduling interviews."}
+                                <DialogDescription className="mt-1 pl-9 text-xs text-[#86888F]">
+                                    {isZh ? "招聘人事排期时会查看这些时间段" : "HR uses these slots when scheduling interviews."}
                                 </DialogDescription>
                             </div>
                             <div className="flex items-center gap-2">
                                 {availabilityDirty ? (
-                                    <Badge variant="outline" className="h-7 rounded-md border-amber-200 bg-amber-50 text-xs text-amber-700 dark:border-amber-900/70 dark:bg-amber-950/30 dark:text-amber-200">
+                                    <Badge variant="outline" className="h-6 rounded border-[rgba(255,171,36,0.35)] bg-[rgba(255,171,36,0.08)] text-xs font-normal text-[#D48806]">
                                         {isZh ? "未保存" : "Unsaved"}
                                     </Badge>
                                 ) : null}
-                                {availabilityLoading ? <Loader2 className="h-4 w-4 animate-spin text-slate-300 dark:text-slate-500"/> : null}
+                                {availabilityLoading ? <Loader2 className="h-4 w-4 animate-spin text-[#1E3BFA]"/> : null}
                             </div>
                         </div>
                     </DialogHeader>
@@ -2315,10 +2347,10 @@ export function InterviewWorkbenchPage({
                     {availabilitySaveNotice ? (
                         <div
                             className={cn(
-                                "mx-6 mt-4 flex items-center gap-2 rounded-lg border px-4 py-3 text-sm",
+                                "mx-6 mt-4 flex items-center gap-2 rounded-md border px-4 py-2.5 text-xs",
                                 availabilitySaveNotice.type === "success"
-                                    ? "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900/70 dark:bg-emerald-950/30 dark:text-emerald-200"
-                                    : "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900/70 dark:bg-rose-950/30 dark:text-rose-200",
+                                    ? "border-[rgba(12,201,145,0.28)] bg-[rgba(12,201,145,0.08)] text-[#0A9C71]"
+                                    : "border-[rgba(245,63,63,0.28)] bg-[rgba(245,63,63,0.06)] text-[#F53F3F]",
                             )}
                         >
                             {availabilitySaveNotice.type === "success" ? <Check className="h-4 w-4 shrink-0"/> : <X className="h-4 w-4 shrink-0"/>}
@@ -2327,16 +2359,16 @@ export function InterviewWorkbenchPage({
                     ) : null}
 
                     {availabilityCloseConfirmOpen ? (
-                        <div className="mx-6 mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-900/70 dark:bg-amber-950/30">
+                        <div className="mx-6 mt-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-[rgba(255,171,36,0.35)] bg-[rgba(255,171,36,0.08)] px-4 py-3">
                             <div className="min-w-0">
-                                <p className="text-sm font-medium text-amber-800 dark:text-amber-100">{isZh ? "面试时间尚未保存" : "Interview time changes are not saved"}</p>
-                                <p className="mt-0.5 text-xs text-amber-700 dark:text-amber-200">{isZh ? "关闭后本次修改不会生效。" : "Closing will discard the current edits."}</p>
+                                <p className="text-xs font-medium text-[#D48806]">{isZh ? "面试时间尚未保存" : "Interview time changes are not saved"}</p>
+                                <p className="mt-0.5 text-[11px] text-[#86888F]">{isZh ? "关闭后本次修改不会生效。" : "Closing will discard the current edits."}</p>
                             </div>
                             <div className="flex shrink-0 items-center gap-2">
-                                <Button variant="outline" size="sm" className="h-8 rounded-lg border-amber-200 bg-white text-xs text-amber-800 hover:bg-amber-100 dark:border-amber-900/70 dark:bg-slate-950 dark:text-amber-100 dark:hover:bg-amber-950/40" onClick={() => setAvailabilityCloseConfirmOpen(false)}>
+                                <Button variant="outline" size="sm" className="h-7 rounded-md border-[#E6E7EB] bg-white text-xs text-[#33353D] shadow-none hover:bg-[#F7F8FA]" onClick={() => setAvailabilityCloseConfirmOpen(false)}>
                                     {isZh ? "继续编辑" : "Keep editing"}
                                 </Button>
-                                <Button variant="outline" size="sm" className="h-8 rounded-lg border-rose-200 bg-white text-xs text-rose-700 hover:bg-rose-50 dark:border-rose-900/70 dark:bg-slate-950 dark:text-rose-300 dark:hover:bg-rose-950/30" onClick={discardAvailabilityDraftChanges}>
+                                <Button variant="outline" size="sm" className="h-7 rounded-md border-[rgba(245,63,63,0.35)] bg-white text-xs text-[#F53F3F] shadow-none hover:bg-[rgba(245,63,63,0.05)]" onClick={discardAvailabilityDraftChanges}>
                                     {isZh ? "放弃更改" : "Discard"}
                                 </Button>
                             </div>
@@ -2345,7 +2377,7 @@ export function InterviewWorkbenchPage({
 
                     <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-6 pb-5 pt-4">
                         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                            <div className="inline-flex rounded-full border border-gray-200 bg-white p-1 dark:border-slate-700 dark:bg-slate-900">
+                            <div className="inline-flex rounded-full border border-[#E6E7EB] bg-white p-1">
                                 {([
                                     ["available", isZh ? "可面试时间" : "Available time"],
                                     ["unavailable", isZh ? "不可面试时间" : "Unavailable time"],
@@ -2356,10 +2388,10 @@ export function InterviewWorkbenchPage({
                                             key={mode}
                                             type="button"
                                             className={cn(
-                                                "h-8 min-w-[128px] rounded-full px-4 text-sm transition",
+                                                "h-8 min-w-[128px] rounded-full px-4 text-xs transition",
                                                 active
-                                                    ? "bg-[#2438ff] font-medium text-white shadow-sm"
-                                                    : "text-slate-500 hover:bg-slate-50 hover:text-slate-800 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100",
+                                                    ? "bg-[#1E3BFA] font-medium text-white"
+                                                    : "text-[#86888F] hover:bg-[#F7F8FA] hover:text-[#33353D]",
                                             )}
                                             onClick={() => {
                                                 setAvailabilityEditMode(mode);
@@ -2371,8 +2403,8 @@ export function InterviewWorkbenchPage({
                                     );
                                 })}
                             </div>
-                            <p className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                                {isZh ? "请选择你的可面试时间，HR 在安排面试时可查看" : "Choose your interview time; HR can view it when scheduling."}
+                            <p className="text-xs text-[#86888F]">
+                                {isZh ? "在下方周历中拖拽选择时间段；灰色为不可面试，蓝色为已有面试占用" : "Drag on the calendar to select time; gray is unavailable and blue is booked."}
                             </p>
                         </div>
                         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
@@ -2380,18 +2412,18 @@ export function InterviewWorkbenchPage({
                                 <Button
                                     variant="outline"
                                     size="sm"
-                                    className="h-8 w-8 rounded-lg p-0 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                                    className="h-8 w-8 rounded-md border-[#E6E7EB] bg-white p-0 text-[#33353D] shadow-none hover:bg-[#F7F8FA]"
                                     disabled={availabilityWeekStart.getTime() <= availabilityMinWeekStart.getTime()}
                                     onClick={() => setAvailabilityWeekStart((current) => addDays(current, -7))}
                                     aria-label={isZh ? "上一周" : "Previous week"}
                                 >
                                     <ChevronLeft className="h-4 w-4"/>
                                 </Button>
-                                <div className="min-w-[220px] text-sm font-medium text-slate-800 dark:text-slate-200">{availabilityWeekLabel}</div>
+                                <div className="min-w-[220px] text-sm font-medium text-[#33353D]">{availabilityWeekLabel}</div>
                                 <Button
                                     variant="outline"
                                     size="sm"
-                                    className="h-8 w-8 rounded-lg p-0 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                                    className="h-8 w-8 rounded-md border-[#E6E7EB] bg-white p-0 text-[#33353D] shadow-none hover:bg-[#F7F8FA]"
                                     disabled={availabilityWeekStart.getTime() >= availabilityMaxWeekStart.getTime()}
                                     onClick={() => setAvailabilityWeekStart((current) => addDays(current, 7))}
                                     aria-label={isZh ? "下一周" : "Next week"}
@@ -2401,21 +2433,21 @@ export function InterviewWorkbenchPage({
                             </div>
                         </div>
 
-                        <div className="min-h-0 flex-1 overflow-auto rounded-xl border border-gray-100 bg-white dark:border-slate-800 dark:bg-slate-950">
+                        <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-[#EBEEF5] bg-white">
                             <div className="min-w-[920px]">
                                 <div
-                                    className="sticky top-0 z-40 grid border-b border-gray-100 bg-white dark:border-slate-800 dark:bg-slate-950"
+                                    className="sticky top-0 z-40 grid border-b border-[#F2F3F5] bg-white"
                                     style={{gridTemplateColumns: "56px repeat(7, minmax(120px, 1fr))"}}
                                 >
-                                    <div className="border-r border-gray-100 bg-gray-50 dark:border-slate-800 dark:bg-slate-900/70"/>
+                                    <div className="border-r border-[#F2F3F5] bg-[#FAFAFB]"/>
                                     {availabilityWeekDays.map((day) => {
                                         const dayKey = formatLocalDateValue(day);
                                         const today = dayKey === scheduleToday;
                                         return (
-                                            <div key={dayKey} className={cn("border-l border-gray-100 px-3 py-3 text-sm dark:border-slate-800", today ? "bg-neutral-100 text-[#171717] dark:bg-slate-900 dark:text-slate-100" : "bg-white text-slate-600 dark:bg-slate-950 dark:text-slate-300")}>
+                                            <div key={dayKey} className={cn("border-l border-[#F2F3F5] px-3 py-3 text-xs", today ? "bg-[rgba(30,59,250,0.05)] text-[#1E3BFA]" : "bg-white text-[#33353D]")}>
                                                 <div className="flex items-center justify-between gap-2">
                                                     <span className="truncate font-medium">{today ? (isZh ? "今天" : "Today") : formatCalendarDateLabel(day, isZh)}</span>
-                                                    <span className="text-[11px] text-slate-400 dark:text-slate-500">
+                                                    <span className="text-[11px] text-[#B0B2B8]">
                                                         {draftSlots.filter((slot) => draftSlotRange(slot)?.dateKey === dayKey).length}
                                                     </span>
                                                 </div>
@@ -2427,11 +2459,11 @@ export function InterviewWorkbenchPage({
                                     className="grid"
                                     style={{gridTemplateColumns: "56px repeat(7, minmax(120px, 1fr))"}}
                                 >
-                                    <div className="relative border-r border-gray-100 bg-gray-50 dark:border-slate-800 dark:bg-slate-900/70" style={{height: AVAILABILITY_CALENDAR_HEIGHT}}>
+                                    <div className="relative border-r border-[#F2F3F5] bg-[#FAFAFB]" style={{height: AVAILABILITY_CALENDAR_HEIGHT}}>
                                         {AVAILABILITY_CALENDAR_HOURS.map((minutes) => (
                                             <div
                                                 key={minutes}
-                                                className="absolute right-2 text-[11px] text-slate-400 dark:text-slate-500"
+                                                className="absolute right-2 text-[11px] text-[#B0B2B8]"
                                                 style={{
                                                     top: minutes === AVAILABILITY_CALENDAR_START_MINUTES
                                                         ? 2
@@ -2448,18 +2480,28 @@ export function InterviewWorkbenchPage({
                         </div>
                     </div>
 
-                    <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-gray-100 px-6 py-4 dark:border-slate-800">
-                        <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
-                            <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-emerald-100 ring-1 ring-emerald-200 dark:bg-emerald-950 dark:ring-emerald-900"/>{isZh ? "可面试" : "Available"}</span>
-                            <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-slate-100 ring-1 ring-slate-200 dark:bg-slate-800 dark:ring-slate-700"/>{isZh ? "不可面试" : "Unavailable"}</span>
-                            <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-neutral-100 ring-1 ring-neutral-200 dark:bg-slate-800 dark:ring-slate-700"/>{isZh ? "已占用" : "Booked"}</span>
-                            <span>{isZh ? `本周 ${currentWeekDraftCount} 段` : `${currentWeekDraftCount} this week`}</span>
+                    <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-[#F2F3F5] px-6 py-4">
+                        <div className="flex flex-wrap items-center gap-3 text-[11px] text-[#86888F]">
+                            <button type="button" className="mr-1 text-xs text-[#0F23D9] hover:text-[#1E3BFA]" onClick={() => {
+                                const weekKeys = new Set(availabilityWeekDays.map(formatLocalDateValue));
+                                setDraftSlots((current) => current.filter((slot) => {
+                                    const range = draftSlotRange(slot);
+                                    return !range || !weekKeys.has(range.dateKey);
+                                }));
+                                setAvailabilitySaveNotice(null);
+                            }}>{isZh ? "清空本周已选" : "Clear selected week"}</button>
+                            <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-[rgba(12,201,145,0.25)]"/>{isZh ? "可面试" : "Available"}</span>
+                            <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-[#F2F3F5] ring-1 ring-[#E6E7EB]"/>{isZh ? "不可面试" : "Unavailable"}</span>
+                            <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-[rgba(30,59,250,0.2)]"/>{isZh ? "已占用" : "Booked"}</span>
+                            <span>{isZh
+                                ? `共 ${currentWeekAvailableDraftCount} 段可面试 · ${currentWeekUnavailableDraftCount} 段不可面试 · ${currentWeekBookedCount} 段已占用`
+                                : `${currentWeekAvailableDraftCount} available · ${currentWeekUnavailableDraftCount} unavailable · ${currentWeekBookedCount} booked`}</span>
                         </div>
                         <div className="flex items-center gap-2">
-                            <Button variant="outline" className="rounded-lg dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800" onClick={requestCloseAvailabilityDialog}>
+                            <Button variant="outline" className="h-9 rounded-md border-[#E6E7EB] bg-white px-4 text-sm font-normal text-[#33353D] shadow-none hover:bg-[#F7F8FA]" onClick={requestCloseAvailabilityDialog}>
                                 {isZh ? "取消" : "Cancel"}
                             </Button>
-                            <Button className="rounded-lg bg-[#171717] text-white hover:bg-[#262626] dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200" disabled={availabilitySaving || availabilitySaveNotice?.type === "success"} onClick={() => void saveAvailability()}>
+                            <Button className="h-9 rounded-md bg-[#1E3BFA] px-4 text-sm text-white shadow-none hover:bg-[#0F23D9]" disabled={availabilitySaving || availabilitySaveNotice?.type === "success"} onClick={() => void saveAvailability()}>
                                 {availabilitySaving ? <Loader2 className="h-4 w-4 animate-spin"/> : null}
                                 {isZh ? "保存" : "Save"}
                             </Button>
@@ -2468,92 +2510,98 @@ export function InterviewWorkbenchPage({
                 </DialogContent>
             </Dialog>
 
-            {selectedTask ? (
-                <div className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/25 px-4 py-5" onMouseDown={(event) => {
+            {selectedTask && typeof document !== "undefined" ? createPortal(
+                <div className="fixed inset-0 z-[90] flex items-center justify-center bg-[rgba(14,17,20,0.45)] px-4 py-5" onMouseDown={(event) => {
                     if (event.target === event.currentTarget) closeTaskDetail();
                 }}>
-                    <div className="grid h-[88vh] w-full max-w-[1440px] grid-cols-[minmax(0,1fr)_360px] overflow-hidden rounded-2xl bg-white shadow-2xl dark:bg-slate-950">
-                        <section className="min-w-0 overflow-auto bg-white dark:bg-slate-950">
-                            <div className="sticky top-0 z-10 border-b border-gray-100 bg-white/95 px-6 py-4 backdrop-blur dark:border-slate-800 dark:bg-slate-950/95">
+                    <div className="flex h-[92vh] w-full max-w-[1360px] flex-col overflow-hidden rounded-[10px] bg-white shadow-[0_12px_40px_rgba(14,17,20,0.2)]">
+                            <div className="shrink-0 border-b border-[#F2F3F5] bg-white px-6 py-[18px]">
                                 <div className="flex items-start justify-between gap-4">
-                                    <div className="flex min-w-0 gap-4">
-                                        <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-neutral-100 text-2xl font-semibold text-[#171717] dark:bg-slate-900 dark:text-slate-100">
+                                    <div className="flex min-w-0 items-center gap-3.5">
+                                        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#1E3BFA] text-[15px] font-medium text-white">
                                             {(selectedDetailCandidate?.name || selectedTask.candidate.name || "?").trim().charAt(0) || "?"}
                                         </div>
                                         <div className="min-w-0">
-                                            <div className="flex flex-wrap items-center gap-2">
-                                                <h3 className="truncate text-xl font-semibold text-slate-950 dark:text-slate-100">
+                                            <div className="flex flex-wrap items-center gap-2.5">
+                                                <h3 className="truncate text-[17px] font-semibold text-[#0E1114]">
                                                     {selectedDetailCandidate?.name || selectedTask.candidate.name || (isZh ? "未命名候选人" : "Unnamed")}
                                                 </h3>
-                                                <span className="text-sm text-slate-400 dark:text-slate-500">{selectedDetailCandidate?.candidate_code || selectedTask.candidate.candidate_code}</span>
-                                                <Badge variant="outline" className={cn("h-6 rounded-md", scheduleBadgeClass(selectedTask.schedule?.status || "needs_scheduling"))}>
+                                                <span className="text-xs text-[#86888F]">{selectedDetailCandidate?.candidate_code || selectedTask.candidate.candidate_code}</span>
+                                                <Badge variant="outline" className={cn("h-[22px] rounded px-2 text-xs font-normal", scheduleBadgeClass(selectedTask.schedule?.status || "needs_scheduling"))}>
                                                     {labelForScheduleStatus(selectedTask.schedule?.status || "needs_scheduling", isZh)}
                                                 </Badge>
                                             </div>
-                                            <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-slate-500 dark:text-slate-400">
-                                                <span className="inline-flex items-center gap-1.5"><Briefcase className="h-3.5 w-3.5 text-slate-300 dark:text-slate-500"/>{candidateTitle(selectedTask, isZh)}</span>
-                                                <span className="inline-flex items-center gap-1.5"><GraduationCap className="h-3.5 w-3.5 text-slate-300 dark:text-slate-500"/>{selectedDetailCandidate?.education || readStructuredText(selectedEducation, ["degree", "education", "学历"]) || "-"}</span>
-                                                <span className="inline-flex items-center gap-1.5"><Phone className="h-3.5 w-3.5 text-slate-300 dark:text-slate-500"/>{selectedDetailCandidate?.phone || readStructuredText(selectedBasicInfo, ["phone", "mobile", "电话"]) || "-"}</span>
-                                                <span className="inline-flex items-center gap-1.5"><Mail className="h-3.5 w-3.5 text-slate-300 dark:text-slate-500"/>{selectedDetailCandidate?.email || readStructuredText(selectedBasicInfo, ["email", "mail", "邮箱"]) || "-"}</span>
+                                            <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[#86888F]">
+                                                <span className="inline-flex items-center gap-1.5"><Briefcase className="h-[13px] w-[13px] text-[#B0B2B8]"/>{candidateTitle(selectedTask, isZh)}</span>
+                                                <span className="inline-flex items-center gap-1.5"><GraduationCap className="h-[13px] w-[13px] text-[#B0B2B8]"/>{selectedDetailCandidate?.education || readStructuredText(selectedEducation, ["degree", "education", "学历"]) || "-"}</span>
+                                                <span className="inline-flex items-center gap-1.5"><Phone className="h-[13px] w-[13px] text-[#B0B2B8]"/>{selectedDetailCandidate?.phone || readStructuredText(selectedBasicInfo, ["phone", "mobile", "电话"]) || "-"}</span>
+                                                <span className="inline-flex items-center gap-1.5"><Mail className="h-[13px] w-[13px] text-[#B0B2B8]"/>{selectedDetailCandidate?.email || readStructuredText(selectedBasicInfo, ["email", "mail", "邮箱"]) || "-"}</span>
                                             </div>
                                         </div>
                                     </div>
-                                    <button type="button" className="rounded-full p-2 text-slate-400 hover:bg-gray-50 hover:text-slate-700 dark:text-slate-500 dark:hover:bg-slate-900 dark:hover:text-slate-200" onClick={closeTaskDetail}>
-                                        <X className="h-5 w-5"/>
+                                    <button type="button" className="p-1 text-[#86888F] hover:text-[#0E1114]" onClick={closeTaskDetail}>
+                                        <X className="h-[18px] w-[18px]"/>
                                     </button>
                                 </div>
                             </div>
 
-                            <div className="space-y-4 px-6 py-5">
+                            <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_420px]">
+                            <section className="min-w-0 overflow-auto border-r border-[#F2F3F5] bg-white">
+                            <div className="space-y-3.5 px-6 py-5">
                                 {selectedCandidateDetailError ? (
-                                    <div className="rounded-xl border border-amber-100 bg-amber-50 px-4 py-3 text-sm text-amber-700 dark:border-amber-900/70 dark:bg-amber-950/30 dark:text-amber-200">
+                                    <div className="rounded-md border border-[rgba(255,171,36,0.35)] bg-[rgba(255,171,36,0.08)] px-4 py-3 text-xs text-[#D48806]">
                                         {isZh ? `候选人详情加载失败：${selectedCandidateDetailError}` : `Failed to load candidate detail: ${selectedCandidateDetailError}`}
                                     </div>
                                 ) : null}
 
                                 <div className="grid gap-3 md:grid-cols-2">
-                                    <section className="rounded-xl border border-neutral-200 bg-neutral-100/60 p-4 dark:border-slate-800 dark:bg-slate-900/60">
-                                        <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-neutral-900 dark:text-slate-100">
-                                            <Sparkles className="h-4 w-4 text-[#171717] dark:text-slate-300"/>
+                                    <section className="rounded-[10px] bg-[#F7F8FA] p-4">
+                                        <div className="mb-2 flex items-center gap-1.5 text-[13px] font-semibold text-[#0E1114]">
+                                            <Sparkles className="h-3.5 w-3.5 text-[#1E3BFA]"/>
                                             {isZh ? "候选人亮点" : "Candidate highlights"}
                                         </div>
                                         {selectedCandidateDetailLoading && !selectedCandidateDetail ? (
-                                            <p className="text-sm text-neutral-700 dark:text-slate-300">{isZh ? "正在加载候选人资料..." : "Loading profile..."}</p>
+                                            <p className="text-xs text-[#33353D]">{isZh ? "正在加载候选人资料..." : "Loading profile..."}</p>
                                         ) : selectedHighlights.length ? (
-                                            <ul className="space-y-1.5 text-sm leading-6 text-neutral-800 dark:text-slate-200">
+                                            <ul className="space-y-1 text-xs leading-[1.9] text-[#33353D]">
                                                 {selectedHighlights.map((item, index) => (
                                                     <li key={`${index}-${item}`} className="line-clamp-2">• {item}</li>
                                                 ))}
                                             </ul>
                                         ) : (
-                                            <p className="text-sm text-neutral-700 dark:text-slate-300">{isZh ? "暂无结构化亮点，面试时可结合原始简历判断。" : "No structured highlights yet."}</p>
+                                            <p className="text-xs leading-[1.9] text-[#33353D]">{isZh ? "暂无结构化亮点，面试时可结合原始简历判断。" : "No structured highlights yet."}</p>
                                         )}
                                     </section>
-                                    <section className="rounded-xl border border-gray-100 bg-gray-50 p-4 dark:border-slate-800 dark:bg-slate-900/60">
-                                        <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
-                                            <UserRound className="h-4 w-4 text-slate-400 dark:text-slate-500"/>
+                                    <section className="rounded-[10px] border border-[#F2F3F5] bg-[#FAFAFB] p-4">
+                                        <div className="mb-2 flex items-center gap-1.5 text-[13px] font-semibold text-[#0E1114]">
+                                            <UserRound className="h-3.5 w-3.5 text-[#86888F]"/>
                                             {isZh ? "基础资料" : "Profile"}
                                         </div>
-                                        <div className="grid gap-x-4 gap-y-2 text-sm text-slate-600 sm:grid-cols-2 dark:text-slate-300">
+                                        <div className="grid gap-x-3 gap-y-1.5 text-xs text-[#33353D] sm:grid-cols-2">
                                             <span>{isZh ? "年龄" : "Age"}：{selectedDetailCandidate?.age || readStructuredText(selectedBasicInfo, ["age", "年龄"]) || "-"}</span>
                                             <span>{isZh ? "城市" : "City"}：{selectedDetailCandidate?.city || selectedDetailCandidate?.expected_city || readStructuredText(selectedBasicInfo, ["city", "location", "城市"]) || "-"}</span>
                                             <span>{isZh ? "经验" : "Experience"}：{selectedDetailCandidate?.years_of_experience || readStructuredText(selectedBasicInfo, ["years_of_experience", "experience", "工作年限"]) || "-"}</span>
                                             <span>{isZh ? "公司" : "Company"}：{selectedDetailCandidate?.current_company || readStructuredText(selectedWork, ["company", "company_name", "公司"]) || "-"}</span>
                                         </div>
+                                        {selectedSkills.length ? (
+                                            <div className="mt-2 flex flex-wrap gap-1.5">
+                                                {selectedSkills.slice(0, 5).map((skill) => <span key={skill} className="rounded bg-[#F2F3F5] px-2 py-1 text-[11px] text-[#86888F]">{skill}</span>)}
+                                            </div>
+                                        ) : null}
                                         {selectedConcerns.length ? (
-                                            <div className="mt-3 rounded-lg border border-amber-100 bg-white px-3 py-2 text-xs leading-5 text-amber-700 dark:border-amber-900/70 dark:bg-slate-950 dark:text-amber-200">
+                                            <div className="mt-2 rounded-md bg-[rgba(255,171,36,0.08)] px-2.5 py-2 text-[11px] leading-[1.6] text-[#D48806]">
                                                 {selectedConcerns.map((item, index) => <p key={`${index}-${item}`}>• {item}</p>)}
                                             </div>
                                         ) : null}
                                     </section>
                                 </div>
 
-                                <section className="rounded-xl border border-gray-100 bg-white dark:border-slate-800 dark:bg-slate-950">
-                                    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 px-4 py-3 dark:border-slate-800">
-                                        <div className="flex min-w-0 items-center gap-2">
-                                            <FileText className="h-4 w-4 text-[#171717] dark:text-slate-300"/>
-                                            <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{isZh ? "简历" : "Resume"}</p>
-                                            <Badge variant="outline" className="h-6 rounded-md border-gray-200 bg-gray-50 text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
+                                <section className="overflow-hidden rounded-[10px] border border-[#EBEEF5] bg-white">
+                                    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#F2F3F5] px-4 py-3">
+                                        <div className="flex min-w-0 items-center gap-1.5">
+                                            <FileText className="h-3.5 w-3.5 text-[#1E3BFA]"/>
+                                            <p className="text-[13px] font-semibold text-[#0E1114]">{isZh ? "简历" : "Resume"}</p>
+                                            <Badge variant="outline" className="h-[22px] rounded border-0 bg-transparent px-1 text-[11px] font-normal text-[#86888F]">
                                                 {selectedResumeFile ? selectedResumeFile.parse_status : (isZh ? "暂无文件" : "No file")}
                                             </Badge>
                                         </div>
@@ -2562,7 +2610,7 @@ export function InterviewWorkbenchPage({
                                                 <select
                                                     value={selectedResumeFile ? String(selectedResumeFile.id) : ""}
                                                     onChange={(event) => setSelectedResumeFileId(Number(event.target.value))}
-                                                    className="h-8 max-w-[360px] rounded-lg border border-gray-100 bg-gray-50 px-2.5 text-xs text-slate-700 outline-none focus:border-[#171717] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:border-slate-500"
+                                                    className="h-7 max-w-[300px] rounded-md border border-[#E6E7EB] bg-white px-2.5 text-xs text-[#33353D] outline-none focus:border-[#1E3BFA]"
                                                 >
                                                     {selectedResumeFiles.map((file) => (
                                                         <option key={file.id} value={file.id}>{file.original_name}</option>
@@ -2571,11 +2619,11 @@ export function InterviewWorkbenchPage({
                                             ) : null}
                                             {resumePreviewUrl && selectedResumeFile ? (
                                                 <>
-                                                    <Button variant="outline" size="sm" className="h-8 rounded-lg text-xs dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800" onClick={() => window.open(resumePreviewUrl, "_blank", "noopener,noreferrer")}>
+                                                    <Button variant="outline" size="sm" className="h-7 rounded-md border-[#E6E7EB] bg-white px-2.5 text-xs font-normal text-[#33353D] shadow-none hover:bg-[#F7F8FA]" onClick={() => window.open(resumePreviewUrl, "_blank", "noopener,noreferrer")}>
                                                         <ExternalLink className="h-3.5 w-3.5"/>
                                                         {isZh ? "新窗口" : "Open"}
                                                     </Button>
-                                                    <Button variant="outline" size="sm" className="h-8 rounded-lg text-xs dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800" asChild>
+                                                    <Button variant="outline" size="sm" className="h-7 rounded-md border-[#E6E7EB] bg-white px-2.5 text-xs font-normal text-[#33353D] shadow-none hover:bg-[#F7F8FA]" asChild>
                                                         <a href={resumePreviewUrl} download={selectedResumeFile.original_name}>
                                                             <Download className="h-3.5 w-3.5"/>
                                                             {isZh ? "下载" : "Download"}
@@ -2585,11 +2633,11 @@ export function InterviewWorkbenchPage({
                                             ) : null}
                                         </div>
                                     </div>
-                                    <div className="relative h-[min(62vh,760px)] min-h-[520px] overflow-hidden bg-white dark:bg-slate-950">
+                                    <div className="relative h-[420px] min-h-[420px] overflow-hidden bg-[#FAFAFB]">
                                         {resumePreviewLoading || ((resumePreviewBlob || resumePreviewUrl) && !resumePreviewReady) ? (
-                                            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-white/95 text-slate-500 dark:bg-slate-950/95 dark:text-slate-400">
-                                                <Loader2 className="h-7 w-7 animate-spin text-[#171717] dark:text-slate-100"/>
-                                                <span className="text-sm">{isZh ? "正在加载原始简历..." : "Loading resume..."}</span>
+                                            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-white/95 text-[#86888F]">
+                                                <Loader2 className="h-7 w-7 animate-spin text-[#1E3BFA]"/>
+                                                <span className="text-xs">{isZh ? "正在加载原始简历..." : "Loading resume..."}</span>
                                             </div>
                                         ) : null}
                                         {resumePreviewBlob && selectedResumeIsPdf && !resumePreviewFallback ? (
@@ -2620,9 +2668,9 @@ export function InterviewWorkbenchPage({
                                         ) : !resumePreviewLoading ? (
                                             <div className="flex h-full items-center justify-center px-6 text-center">
                                                 <div>
-                                                    <FileText className="mx-auto h-10 w-10 text-slate-200 dark:text-slate-700"/>
-                                                    <p className="mt-3 text-sm font-medium text-slate-700 dark:text-slate-300">{selectedResumeFile ? (isZh ? "简历暂无法内嵌显示" : "Resume preview unavailable") : (isZh ? "暂无简历文件" : "No resume file")}</p>
-                                                    <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
+                                                    <FileText className="mx-auto h-10 w-10 text-[#B0B2B8]"/>
+                                                    <p className="mt-3 text-[13px] font-medium text-[#33353D]">{selectedResumeFile ? (isZh ? "简历暂无法内嵌显示" : "Resume preview unavailable") : (isZh ? "暂无简历文件" : "No resume file")}</p>
+                                                    <p className="mt-1 text-[11px] text-[#B0B2B8]">
                                                         {resumePreviewError || (selectedResumeFile ? (isZh ? `${selectedResumeFile.file_ext || "文件"} ${formatBytes(selectedResumeFile.file_size)}` : "Use download to view the file.") : (isZh ? "该候选人没有可预览的简历文件。" : "No resume file attached."))}
                                                     </p>
                                                 </div>
@@ -2633,36 +2681,36 @@ export function InterviewWorkbenchPage({
                             </div>
                         </section>
 
-                        <aside className="flex min-h-0 flex-col border-l border-gray-100 bg-gray-50 dark:border-slate-800 dark:bg-slate-900">
-                            <div className="border-b border-gray-100 bg-white px-5 py-4 dark:border-slate-800 dark:bg-slate-950">
-                                <p className="text-base font-semibold text-slate-950 dark:text-slate-100">{isZh ? "面试评价" : "Interview evaluation"}</p>
-                                <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">{isZh ? "先查看左侧候选人资料，再提交本轮结论。" : "Review the candidate profile, then submit this round."}</p>
+                        <aside className="flex min-h-0 flex-col bg-[#FAFAFB]">
+                            <div className="shrink-0 border-b border-[#F2F3F5] bg-white px-[22px] py-4">
+                                <p className="text-[15px] font-semibold text-[#0E1114]">{isZh ? "面试评价" : "Interview evaluation"}</p>
+                                <p className="mt-[3px] text-[11px] text-[#86888F]">{isZh ? "先查看左侧候选人资料，再提交本轮结论。" : "Review the candidate profile, then submit this round."}</p>
                             </div>
-                            <div className="min-h-0 flex-1 overflow-auto px-5 py-4">
-                                <div className="rounded-xl border border-gray-100 bg-white p-4 dark:border-slate-800 dark:bg-slate-950">
-                                    <div className="grid gap-3 text-sm">
+                            <div className="min-h-0 flex-1 space-y-4 overflow-auto px-[22px] py-[18px]">
+                                <div className="rounded-[10px] border border-[#EBEEF5] bg-white p-4">
+                                    <div className="grid gap-3 text-xs">
                                         <div>
-                                            <p className="text-xs text-slate-400 dark:text-slate-500">{isZh ? "流程状态" : "Status"}</p>
-                                            <p className="mt-1 font-medium text-slate-900 dark:text-slate-100">{labelForScheduleStatus(selectedTask.schedule?.status || "needs_scheduling", isZh)}</p>
-                                        </div>
-                                        <div>
-                                            <p className="text-xs text-slate-400 dark:text-slate-500">{isZh ? "面试轮次" : "Round"}</p>
-                                            <p className="mt-1 font-medium text-slate-900 dark:text-slate-100">{selectedTask.schedule?.round_name || (isZh ? "待安排" : "TBD")}</p>
+                                            <p className="text-[11px] text-[#B0B2B8]">{isZh ? "流程状态" : "Status"}</p>
+                                            <p className="mt-0.5 text-[13px] font-medium text-[#0E1114]">{labelForScheduleStatus(selectedTask.schedule?.status || "needs_scheduling", isZh)}</p>
                                         </div>
                                         <div>
-                                            <p className="text-xs text-slate-400 dark:text-slate-500">{isZh ? "面试官" : "Interviewer"}</p>
-                                            <p className="mt-1 font-medium text-slate-900 dark:text-slate-100">{selectedTask.schedule?.interviewer_name || selectedTask.schedule?.interviewer_user_code || "-"}</p>
+                                            <p className="text-[11px] text-[#B0B2B8]">{isZh ? "面试轮次" : "Round"}</p>
+                                            <p className="mt-0.5 text-[13px] font-medium text-[#0E1114]">{selectedTask.schedule?.round_name || (isZh ? "待安排" : "TBD")}</p>
                                         </div>
-                                        <div className="space-y-2 border-t border-gray-100 pt-3 text-slate-600 dark:border-slate-800 dark:text-slate-300">
-                                            <p className="flex items-center gap-2"><Clock3 className="h-4 w-4 text-slate-300 dark:text-slate-500"/>{formatDateTime(selectedTask.schedule?.scheduled_at) || (isZh ? "时间待定" : "Time TBD")}</p>
-                                            <p className="flex items-center gap-2"><CalendarClock className="h-4 w-4 text-slate-300 dark:text-slate-500"/>{selectedTask.schedule?.duration_minutes ? `${selectedTask.schedule.duration_minutes} 分钟` : "-"}</p>
-                                            <p className="flex items-center gap-2"><MapPin className="h-4 w-4 text-slate-300 dark:text-slate-500"/>{selectedTask.schedule?.location || (isZh ? "地点待定" : "Location TBD")}</p>
-                                            <p className="flex items-center gap-2 break-all"><Video className="h-4 w-4 shrink-0 text-slate-300 dark:text-slate-500"/>{selectedTask.schedule?.meeting_link || (isZh ? "会议链接待定" : "Meeting link TBD")}</p>
+                                        <div>
+                                            <p className="text-[11px] text-[#B0B2B8]">{isZh ? "面试官" : "Interviewer"}</p>
+                                            <p className="mt-0.5 text-[13px] font-medium text-[#0E1114]">{selectedTask.schedule?.interviewer_name || selectedTask.schedule?.interviewer_user_code || "-"}</p>
                                         </div>
-                                        {selectedTask.schedule?.notes ? <p className="rounded-lg bg-gray-50 px-3 py-2 text-xs leading-5 text-slate-500 dark:bg-slate-900 dark:text-slate-400">{selectedTask.schedule.notes}</p> : null}
+                                        <div className="space-y-2 border-t border-[#F2F3F5] pt-3 text-xs text-[#33353D]">
+                                            <p className="flex items-center gap-2"><Clock3 className="h-3.5 w-3.5 text-[#B0B2B8]"/>{selectedTask.schedule?.scheduled_at ? formatDateTime(selectedTask.schedule.scheduled_at) : (isZh ? "时间待定" : "Time TBD")}</p>
+                                            <p className="flex items-center gap-2"><CalendarClock className="h-3.5 w-3.5 text-[#B0B2B8]"/>{selectedTask.schedule?.duration_minutes ? `${selectedTask.schedule.duration_minutes} ${isZh ? "分钟" : "minutes"}` : "-"}</p>
+                                            <p className="flex items-center gap-2"><MapPin className="h-3.5 w-3.5 text-[#B0B2B8]"/>{selectedTask.schedule?.location || selectedTask.schedule?.meeting_room || (isZh ? "地点待定" : "Location TBD")}</p>
+                                            <p className="flex items-center gap-2 break-all"><Video className="h-3.5 w-3.5 shrink-0 text-[#B0B2B8]"/>{selectedTask.schedule?.meeting_link || selectedTask.schedule?.video_tool || (isZh ? "会议链接待定" : "Meeting link TBD")}</p>
+                                        </div>
+                                        {selectedTask.schedule?.notes ? <p className="rounded-md bg-[#F7F8FA] px-3 py-2 text-xs leading-5 text-[#86888F]">{selectedTask.schedule.notes}</p> : null}
                                         {canEditTaskSchedule(selectedTask) ? (
                                             <Button
-                                                className="mt-1 w-full rounded-lg bg-[#2438ff] text-white hover:bg-[#1f31db]"
+                                                className="mt-1 h-[34px] w-full rounded-lg bg-[#1E3BFA] text-[13px] text-white shadow-none hover:bg-[#0F23D9]"
                                                 onClick={() => openEditScheduleDrawer(selectedTask)}
                                             >
                                                 <PencilLine className="h-4 w-4"/>
@@ -2673,10 +2721,10 @@ export function InterviewWorkbenchPage({
                                 </div>
 
                                 {selectedTask.schedule ? (
-                                    <div className="mt-4 rounded-xl border border-gray-100 bg-white p-4 dark:border-slate-800 dark:bg-slate-950">
-                                        <div className="mb-3 flex items-center justify-between">
-                                            <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{isZh ? "本轮结论" : "Conclusion"}</p>
-                                            <Badge variant="outline" className={cn("h-6 rounded-md", scheduleBadgeClass(selectedTask.schedule.status))}>
+                                    <div className="rounded-[10px] border border-[#EBEEF5] bg-white p-4">
+                                        <div className="mb-2.5 flex items-center justify-between">
+                                            <p className="text-[13px] font-semibold text-[#0E1114]">{isZh ? "本轮结论" : "Conclusion"}</p>
+                                            <Badge variant="outline" className={cn("h-[22px] rounded px-2 text-xs font-normal", scheduleBadgeClass(selectedTask.schedule.status))}>
                                                 {labelForScheduleStatus(selectedTask.schedule.status, isZh)}
                                             </Badge>
                                         </div>
@@ -2685,16 +2733,17 @@ export function InterviewWorkbenchPage({
                                             onChange={(event) => setCommentBySchedule((current) => ({...current, [selectedTask.schedule!.id]: event.target.value}))}
                                             disabled={!canSubmitTaskResult(selectedTask)}
                                             placeholder={resultLockMessage(selectedTask) || (isZh ? "填写面试结论、风险点或下一轮建议" : "Add interview feedback")}
-                                            className="min-h-[160px] resize-none rounded-lg border-gray-100 bg-gray-50 text-sm shadow-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:placeholder:text-slate-500"
+                                            className="min-h-[120px] resize-none rounded-md border-[#E6E7EB] bg-white px-3 py-2.5 text-xs leading-[1.7] text-[#33353D] shadow-none placeholder:text-[#B0B2B8] focus-visible:border-[#1E3BFA] focus-visible:ring-0 disabled:bg-[#FAFAFB] disabled:opacity-100"
                                         />
-                                        {resultLockMessage(selectedTask) ? <p className="mt-2 text-xs text-slate-400 dark:text-slate-500">{resultLockMessage(selectedTask)}</p> : null}
-                                        <div className="mt-3">{renderResultActions(selectedTask, true)}</div>
+                                        {resultLockMessage(selectedTask) ? <p className="mt-2 text-[11px] text-[#86888F]">{resultLockMessage(selectedTask)}</p> : null}
+                                        <p className="mb-2 mt-3 text-xs text-[#86888F]">{isZh ? "提交结论" : "Submit conclusion"}</p>
+                                        {renderResultActions(selectedTask, true)}
                                     </div>
                                 ) : canManageInterview ? (
-                                    <div className="mt-4 rounded-xl border border-neutral-200 bg-neutral-100/80 p-4 dark:border-slate-700 dark:bg-slate-900">
-                                        <p className="text-sm font-medium text-neutral-900 dark:text-slate-100">{isZh ? "待安排面试" : "Needs scheduling"}</p>
-                                        <p className="mt-1 text-xs leading-5 text-neutral-700 dark:text-slate-300">{isZh ? "为候选人选择面试官和面试时间后，面试官会在这里看到完整资料。" : "Schedule interviewer and time first."}</p>
-                                        <Button className="mt-3 w-full rounded-lg bg-[#171717] text-white hover:bg-[#262626] dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200" onClick={() => openScheduleDrawer(selectedTask)}>
+                                    <div className="rounded-[10px] border border-[#EBEEF5] bg-white p-4">
+                                        <p className="text-[13px] font-medium text-[#0E1114]">{isZh ? "待安排面试" : "Needs scheduling"}</p>
+                                        <p className="mt-1 text-xs leading-5 text-[#86888F]">{isZh ? "为候选人选择面试官和面试时间后，面试官会在这里看到完整资料。" : "Schedule interviewer and time first."}</p>
+                                        <Button className="mt-3 h-[34px] w-full rounded-lg bg-[#1E3BFA] text-[13px] text-white shadow-none hover:bg-[#0F23D9]" onClick={() => openScheduleDrawer(selectedTask)}>
                                             {isZh ? "安排面试" : "Schedule"}
                                             <ChevronRight className="h-4 w-4"/>
                                         </Button>
@@ -2702,70 +2751,69 @@ export function InterviewWorkbenchPage({
                                 ) : null}
                             </div>
                         </aside>
+                        </div>
                     </div>
-                </div>
+                </div>,
+                document.body,
             ) : null}
 
-            {scheduleTask ? (
-                <div className="fixed inset-0 z-[95] flex justify-end bg-slate-950/25" onMouseDown={(event) => {
+            {scheduleTask && typeof document !== "undefined" ? createPortal(
+                <div className="fixed inset-0 z-[95] flex justify-end bg-[rgba(14,17,20,0.45)]" onMouseDown={(event) => {
                     if (event.target === event.currentTarget) closeScheduleDrawer();
                 }}>
-                    <aside className="h-full w-full max-w-[640px] overflow-auto bg-white shadow-2xl dark:bg-slate-950">
-                        <div className="sticky top-0 z-10 border-b border-gray-100 bg-white/95 px-5 py-4 backdrop-blur dark:border-slate-800 dark:bg-slate-950/95">
-                            <div className="flex items-center justify-between">
+                    <aside className="flex h-full w-full max-w-[640px] flex-col overflow-hidden bg-white shadow-[-8px_0_24px_rgba(14,17,20,0.12)]">
+                        <div className="shrink-0 border-b border-[#F2F3F5] bg-white px-6 pb-3.5 pt-[18px]">
+                            <div className="flex items-start justify-between">
                                 <div>
-                                    <p className="text-lg font-semibold text-slate-950 dark:text-slate-100">
+                                    <p className="text-base font-semibold text-[#0E1114]">
                                         {scheduleEditingId ? (isZh ? "编辑面试" : "Edit interview") : (isZh ? "安排面试" : "Schedule interview")}
                                     </p>
-                                    <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{scheduleTask.candidate.name} · {candidateTitle(scheduleTask, isZh)}</p>
+                                    <p className="mt-1 text-xs text-[#86888F]">{scheduleTask.candidate.name} · {candidateTitle(scheduleTask, isZh)}</p>
                                 </div>
-                                <button type="button" className="rounded-full p-2 text-slate-400 hover:bg-gray-50 hover:text-slate-700 dark:text-slate-500 dark:hover:bg-slate-900 dark:hover:text-slate-200" onClick={closeScheduleDrawer}>
-                                    <X className="h-5 w-5"/>
+                                <button type="button" className="pt-0.5 text-[#86888F] hover:text-[#0E1114]" onClick={closeScheduleDrawer}>
+                                    <X className="h-4 w-4"/>
                                 </button>
                             </div>
                         </div>
-                        <div className="space-y-4 px-5 py-4">
-                            <section className="rounded-xl border border-gray-100 p-4 dark:border-slate-800 dark:bg-slate-950">
-                                <p className="mb-3 text-sm font-semibold text-slate-900 dark:text-slate-100">{isZh ? "面试信息" : "Interview info"}</p>
-                                <div className="grid gap-3 sm:grid-cols-2">
-                                    <label className="space-y-1 sm:col-span-2">
-                                        <span className="text-xs text-slate-400 dark:text-slate-500"><span className="mr-0.5 text-rose-500">*</span>{isZh ? "面试主题" : "Subject"}</span>
+                        <div className="flex-1 space-y-4 overflow-auto px-6 py-5">
+                            <section className="rounded-lg border border-[#EBEEF5] p-4">
+                                <p className="mb-3.5 text-[13px] font-semibold text-[#0E1114]">{isZh ? "面试信息" : "Interview info"}</p>
+                                <div className="grid gap-3.5 sm:grid-cols-2">
+                                    <label className="space-y-1.5 sm:col-span-2">
+                                        <span className="text-xs text-[#33353D]"><span className="mr-0.5 text-[#F53F3F]">*</span>{isZh ? "面试主题" : "Subject"}</span>
                                         <Input
                                             value={scheduleForm.subject}
                                             onChange={(event) => {
                                                 clearScheduleFormError("subject");
                                                 setScheduleForm((current) => ({...current, subject: event.target.value}));
                                             }}
-                                            className={cn("h-9 rounded-lg border-gray-100 bg-gray-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200", scheduleFormErrors.subject && scheduleRequiredErrorClass)}
+                                            className={cn("h-[34px] rounded border-[#E6E7EB] bg-white px-3 text-xs text-[#0E1114] shadow-none focus-visible:border-[#1E3BFA] focus-visible:ring-0", scheduleFormErrors.subject && scheduleRequiredErrorClass)}
                                         />
                                         {renderScheduleFormError("subject")}
                                     </label>
-                                    <label className="space-y-1 sm:col-span-2">
-                                        <span className="text-xs text-slate-400 dark:text-slate-500"><span className="mr-0.5 text-rose-500">*</span>{isZh ? "面试轮次" : "Round"}</span>
-                                        <select
-                                            value={scheduleForm.round_name}
-                                            onChange={(event) => {
-                                                clearScheduleFormError("round_name");
-                                                const roundName = event.target.value;
-                                                setScheduleForm((current) => ({
-                                                    ...current,
-                                                    round_name: roundName,
-                                                    round_index: String(interviewRoundIndexForName(roundName, Number(current.round_index || 4))),
-                                                }));
-                                            }}
-                                            className={cn("h-9 w-full rounded-lg border border-gray-100 bg-gray-50 px-3 text-sm text-slate-700 outline-none focus:border-[#171717] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:border-slate-500", scheduleFormErrors.round_name && scheduleRequiredErrorClass)}
-                                        >
-                                            {INTERVIEW_ROUND_OPTIONS.map((option) => (
-                                                <option key={option.value} value={option.value}>
-                                                    {isZh ? option.labelZh : option.labelEn}
-                                                </option>
-                                            ))}
-                                        </select>
+                                    <div className="space-y-2 sm:col-span-2">
+                                        <span className="text-xs text-[#33353D]"><span className="mr-0.5 text-[#F53F3F]">*</span>{isZh ? "面试轮次" : "Round"}</span>
+                                        <div className={cn("flex flex-wrap gap-2", scheduleFormErrors.round_name && "rounded border border-[#F53F3F] bg-[rgba(245,63,63,0.04)] p-1")}>
+                                            {INTERVIEW_ROUND_OPTIONS.map((option) => {
+                                                const active = scheduleForm.round_name === option.value;
+                                                return (
+                                                    <button
+                                                        key={option.value}
+                                                        type="button"
+                                                        className={cn("h-7 rounded-md border px-3.5 text-xs transition", active ? "border-[#1E3BFA] bg-[rgba(30,59,250,0.05)] text-[#1E3BFA]" : "border-[#E6E7EB] bg-white text-[#33353D] hover:border-[#1E3BFA] hover:text-[#1E3BFA]")}
+                                                        onClick={() => {
+                                                            clearScheduleFormError("round_name");
+                                                            setScheduleForm((current) => ({...current, round_name: option.value, round_index: String(option.roundIndex)}));
+                                                        }}
+                                                    >{isZh ? option.labelZh : option.labelEn}</button>
+                                                );
+                                            })}
+                                        </div>
                                         {renderScheduleFormError("round_name")}
-                                    </label>
-                                    <div className="space-y-1 sm:col-span-2">
-                                        <span className="text-xs text-slate-400 dark:text-slate-500"><span className="mr-0.5 text-rose-500">*</span>{isZh ? "面试方式" : "Method"}</span>
-                                        <div className={cn("grid grid-cols-3 gap-1.5 rounded-lg", scheduleFormErrors.interview_method && "border border-rose-500 bg-rose-50/30 p-1 dark:bg-rose-950/10")}>
+                                    </div>
+                                    <div className="space-y-2 sm:col-span-2">
+                                        <span className="text-xs text-[#33353D]"><span className="mr-0.5 text-[#F53F3F]">*</span>{isZh ? "面试方式" : "Method"}</span>
+                                        <div className={cn("grid grid-cols-3 gap-2 rounded-md", scheduleFormErrors.interview_method && "border border-[#F53F3F] bg-[rgba(245,63,63,0.04)] p-1")}>
                                             {INTERVIEW_METHOD_OPTIONS.map((option) => {
                                                 const active = scheduleForm.interview_method === option.value;
                                                 const Icon = option.value === "onsite" ? Briefcase : option.value === "video" ? Video : Phone;
@@ -2778,10 +2826,10 @@ export function InterviewWorkbenchPage({
                                                             setScheduleForm((current) => ({...current, interview_method: option.value}));
                                                         }}
                                                         className={cn(
-                                                            "flex h-9 items-center justify-center gap-1.5 rounded-lg border px-2 text-xs transition",
+                                                            "flex h-[34px] items-center justify-center gap-1.5 rounded-md border px-2 text-xs transition",
                                                             active
-                                                                ? "border-[#171717] bg-neutral-100 font-medium text-[#171717] dark:border-slate-500 dark:bg-slate-800 dark:text-slate-100"
-                                                                : "border-gray-100 bg-gray-50 text-slate-500 hover:border-neutral-200 hover:text-slate-800 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-slate-600",
+                                                                ? "border-[#1E3BFA] bg-[rgba(30,59,250,0.05)] font-medium text-[#1E3BFA]"
+                                                                : "border-[#E6E7EB] bg-white text-[#33353D] hover:border-[#1E3BFA] hover:text-[#1E3BFA]",
                                                         )}
                                                     >
                                                         <Icon className="h-3.5 w-3.5"/>
@@ -2792,8 +2840,8 @@ export function InterviewWorkbenchPage({
                                         </div>
                                         {renderScheduleFormError("interview_method")}
                                     </div>
-                                    <label className="space-y-1 sm:col-span-2">
-                                        <span className="text-xs text-slate-400 dark:text-slate-500"><span className="mr-0.5 text-rose-500">*</span>{isZh ? "面试官" : "Interviewer"}</span>
+                                    <label className="space-y-2 sm:col-span-2">
+                                        <span className="text-xs text-[#33353D]"><span className="mr-0.5 text-[#F53F3F]">*</span>{isZh ? "面试官" : "Interviewer"}</span>
                                         <select
                                             value={scheduleForm.interviewer_user_code}
                                             onChange={(event) => {
@@ -2808,7 +2856,7 @@ export function InterviewWorkbenchPage({
                                                 }));
                                                 setScheduleSlotsOpen(false);
                                             }}
-                                            className={cn("h-9 w-full rounded-lg border border-gray-100 bg-gray-50 px-3 text-sm text-slate-700 outline-none focus:border-[#171717] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:border-slate-500", scheduleFormErrors.interviewer_user_code && scheduleRequiredErrorClass)}
+                                            className={cn("h-[34px] w-full rounded border border-[#E6E7EB] bg-white px-3 text-xs text-[#0E1114] outline-none focus:border-[#1E3BFA]", scheduleFormErrors.interviewer_user_code && scheduleRequiredErrorClass)}
                                         >
                                             <option value="">{interviewerLoading ? (isZh ? "正在加载面试官..." : "Loading...") : (isZh ? "选择面试官" : "Select interviewer")}</option>
                                             {interviewerOptions.map((reviewer) => (
@@ -2822,14 +2870,14 @@ export function InterviewWorkbenchPage({
                                 </div>
                             </section>
 
-                            <section className="rounded-xl border border-gray-100 p-4 dark:border-slate-800 dark:bg-slate-950">
-                                <p className="mb-3 text-sm font-semibold text-slate-900 dark:text-slate-100">{isZh ? "时间安排" : "Schedule time"}</p>
-                                <div className="grid gap-3 sm:grid-cols-2">
-                                    <label className="relative space-y-1 sm:col-span-2">
+                            <section className="rounded-lg border border-[#EBEEF5] p-4">
+                                <p className="mb-3.5 text-[13px] font-semibold text-[#0E1114]">{isZh ? "时间安排" : "Schedule time"}</p>
+                                <div className="grid gap-3.5 sm:grid-cols-2">
+                                    <label className="relative space-y-2 sm:col-span-2">
                                         <div className="flex items-center justify-between gap-3">
-                                            <span className="text-xs text-slate-400 dark:text-slate-500"><span className="mr-0.5 text-rose-500">*</span>{isZh ? "日期时间" : "Date and time"}</span>
+                                            <span className="text-xs text-[#33353D]"><span className="mr-0.5 text-[#F53F3F]">*</span>{isZh ? "日期时间" : "Date and time"}</span>
                                             <div className="flex shrink-0 items-center gap-1.5">
-                                                {scheduleSlotsLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-300 dark:text-slate-500"/> : null}
+                                                {scheduleSlotsLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin text-[#1E3BFA]"/> : null}
                                                 <button
                                                     type="button"
                                                     disabled={!scheduleForm.interviewer_user_code}
@@ -2838,7 +2886,7 @@ export function InterviewWorkbenchPage({
                                                         setScheduleSlotsOpen((open) => !open);
                                                     }}
                                                     className={cn(
-                                                        "text-xs font-medium text-[#2438ff] underline-offset-2 hover:underline disabled:cursor-not-allowed disabled:text-slate-300 disabled:no-underline dark:text-slate-200 dark:disabled:text-slate-600",
+                                                        "text-xs font-normal text-[#0F23D9] underline-offset-2 hover:text-[#1E3BFA] hover:underline disabled:cursor-not-allowed disabled:text-[#B0B2B8] disabled:no-underline",
                                                     )}
                                                 >
                                                     {scheduleSlotsOpen ? (isZh ? "收起面试官日程" : "Hide interviewer calendar") : (isZh ? "查看面试官日程" : "View interviewer calendar")}
@@ -2851,15 +2899,15 @@ export function InterviewWorkbenchPage({
                                                     type="button"
                                                     onClick={() => setScheduleDatePickerOpen((open) => !open)}
                                                     className={cn(
-                                                        "flex h-9 min-w-0 items-center justify-between rounded-lg border bg-gray-50 px-3 text-left text-sm outline-none transition hover:border-neutral-200 dark:bg-slate-900 dark:hover:border-slate-600",
-                                                        scheduleDatePart ? "border-gray-100 text-slate-800 dark:border-slate-700 dark:text-slate-100" : "border-gray-100 text-slate-400 dark:border-slate-700 dark:text-slate-500",
+                                                        "flex h-[34px] min-w-0 items-center justify-between rounded border bg-white px-3 text-left text-xs outline-none transition hover:border-[#1E3BFA]",
+                                                        scheduleDatePart ? "border-[#E6E7EB] text-[#0E1114]" : "border-[#E6E7EB] text-[#B0B2B8]",
                                                         scheduleFormErrors.scheduled_date && scheduleRequiredErrorClass,
                                                     )}
                                                 >
                                                     <TruncatedTooltipText text={formatDateDisplay(scheduleDatePart, isZh)}>
                                                         {formatDateDisplay(scheduleDatePart, isZh)}
                                                     </TruncatedTooltipText>
-                                                    <CalendarClock className="h-3.5 w-3.5 shrink-0 text-slate-300 dark:text-slate-500"/>
+                                                    <CalendarClock className="h-3.5 w-3.5 shrink-0 text-[#B0B2B8]"/>
                                                 </button>
                                                 {renderScheduleFormError("scheduled_date")}
                                             </div>
@@ -2890,7 +2938,7 @@ export function InterviewWorkbenchPage({
                                                 />
                                                 {renderScheduleFormError("scheduled_start_time")}
                                             </div>
-                                            <span className="pt-2 text-sm text-slate-300 dark:text-slate-600">~</span>
+                                            <span className="pt-2 text-xs text-[#B0B2B8]">~</span>
                                             <div className="min-w-0">
                                                 <TimeSelect
                                                     value={scheduleEndTimePart}
@@ -2921,7 +2969,7 @@ export function InterviewWorkbenchPage({
                                             </div>
                                         </div>
                                         {scheduleSlotsOpen ? (
-                                            <div className="mt-2 max-h-44 overflow-y-auto rounded-lg border border-gray-100 bg-gray-50 p-1.5 dark:border-slate-700 dark:bg-slate-900">
+                                            <div className="mt-2 max-h-44 overflow-y-auto rounded-md border border-[#EBEEF5] bg-[#FAFAFB] p-1.5">
                                                 {scheduleForm.interviewer_user_code && scheduleSlots.length > 0 ? scheduleSlots.map((slot) => {
                                                     const active = scheduleForm.availability_slot_id === String(slot.id);
                                                     const slotLabel = formatRange(slot.start_at, slot.end_at);
@@ -2933,15 +2981,15 @@ export function InterviewWorkbenchPage({
                                                             className={cn(
                                                                 "flex h-8 w-full min-w-0 items-center rounded-md px-2.5 text-left text-xs transition",
                                                                 active
-                                                                    ? "bg-neutral-900 text-white dark:bg-slate-100 dark:text-slate-900"
-                                                                    : "text-slate-600 hover:bg-white hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100",
+                                                                    ? "bg-[#1E3BFA] text-white"
+                                                                    : "text-[#33353D] hover:bg-white hover:text-[#1E3BFA]",
                                                             )}
                                                         >
                                                             <TruncatedTooltipText text={slotLabel}>{slotLabel}</TruncatedTooltipText>
                                                         </button>
                                                     );
                                                 }) : (
-                                                    <p className="px-2.5 py-3 text-center text-xs text-slate-400 dark:text-slate-500">
+                                                    <p className="px-2.5 py-3 text-center text-xs text-[#86888F]">
                                                         {scheduleSlotsLoading
                                                             ? (isZh ? "正在加载面试官日程..." : "Loading interviewer calendar...")
                                                             : scheduleForm.interviewer_user_code
@@ -2952,12 +3000,12 @@ export function InterviewWorkbenchPage({
                                             </div>
                                         ) : null}
                                         {scheduleDatePickerOpen ? (
-                                            <div className="absolute left-0 top-[64px] z-20 w-[360px] rounded-xl border border-gray-100 bg-white p-3 shadow-xl dark:border-slate-700 dark:bg-slate-950">
+                                            <div className="absolute left-0 top-[64px] z-20 w-[360px] rounded-lg border border-[#EBEEF5] bg-white p-3 shadow-[0_8px_24px_rgba(14,17,20,0.12)]">
                                                 <div className="mb-2 flex items-center justify-between">
-                                                    <span className="text-xs font-medium text-slate-500 dark:text-slate-400">{isZh ? "选择面试日期" : "Select date"}</span>
+                                                    <span className="text-xs font-medium text-[#33353D]">{isZh ? "选择面试日期" : "Select date"}</span>
                                                     <button
                                                         type="button"
-                                                        className="text-xs text-[#171717] dark:text-slate-100"
+                                                        className="text-xs text-[#0F23D9] hover:text-[#1E3BFA]"
                                                         onClick={() => {
                                                             clearScheduleFormError("scheduled_date");
                                                             clearScheduleFormError("scheduled_start_time");
@@ -2996,16 +3044,16 @@ export function InterviewWorkbenchPage({
                                                                     setScheduleDatePickerOpen(false);
                                                                 }}
                                                                 className={cn(
-                                                                    "flex h-10 flex-col items-center justify-center rounded-lg text-xs transition",
+                                                                    "flex h-10 flex-col items-center justify-center rounded-md text-xs transition",
                                                                     active
-                                                                        ? "bg-[#171717] text-white shadow-sm dark:bg-slate-100 dark:text-slate-900"
+                                                                        ? "bg-[#1E3BFA] text-white"
                                                                         : isToday
-                                                                            ? "bg-neutral-100 text-[#171717] ring-1 ring-neutral-200 dark:bg-slate-800 dark:text-slate-100 dark:ring-slate-700"
-                                                                            : "text-slate-600 hover:bg-neutral-100 hover:text-[#171717] dark:text-slate-300 dark:hover:bg-slate-900 dark:hover:text-slate-100",
+                                                                            ? "bg-[rgba(30,59,250,0.06)] text-[#1E3BFA] ring-1 ring-[rgba(30,59,250,0.2)]"
+                                                                            : "text-[#33353D] hover:bg-[#F7F8FA] hover:text-[#1E3BFA]",
                                                                 )}
                                                             >
                                                                 <span>{parsed ? parsed.getDate() : date.slice(-2)}</span>
-                                                                <span className={cn("mt-0.5 text-[10px]", active ? "text-white/80" : isToday ? "text-neutral-400" : "text-slate-300")}>
+                                                                <span className={cn("mt-0.5 text-[10px]", active ? "text-white/80" : isToday ? "text-[#1E3BFA]" : "text-[#B0B2B8]")}>
                                                                     {parsed ? new Intl.DateTimeFormat(isZh ? "zh-CN" : "en-US", {weekday: "short"}).format(parsed) : ""}
                                                                 </span>
                                                             </button>
@@ -3014,56 +3062,56 @@ export function InterviewWorkbenchPage({
                                                 </div>
                                             </div>
                                         ) : null}
-                                        <p className="text-[11px] text-slate-400 dark:text-slate-500">
+                                        <p className="text-[11px] text-[#B0B2B8]">
                                             {scheduleStartTimePart ? (isZh ? `当前时长 ${formatDurationText(effectiveScheduleDurationMinutes, isZh)}` : `Duration ${formatDurationText(effectiveScheduleDurationMinutes, isZh)}`) : (isZh ? "先选日期和开始时间，再选择结束时间。" : "Select date and start time, then end time.")}
                                         </p>
                                     </label>
                                     {scheduleForm.interview_method === "onsite" ? (
                                         <>
-                                            <label className="space-y-1">
-                                                <span className="text-xs text-slate-400 dark:text-slate-500">{isZh ? "面试地点" : "Location"}</span>
-                                                <Input value={scheduleForm.location} onChange={(event) => setScheduleForm((current) => ({...current, location: event.target.value}))} placeholder={isZh ? "请输入详细地址" : "Address"} className="h-9 rounded-lg border-gray-100 bg-gray-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:placeholder:text-slate-500"/>
+                                            <label className="space-y-1.5">
+                                                <span className="text-xs text-[#33353D]">{isZh ? "面试地点" : "Location"}</span>
+                                                <Input value={scheduleForm.location} onChange={(event) => setScheduleForm((current) => ({...current, location: event.target.value}))} placeholder={isZh ? "请输入详细地址" : "Address"} className="h-[34px] rounded border-[#E6E7EB] bg-white px-3 text-xs text-[#0E1114] shadow-none placeholder:text-[#B0B2B8] focus-visible:border-[#1E3BFA] focus-visible:ring-0"/>
                                             </label>
-                                            <label className="space-y-1">
-                                                <span className="text-xs text-slate-400 dark:text-slate-500">{isZh ? "会议室" : "Room"}</span>
-                                                <Input value={scheduleForm.meeting_room} onChange={(event) => setScheduleForm((current) => ({...current, meeting_room: event.target.value}))} placeholder={isZh ? "请选择或填写会议室" : "Room"} className="h-9 rounded-lg border-gray-100 bg-gray-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:placeholder:text-slate-500"/>
+                                            <label className="space-y-1.5">
+                                                <span className="text-xs text-[#33353D]">{isZh ? "会议室" : "Room"}</span>
+                                                <Input value={scheduleForm.meeting_room} onChange={(event) => setScheduleForm((current) => ({...current, meeting_room: event.target.value}))} placeholder={isZh ? "请选择或填写会议室" : "Room"} className="h-[34px] rounded border-[#E6E7EB] bg-white px-3 text-xs text-[#0E1114] shadow-none placeholder:text-[#B0B2B8] focus-visible:border-[#1E3BFA] focus-visible:ring-0"/>
                                             </label>
                                         </>
                                     ) : null}
                                     {scheduleForm.interview_method === "video" ? (
                                         <>
-                                            <label className="space-y-1">
-                                                <span className="text-xs text-slate-400 dark:text-slate-500">{isZh ? "视频工具" : "Video tool"}</span>
+                                            <label className="space-y-1.5">
+                                                <span className="text-xs text-[#33353D]">{isZh ? "视频工具" : "Video tool"}</span>
                                                 <select
                                                     value={scheduleForm.video_tool}
                                                     onChange={(event) => setScheduleForm((current) => ({...current, video_tool: event.target.value}))}
-                                                    className="h-9 w-full rounded-lg border border-gray-100 bg-gray-50 px-3 text-sm text-slate-700 outline-none focus:border-[#171717] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:border-slate-500"
+                                                    className="h-[34px] w-full rounded border border-[#E6E7EB] bg-white px-3 text-xs text-[#0E1114] outline-none focus:border-[#1E3BFA]"
                                                 >
                                                     {INTERVIEW_VIDEO_TOOL_OPTIONS.map((tool) => (
                                                         <option key={tool} value={tool}>{tool}</option>
                                                     ))}
                                                 </select>
                                             </label>
-                                            <label className="space-y-1">
-                                                <span className="text-xs text-slate-400 dark:text-slate-500">{isZh ? "会议链接/会议号" : "Meeting link / ID"}</span>
-                                                <Input value={scheduleForm.meeting_link} onChange={(event) => setScheduleForm((current) => ({...current, meeting_link: event.target.value}))} placeholder={isZh ? "请输入会议链接或会议号" : "Meeting link or ID"} className="h-9 rounded-lg border-gray-100 bg-gray-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:placeholder:text-slate-500"/>
+                                            <label className="space-y-1.5">
+                                                <span className="text-xs text-[#33353D]">{isZh ? "会议链接/会议号" : "Meeting link / ID"}</span>
+                                                <Input value={scheduleForm.meeting_link} onChange={(event) => setScheduleForm((current) => ({...current, meeting_link: event.target.value}))} placeholder={isZh ? "请输入会议链接或会议号" : "Meeting link or ID"} className="h-[34px] rounded border-[#E6E7EB] bg-white px-3 text-xs text-[#0E1114] shadow-none placeholder:text-[#B0B2B8] focus-visible:border-[#1E3BFA] focus-visible:ring-0"/>
                                             </label>
                                         </>
                                     ) : null}
                                     {scheduleForm.interview_method === "phone" ? (
-                                        <label className="space-y-1 sm:col-span-2">
-                                            <span className="text-xs text-slate-400 dark:text-slate-500">{isZh ? "联系电话" : "Contact phone"}</span>
-                                            <Input value={scheduleForm.contact_phone} onChange={(event) => setScheduleForm((current) => ({...current, contact_phone: event.target.value}))} placeholder={isZh ? "请输入联系电话" : "Phone"} className="h-9 rounded-lg border-gray-100 bg-gray-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:placeholder:text-slate-500"/>
+                                        <label className="space-y-1.5 sm:col-span-2">
+                                            <span className="text-xs text-[#33353D]">{isZh ? "联系电话" : "Contact phone"}</span>
+                                            <Input value={scheduleForm.contact_phone} onChange={(event) => setScheduleForm((current) => ({...current, contact_phone: event.target.value}))} placeholder={isZh ? "请输入联系电话" : "Phone"} className="h-[34px] rounded border-[#E6E7EB] bg-white px-3 text-xs text-[#0E1114] shadow-none placeholder:text-[#B0B2B8] focus-visible:border-[#1E3BFA] focus-visible:ring-0"/>
                                         </label>
                                     ) : null}
                                     <div className="space-y-2 sm:col-span-2">
-                                        <span className="text-xs text-slate-400 dark:text-slate-500">{isZh ? "可见内容" : "Visible content"}</span>
+                                        <span className="text-xs text-[#33353D]">{isZh ? "可见内容" : "Visible content"}</span>
                                         <div className="grid gap-2 sm:grid-cols-2">
                                             {INTERVIEW_VISIBLE_SECTION_OPTIONS.map((option) => (
-                                                <label key={option.value} className="flex items-center gap-2 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
+                                                <label key={option.value} className="flex items-center gap-2 rounded-md border border-[#E6E7EB] bg-white px-3 py-2 text-xs text-[#33353D]">
                                                     <input
                                                         type="checkbox"
-                                                        className="accent-[#171717] dark:accent-slate-100"
+                                                        className="accent-[#1E3BFA]"
                                                         checked={scheduleForm.visible_sections.includes(option.value)}
                                                         onChange={() => setScheduleForm((current) => ({
                                                             ...current,
@@ -3077,22 +3125,23 @@ export function InterviewWorkbenchPage({
                                             ))}
                                         </div>
                                     </div>
-                                    <label className="space-y-1 sm:col-span-2">
-                                        <span className="text-xs text-slate-400 dark:text-slate-500">{isZh ? "备注" : "Notes"}</span>
-                                        <Textarea value={scheduleForm.notes} onChange={(event) => setScheduleForm((current) => ({...current, notes: event.target.value}))} className="min-h-[74px] resize-none rounded-lg border-gray-100 bg-gray-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:placeholder:text-slate-500"/>
+                                    <label className="space-y-1.5 sm:col-span-2">
+                                        <span className="text-xs text-[#33353D]">{isZh ? "备注" : "Notes"}</span>
+                                        <Textarea value={scheduleForm.notes} onChange={(event) => setScheduleForm((current) => ({...current, notes: event.target.value}))} className="min-h-[74px] resize-none rounded border-[#E6E7EB] bg-white px-3 py-2.5 text-xs text-[#0E1114] shadow-none placeholder:text-[#B0B2B8] focus-visible:border-[#1E3BFA] focus-visible:ring-0"/>
                                     </label>
                                 </div>
                             </section>
                         </div>
-                        <div className="sticky bottom-0 flex justify-end gap-2 border-t border-gray-100 bg-white/95 px-5 py-4 backdrop-blur dark:border-slate-800 dark:bg-slate-950/95">
-                            <Button variant="outline" className="rounded-lg dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800" onClick={closeScheduleDrawer}>{isZh ? "取消" : "Cancel"}</Button>
-                            <Button className="rounded-lg bg-[#171717] text-white hover:bg-[#262626] dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200" disabled={scheduleSaving} onClick={() => void submitSchedule()}>
+                        <div className="flex h-16 shrink-0 items-center justify-end gap-2 border-t border-[#F2F3F5] bg-white px-6">
+                            <Button variant="outline" className="h-9 rounded-md border-[#E6E7EB] bg-white px-4 text-sm font-normal text-[#33353D] shadow-none hover:bg-[#F7F8FA]" onClick={closeScheduleDrawer}>{isZh ? "取消" : "Cancel"}</Button>
+                            <Button className="h-9 rounded-md bg-[#1E3BFA] px-4 text-sm text-white shadow-none hover:bg-[#0F23D9]" disabled={scheduleSaving} onClick={() => void submitSchedule()}>
                                 {scheduleSaving ? <Loader2 className="h-4 w-4 animate-spin"/> : null}
                                 {scheduleEditingId ? (isZh ? "保存修改" : "Save changes") : (isZh ? "确认安排" : "Schedule")}
                             </Button>
                         </div>
                     </aside>
-                </div>
+                </div>,
+                document.body,
             ) : null}
         </div>
     );

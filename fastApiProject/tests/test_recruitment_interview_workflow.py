@@ -26,6 +26,7 @@ from app.rbac_models import (
     ScriptHubUserRole,
 )
 from app.services.recruitment_service_impl import RecruitmentService
+from app.services.task_event_bus import TaskEventBus
 
 
 def _build_test_db():
@@ -413,9 +414,11 @@ def test_scheduled_interview_is_visible_to_assigned_interviewer():
     assert interviewer_tasks["items"][0]["schedule"]["id"] == schedule["id"]
     assert interviewer_tasks["items"][0]["schedule"]["notification_status"] == "sent"
     assert other_interviewer_tasks["total"] == 0
-    assert service.get_interview_candidate_detail(candidate.id, "interviewer-a")["candidate"]["id"] == candidate.id
-    with pytest.raises(ValueError, match="只能查看分配给自己的面试候选人"):
-        service.get_interview_candidate_detail(candidate.id, "interviewer-b")
+    assert service.get_interview_candidate_detail(candidate.id, "interviewer-a", schedule["id"])["candidate"]["id"] == candidate.id
+    with pytest.raises(ValueError, match="必须指定当前面试任务"):
+        service.get_interview_candidate_detail(candidate.id, "interviewer-a")
+    with pytest.raises(ValueError, match="只能查看分配给自己的当前面试任务"):
+        service.get_interview_candidate_detail(candidate.id, "interviewer-b", schedule["id"])
 
 
 def test_interview_candidate_detail_uses_schedule_visible_sections(tmp_path):
@@ -463,12 +466,54 @@ def test_interview_candidate_detail_uses_schedule_visible_sections(tmp_path):
     with pytest.raises(ValueError, match="当前面试任务"):
         service.get_interview_candidate_detail(candidate.id, "interviewer-a", other_schedule["id"])
 
+    with pytest.raises(ValueError, match="必须指定当前面试任务"):
+        service.get_interview_resume_file_download(resume_file.id, "interviewer-a")
 
-def test_update_interview_schedule_reassigns_interviewer_and_notifies():
+    scoped_schedules = service.list_interview_schedules(
+        candidate.id,
+        actor_id="interviewer-a",
+        schedule_id=schedule["id"],
+    )
+    assert [item["id"] for item in scoped_schedules] == [schedule["id"]]
+    with pytest.raises(ValueError, match="必须指定当前面试任务"):
+        service.list_interview_schedules(candidate.id, actor_id="interviewer-a")
+    with pytest.raises(ValueError, match="当前面试任务"):
+        service.list_interview_schedules(
+            candidate.id,
+            actor_id="interviewer-a",
+            schedule_id=other_schedule["id"],
+        )
+
+    manager_detail = service.get_interview_candidate_detail(
+        candidate.id,
+        "interview-manager",
+        can_manage=True,
+    )
+    assert manager_detail["candidate"]["latest_resume_file_id"] == resume_file.id
+    assert manager_detail["resume_files"][0]["id"] == resume_file.id
+    assert manager_detail["score"] is not None
+    assert service.get_interview_resume_file_download(
+        resume_file.id,
+        "interview-manager",
+        can_manage=True,
+    )["content"] == b"resume-bytes"
+    assert {item["id"] for item in service.list_interview_schedules(candidate.id)} == {
+        schedule["id"],
+        other_schedule["id"],
+    }
+
+
+def test_update_interview_schedule_reassigns_interviewer_and_notifies(monkeypatch):
     db = _build_test_db()
     candidate = _add_candidate(db)
     _seed_interviewers(db, "interviewer-a", "interviewer-b")
     service = RecruitmentService(db)
+    emitted_events = []
+    monkeypatch.setattr(
+        TaskEventBus,
+        "emit_to_all",
+        classmethod(lambda _cls, event_type, payload: emitted_events.append((event_type, payload))),
+    )
     start = datetime.now().replace(microsecond=0) + timedelta(days=1)
     slot_a = service.replace_my_interview_availability(
         {
@@ -497,6 +542,7 @@ def test_update_interview_schedule_reassigns_interviewer_and_notifies():
         },
         "hr",
     )
+    emitted_events.clear()
 
     updated = service.update_interview_schedule(
         schedule["id"],
@@ -520,6 +566,99 @@ def test_update_interview_schedule_reassigns_interviewer_and_notifies():
     assert follow_up_count == 2
     assert service.list_my_interview_tasks("interviewer-a", status="todo")["total"] == 0
     assert service.list_my_interview_tasks("interviewer-b", status="todo")["total"] == 1
+    assert len(emitted_events) == 1
+    event_type, event_payload = emitted_events[0]
+    assert event_type == "candidate_updated"
+    assert event_payload["interviewer_user_code"] == "interviewer-b"
+    assert event_payload["previous_interviewer_user_code"] == "interviewer-a"
+    assert event_payload["assignment_changed"] is True
+
+
+def test_self_scope_interviewer_uses_assignment_not_creator_ownership(tmp_path):
+    db = _build_test_db()
+    candidate = _add_candidate(db, code="C-SELF-ASSIGNED", status="pending_interview")
+    resume_file, _, _ = _add_candidate_detail_artifacts(db, candidate, tmp_path)
+    _seed_interviewers(db, "interviewer-a")
+    service = RecruitmentService(db)
+    schedule = service.create_interview_schedule(
+        {
+            "candidate_id": candidate.id,
+            "round_name": "初试",
+            "round_index": 1,
+            "interviewer_user_code": "interviewer-a",
+            "scheduled_at": (datetime.now().replace(microsecond=0) + timedelta(days=1)).isoformat(),
+            "duration_minutes": 60,
+        },
+        "hr",
+    )
+    interviewer_service = RecruitmentService(db).set_permission_context({
+        "id": "interviewer-a",
+        "primaryOrgCode": "group",
+        "dataScope": "SELF",
+        "permissions": {"recruitment-interview-act": True},
+    })
+
+    tasks = interviewer_service.list_my_interview_tasks("interviewer-a", status="todo")
+    detail = interviewer_service.get_interview_candidate_detail(
+        candidate.id,
+        "interviewer-a",
+        schedule_id=schedule["id"],
+    )
+    download = interviewer_service.get_interview_resume_file_download(
+        resume_file.id,
+        "interviewer-a",
+        schedule_id=schedule["id"],
+    )
+
+    assert tasks["total"] == 1
+    assert tasks["counts"]["todo"] == 1
+    assert detail["candidate"]["id"] == candidate.id
+    assert download["content"] == b"resume-bytes"
+
+    self_manager_service = RecruitmentService(db).set_permission_context({
+        "id": "manager-a",
+        "primaryOrgCode": "group",
+        "dataScope": "SELF",
+        "permissions": {"recruitment-interview-manage": True},
+    })
+    with pytest.raises(ValueError, match="仅能访问自己创建的数据"):
+        self_manager_service.get_interview_candidate_detail(candidate.id, "manager-a", can_manage=True)
+
+
+def test_delete_interview_schedule_event_keeps_scope_metadata(monkeypatch):
+    db = _build_test_db()
+    candidate = _add_candidate(db)
+    _seed_interviewers(db, "interviewer-a")
+    service = RecruitmentService(db)
+    start = datetime.now().replace(microsecond=0) + timedelta(days=1)
+    emitted_events = []
+    monkeypatch.setattr(
+        TaskEventBus,
+        "emit_to_all",
+        classmethod(lambda _cls, event_type, payload: emitted_events.append((event_type, payload))),
+    )
+    schedule = service.create_interview_schedule(
+        {
+            "candidate_id": candidate.id,
+            "round_name": "初试",
+            "interviewer_user_code": "interviewer-a",
+            "scheduled_at": start.isoformat(),
+            "duration_minutes": 60,
+        },
+        "hr",
+    )
+    emitted_events.clear()
+
+    service.delete_interview_schedule(schedule["id"], "hr")
+
+    assert len(emitted_events) == 1
+    event_type, payload = emitted_events[0]
+    assert event_type == "candidate_updated"
+    assert payload["task_type"] == "interview_schedule"
+    assert payload["org_code"] == candidate.org_code
+    assert payload["interviewer_user_code"] == "interviewer-a"
+    assert payload["schedule_status"] == "deleted"
+    assert payload["candidate_snapshot"]["id"] == candidate.id
 
 
 def test_no_show_interview_counts_as_completed_not_cancelled():
@@ -599,6 +738,91 @@ def test_submit_interview_result_writes_result_and_candidate_status():
     assert todo_tasks["items"][0]["next_round_index"] == 2
     assert todo_tasks["items"][0]["next_round_name"] == "复试"
     assert todo_tasks["items"][0]["last_completed_schedule"]["id"] == schedule["id"]
+
+
+def test_submit_interview_result_rejects_repeat_submission_without_duplicate_history():
+    db = _build_test_db()
+    candidate = _add_candidate(db, code="C-RESULT-ONCE", status="pending_interview")
+    _seed_interviewers(db, "interviewer-a")
+    service = RecruitmentService(db)
+    schedule = service.create_interview_schedule(
+        {
+            "candidate_id": candidate.id,
+            "round_name": "初试",
+            "round_index": 1,
+            "interviewer_user_code": "interviewer-a",
+            "scheduled_at": (datetime.now().replace(microsecond=0) + timedelta(days=1)).isoformat(),
+            "duration_minutes": 60,
+        },
+        "hr",
+    )
+
+    service.submit_interview_schedule_result(
+        schedule["id"],
+        {"result_status": "passed", "result_comment": "通过"},
+        "interviewer-a",
+    )
+
+    with pytest.raises(ValueError, match="不能重复提交"):
+        service.submit_interview_schedule_result(
+            schedule["id"],
+            {"result_status": "rejected", "result_comment": "重复请求"},
+            "interviewer-a",
+        )
+
+    assert db.query(RecruitmentInterviewResult).filter_by(candidate_id=candidate.id).count() == 1
+    db.refresh(candidate)
+    assert candidate.status == "interview_passed"
+
+
+def test_submit_interview_result_rejects_cancelled_schedule_and_final_round_next_round():
+    db = _build_test_db()
+    candidate = _add_candidate(db, code="C-RESULT-CLOSED", status="pending_interview")
+    _seed_interviewers(db, "interviewer-a")
+    service = RecruitmentService(db)
+    start = datetime.now().replace(microsecond=0) + timedelta(days=1)
+    cancelled_schedule = service.create_interview_schedule(
+        {
+            "candidate_id": candidate.id,
+            "round_name": "初试",
+            "round_index": 1,
+            "interviewer_user_code": "interviewer-a",
+            "scheduled_at": start.isoformat(),
+            "duration_minutes": 60,
+        },
+        "hr",
+    )
+    service.update_interview_schedule(cancelled_schedule["id"], {"status": "cancelled"}, "hr")
+
+    with pytest.raises(ValueError, match="已结束或已取消"):
+        service.submit_interview_schedule_result(
+            cancelled_schedule["id"],
+            {"result_status": "passed"},
+            "interviewer-a",
+        )
+
+    final_schedule = service.create_interview_schedule(
+        {
+            "candidate_id": candidate.id,
+            "round_name": "终试",
+            "round_index": 4,
+            "interviewer_user_code": "interviewer-a",
+            "scheduled_at": (start + timedelta(days=1)).isoformat(),
+            "duration_minutes": 60,
+        },
+        "hr",
+    )
+    with pytest.raises(ValueError, match="终试不能进入下一轮"):
+        service.submit_interview_schedule_result(
+            final_schedule["id"],
+            {"result_status": "next_round", "next_round_name": "终试"},
+            "interviewer-a",
+        )
+
+    final_row = db.query(RecruitmentInterviewSchedule).filter_by(id=final_schedule["id"]).one()
+    assert final_row.status == "scheduled"
+    assert final_row.result_status is None
+    assert db.query(RecruitmentInterviewResult).filter_by(candidate_id=candidate.id).count() == 0
 
 
 def test_candidate_list_exposes_first_and_second_interview_pipeline_statuses():
@@ -703,6 +927,54 @@ def test_interview_next_round_sequence_enters_extra_then_final_round():
         "interviewer-a",
     )
     todo_tasks = service.list_interview_tasks(status="todo")
+    assert todo_tasks["items"][0]["next_round_index"] == 4
+    assert todo_tasks["items"][0]["next_round_name"] == "终试"
+
+
+def test_unscheduled_next_round_context_prefers_highest_completed_round_over_latest_time():
+    db = _build_test_db()
+    candidate = _add_candidate(db, code="C-ROUND-ORDER", status="pending_interview")
+    _seed_interviewers(db, "interviewer-a")
+    service = RecruitmentService(db)
+    start = datetime.now().replace(microsecond=0) + timedelta(days=1)
+
+    final_schedule = service.create_interview_schedule(
+        {
+            "candidate_id": candidate.id,
+            "round_name": "终试",
+            "round_index": 4,
+            "interviewer_user_code": "interviewer-a",
+            "scheduled_at": start.isoformat(),
+            "duration_minutes": 60,
+        },
+        "hr",
+    )
+    service.submit_interview_schedule_result(
+        final_schedule["id"],
+        {"result_status": "hold", "result_comment": "终试暂缓"},
+        "interviewer-a",
+    )
+    extra_schedule = service.create_interview_schedule(
+        {
+            "candidate_id": candidate.id,
+            "round_name": "加试",
+            "round_index": 3,
+            "interviewer_user_code": "interviewer-a",
+            "scheduled_at": (start + timedelta(days=5)).isoformat(),
+            "duration_minutes": 60,
+        },
+        "hr",
+    )
+    service.submit_interview_schedule_result(
+        extra_schedule["id"],
+        {"result_status": "hold", "result_comment": "乱序补录"},
+        "interviewer-a",
+    )
+
+    todo_tasks = service.list_interview_tasks(status="todo")
+    assert todo_tasks["total"] == 1
+    assert todo_tasks["items"][0]["task_type"] == "needs_scheduling"
+    assert todo_tasks["items"][0]["last_completed_schedule"]["id"] == final_schedule["id"]
     assert todo_tasks["items"][0]["next_round_index"] == 4
     assert todo_tasks["items"][0]["next_round_name"] == "终试"
 

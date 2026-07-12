@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { getBackendBaseUrl } from "@/lib/server/backendBaseUrl";
+import {
+  RECRUITMENT_CANDIDATE_INTERVIEW_SCHEDULE_PERMISSIONS,
+  RECRUITMENT_INTERVIEW_SCOPED_PERMISSIONS,
+  RECRUITMENT_TASK_EVENT_PERMISSIONS,
+} from "@/lib/server/recruitmentRoutePermissions";
 import { requireScriptHubAnyPermission, requireScriptHubPermission } from "@/lib/server/scriptHubSession";
 
 export const dynamic = "force-dynamic";
@@ -36,6 +41,10 @@ function resolveRecruitmentPermission(path: string, method: string): string | st
 
   if (path === "metadata" || path === "organization-scope") {
     return RECRUITMENT_COMMON_VIEW_PERMISSIONS;
+  }
+
+  if (path === "task-events") {
+    return RECRUITMENT_TASK_EVENT_PERMISSIONS;
   }
 
   if (path === "chat/context") {
@@ -87,7 +96,7 @@ function resolveRecruitmentPermission(path: string, method: string): string | st
   }
 
   if (/^candidates\/\d+\/interview-schedules$/.test(path)) {
-    return ["recruitment-dashboard-view", "recruitment-interview-view", "recruitment-interview-manage"];
+    return RECRUITMENT_CANDIDATE_INTERVIEW_SCHEDULE_PERMISSIONS;
   }
 
   if (path === "interview-availability/my") {
@@ -105,7 +114,7 @@ function resolveRecruitmentPermission(path: string, method: string): string | st
   }
 
   if (path.startsWith("interviews/candidates/") || path.startsWith("interviews/resume-files/")) {
-    return ["recruitment-interview-view", "recruitment-interview-act", "recruitment-interview-manage"];
+    return RECRUITMENT_INTERVIEW_SCOPED_PERMISSIONS;
   }
 
   if (path === "interviews" || path === "interviews/interviewers") {

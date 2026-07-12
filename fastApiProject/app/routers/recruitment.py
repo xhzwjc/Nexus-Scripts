@@ -20,7 +20,7 @@ from fastapi.responses import FileResponse, Response, StreamingResponse
 from sqlalchemy.orm import Session
 
 from ..database import SessionLocal, get_db
-from ..permission_governance import expand_permission_aliases
+from ..permission_governance import PermissionContext, build_permission_context, expand_permission_aliases, normalize_org_code
 from ..recruitment_schemas import (
     CandidateBatchDeleteRequest,
     CandidateBatchStatusUpdateRequest,
@@ -103,6 +103,87 @@ RECRUITMENT_COMMON_VIEW_PERMISSIONS = [
     "recruitment-llm-config-manage",
 ]
 
+RECRUITMENT_INTERVIEW_SCOPED_PERMISSIONS = [
+    "recruitment-interview-view",
+    "recruitment-interview-act",
+    "recruitment-interview-manage",
+]
+
+RECRUITMENT_TASK_EVENT_PERMISSIONS = [
+    "recruitment-process-execute",
+    "recruitment-log-view",
+    *RECRUITMENT_INTERVIEW_SCOPED_PERMISSIONS,
+]
+
+RECRUITMENT_CANDIDATE_INTERVIEW_SCHEDULE_PERMISSIONS = [
+    "recruitment-dashboard-view",
+    *RECRUITMENT_INTERVIEW_SCOPED_PERMISSIONS,
+]
+
+
+def _has_unrestricted_task_event_access(session: Dict[str, Any]) -> bool:
+    return (
+        _session_has_permission(session, "recruitment-process-execute")
+        or _session_has_permission(session, "recruitment-log-view")
+    )
+
+
+def _task_event_for_session(
+    raw_event: str,
+    session: Dict[str, Any],
+    permission_context: Optional[PermissionContext],
+) -> Optional[str]:
+    if _has_unrestricted_task_event_access(session):
+        return raw_event
+    if not any(_session_has_permission(session, permission) for permission in RECRUITMENT_INTERVIEW_SCOPED_PERMISSIONS):
+        return None
+    if permission_context is None:
+        return None
+    try:
+        payload = json.loads(raw_event)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict) or str(payload.get("task_type") or "").strip() != "interview_schedule":
+        return None
+
+    actor_id = str(session.get("id") or "").strip()
+    can_manage = _session_has_permission(session, "recruitment-interview-manage")
+    if not can_manage:
+        assigned_user_codes = {
+            str(payload.get("interviewer_user_code") or "").strip(),
+            str(payload.get("previous_interviewer_user_code") or "").strip(),
+        }
+        assigned_user_codes.discard("")
+        if actor_id not in assigned_user_codes:
+            return None
+
+    candidate_snapshot = payload.get("candidate_snapshot")
+    snapshot = candidate_snapshot if isinstance(candidate_snapshot, dict) else {}
+    event_org_code = str(payload.get("org_code") or snapshot.get("org_code") or "").strip()
+    if permission_context.visible_org_codes is not None:
+        visible_org_codes = {normalize_org_code(code) for code in permission_context.visible_org_codes}
+        if not event_org_code or normalize_org_code(event_org_code) not in visible_org_codes:
+            return None
+    if can_manage and permission_context.is_self_scope:
+        owner_id = str(snapshot.get("created_by") or snapshot.get("uploaded_by") or "").strip()
+        if not owner_id or owner_id != permission_context.actor_user_code:
+            return None
+    if not can_manage:
+        # The event only tells the assigned interviewer to refresh their scoped
+        # task. Candidate data must continue to flow through the schedule-aware
+        # detail endpoint where visible_sections is enforced.
+        payload.pop("candidate_snapshot", None)
+        return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    return raw_event
+
+
+def _should_deliver_task_event(
+    raw_event: str,
+    session: Dict[str, Any],
+    permission_context: Optional[PermissionContext],
+) -> bool:
+    return _task_event_for_session(raw_event, session, permission_context) is not None
+
 
 def _filter_uploaded_resume_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return [row for row in rows if not row.get("skipped_duplicate")]
@@ -111,9 +192,7 @@ def _filter_uploaded_resume_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, A
 @recruitment_router.get("/task-events")
 async def stream_task_events(
     request: Request,
-    _session: Dict[str, Any] = Depends(require_script_hub_any_permission(
-        ["recruitment-process-execute", "recruitment-log-view"]
-    )),
+    _session: Dict[str, Any] = Depends(require_script_hub_any_permission(RECRUITMENT_TASK_EVENT_PERMISSIONS)),
 ):
     """
     SSE 长连接端点。前端建立一次连接后，后端主动推送任务状态变化。
@@ -122,6 +201,14 @@ async def stream_task_events(
     token = get_script_hub_token_from_request(request)
     if not token:
         raise HTTPException(status_code=401, detail="Unauthorized")
+
+    event_permission_context: Optional[PermissionContext] = None
+    if not _has_unrestricted_task_event_access(_session):
+        db = SessionLocal()
+        try:
+            event_permission_context = build_permission_context(db, _session)
+        finally:
+            db.close()
 
     subscription_id, q = TaskEventBus.subscribe(token)
     build_version = os.environ.get("BUILD_VERSION", "dev")
@@ -135,7 +222,9 @@ async def stream_task_events(
                     break
                 try:
                     data = await asyncio.wait_for(q.get(), timeout=25.0)
-                    yield f"data: {data}\n\n"
+                    scoped_event = _task_event_for_session(data, _session, event_permission_context)
+                    if scoped_event is not None:
+                        yield f"data: {scoped_event}\n\n"
                 except asyncio.TimeoutError:
                     yield ": heartbeat\n\n"
         finally:
@@ -1518,12 +1607,25 @@ async def download_interview_question(question_id: int, _session: Dict[str, Any]
 
 
 @recruitment_router.get("/candidates/{candidate_id}/interview-schedules")
-async def list_interview_schedules(candidate_id: int, _session: Dict[str, Any] = Depends(require_script_hub_any_permission(["recruitment-dashboard-view", "recruitment-interview-view"])), service: RecruitmentService = Depends(get_recruitment_service)):
+async def list_interview_schedules(
+    candidate_id: int,
+    schedule_id: Optional[int] = Query(None, ge=1),
+    _session: Dict[str, Any] = Depends(require_script_hub_any_permission(RECRUITMENT_CANDIDATE_INTERVIEW_SCHEDULE_PERMISSIONS)),
+    service: RecruitmentService = Depends(get_recruitment_service),
+):
+    can_view_all = (
+        _session_has_permission(_session, "recruitment-dashboard-view")
+        or _session_has_permission(_session, "recruitment-interview-manage")
+    )
     try:
-        data = service.list_interview_schedules(candidate_id)
+        data = service.list_interview_schedules(
+            candidate_id,
+            actor_id=None if can_view_all else (_session.get("id") or "unknown"),
+            schedule_id=schedule_id,
+        )
         return {"success": True, "data": data}
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        raise HTTPException(status_code=404 if can_view_all else 403, detail=str(exc))
     except Exception as exc:
         logger.error("list_interview_schedules failed: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail=str(exc))
@@ -1598,11 +1700,16 @@ async def list_my_interview_tasks(
 async def get_my_interview_candidate_detail(
     candidate_id: int,
     schedule_id: Optional[int] = Query(None, ge=1),
-    _session: Dict[str, Any] = Depends(require_script_hub_any_permission(["recruitment-interview-view", "recruitment-interview-act"])),
+    _session: Dict[str, Any] = Depends(require_script_hub_any_permission(RECRUITMENT_INTERVIEW_SCOPED_PERMISSIONS)),
     service: RecruitmentService = Depends(get_recruitment_service),
 ):
     try:
-        data = service.get_interview_candidate_detail(candidate_id, _session.get("id") or "unknown", schedule_id=schedule_id)
+        data = service.get_interview_candidate_detail(
+            candidate_id,
+            _session.get("id") or "unknown",
+            schedule_id=schedule_id,
+            can_manage=_session_has_permission(_session, "recruitment-interview-manage"),
+        )
         return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
     except ValueError as exc:
         raise HTTPException(status_code=403, detail=str(exc))
@@ -1612,11 +1719,16 @@ async def get_my_interview_candidate_detail(
 async def download_my_interview_resume_file(
     resume_file_id: int,
     schedule_id: Optional[int] = Query(None, ge=1),
-    _session: Dict[str, Any] = Depends(require_script_hub_any_permission(["recruitment-interview-view", "recruitment-interview-act"])),
+    _session: Dict[str, Any] = Depends(require_script_hub_any_permission(RECRUITMENT_INTERVIEW_SCOPED_PERMISSIONS)),
     service: RecruitmentService = Depends(get_recruitment_service),
 ):
     try:
-        payload = service.get_interview_resume_file_download(resume_file_id, _session.get("id") or "unknown", schedule_id=schedule_id)
+        payload = service.get_interview_resume_file_download(
+            resume_file_id,
+            _session.get("id") or "unknown",
+            schedule_id=schedule_id,
+            can_manage=_session_has_permission(_session, "recruitment-interview-manage"),
+        )
         file_name = payload["file_name"] or "resume.bin"
         file_extension = f".{file_name.rsplit('.', 1)[1]}" if "." in file_name and not file_name.endswith(".") else ".bin"
         quoted_name = quote(file_name)
