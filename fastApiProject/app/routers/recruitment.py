@@ -109,9 +109,15 @@ RECRUITMENT_INTERVIEW_SCOPED_PERMISSIONS = [
     "recruitment-interview-manage",
 ]
 
+RECRUITMENT_REVIEW_SCOPED_PERMISSIONS = [
+    "recruitment-review-view",
+    "recruitment-review-act",
+]
+
 RECRUITMENT_TASK_EVENT_PERMISSIONS = [
     "recruitment-process-execute",
     "recruitment-log-view",
+    *RECRUITMENT_REVIEW_SCOPED_PERMISSIONS,
     *RECRUITMENT_INTERVIEW_SCOPED_PERMISSIONS,
 ]
 
@@ -135,28 +141,17 @@ def _task_event_for_session(
 ) -> Optional[str]:
     if _has_unrestricted_task_event_access(session):
         return raw_event
-    if not any(_session_has_permission(session, permission) for permission in RECRUITMENT_INTERVIEW_SCOPED_PERMISSIONS):
-        return None
     if permission_context is None:
         return None
     try:
         payload = json.loads(raw_event)
     except (TypeError, ValueError, json.JSONDecodeError):
         return None
-    if not isinstance(payload, dict) or str(payload.get("task_type") or "").strip() != "interview_schedule":
+    if not isinstance(payload, dict):
         return None
 
+    task_type = str(payload.get("task_type") or "").strip()
     actor_id = str(session.get("id") or "").strip()
-    can_manage = _session_has_permission(session, "recruitment-interview-manage")
-    if not can_manage:
-        assigned_user_codes = {
-            str(payload.get("interviewer_user_code") or "").strip(),
-            str(payload.get("previous_interviewer_user_code") or "").strip(),
-        }
-        assigned_user_codes.discard("")
-        if actor_id not in assigned_user_codes:
-            return None
-
     candidate_snapshot = payload.get("candidate_snapshot")
     snapshot = candidate_snapshot if isinstance(candidate_snapshot, dict) else {}
     event_org_code = str(payload.get("org_code") or snapshot.get("org_code") or "").strip()
@@ -164,17 +159,46 @@ def _task_event_for_session(
         visible_org_codes = {normalize_org_code(code) for code in permission_context.visible_org_codes}
         if not event_org_code or normalize_org_code(event_org_code) not in visible_org_codes:
             return None
-    if can_manage and permission_context.is_self_scope:
-        owner_id = str(snapshot.get("created_by") or snapshot.get("uploaded_by") or "").strip()
-        if not owner_id or owner_id != permission_context.actor_user_code:
+
+    if task_type == "department_review":
+        if not any(_session_has_permission(session, permission) for permission in RECRUITMENT_REVIEW_SCOPED_PERMISSIONS):
             return None
-    if not can_manage:
+        reviewer_user_codes = {
+            str(value or "").strip()
+            for value in (payload.get("reviewer_user_codes") or [])
+            if str(value or "").strip()
+        }
+        if actor_id not in reviewer_user_codes:
+            return None
+        # Department-review events only instruct an assignee to refresh the
+        # assignment-scoped endpoint.  Never stream the candidate snapshot.
+        payload.pop("candidate_snapshot", None)
+        return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+
+    if task_type == "interview_schedule":
+        if not any(_session_has_permission(session, permission) for permission in RECRUITMENT_INTERVIEW_SCOPED_PERMISSIONS):
+            return None
+        can_manage = _session_has_permission(session, "recruitment-interview-manage")
+        if not can_manage:
+            assigned_user_codes = {
+                str(payload.get("interviewer_user_code") or "").strip(),
+                str(payload.get("previous_interviewer_user_code") or "").strip(),
+            }
+            assigned_user_codes.discard("")
+            if actor_id not in assigned_user_codes:
+                return None
+        if can_manage and permission_context.is_self_scope:
+            owner_id = str(snapshot.get("created_by") or snapshot.get("uploaded_by") or "").strip()
+            if not owner_id or owner_id != permission_context.actor_user_code:
+                return None
+        if can_manage:
+            return raw_event
         # The event only tells the assigned interviewer to refresh their scoped
         # task. Candidate data must continue to flow through the schedule-aware
         # detail endpoint where visible_sections is enforced.
         payload.pop("candidate_snapshot", None)
         return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
-    return raw_event
+    return None
 
 
 def _should_deliver_task_event(

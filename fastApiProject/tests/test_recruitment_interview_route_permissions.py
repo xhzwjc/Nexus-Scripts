@@ -18,9 +18,14 @@ INTERVIEW_SCOPED_PERMISSIONS = [
     "recruitment-interview-act",
     "recruitment-interview-manage",
 ]
+REVIEW_SCOPED_PERMISSIONS = [
+    "recruitment-review-view",
+    "recruitment-review-act",
+]
 TASK_EVENT_PERMISSIONS = [
     "recruitment-process-execute",
     "recruitment-log-view",
+    *REVIEW_SCOPED_PERMISSIONS,
     *INTERVIEW_SCOPED_PERMISSIONS,
 ]
 CANDIDATE_INTERVIEW_SCHEDULE_PERMISSIONS = [
@@ -86,6 +91,7 @@ def _task_event(
     previous_interviewer_user_code=None,
     org_code="company-a",
     created_by="hr",
+    reviewer_user_codes=None,
 ) -> str:
     return json.dumps(
         {
@@ -93,6 +99,7 @@ def _task_event(
             "task_type": task_type,
             "interviewer_user_code": interviewer_user_code,
             "previous_interviewer_user_code": previous_interviewer_user_code,
+            "reviewer_user_codes": reviewer_user_codes or [],
             "org_code": org_code,
             "candidate_snapshot": {
                 "id": 11,
@@ -190,12 +197,17 @@ def test_next_and_fastapi_interview_permission_sets_stay_aligned():
     ).read_text(encoding="utf-8")
 
     assert recruitment.RECRUITMENT_INTERVIEW_SCOPED_PERMISSIONS == INTERVIEW_SCOPED_PERMISSIONS
+    assert recruitment.RECRUITMENT_REVIEW_SCOPED_PERMISSIONS == REVIEW_SCOPED_PERMISSIONS
     assert recruitment.RECRUITMENT_TASK_EVENT_PERMISSIONS == TASK_EVENT_PERMISSIONS
     assert recruitment.RECRUITMENT_CANDIDATE_INTERVIEW_SCHEDULE_PERMISSIONS == CANDIDATE_INTERVIEW_SCHEDULE_PERMISSIONS
     assert _extract_typescript_permission_array(
         frontend_constants,
         "RECRUITMENT_INTERVIEW_SCOPED_PERMISSIONS",
     ) == INTERVIEW_SCOPED_PERMISSIONS
+    assert _extract_typescript_permission_array(
+        frontend_constants,
+        "RECRUITMENT_REVIEW_SCOPED_PERMISSIONS",
+    ) == REVIEW_SCOPED_PERMISSIONS
     assert _extract_typescript_permission_array(
         frontend_constants,
         "RECRUITMENT_TASK_EVENT_PERMISSIONS",
@@ -230,10 +242,18 @@ def test_next_and_fastapi_interview_permission_sets_stay_aligned():
     assert "return RECRUITMENT_TASK_EVENT_PERMISSIONS;" in catch_all_route
     assert "return RECRUITMENT_CANDIDATE_INTERVIEW_SCHEDULE_PERMISSIONS;" in catch_all_route
     assert "return RECRUITMENT_INTERVIEW_SCOPED_PERMISSIONS;" in catch_all_route
+    assert "return RECRUITMENT_REVIEW_SCOPED_PERMISSIONS;" in catch_all_route
 
 
 @pytest.mark.parametrize("permission", INTERVIEW_SCOPED_PERMISSIONS)
 def test_task_event_dependency_accepts_each_pure_interview_permission(permission):
+    dependency = require_script_hub_any_permission(recruitment.RECRUITMENT_TASK_EVENT_PERMISSIONS)
+    session = asyncio.run(dependency(_request_with_permission(permission)))
+    assert session["permissions"] == {permission: True}
+
+
+@pytest.mark.parametrize("permission", REVIEW_SCOPED_PERMISSIONS)
+def test_task_event_dependency_accepts_each_pure_review_permission(permission):
     dependency = require_script_hub_any_permission(recruitment.RECRUITMENT_TASK_EVENT_PERMISSIONS)
     session = asyncio.run(dependency(_request_with_permission(permission)))
     assert session["permissions"] == {permission: True}
@@ -283,6 +303,34 @@ def test_pure_interviewer_task_stream_only_receives_own_interview_events(permiss
     assert recruitment._should_deliver_task_event("not-json", session, context) is False
 
     scoped_payload = json.loads(recruitment._task_event_for_session(_task_event(), session, context))
+    assert "candidate_snapshot" not in scoped_payload
+
+
+@pytest.mark.parametrize("permission", REVIEW_SCOPED_PERMISSIONS)
+def test_pure_reviewer_stream_only_receives_own_org_scoped_review_events(permission):
+    actor_id = "reviewer-a"
+    session = {"id": actor_id, "permissions": {permission: True}}
+    context = _permission_context(actor_id, permission)
+
+    own_event = _task_event(
+        task_type="department_review",
+        reviewer_user_codes=[actor_id, "reviewer-b"],
+    )
+    unrelated_event = _task_event(
+        task_type="department_review",
+        reviewer_user_codes=["reviewer-b"],
+    )
+    cross_org_event = _task_event(
+        task_type="department_review",
+        reviewer_user_codes=[actor_id],
+        org_code="company-b",
+    )
+
+    assert recruitment._should_deliver_task_event(own_event, session, context) is True
+    assert recruitment._should_deliver_task_event(unrelated_event, session, context) is False
+    assert recruitment._should_deliver_task_event(cross_org_event, session, context) is False
+    assert recruitment._should_deliver_task_event(_task_event(), session, context) is False
+    scoped_payload = json.loads(recruitment._task_event_for_session(own_event, session, context))
     assert "candidate_snapshot" not in scoped_payload
 
 

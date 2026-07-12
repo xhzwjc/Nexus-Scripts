@@ -2390,6 +2390,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const [departmentReviewTasks, setDepartmentReviewTasks] = useState<DepartmentReviewTask[]>([]);
     const [departmentReviewCounts, setDepartmentReviewCounts] = useState({pending: 0, deferred: 0, completed: 0, todo: 0});
     const [departmentReviewLoading, setDepartmentReviewLoading] = useState(false);
+    const [departmentReviewLoadError, setDepartmentReviewLoadError] = useState<string | null>(null);
     const [departmentReviewFilter, setDepartmentReviewFilter] = useState<"todo" | "completed" | "pending" | "deferred" | "passed" | "rejected">("todo");
     const [interviewWorkbenchTasks, setInterviewWorkbenchTasks] = useState<InterviewTask[]>([]);
     const [myInterviewCalendarTasks, setMyInterviewCalendarTasks] = useState<InterviewTask[]>([]);
@@ -11221,6 +11222,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     async function loadDepartmentReviewTasks(options?: {silent?: boolean}) {
         if (!options?.silent) {
             setDepartmentReviewLoading(true);
+            setDepartmentReviewLoadError(null);
+            setDepartmentReviewTasks([]);
         }
         try {
             const query = departmentReviewFilter ? `?status=${encodeURIComponent(departmentReviewFilter)}` : "";
@@ -11228,10 +11231,15 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             if (mountedRef.current) {
                 setDepartmentReviewTasks(data?.items || []);
                 setDepartmentReviewCounts(data?.counts || {pending: 0, deferred: 0, completed: 0, todo: 0});
+                setDepartmentReviewLoadError(null);
             }
         } catch (error) {
             if (mountedRef.current) {
-                setDepartmentReviewTasks([]);
+                if (!options?.silent) {
+                    setDepartmentReviewTasks([]);
+                    setDepartmentReviewCounts({pending: 0, deferred: 0, completed: 0, todo: 0});
+                }
+                setDepartmentReviewLoadError(formatActionError(error));
             }
             if (!options?.silent) {
                 toast.error(isZh ? `加载评审任务失败：${formatActionError(error)}` : `Failed to load reviews: ${formatActionError(error)}`);
@@ -14500,22 +14508,11 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 tasks={departmentReviewTasks}
                 counts={departmentReviewCounts}
                 loading={departmentReviewLoading}
+                loadError={departmentReviewLoadError}
                 activeFilter={departmentReviewFilter}
                 setActiveFilter={setDepartmentReviewFilter}
                 onRefresh={() => loadDepartmentReviewTasks()}
-                onOpenCandidate={(task) => {
-                    const candidateId = task.candidate.id;
-                    selectedCandidateIdRef.current = candidateId;
-                    setCandidateDetailReviewContext({
-                        candidateId,
-                        assignmentId: task.assignment.id,
-                        status: task.assignment.status,
-                        comment: task.assignment.comment,
-                        reviewerName: task.assignment.reviewer_name || task.assignment.reviewer_user_code,
-                    });
-                    setStatusUpdateReason("");
-                    setSelectedCandidateId(candidateId);
-                }}
+                canActReview={canActReview}
                 onDecision={decideDepartmentReviewTask}
             />
         );
@@ -14742,7 +14739,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     return (
         <div
             className="relative flex h-full min-h-0 flex-col overflow-hidden bg-[var(--tr-page)] text-[var(--tr-ink)] dark:text-slate-300">
-            {activePage !== "workspace" && activePage !== "positions" && activePage !== "candidates" && activePage !== "talent-pool" && activePage !== "interviews" ? <div
+            {activePage !== "workspace" && activePage !== "positions" && activePage !== "candidates" && activePage !== "talent-pool" && activePage !== "interviews" && activePage !== "review-workbench" ? <div
                 className="shrink-0 border-b border-[var(--tr-border)] bg-white dark:border-slate-800 dark:bg-slate-950">
                 <div className="flex min-h-[62px] flex-wrap items-center justify-between gap-2 px-5 py-3 2xl:px-6">
                     <div className="flex min-w-0 items-center gap-2.5">
@@ -14830,7 +14827,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                         </div>
                     )}
                     {activePage === "review-workbench" && (
-                        <div className="h-full min-h-0 px-2 pb-2 pt-0">
+                        <div className="h-full min-h-0">
                             {renderReviewWorkbenchPage()}
                         </div>
                     )}

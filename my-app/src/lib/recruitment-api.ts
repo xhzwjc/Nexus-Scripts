@@ -611,6 +611,7 @@ export interface CandidateDetail {
   workflow_memory?: CandidateWorkflowMemory | null;
   status_history: CandidateStatusHistory[];
   interview_questions: InterviewQuestion[];
+  interview_schedules?: InterviewSchedule[];
   activity: AITaskLog[];
   department_review_context?: {
     assignment: DepartmentReviewAssignment;

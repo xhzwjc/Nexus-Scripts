@@ -226,4 +226,35 @@
 - 权限端到端与 RBAC 覆盖测试：13 passed。
 - `git diff --check`：通过。
 
+## 2026-07-12 评审工作台模块重构
+
+### 页面与状态覆盖
+
+- 参考原型：`AI Recruitment Redesign Project/评审工作台 Review.dc.html`；主页面保留真实的待评审、已完成、未处理、暂缓任务与数量，覆盖搜索、发起人/结果/时间/岗位筛选、清空、刷新、分页、加载、接口错误、数据空状态和筛选空状态。
+- 评审详情按原型重构为全视口遮罩内的 820px 右侧抽屉，包含真实候选人身份、AI 初筛摘要、发起信息、可见资料范围、原始简历、结构化简历、面试反馈、评审意见及暂缓/淘汰/通过操作。
+- 已完成任务保持只读，不再显示改判操作；纯查看权限账号不显示决策入口；真实缺失字段使用明确空状态，不复制原型示例数据。
+
+### 视觉、交互与业务校准
+
+- 页面使用原型的 `#1E3BFA` 主色、文字/边框/语义色、20/32/48px 页面间距、4/6/8/10px 圆角、40px 表头、四列信息层级与紧凑任务行；窄视口由列表内部横向滚动承接，不裁切共享框架。
+- 移除评审工作台旧模块级返回、重复标题、组织切换、上传简历和新增招聘需求顶部条，继续复用系统统一顶部和左侧导航。
+- 详情抽屉挂载到 `document.body`，完整覆盖顶部与侧栏；已实际验证原始简历 assignment 作用域链接、详情意见输入、关闭、状态 Tab、筛选浮层及已完成任务只读状态。
+- 视觉证据：`.design-qa/review-v1/source-main-1920x1080.png`、`.design-qa/review-v1/source-detail-1920x1080.png`、`.design-qa/review-v1/actual-main-ready.png`、`.design-qa/review-v1/actual-detail-default.png`。
+
+### 权限与接口闭环
+
+- Next 与 FastAPI 统一 `review-view / review-act` 的任务和 assignment 读取权限；决策仍只允许 `review-act`。
+- 评审任务、详情、历史、简历和决策统一执行“assignment 本人 + 组织范围”，SELF 评审人可读取明确分配给自己的候选人，跨组织访问继续拒绝。
+- `/my-tasks` 与 assignment 详情按 `visible_sections` 裁剪候选人资料，始终移除岗位 Skill 内容、内部规则快照、未授权 AI 评估信息和敏感面试字段。
+- 评审 SSE 仅向对应评审人及可见组织下发，并剔除候选人快照；终态相同请求幂等返回，不同终态禁止直接覆盖，需由招聘负责人重新发起。
+
+### 最终验证
+
+- `npm run typecheck`：通过。
+- 评审相关前端文件 ESLint：0 error。
+- 评审服务与路由权限测试：41 passed。
+- 后端 Python 编译检查：通过。
+- `git diff --check`：通过。
+- 浏览器实际验证：主页面、详情抽屉、状态 Tab、筛选、临时意见输入与清理、原始简历作用域链接均可用；控制台无新增 error/warning。
+
 final result: passed

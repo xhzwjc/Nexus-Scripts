@@ -4,6 +4,7 @@ import { getBackendBaseUrl } from "@/lib/server/backendBaseUrl";
 import {
   RECRUITMENT_CANDIDATE_INTERVIEW_SCHEDULE_PERMISSIONS,
   RECRUITMENT_INTERVIEW_SCOPED_PERMISSIONS,
+  RECRUITMENT_REVIEW_SCOPED_PERMISSIONS,
   RECRUITMENT_TASK_EVENT_PERMISSIONS,
 } from "@/lib/server/recruitmentRoutePermissions";
 import { requireScriptHubAnyPermission, requireScriptHubPermission } from "@/lib/server/scriptHubSession";
@@ -82,12 +83,12 @@ function resolveRecruitmentPermission(path: string, method: string): string | st
   }
 
   if (path === "department-reviews/my-tasks") {
-    return "recruitment-review-view";
+    return RECRUITMENT_REVIEW_SCOPED_PERMISSIONS;
   }
 
   if (path.startsWith("department-reviews/assignments/")) {
     return normalizedMethod === "GET" || normalizedMethod === "HEAD"
-      ? "recruitment-review-view"
+      ? RECRUITMENT_REVIEW_SCOPED_PERMISSIONS
       : "recruitment-review-act";
   }
 

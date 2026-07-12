@@ -7,6 +7,7 @@ from sqlalchemy.pool import StaticPool
 import pytest
 
 from app.database import Base
+from app.permission_governance import DATA_SCOPE_SELF, PermissionContext
 from app.recruitment_models import (
     RecruitmentCandidate,
     RecruitmentCandidateStatusHistory,
@@ -16,6 +17,7 @@ from app.recruitment_models import (
     RecruitmentDepartmentReviewAssignment,
     RecruitmentDepartmentReviewBatch,
     RecruitmentInterviewQuestion,
+    RecruitmentInterviewSchedule,
     RecruitmentResumeParseResult,
     RecruitmentResumeFile,
 )
@@ -409,6 +411,105 @@ def test_list_my_department_review_tasks_returns_only_assignee_tasks():
     assert result["items"][0]["assignment"]["reviewer_user_code"] == "manager-a"
 
 
+def test_review_task_list_sanitizes_candidate_by_visible_sections(tmp_path):
+    db = _build_test_db()
+    candidate = _add_candidate(db)
+    resume_file = _add_resume_file(db, candidate, tmp_path, name="candidate.pdf")
+    _add_candidate_detail_artifacts(db, candidate, resume_file)
+    candidate.notes = "仅招聘负责人可见"
+    candidate.ai_match_position_id = 999
+    candidate.ai_match_position_title = "秘密岗位"
+    candidate.ai_match_confidence = 99
+    candidate.ai_match_reason = "内部匹配原因"
+    candidate.ai_match_alternatives = json.dumps([{"position_title": "替代秘密岗位"}], ensure_ascii=False)
+    db.add(candidate)
+    db.commit()
+    _seed_reviewers(db, "manager-a")
+    service = RecruitmentService(db)
+    service.create_department_review(
+        {
+            "candidate_id": candidate.id,
+            "reviewers": [{"user_code": "manager-a"}],
+            "visible_sections": ["standard_resume"],
+        },
+        "hr",
+    )
+
+    task = service.list_my_department_review_tasks("manager-a")["items"][0]
+
+    assert task["candidate"]["latest_parse_result_id"] is not None
+    assert task["candidate"]["latest_score_id"] is None
+    assert task["candidate"]["latest_total_score"] is None
+    assert task["candidate"]["match_percent"] is None
+    assert task["candidate"]["ai_match_reason"] is None
+    assert task["candidate"]["ai_match_alternatives"] is None
+    assert task["candidate"]["notes"] is None
+    assert task["candidate"]["position_screening_skills"] == []
+
+
+def test_review_visible_sections_never_return_skill_prompt_bodies():
+    service = RecruitmentService(_build_test_db())
+    payload = {
+        "position_jd_skill_ids": [1],
+        "position_jd_skills": [{"id": 1, "name": "JD", "content": "JD-SECRET"}],
+        "position_screening_skill_ids": [2],
+        "position_screening_skills": [{"id": 2, "name": "Screen", "content": "SCREEN-SECRET"}],
+        "position_interview_skill_ids": [3],
+        "position_interview_skills": [{"id": 3, "name": "Interview", "content": "INTERVIEW-SECRET"}],
+    }
+
+    sanitized = service._sanitize_department_review_candidate_payload(
+        payload,
+        {"standard_resume", "screening_result", "assessment_result", "interview_feedback"},
+    )
+
+    assert sanitized["position_jd_skill_ids"] == []
+    assert sanitized["position_jd_skills"] == []
+    assert sanitized["position_screening_skill_ids"] == []
+    assert sanitized["position_screening_skills"] == []
+    assert sanitized["position_interview_skill_ids"] == []
+    assert sanitized["position_interview_skills"] == []
+    assert "SECRET" not in json.dumps(sanitized, ensure_ascii=False)
+
+
+def test_assigned_self_scope_reviewer_can_read_only_within_visible_org():
+    db = _build_test_db()
+    candidate = _add_candidate(db)
+    _seed_reviewers(db, "manager-a")
+    service = RecruitmentService(db)
+    created = service.create_department_review(
+        {"candidate_id": candidate.id, "reviewers": [{"user_code": "manager-a"}]},
+        "hr",
+    )
+    assignment_id = created["batch"]["assignments"][0]["id"]
+    service.permission_context = PermissionContext(
+        actor_user_code="manager-a",
+        primary_org_code="group",
+        data_scope=DATA_SCOPE_SELF,
+        custom_org_codes=(),
+        visible_org_codes=("group",),
+        is_self_scope=True,
+        permissions={"recruitment-review-act": True},
+    )
+
+    detail = service.get_department_review_candidate_detail(assignment_id, "manager-a")
+    assert detail["candidate"]["id"] == candidate.id
+    assert service.list_my_department_review_tasks("manager-a")["total"] == 1
+
+    service.permission_context = PermissionContext(
+        actor_user_code="manager-a",
+        primary_org_code="other-org",
+        data_scope=DATA_SCOPE_SELF,
+        custom_org_codes=(),
+        visible_org_codes=("other-org",),
+        is_self_scope=True,
+        permissions={"recruitment-review-act": True},
+    )
+    assert service.list_my_department_review_tasks("manager-a")["total"] == 0
+    with pytest.raises(ValueError, match="无权访问此资源"):
+        service.get_department_review_candidate_detail(assignment_id, "manager-a")
+
+
 def test_department_review_candidate_detail_enforces_assignee_scope():
     db = _build_test_db()
     candidate = _add_candidate(db)
@@ -549,6 +650,63 @@ def test_department_review_candidate_detail_redacts_screening_activity_outputs(t
         assert hidden_key not in activity
 
 
+def test_department_review_candidate_detail_exposes_only_interview_feedback_fields():
+    db = _build_test_db()
+    candidate = _add_candidate(db)
+    db.add(
+        RecruitmentInterviewSchedule(
+            candidate_id=candidate.id,
+            position_id=candidate.position_id,
+            org_code=candidate.org_code,
+            round_name="初试",
+            round_index=1,
+            interviewer_user_code="interviewer-a",
+            interviewer_name="面试官A",
+            meeting_link="https://secret.example.test/room",
+            contact_phone="13800000000",
+            notes="内部安排备注",
+            result_status="passed",
+            result_comment="技术基础扎实",
+            status="completed",
+            created_by="hr",
+        )
+    )
+    db.commit()
+    _seed_reviewers(db, "manager-a")
+    service = RecruitmentService(db)
+    created = service.create_department_review(
+        {
+            "candidate_id": candidate.id,
+            "reviewers": [{"user_code": "manager-a"}],
+            "visible_sections": ["interview_feedback"],
+        },
+        "hr",
+    )
+    assignment_id = created["batch"]["assignments"][0]["id"]
+
+    detail = service.get_department_review_candidate_detail(assignment_id, "manager-a")
+
+    assert detail["interview_schedules"] == [
+        {
+            "id": detail["interview_schedules"][0]["id"],
+            "candidate_id": candidate.id,
+            "position_id": candidate.position_id,
+            "round_name": "初试",
+            "round_index": 1,
+            "interviewer_name": "面试官A",
+            "scheduled_at": None,
+            "result_status": "passed",
+            "result_comment": "技术基础扎实",
+            "result_submitted_at": None,
+            "status": "completed",
+        }
+    ]
+    serialized = json.dumps(detail["interview_schedules"], ensure_ascii=False)
+    assert "secret.example.test" not in serialized
+    assert "13800000000" not in serialized
+    assert "内部安排备注" not in serialized
+
+
 def test_department_review_assignment_history_returns_only_actor_assignments():
     db = _build_test_db()
     candidate = _add_candidate(db)
@@ -621,6 +779,41 @@ def test_department_review_resume_download_enforces_assignment_scope(tmp_path):
         service.get_department_review_resume_file_download(assignment_id, other_resume_file.id, "manager-a")
     with pytest.raises(ValueError, match="只能查看分配给自己的部门评审候选人"):
         service.get_department_review_resume_file_download(assignment_id, resume_file.id, "manager-b")
+
+
+def test_completed_department_review_is_idempotent_but_cannot_be_changed():
+    db = _build_test_db()
+    candidate = _add_candidate(db)
+    _seed_reviewers(db, "manager-a")
+    service = RecruitmentService(db)
+    created = service.create_department_review(
+        {"candidate_id": candidate.id, "reviewers": [{"user_code": "manager-a"}]},
+        "hr",
+    )
+    assignment_id = created["batch"]["assignments"][0]["id"]
+
+    first = service.decide_department_review_assignment(
+        assignment_id,
+        {"status": "passed", "comment": "可以进入面试"},
+        "manager-a",
+    )
+    replay = service.decide_department_review_assignment(
+        assignment_id,
+        {"status": "passed", "comment": "重复请求不应覆盖"},
+        "manager-a",
+    )
+
+    assert first["assignment"]["status"] == "passed"
+    assert replay["assignment"]["status"] == "passed"
+    assert replay["assignment"]["comment"] == "可以进入面试"
+    with pytest.raises(ValueError, match="已完成的评审不能修改"):
+        service.decide_department_review_assignment(
+            assignment_id,
+            {"status": "rejected", "comment": "改判"},
+            "manager-a",
+        )
+    db.refresh(candidate)
+    assert candidate.status == "department_review_passed"
 
 
 def test_list_my_department_review_counts_assignment_rows_by_status():
