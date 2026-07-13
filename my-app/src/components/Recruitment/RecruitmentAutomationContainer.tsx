@@ -1925,6 +1925,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const selectedLogIdRef = useRef<number | null>(null);
     const selectedPositionIdRef = useRef<number | null>(null);
     const selectedCandidateIdRef = useRef<number | null>(null);
+    const candidateDetailRequestAbortControllersRef = useRef<Set<AbortController>>(new Set());
+    const candidateDetailLoadingGenerationRef = useRef(0);
     const recentlyDeletedCandidateIdsRef = useRef<Set<number>>(new Set());
     const recentlyCompletedScreeningCandidatesRef = useRef<Map<number, number>>(new Map());
     const logsFiltersInitializedRef = useRef(false);
@@ -3998,6 +4000,13 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         }
     }, [activePage]);
 
+    const cancelCandidateDetailRequests = useCallback(() => {
+        candidateDetailRequestAbortControllersRef.current.forEach((controller) => controller.abort());
+        candidateDetailRequestAbortControllersRef.current.clear();
+        candidateDetailLoadingGenerationRef.current += 1;
+        setCandidateDetailLoading(false);
+    }, []);
+
     const previousCandidatePageActiveRef = useRef(activePage === "candidates");
     useEffect(() => {
         const wasCandidatePageActive = previousCandidatePageActiveRef.current;
@@ -4006,12 +4015,13 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             return;
         }
         candidatePageTargetCandidateIdRef.current = null;
+        cancelCandidateDetailRequests();
         selectedCandidateIdRef.current = null;
         checkedDuplicateCandidateIdRef.current = null;
         setSelectedCandidateId(null);
         setCandidateDetail(null);
         setCandidateDetailReviewContext(null);
-    }, [activePage]);
+    }, [activePage, cancelCandidateDetailRequests]);
 
     useEffect(() => {
         if (activePage === "talent-pool" && !selectedCandidateId) {
@@ -4091,6 +4101,10 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         const nextCandidateId = typeof value === "function" ? value(currentCandidateId) : value;
         candidatePageTargetCandidateIdRef.current = null;
         setCandidateDetailReviewContext(null);
+        if (nextCandidateId !== currentCandidateId) {
+            cancelCandidateDetailRequests();
+        }
+        selectedCandidateIdRef.current = nextCandidateId;
         if (
             nextCandidateId
             && currentCandidateId === nextCandidateId
@@ -4106,7 +4120,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             });
         }
         setSelectedCandidateId(nextCandidateId);
-    }, [candidateDetail?.candidate.id]);
+    }, [candidateDetail?.candidate.id, cancelCandidateDetailRequests]);
 
     useEffect(() => {
         auditLogRequestKeyRef.current = auditLogRequestKey;
@@ -4167,6 +4181,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         const inflightRequests = requestInflightRef.current;
         return () => {
             mountedRef.current = false;
+            candidateDetailRequestAbortControllersRef.current.forEach((controller) => controller.abort());
+            candidateDetailRequestAbortControllersRef.current.clear();
             skillSettingsLoadAbortControllerRef.current?.abort();
             skillDetailLoadAbortControllerRef.current?.abort();
             llmConfigsLoadAbortControllerRef.current?.abort();
@@ -6562,7 +6578,10 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             reviewAssignmentId?: number | null;
         },
     ) {
-        if (!options?.silent) {
+        const loadingGeneration = options?.silent
+            ? null
+            : ++candidateDetailLoadingGenerationRef.current;
+        if (loadingGeneration !== null) {
             setCandidateDetailLoading(true);
         }
         try {
@@ -6577,7 +6596,15 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 : isTalentPoolDetailRequest
                     ? `/candidates/talent-pool/${candidateId}`
                     : `/candidates/${candidateId}`;
-            const request = () => recruitmentApi<CandidateDetail>(detailPath);
+            const request = async () => {
+                const controller = new AbortController();
+                candidateDetailRequestAbortControllersRef.current.add(controller);
+                try {
+                    return await recruitmentApi<CandidateDetail>(detailPath, {signal: controller.signal});
+                } finally {
+                    candidateDetailRequestAbortControllersRef.current.delete(controller);
+                }
+            };
             const data = options?.force
                 ? await request()
                 : await runDedupedRequest(
@@ -6630,6 +6657,9 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             }
             return normalizedData;
         } catch (error) {
+            if (error instanceof Error && error.name === "AbortError") {
+                return null;
+            }
             const isStaleDetailRequest = selectedCandidateIdRef.current !== candidateId;
             const isRecentlyDeletedCandidate = recentlyDeletedCandidateIdsRef.current.has(candidateId);
             if (isStaleDetailRequest || isRecentlyDeletedCandidate) {
@@ -6640,7 +6670,11 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             }
             return null;
         } finally {
-            if (!options?.silent) {
+            if (
+                loadingGeneration !== null
+                && candidateDetailLoadingGenerationRef.current === loadingGeneration
+                && mountedRef.current
+            ) {
                 setCandidateDetailLoading(false);
             }
         }
