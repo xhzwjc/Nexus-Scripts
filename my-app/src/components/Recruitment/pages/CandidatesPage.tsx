@@ -1172,14 +1172,13 @@ type CandidatePrototypeTableRowProps = {
 function getCandidatePrototypeListGridTemplate() {
     const actionColumnWidth = 112;
     return {
-        minWidth: 1136,
+        minWidth: 1040,
         columns: [
             "40px",
             "minmax(210px,1.75fr)",
             "minmax(150px,1.2fr)",
             "minmax(116px,0.85fr)",
             "minmax(116px,0.9fr)",
-            "minmax(96px,0.75fr)",
             "minmax(72px,0.55fr)",
             "minmax(88px,0.65fr)",
             "minmax(136px,1fr)",
@@ -1329,7 +1328,6 @@ const CandidatePrototypeTableRow = React.memo(function CandidatePrototypeTableRo
                     {labelForCandidateStatus(displayStatus)}
                 </span>
             </div>
-            <div role="cell" className="truncate px-2.5" title={labelForCandidateSource(candidate.source)}>{labelForCandidateSource(candidate.source)}</div>
             <div role="cell" className="truncate px-2.5">{candidate.education || "-"}</div>
             <div role="cell" className="truncate px-2.5">{candidate.years_of_experience || "-"}</div>
             <div role="cell" className="truncate px-2.5 tabular-nums text-[#86888F]">{formatDateTime(candidate.updated_at || candidate.created_at)}</div>
@@ -5221,7 +5219,6 @@ export function CandidatesPage({
                                                 <div role="columnheader" className="px-2.5">{isZh ? "应聘岗位" : "Applied Position"}</div>
                                                 <div role="columnheader" className="overflow-hidden px-0">{renderCandidateListHeaderCell("match", isZh ? "AI 匹配度" : "AI Match")}</div>
                                                 <div role="columnheader" className="px-2.5">{isZh ? "状态" : "Status"}</div>
-                                                <div role="columnheader" className="px-2.5">{isZh ? "来源" : "Source"}</div>
                                                 <div role="columnheader" className="px-2.5">{isZh ? "学历" : "Education"}</div>
                                                 <div role="columnheader" className="px-2.5">{isZh ? "工作年限" : "Experience"}</div>
                                                 <div role="columnheader" className="px-2.5">{isZh ? "投递时间" : "Submitted"}</div>
