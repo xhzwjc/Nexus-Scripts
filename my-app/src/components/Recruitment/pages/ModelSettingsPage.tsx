@@ -89,16 +89,27 @@ export function ModelSettingsPage({
             {sortedConfigs.length ? (
                 <div className="overflow-x-auto rounded-[8px] border border-[#EBEEF5] bg-white dark:border-slate-800 dark:bg-slate-950">
                     <table className="w-full min-w-[1080px] table-fixed text-left">
+                        <colgroup>
+                            <col style={{width: "6%"}}/>
+                            <col style={{width: "15%"}}/>
+                            <col style={{width: "12%"}}/>
+                            <col style={{width: "18%"}}/>
+                            <col style={{width: "8%"}}/>
+                            <col style={{width: "7%"}}/>
+                            <col style={{width: "8%"}}/>
+                            <col style={{width: "12%"}}/>
+                            <col style={{width: "14%"}}/>
+                        </colgroup>
                         <thead className="border-b border-[#EBEEF5] text-[12px] font-normal text-[#86888F] dark:border-slate-800 dark:text-slate-400">
                             <tr className="h-11">
-                                <th className="w-[72px] px-4 font-normal">{isZh ? "优先级" : "Priority"}</th>
-                                <th className="w-[220px] px-4 font-normal">{isZh ? "模型配置" : "Model"}</th>
-                                <th className="w-[170px] px-4 font-normal">{isZh ? "任务类型" : "Task type"}</th>
-                                <th className="w-[230px] px-4 font-normal">{isZh ? "解析后来源" : "Resolved source"}</th>
-                                <th className="w-[90px] px-4 font-normal">{isZh ? "最大并发" : "Concurrency"}</th>
-                                <th className="w-[90px] px-4 font-normal">QPS</th>
-                                <th className="w-[90px] px-4 font-normal">{isZh ? "状态" : "Status"}</th>
-                                <th className="w-[120px] px-4 font-normal">{isZh ? "当前生效" : "Current"}</th>
+                                <th className="px-4 font-normal">{isZh ? "优先级" : "Priority"}</th>
+                                <th className="px-4 font-normal">{isZh ? "模型配置" : "Model"}</th>
+                                <th className="px-4 font-normal">{isZh ? "任务类型" : "Task type"}</th>
+                                <th className="px-4 font-normal">{isZh ? "解析后来源" : "Resolved source"}</th>
+                                <th className="px-4 font-normal">{isZh ? "最大并发" : "Concurrency"}</th>
+                                <th className="px-4 font-normal">QPS</th>
+                                <th className="px-4 font-normal">{isZh ? "状态" : "Status"}</th>
+                                <th className="px-4 font-normal">{isZh ? "当前生效" : "Current"}</th>
                                 <th className="px-4 font-normal">{isZh ? "操作" : "Actions"}</th>
                             </tr>
                         </thead>
