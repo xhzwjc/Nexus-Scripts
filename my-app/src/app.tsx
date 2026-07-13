@@ -589,7 +589,7 @@ function AppContent() {
                         )}
                         {currentView === 'access-control' && (
                             <div className="h-full p-0">
-                                <AccessControlCenter onBack={() => setCurrentView('home')} />
+                                <AccessControlCenter />
                             </div>
                         )}
                     </main>

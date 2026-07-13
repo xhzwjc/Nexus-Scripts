@@ -48,3 +48,45 @@
 - code checks: `npm run typecheck`、变更组件定向 `eslint`、`git diff --check`。
 
 final result: passed
+
+---
+
+# Permission Center - User Management Design QA
+
+- source visual truth: `AI Recruitment Redesign Project/DESIGN-NOTES.md`, `AI Recruitment Redesign Project/design_handoff_ai_recruitment/README.md`, and `/tmp/nexus-permission-design-qa/settings-reference.png`
+- implementation screenshot: `/tmp/nexus-permission-design-qa/users-implementation-final.png`
+- modal reference: `/tmp/nexus-permission-design-qa/settings-dialog-reference.png`
+- modal implementation: `/tmp/nexus-permission-design-qa/user-dialog-implementation.png`
+- viewport: desktop browser default; layout tokens additionally measured at 1800 x 1125 CSS pixels
+- state: permission center, user management selected; create-user dialog checked separately
+- full-view comparison: `/tmp/nexus-permission-design-qa/page-comparison-final.png`
+- focused modal comparison: `/tmp/nexus-permission-design-qa/modal-comparison.png`
+
+## Findings
+
+No actionable P0, P1, or P2 differences remain. Permission Center extrapolates the approved Settings design language because the supplied prototype does not contain a dedicated permission-center screen.
+
+- Fonts and typography: 18px page heading, 15px active navigation, 12px body, and 11px dense table text match the reference hierarchy.
+- Spacing and layout rhythm: 8px cards/dialogs, 6px buttons, 4px controls, 40px table header, and 57px data rows match the documented dense layout range.
+- Colors and visual tokens: primary `#1E3BFA`, link `#0F23D9`, borders `#E6E7EB` / `#EBEEF5` / `#F2F3F5`, and semantic status colors match the prototype tokens.
+- Image and asset fidelity: no raster imagery is required; existing Lucide outline icons match the approved system icon treatment.
+- Copy and content: all user, role, organization, data-scope, permission, status, key-management, and authorization-boundary content remains sourced from the existing system.
+
+## Interaction Checks
+
+- Module navigation and refresh action work.
+- Create-user dialog opens and all four tabs render their expected content.
+- Rotate-key and delete-confirm dialogs open with the correct selected user and were closed without submitting mutations.
+- Browser console produced no new warnings or errors during the final refresh check.
+
+## Comparison History
+
+1. Initial table pass overflowed the content area and some permission-heavy rows grew beyond the target density.
+2. Column widths were rebalanced, the table minimum width was reduced to fill the available content width, visible permission chips were capped with a remainder count, and all current rows now render at 57px without horizontal overflow in the checked desktop viewport.
+3. Final full-view and modal comparisons found no remaining P0, P1, or P2 mismatch.
+
+## Follow-up Polish
+
+No P3 item is required for this page. Other Permission Center child pages retain their existing content styling until their scheduled one-page-at-a-time refactor.
+
+final result: passed

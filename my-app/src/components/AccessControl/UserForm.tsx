@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle, ChevronDown, KeyRound, Layers3, Loader2, ShieldCheck, UserRound } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -114,6 +114,13 @@ export function UserForm({
         });
     };
 
+    useEffect(() => {
+        if (open) {
+            setActiveTab('basic');
+            setExpandedPermCategories(new Set());
+        }
+    }, [mode, open]);
+
     const tabErrors = useMemo(() => {
         const tabMap: Record<string, string[]> = { basic: [], permissions: [], scope: [], boundary: [] };
         if (errors.userCode) tabMap.basic.push(errors.userCode);
@@ -163,21 +170,21 @@ export function UserForm({
 
     return (
         <Dialog open={open} onOpenChange={(next) => { if (!next) onCancel(); }}>
-            <DialogContent className="sm:max-w-6xl" onOpenAutoFocus={handleOpenAutoFocus}>
-                <DialogHeader>
-                    <DialogTitle>{mode === 'create' ? labels.createTitle : labels.editTitle}</DialogTitle>
-                    <DialogDescription>{labels.userFormDescription}</DialogDescription>
+            <DialogContent className="flex max-h-[calc(100vh-32px)] flex-col gap-0 overflow-hidden rounded-[8px] border-0 bg-white p-0 shadow-[0_8px_24px_rgba(14,17,20,0.16)] sm:max-w-[1120px] dark:bg-slate-950" onOpenAutoFocus={handleOpenAutoFocus}>
+                <DialogHeader className="shrink-0 gap-1 border-b border-[#F2F3F5] px-6 pb-4 pr-14 pt-5 text-left dark:border-slate-800">
+                    <DialogTitle className="text-[16px] leading-6 text-[#0E1114] dark:text-white">{mode === 'create' ? labels.createTitle : labels.editTitle}</DialogTitle>
+                    <DialogDescription className="text-[12px] leading-5 text-[#86888F]">{labels.userFormDescription}</DialogDescription>
                 </DialogHeader>
 
                 {dialogError && (
-                    <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+                    <div className="mx-6 mt-4 rounded-[6px] border border-[rgba(245,63,63,0.24)] bg-[rgba(245,63,63,0.06)] px-3 py-2 text-[12px] leading-5 text-[#F53F3F]">
                         {dialogError}
                     </div>
                 )}
 
-                <Tabs value={activeTab} onValueChange={setActiveTab} className="max-h-[72vh]">
-                    <TabsList className="w-full justify-start">
-                        <TabsTrigger value="basic" className="relative">
+                <Tabs value={activeTab} onValueChange={setActiveTab} className="min-h-0 flex-1 gap-0 [&_[data-slot=checkbox][data-state=checked]]:border-[#1E3BFA] [&_[data-slot=checkbox][data-state=checked]]:bg-[#1E3BFA] [&_[data-slot=input]]:h-9 [&_[data-slot=input]]:rounded-[4px] [&_[data-slot=input]]:border-[#E6E7EB] [&_[data-slot=input]]:text-[12px] [&_[data-slot=input]]:shadow-none [&_[data-slot=input]]:focus-visible:border-[#1E3BFA] [&_[data-slot=input]]:focus-visible:ring-0 [&_[data-slot=label]]:text-[12px] [&_[data-slot=label]]:font-normal [&_[data-slot=select-trigger]]:h-9 [&_[data-slot=select-trigger]]:rounded-[4px] [&_[data-slot=select-trigger]]:border-[#E6E7EB] [&_[data-slot=select-trigger]]:text-[12px] [&_[data-slot=select-trigger]]:shadow-none [&_[data-slot=select-trigger]]:focus:ring-0 [&_[data-slot=textarea]]:rounded-[4px] [&_[data-slot=textarea]]:border-[#E6E7EB] [&_[data-slot=textarea]]:text-[12px] [&_[data-slot=textarea]]:shadow-none [&_[data-slot=textarea]]:focus-visible:border-[#1E3BFA] [&_[data-slot=textarea]]:focus-visible:ring-0">
+                    <TabsList className="mx-6 mt-4 h-9 w-fit max-w-[calc(100%-3rem)] shrink-0 justify-start overflow-x-auto rounded-[6px] bg-[#F7F8FA] p-0.5 dark:bg-slate-900">
+                        <TabsTrigger value="basic" className="relative h-8 flex-none rounded-[5px] border-0 px-4 text-[12px] font-normal text-[#5E5F66] shadow-none data-[state=active]:bg-white data-[state=active]:font-medium data-[state=active]:text-[#0F23D9] data-[state=active]:shadow-[0_1px_4px_rgba(14,17,20,0.08)] dark:data-[state=active]:bg-slate-800 dark:data-[state=active]:text-blue-300">
                             <UserRound className="h-3.5 w-3.5" />
                             {labels.userFormBasicInfo}
                             {showErrors && tabErrors.basic.length > 0 && (
@@ -186,7 +193,7 @@ export function UserForm({
                                 </span>
                             )}
                         </TabsTrigger>
-                        <TabsTrigger value="permissions" className="relative">
+                        <TabsTrigger value="permissions" className="relative h-8 flex-none rounded-[5px] border-0 px-4 text-[12px] font-normal text-[#5E5F66] shadow-none data-[state=active]:bg-white data-[state=active]:font-medium data-[state=active]:text-[#0F23D9] data-[state=active]:shadow-[0_1px_4px_rgba(14,17,20,0.08)] dark:data-[state=active]:bg-slate-800 dark:data-[state=active]:text-blue-300">
                             <KeyRound className="h-3.5 w-3.5" />
                             {labels.userFormConfigPermission}
                             {showErrors && tabErrors.permissions.length > 0 && (
@@ -195,19 +202,19 @@ export function UserForm({
                                 </span>
                             )}
                         </TabsTrigger>
-                        <TabsTrigger value="scope">
+                        <TabsTrigger value="scope" className="h-8 flex-none rounded-[5px] border-0 px-4 text-[12px] font-normal text-[#5E5F66] shadow-none data-[state=active]:bg-white data-[state=active]:font-medium data-[state=active]:text-[#0F23D9] data-[state=active]:shadow-[0_1px_4px_rgba(14,17,20,0.08)] dark:data-[state=active]:bg-slate-800 dark:data-[state=active]:text-blue-300">
                             <Layers3 className="h-3.5 w-3.5" />
                             {labels.userFormDataScope}
                         </TabsTrigger>
-                        <TabsTrigger value="boundary">
+                        <TabsTrigger value="boundary" className="h-8 flex-none rounded-[5px] border-0 px-4 text-[12px] font-normal text-[#5E5F66] shadow-none data-[state=active]:bg-white data-[state=active]:font-medium data-[state=active]:text-[#0F23D9] data-[state=active]:shadow-[0_1px_4px_rgba(14,17,20,0.08)] dark:data-[state=active]:bg-slate-800 dark:data-[state=active]:text-blue-300">
                             <ShieldCheck className="h-3.5 w-3.5" />
                             {labels.authorizationBoundary}
                         </TabsTrigger>
                     </TabsList>
 
                     {/* ─── Tab 1: 基本信息 ─── */}
-                    <TabsContent value="basic" className="overflow-y-auto pr-1">
-                        <div className="space-y-5 pb-2 pt-2">
+                    <TabsContent value="basic" className="mt-0 min-h-0 flex-1 overflow-y-auto px-6 pb-5 pt-4">
+                        <div className="space-y-5">
                             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                                 <div className="space-y-2">
                                     <Label htmlFor="rbac-user-code">{labels.userCode}</Label>
@@ -222,7 +229,7 @@ export function UserForm({
                                         disabled={mode === 'edit' || saving}
                                     />
                                     {showErrors && errors.userCode && (
-                                        <p className="text-xs text-destructive">{errors.userCode}</p>
+                                        <p className="text-[11px] text-[#F53F3F]">{errors.userCode}</p>
                                     )}
                                 </div>
                                 <div className="space-y-2">
@@ -237,7 +244,7 @@ export function UserForm({
                                         disabled={saving}
                                     />
                                     {showErrors && errors.displayName && (
-                                        <p className="text-xs text-destructive">{errors.displayName}</p>
+                                        <p className="text-[11px] text-[#F53F3F]">{errors.displayName}</p>
                                     )}
                                 </div>
                                 {mode === 'create' && (
@@ -254,7 +261,7 @@ export function UserForm({
                                             disabled={saving}
                                         />
                                         {errors.accessKey && (
-                                            <p className="text-xs text-destructive">{errors.accessKey}</p>
+                                            <p className="text-[11px] text-[#F53F3F]">{errors.accessKey}</p>
                                         )}
                                     </div>
                                 )}
@@ -305,10 +312,10 @@ export function UserForm({
 
                             <div className="grid gap-3 md:grid-cols-2">
                                 <label className={cn(
-                                    "flex items-center gap-3 rounded-xl border p-3 transition-colors",
+                                    "flex items-center gap-3 rounded-[6px] border p-3 transition-colors",
                                     form.isActive
-                                        ? "border-teal-200 bg-teal-50/80 dark:border-teal-900/70 dark:bg-teal-950/25"
-                                        : "border-slate-200/80 bg-white/70 dark:border-slate-800 dark:bg-slate-950/35",
+                                        ? "border-[rgba(12,201,145,0.28)] bg-[rgba(12,201,145,0.06)] dark:border-teal-900/70 dark:bg-teal-950/25"
+                                        : "border-[#E6E7EB] bg-white dark:border-slate-800 dark:bg-slate-950",
                                 )}>
                                     <Checkbox
                                         checked={form.isActive}
@@ -316,15 +323,15 @@ export function UserForm({
                                         disabled={saving}
                                     />
                                     <div>
-                                        <span className="text-sm font-medium">{labels.active}</span>
-                                        <span className="ml-2 text-xs text-muted-foreground">{form.isActive ? labels.active : labels.inactive}</span>
+                                        <span className="text-[12px] font-medium">{labels.active}</span>
+                                        <span className="ml-2 text-[11px] text-[#86888F]">{form.isActive ? labels.active : labels.inactive}</span>
                                     </div>
                                 </label>
                                 <label className={cn(
-                                    "flex items-center gap-3 rounded-xl border p-3 transition-colors",
+                                    "flex items-center gap-3 rounded-[6px] border p-3 transition-colors",
                                     form.isSuperAdmin
-                                        ? "border-amber-200 bg-amber-50/80 dark:border-amber-900/70 dark:bg-amber-950/25"
-                                        : "border-slate-200/80 bg-white/70 dark:border-slate-800 dark:bg-slate-950/35",
+                                        ? "border-[rgba(255,171,36,0.32)] bg-[rgba(255,171,36,0.08)] dark:border-amber-900/70 dark:bg-amber-950/25"
+                                        : "border-[#E6E7EB] bg-white dark:border-slate-800 dark:bg-slate-950",
                                 )}>
                                     <Checkbox
                                         checked={form.isSuperAdmin}
@@ -332,7 +339,7 @@ export function UserForm({
                                         disabled={saving}
                                     />
                                     <div>
-                                        <span className="text-sm font-medium">{labels.superAdmin}</span>
+                                        <span className="text-[12px] font-medium">{labels.superAdmin}</span>
                                     </div>
                                 </label>
                             </div>
@@ -340,15 +347,15 @@ export function UserForm({
                     </TabsContent>
 
                     {/* ─── Tab 2: 角色与权限 ─── */}
-                    <TabsContent value="permissions" className="overflow-y-auto pr-1">
-                        <div className="space-y-5 pb-2 pt-2">
+                    <TabsContent value="permissions" className="mt-0 min-h-0 flex-1 overflow-y-auto px-6 pb-5 pt-4">
+                        <div className="space-y-5">
                             {/* Team Resource Key */}
                             <div
                                 className={cn(
-                                    "rounded-xl border p-3 transition-colors",
+                                    "rounded-[6px] border p-3 transition-colors",
                                     form.teamResourcesLoginKeyEnabled
-                                        ? "border-teal-200 bg-teal-50/80 dark:border-teal-900/70 dark:bg-teal-950/25"
-                                        : "border-slate-200/80 bg-slate-50/60 dark:border-slate-800 dark:bg-slate-900/35",
+                                        ? "border-[rgba(30,59,250,0.24)] bg-[rgba(30,59,250,0.04)] dark:border-blue-900/70 dark:bg-blue-950/20"
+                                        : "border-[#E6E7EB] bg-[#F7F8FA] dark:border-slate-800 dark:bg-slate-900/35",
                                 )}
                             >
                                 <div className="flex items-start gap-3">
@@ -365,7 +372,7 @@ export function UserForm({
                                         <Label htmlFor="rbac-team-resource-key" className="cursor-pointer font-medium text-slate-950 dark:text-slate-100">
                                             {labels.teamResourcesLoginKey}
                                         </Label>
-                                        <p className="mt-1 text-xs text-muted-foreground">{labels.teamResourcesLoginKeyHelp}</p>
+                                        <p className="mt-1 text-[11px] leading-5 text-[#86888F]">{labels.teamResourcesLoginKeyHelp}</p>
                                     </div>
                                 </div>
                             </div>
@@ -374,13 +381,13 @@ export function UserForm({
                             <div className="space-y-3">
                                 <div className="flex flex-wrap items-center justify-between gap-2">
                                     <div>
-                                        <h4 className="text-sm font-semibold text-slate-950 dark:text-slate-100">{labels.roles}</h4>
-                                        <p className="text-xs text-muted-foreground">{labels.rolePermissions}</p>
+                                        <h4 className="text-[13px] font-semibold text-[#0E1114] dark:text-slate-100">{labels.roles}</h4>
+                                        <p className="text-[11px] text-[#86888F]">{labels.rolePermissions}</p>
                                     </div>
-                                    <Badge variant="outline">{form.roleCodes.length}</Badge>
+                                    <Badge variant="outline" className="h-[20px] rounded-[4px] border-[#E6E7EB] bg-white px-1.5 text-[10px] font-normal text-[#86888F] shadow-none">{form.roleCodes.length}</Badge>
                                 </div>
                                 {showErrors && errors.roleCodes && (
-                                    <p className="text-xs text-destructive">{errors.roleCodes}</p>
+                                    <p className="text-[11px] text-[#F53F3F]">{errors.roleCodes}</p>
                                 )}
                                 <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                                     {assignableRoles.map((role) => {
@@ -389,10 +396,10 @@ export function UserForm({
                                             <label
                                                 key={role.code}
                                                 className={cn(
-                                                    "group flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition-colors",
+                                                    "group flex cursor-pointer items-start gap-3 rounded-[6px] border p-3 transition-colors",
                                                     checked
-                                                        ? "border-teal-200 bg-teal-50/80 dark:border-teal-900/70 dark:bg-teal-950/25"
-                                                        : "border-slate-200/80 bg-white/70 hover:border-slate-300 hover:bg-slate-50/80 dark:border-slate-800 dark:bg-slate-950/35 dark:hover:border-slate-700 dark:hover:bg-slate-900/45",
+                                                        ? "border-[#1E3BFA] bg-[rgba(30,59,250,0.03)] dark:border-blue-700 dark:bg-blue-950/20"
+                                                        : "border-[#E6E7EB] bg-white hover:border-[rgba(30,59,250,0.45)] hover:bg-[#F8F8F9] dark:border-slate-800 dark:bg-slate-950 dark:hover:border-slate-700 dark:hover:bg-slate-900/45",
                                                 )}
                                             >
                                                 <Checkbox
@@ -409,12 +416,12 @@ export function UserForm({
                                                 <div className="space-y-1">
                                                     <div className="flex flex-wrap items-center gap-2">
                                                         <span className="font-medium text-slate-950 dark:text-slate-100">{role.name}</span>
-                                                        <Badge variant="outline" className="text-[10px]">{role.permission_keys.length}</Badge>
+                                                        <Badge variant="outline" className="h-[20px] rounded-[4px] border-[#E6E7EB] px-1.5 text-[10px] font-normal text-[#86888F] shadow-none">{role.permission_keys.length}</Badge>
                                                         {!role.is_system && (
-                                                            <Badge variant="outline" className="text-[10px]">{labels.customRole}</Badge>
+                                                            <Badge variant="outline" className="h-[20px] rounded-[4px] border-transparent bg-[rgba(46,156,255,0.1)] px-1.5 text-[10px] font-normal text-[#2E9CFF] shadow-none">{labels.customRole}</Badge>
                                                         )}
                                                     </div>
-                                                    <p className="text-xs text-muted-foreground">{role.description}</p>
+                                                    <p className="text-[11px] leading-5 text-[#86888F]">{role.description}</p>
                                                 </div>
                                             </label>
                                         );
@@ -423,10 +430,10 @@ export function UserForm({
                             </div>
 
                             {/* Role Permissions Preview */}
-                            <div className="rounded-xl border border-slate-200/80 bg-slate-50/60 p-3 dark:border-slate-800 dark:bg-slate-900/35">
+                            <div className="rounded-[6px] border border-[#EBEEF5] bg-[#F7F8FA] p-3 dark:border-slate-800 dark:bg-slate-900/35">
                                 <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                                    <h4 className="text-sm font-semibold text-slate-950 dark:text-slate-100">{labels.rolePermissions}</h4>
-                                    <Badge variant="outline">{selectedRolePermissionKeys.length}</Badge>
+                                    <h4 className="text-[13px] font-semibold text-[#0E1114] dark:text-slate-100">{labels.rolePermissions}</h4>
+                                    <Badge variant="outline" className="h-[20px] rounded-[4px] border-[#E6E7EB] bg-white px-1.5 text-[10px] font-normal text-[#86888F] shadow-none">{selectedRolePermissionKeys.length}</Badge>
                                 </div>
                                 <CompactBadgeList
                                     items={selectedRolePermissionKeys.map((permissionKey) => permissionMap.get(permissionKey)?.name || permissionKey)}
@@ -438,14 +445,14 @@ export function UserForm({
                             {/* Permission Overrides - Unified Accordion */}
                             <div className="space-y-2">
                                 <div className="flex items-center justify-between">
-                                    <h4 className="text-sm font-semibold text-slate-950 dark:text-slate-100">{labels.effectivePermissions}</h4>
-                                    <div className="flex items-center gap-2 text-xs">
-                                        <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
-                                            <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" />
+                                    <h4 className="text-[13px] font-semibold text-[#0E1114] dark:text-slate-100">{labels.effectivePermissions}</h4>
+                                    <div className="flex items-center gap-2 text-[11px]">
+                                        <span className="inline-flex items-center gap-1 text-[#0A9C71]">
+                                            <span className="inline-block h-2 w-2 rounded-full bg-[#0CC991]" />
                                             {labels.grantedPermissions} {form.grantedPermissions.length}
                                         </span>
-                                        <span className="inline-flex items-center gap-1 text-rose-600 dark:text-rose-400">
-                                            <span className="inline-block h-2 w-2 rounded-full bg-rose-500" />
+                                        <span className="inline-flex items-center gap-1 text-[#F53F3F]">
+                                            <span className="inline-block h-2 w-2 rounded-full bg-[#F53F3F]" />
                                             {labels.revokedPermissions} {form.revokedPermissions.length}
                                         </span>
                                     </div>
@@ -459,39 +466,39 @@ export function UserForm({
                                             const revokedPerms = revokedPermissionGroups[category] ?? [];
                                             const hasOverrides = counts.granted > 0 || counts.revoked > 0;
                                             return (
-                                                <div key={category} className="rounded-lg border bg-background">
+                                                <div key={category} className="rounded-[6px] border border-[#EBEEF5] bg-white dark:border-slate-800 dark:bg-slate-950">
                                                     <button
                                                         type="button"
-                                                        className="flex w-full items-center justify-between px-3 py-2.5 text-left transition-colors hover:bg-muted/30"
+                                                        className="flex w-full items-center justify-between px-3 py-2.5 text-left transition-colors hover:bg-[#F8F8F9] dark:hover:bg-slate-900"
                                                         onClick={() => togglePermCategoryExpand(category)}
                                                     >
                                                         <div className="flex items-center gap-2">
-                                                            <ChevronDown className={cn("h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-200", !isExpanded && "-rotate-90")} />
-                                                            <span className="text-sm font-medium">{categoryLabel(category, labels)}</span>
+                                                            <ChevronDown className={cn("h-3.5 w-3.5 shrink-0 text-[#86888F] transition-transform duration-200", !isExpanded && "-rotate-90")} />
+                                                            <span className="text-[12px] font-medium">{categoryLabel(category, labels)}</span>
                                                         </div>
                                                         <div className="flex items-center gap-2">
                                                             {hasOverrides && (
                                                                 <span className="flex items-center gap-1.5 text-[10px]">
                                                                     {counts.granted > 0 && (
-                                                                        <span className="inline-flex items-center gap-0.5 rounded-full bg-emerald-100 px-1.5 py-0.5 font-medium text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300">
+                                                                        <span className="inline-flex items-center gap-0.5 rounded-[4px] bg-[rgba(12,201,145,0.1)] px-1.5 py-0.5 font-medium text-[#0A9C71]">
                                                                             +{counts.granted}
                                                                         </span>
                                                                     )}
                                                                     {counts.revoked > 0 && (
-                                                                        <span className="inline-flex items-center gap-0.5 rounded-full bg-rose-100 px-1.5 py-0.5 font-medium text-rose-700 dark:bg-rose-950/50 dark:text-rose-300">
+                                                                        <span className="inline-flex items-center gap-0.5 rounded-[4px] bg-[rgba(245,63,63,0.08)] px-1.5 py-0.5 font-medium text-[#F53F3F]">
                                                                             -{counts.revoked}
                                                                         </span>
                                                                     )}
                                                                 </span>
                                                             )}
-                                                            <Badge variant="outline" className="text-[10px]">{counts.total}</Badge>
+                                                            <Badge variant="outline" className="h-[20px] rounded-[4px] border-[#E6E7EB] bg-white px-1.5 text-[10px] font-normal text-[#86888F] shadow-none">{counts.total}</Badge>
                                                         </div>
                                                     </button>
                                                     {isExpanded && (
                                                         <div className="border-t px-3 py-2">
                                                             {grantedPerms.length > 0 && (
                                                                 <div className="mb-2">
-                                                                    <p className="mb-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-400">{labels.grantedPermissions}</p>
+                                                                    <p className="mb-1.5 text-[11px] font-medium text-[#0A9C71]">{labels.grantedPermissions}</p>
                                                                     <div className="space-y-1.5">
                                                                         {grantedPerms.map((permission) => {
                                                                             const checked = form.grantedPermissions.includes(permission.key);
@@ -499,10 +506,10 @@ export function UserForm({
                                                                                 <label
                                                                                     key={permission.key}
                                                                                     className={cn(
-                                                                                        "flex cursor-pointer items-start gap-2.5 rounded-lg border p-2 transition-colors",
+                                                                                        "flex cursor-pointer items-start gap-2.5 rounded-[6px] border p-2 transition-colors",
                                                                                         checked
-                                                                                            ? "border-emerald-300 bg-emerald-50/60 dark:border-emerald-800 dark:bg-emerald-950/25"
-                                                                                            : "border-transparent hover:border-emerald-200 hover:bg-emerald-50/30 dark:hover:border-emerald-900/50",
+                                                                                            ? "border-[rgba(12,201,145,0.32)] bg-[rgba(12,201,145,0.06)] dark:border-emerald-800 dark:bg-emerald-950/25"
+                                                                                            : "border-transparent hover:border-[rgba(12,201,145,0.22)] hover:bg-[rgba(12,201,145,0.03)] dark:hover:border-emerald-900/50",
                                                                                     )}
                                                                                 >
                                                                                     <Checkbox
@@ -514,8 +521,8 @@ export function UserForm({
                                                                                         disabled={saving}
                                                                                     />
                                                                                     <div>
-                                                                                        <span className="block text-sm font-medium text-slate-950 dark:text-slate-100">{permission.name}</span>
-                                                                                        <span className="block text-xs text-muted-foreground">{permission.description}</span>
+                                                                                        <span className="block text-[12px] font-medium text-[#0E1114] dark:text-slate-100">{permission.name}</span>
+                                                                                        <span className="block text-[11px] leading-5 text-[#86888F]">{permission.description}</span>
                                                                                     </div>
                                                                                 </label>
                                                                             );
@@ -525,7 +532,7 @@ export function UserForm({
                                                             )}
                                                             {revokedPerms.length > 0 && (
                                                                 <div>
-                                                                    <p className="mb-1.5 text-xs font-medium text-rose-700 dark:text-rose-400">{labels.revokedPermissions}</p>
+                                                                    <p className="mb-1.5 text-[11px] font-medium text-[#F53F3F]">{labels.revokedPermissions}</p>
                                                                     <div className="space-y-1.5">
                                                                         {revokedPerms.map((permission) => {
                                                                             const checked = form.revokedPermissions.includes(permission.key);
@@ -533,10 +540,10 @@ export function UserForm({
                                                                                 <label
                                                                                     key={permission.key}
                                                                                     className={cn(
-                                                                                        "flex cursor-pointer items-start gap-2.5 rounded-lg border p-2 transition-colors",
+                                                                                        "flex cursor-pointer items-start gap-2.5 rounded-[6px] border p-2 transition-colors",
                                                                                         checked
-                                                                                            ? "border-rose-300 bg-rose-50/60 dark:border-rose-800 dark:bg-rose-950/25"
-                                                                                            : "border-transparent hover:border-rose-200 hover:bg-rose-50/30 dark:hover:border-rose-900/50",
+                                                                                            ? "border-[rgba(245,63,63,0.28)] bg-[rgba(245,63,63,0.05)] dark:border-rose-800 dark:bg-rose-950/25"
+                                                                                            : "border-transparent hover:border-[rgba(245,63,63,0.2)] hover:bg-[rgba(245,63,63,0.03)] dark:hover:border-rose-900/50",
                                                                                     )}
                                                                                 >
                                                                                     <Checkbox
@@ -548,8 +555,8 @@ export function UserForm({
                                                                                         disabled={saving}
                                                                                     />
                                                                                     <div>
-                                                                                        <span className="block text-sm font-medium text-slate-950 dark:text-slate-100">{permission.name}</span>
-                                                                                        <span className="block text-xs text-muted-foreground">{permission.description}</span>
+                                                                                        <span className="block text-[12px] font-medium text-[#0E1114] dark:text-slate-100">{permission.name}</span>
+                                                                                        <span className="block text-[11px] leading-5 text-[#86888F]">{permission.description}</span>
                                                                                     </div>
                                                                                 </label>
                                                                             );
@@ -569,8 +576,8 @@ export function UserForm({
                     </TabsContent>
 
                     {/* ─── Tab 3: 数据范围 ─── */}
-                    <TabsContent value="scope" className="overflow-y-auto pr-1">
-                        <div className="space-y-5 pb-2 pt-2">
+                    <TabsContent value="scope" className="mt-0 min-h-0 flex-1 overflow-y-auto px-6 pb-5 pt-4">
+                        <div className="space-y-5">
                             <div className="grid gap-4 lg:grid-cols-[260px_minmax(0,1fr)]">
                                 <div className="space-y-2">
                                     <Label>{labels.dataScope}</Label>
@@ -591,15 +598,15 @@ export function UserForm({
                                         </SelectContent>
                                     </Select>
                                 </div>
-                                <label className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50/70 p-3 text-amber-950 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-100">
+                                <label className="flex items-start gap-3 rounded-[6px] border border-[rgba(255,171,36,0.32)] bg-[rgba(255,171,36,0.08)] p-3 text-[#5E5F66] dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-100">
                                     <Checkbox
                                         checked={form.dataScopeDowngradeConfirmed}
                                         onCheckedChange={(checked) => onChange({ ...form, dataScopeDowngradeConfirmed: checked === true })}
                                         disabled={saving}
                                     />
                                     <div className="space-y-1">
-                                        <p className="text-sm font-medium">{labels.scopeDowngradeConfirm}</p>
-                                        <p className="text-xs leading-5 text-amber-800 dark:text-amber-200">{labels.scopeDowngradeConfirmDesc}</p>
+                                        <p className="text-[12px] font-medium text-[#D48806]">{labels.scopeDowngradeConfirm}</p>
+                                        <p className="text-[11px] leading-5 text-[#86888F] dark:text-amber-200">{labels.scopeDowngradeConfirmDesc}</p>
                                     </div>
                                 </label>
                             </div>
@@ -607,18 +614,18 @@ export function UserForm({
                                 <div className="flex flex-wrap items-start justify-between gap-3">
                                     <div>
                                         <Label>{labels.customOrgs}</Label>
-                                        <p className="mt-1 text-xs leading-5 text-muted-foreground">{labels.customOrgsHelp}</p>
+                                        <p className="mt-1 text-[11px] leading-5 text-[#86888F]">{labels.customOrgsHelp}</p>
                                     </div>
                                     <div className="max-w-full sm:max-w-[50%]">
                                         <CompactBadgeList items={selectedCustomOrganizations} max={3} emptyLabel={labels.emptySelection} />
                                     </div>
                                 </div>
-                                <ScrollArea className="h-48 rounded-md border bg-background">
+                                <ScrollArea className="h-48 rounded-[6px] border border-[#E6E7EB] bg-white dark:border-slate-800 dark:bg-slate-950">
                                     <div className="space-y-2 p-3 pr-4">
                                         {organizationRows.map((row) => (
                                             <label
                                                 key={row.organization.org_code}
-                                                className="flex cursor-pointer items-start gap-3 rounded-md px-2 py-2 transition-colors hover:bg-muted/50"
+                                                className="flex cursor-pointer items-start gap-3 rounded-[4px] px-2 py-2 text-[12px] transition-colors hover:bg-[#F8F8F9] dark:hover:bg-slate-900"
                                             >
                                                 <Checkbox
                                                     checked={form.customOrgCodes.includes(row.organization.org_code)}
@@ -642,8 +649,8 @@ export function UserForm({
                     </TabsContent>
 
                     {/* ─── Tab 4: 授权边界 ─── */}
-                    <TabsContent value="boundary" className="overflow-y-auto pr-1">
-                        <div className="pb-2 pt-2">
+                    <TabsContent value="boundary" className="mt-0 min-h-0 flex-1 overflow-y-auto px-6 pb-5 pt-4">
+                        <div>
                             <AuthorizationBoundaryForm
                                 value={form.authorizationBoundary}
                                 organizations={organizations}
@@ -659,19 +666,19 @@ export function UserForm({
                     </TabsContent>
                 </Tabs>
 
-                <DialogFooter className="flex items-center gap-2 sm:gap-2">
+                <DialogFooter className="shrink-0 items-center gap-2 border-t border-[#F2F3F5] bg-[#FAFAFB] px-6 py-4 sm:gap-2 dark:border-slate-800 dark:bg-slate-900/40">
                     {showErrors && totalErrorCount > 0 && (
-                        <div className="flex items-center gap-1.5 text-sm text-destructive">
+                        <div className="flex items-center gap-1.5 text-[12px] text-[#F53F3F]">
                             <AlertCircle className="h-4 w-4" />
                             <span>{totalErrorCount === 1 ? labels.formHasError : labels.formHasErrors.replace('{count}', String(totalErrorCount))}</span>
                         </div>
                     )}
                     <div className="flex-1" />
-                    <Button variant="outline" onClick={onCancel} disabled={saving}>
+                    <Button variant="outline" className="h-8 rounded-[6px] border-[#E6E7EB] bg-white px-4 text-[12px] font-normal text-[#33353D] shadow-none" onClick={onCancel} disabled={saving}>
                         {labels.cancelLabel}
                     </Button>
-                    <Button onClick={handleSubmit} disabled={saving}>
-                        {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+                    <Button className="h-8 rounded-[6px] bg-[#1E3BFA] px-4 text-[12px] font-normal text-white shadow-none hover:bg-[#0F23D9]" onClick={handleSubmit} disabled={saving}>
+                        {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                         {mode === 'create' ? labels.createUser : labels.saveChanges}
                     </Button>
                 </DialogFooter>

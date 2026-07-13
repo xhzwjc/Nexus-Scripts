@@ -2,25 +2,19 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
-import { ArrowLeft, Copy, Loader2, RefreshCw, Shield } from 'lucide-react';
+import { Copy, Loader2, RefreshCw, X } from 'lucide-react';
 import { toast } from '@/lib/toast';
 import { authenticatedFetch } from '@/lib/auth';
 import { useI18n } from '@/lib/i18n';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
 import type { AccessControlView, ScriptHubRbacOverview } from '@/lib/types';
 import { AccessControlTabs } from './AccessControlTabs';
 import { mapAccessControlApiError } from './utils';
 
-interface AccessControlCenterProps {
-    onBack: () => void;
-}
-
 function AccessControlViewLoading() {
     return (
-        <div className="flex min-h-[360px] items-center justify-center rounded-lg border bg-card text-muted-foreground">
-            <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+        <div className="flex min-h-[360px] items-center justify-center rounded-[8px] border border-[#EBEEF5] bg-white text-[12px] text-[#86888F] dark:border-slate-800 dark:bg-slate-950">
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
         </div>
     );
 }
@@ -50,7 +44,7 @@ const AccessControlAuditPage = dynamic(
     { loading: AccessControlViewLoading },
 );
 
-export function AccessControlCenter({ onBack }: AccessControlCenterProps) {
+export function AccessControlCenter() {
     const { t } = useI18n();
     const [activeView, setActiveView] = useState<AccessControlView>('users');
     const [overview, setOverview] = useState<ScriptHubRbacOverview | null>(null);
@@ -76,7 +70,7 @@ export function AccessControlCenter({ onBack }: AccessControlCenterProps) {
         } finally {
             setLoading(false);
         }
-    }, [t.accessControl.loadFailed]);
+    }, [t.accessControl]);
 
     useEffect(() => {
         void loadOverview();
@@ -140,58 +134,52 @@ export function AccessControlCenter({ onBack }: AccessControlCenterProps) {
     };
 
     return (
-        <div className="min-h-full bg-muted/20">
-            <div className="border-b bg-background">
-                <div className="space-y-4 px-6 py-5">
-                    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                        <div className="flex items-start gap-3">
-                            <Button variant="ghost" size="icon" onClick={onBack}>
-                                <ArrowLeft className="h-5 w-5" />
+        <div className="h-full min-h-0 overflow-y-auto bg-white text-[#0E1114] dark:bg-slate-950 dark:text-slate-100">
+            <div className="min-h-full px-5 pb-12 pt-4 lg:px-8 2xl:px-10">
+                <div className="mx-auto w-full max-w-[1680px]">
+                    <div className="mb-6 flex min-w-0 items-stretch gap-3 overflow-x-auto border-b border-transparent">
+                        <AccessControlTabs value={activeView} labels={t.accessControl} onChange={setActiveView} />
+                        <div className="flex h-12 shrink-0 items-center">
+                            <Button
+                                variant="outline"
+                                size="icon"
+                                title={t.accessControl.refresh}
+                                aria-label={t.accessControl.refresh}
+                                className="h-9 w-9 rounded-[6px] border-[#E6E7EB] bg-white text-[#33353D] shadow-none hover:border-[#1E3BFA] hover:bg-[#F7F8FA] hover:text-[#0F23D9] dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300"
+                                onClick={() => void loadOverview()}
+                                disabled={loading}
+                            >
+                                {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
                             </Button>
-                            <div>
-                                <div className="flex flex-wrap items-center gap-2">
-                                    <Shield className="h-5 w-5 text-teal-600" />
-                                    <h1 className="text-2xl font-semibold">{t.accessControl.title}</h1>
-                                    <Badge variant="outline">{t.accessControl.governanceConsole}</Badge>
-                                </div>
-                                <p className="mt-1 text-sm text-muted-foreground">{t.accessControl.subtitle}</p>
-                            </div>
                         </div>
-                        <Button variant="outline" onClick={() => void loadOverview()} disabled={loading}>
-                            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-                            {t.accessControl.refresh}
-                        </Button>
                     </div>
-                    <AccessControlTabs value={activeView} labels={t.accessControl} onChange={setActiveView} />
+
+                    <div className="space-y-5">
+                        {lastGeneratedKey && (
+                            <div className="flex flex-col gap-3 rounded-[8px] border border-[rgba(12,201,145,0.28)] bg-[rgba(12,201,145,0.06)] px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
+                                <div className="min-w-0">
+                                    <p className="text-[12px] font-medium text-[#0A9C71]">
+                                        {t.accessControl.generatedKey} · <span className="font-mono">{lastGeneratedKey.userCode}</span>
+                                    </p>
+                                    <p className="mt-1 break-all font-mono text-[13px] text-[#0E1114] dark:text-slate-100">{lastGeneratedKey.accessKey}</p>
+                                    <p className="mt-1 text-[11px] text-[#5E5F66] dark:text-slate-400">{t.accessControl.generatedKeyHint}</p>
+                                </div>
+                                <div className="flex shrink-0 items-center gap-2">
+                                    <Button variant="outline" className="h-8 rounded-[6px] border-[#E6E7EB] bg-white px-3 text-[12px] font-normal text-[#0F23D9] shadow-none hover:border-[#1E3BFA] hover:bg-white" onClick={() => void handleCopyKey(lastGeneratedKey.accessKey)}>
+                                        <Copy className="h-3.5 w-3.5" />
+                                        {t.accessControl.copyKey}
+                                    </Button>
+                                    <Button variant="ghost" size="icon" className="h-8 w-8 rounded-[6px] text-[#86888F] hover:bg-white hover:text-[#33353D]" aria-label={t.accessControl.close} onClick={() => setLastGeneratedKey(null)}>
+                                        <X className="h-3.5 w-3.5" />
+                                    </Button>
+                                </div>
+                            </div>
+                        )}
+
+                        {renderActiveView()}
+                    </div>
                 </div>
             </div>
-
-            <main className="space-y-4 p-6">
-                {lastGeneratedKey && (
-                    <Card className="border-teal-200 bg-teal-50/70 dark:border-teal-900 dark:bg-teal-950/20">
-                        <CardContent className="flex flex-col gap-3 p-5 lg:flex-row lg:items-center lg:justify-between">
-                            <div>
-                                <p className="text-sm font-medium text-teal-800 dark:text-teal-200">
-                                    {t.accessControl.generatedKey}: <span className="font-mono">{lastGeneratedKey.userCode}</span>
-                                </p>
-                                <p className="mt-1 font-mono text-sm text-teal-900 dark:text-teal-100">{lastGeneratedKey.accessKey}</p>
-                                <p className="mt-2 text-xs text-teal-700 dark:text-teal-300">{t.accessControl.generatedKeyHint}</p>
-                            </div>
-                            <div className="flex gap-2">
-                                <Button variant="outline" onClick={() => void handleCopyKey(lastGeneratedKey.accessKey)}>
-                                    <Copy className="h-4 w-4" />
-                                    {t.accessControl.copyKey}
-                                </Button>
-                                <Button variant="ghost" onClick={() => setLastGeneratedKey(null)}>
-                                    {t.accessControl.close}
-                                </Button>
-                            </div>
-                        </CardContent>
-                    </Card>
-                )}
-
-                {renderActiveView()}
-            </main>
         </div>
     );
 }

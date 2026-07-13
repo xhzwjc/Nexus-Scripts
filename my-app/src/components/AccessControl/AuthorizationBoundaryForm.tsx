@@ -56,15 +56,15 @@ export function AuthorizationBoundaryForm({
     const organizationMap = useMemo(() => createOrganizationMap(actorFilteredOrganizations), [actorFilteredOrganizations]);
 
     return (
-        <div className="rounded-2xl border border-slate-200/80 bg-white/72 shadow-[0_1px_8px_rgba(15,23,42,0.04)] backdrop-blur dark:border-slate-800 dark:bg-slate-950/55">
-            <div className="border-b border-slate-200/80 p-4 dark:border-slate-800">
+        <div className="rounded-[8px] border border-[#EBEEF5] bg-white shadow-none dark:border-slate-800 dark:bg-slate-950">
+            <div className="border-b border-[#F2F3F5] p-4 dark:border-slate-800">
                 <div className="flex items-start gap-3">
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-slate-200/80 bg-slate-50 text-teal-600 dark:border-slate-800 dark:bg-slate-900 dark:text-teal-300">
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[6px] bg-[rgba(30,59,250,0.08)] text-[#0F23D9] dark:bg-blue-950/30 dark:text-blue-300">
                         <ShieldCheck className="h-4 w-4" />
                     </span>
                     <div>
-                        <h4 className="text-sm font-semibold text-slate-950 dark:text-slate-100">{labels.authorizationBoundary}</h4>
-                        <p className="mt-1 text-xs leading-5 text-muted-foreground">{labels.authorizationBoundaryHelp}</p>
+                        <h4 className="text-[13px] font-semibold text-[#0E1114] dark:text-slate-100">{labels.authorizationBoundary}</h4>
+                        <p className="mt-1 text-[11px] leading-5 text-[#86888F]">{labels.authorizationBoundaryHelp}</p>
                     </div>
                 </div>
             </div>
@@ -72,10 +72,10 @@ export function AuthorizationBoundaryForm({
                 <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
                     <label
                         className={cn(
-                            "flex items-start gap-3 rounded-2xl border p-3 transition-colors",
+                            "flex items-start gap-3 rounded-[6px] border p-3 transition-colors",
                             value.canGrant
-                                ? "border-teal-200 bg-teal-50/80 dark:border-teal-900/70 dark:bg-teal-950/25"
-                                : "border-slate-200/80 bg-slate-50/60 dark:border-slate-800 dark:bg-slate-900/35",
+                                ? "border-[#1E3BFA] bg-[rgba(30,59,250,0.03)] dark:border-blue-700 dark:bg-blue-950/20"
+                                : "border-[#E6E7EB] bg-[#F7F8FA] dark:border-slate-800 dark:bg-slate-900/35",
                         )}
                     >
                         <Checkbox
@@ -98,12 +98,12 @@ export function AuthorizationBoundaryForm({
                             disabled={disabled}
                         />
                         <div>
-                            <p className="text-sm font-medium text-slate-950 dark:text-slate-100">{labels.canGrant}</p>
-                            <p className="text-xs text-muted-foreground">{labels.canGrantHelp}</p>
+                            <p className="text-[12px] font-medium text-[#0E1114] dark:text-slate-100">{labels.canGrant}</p>
+                            <p className="text-[11px] leading-5 text-[#86888F]">{labels.canGrantHelp}</p>
                         </div>
                     </label>
-                    <div className="space-y-2 rounded-2xl border border-slate-200/80 bg-slate-50/60 p-3 dark:border-slate-800 dark:bg-slate-900/35">
-                        <Label>{labels.maxGrantableDataScope}</Label>
+                    <div className="space-y-2 rounded-[6px] border border-[#E6E7EB] bg-[#F7F8FA] p-3 dark:border-slate-800 dark:bg-slate-900/35">
+                        <Label className="text-[12px] font-normal text-[#33353D]">{labels.maxGrantableDataScope}</Label>
                         <Select
                             value={value.maxDataScope}
                             onValueChange={(next) => onChange({ ...value, maxDataScope: next as DataScope })}
@@ -124,18 +124,18 @@ export function AuthorizationBoundaryForm({
                 </div>
 
                 {value.canGrant && value.manageableOrgCodes.length === 0 && value.assignableRoleCodes.length === 0 && value.assignablePermissionKeys.length === 0 && actorBoundary && (
-                    <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50/70 p-3 text-amber-950 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-100">
+                    <div className="flex items-start gap-2 rounded-[6px] border border-[rgba(255,171,36,0.32)] bg-[rgba(255,171,36,0.08)] p-3 text-[#D48806] dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-100">
                         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-                        <p className="text-xs leading-5">{labels.boundaryEmptyWarning}</p>
+                        <p className="text-[11px] leading-5">{labels.boundaryEmptyWarning}</p>
                     </div>
                 )}
 
                 <div className="grid items-start gap-4 xl:grid-cols-[minmax(420px,1.35fr)_minmax(0,0.95fr)]">
-                    <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-slate-50/55 dark:border-slate-800 dark:bg-slate-900/30">
-                        <div className="border-b border-slate-200/80 p-3 dark:border-slate-800">
+                    <div className="overflow-hidden rounded-[6px] border border-[#EBEEF5] bg-[#F7F8FA] dark:border-slate-800 dark:bg-slate-900/30">
+                        <div className="border-b border-[#F2F3F5] p-3 dark:border-slate-800">
                             <div className="flex items-center justify-between gap-2">
-                                <p className="text-sm font-medium text-slate-950 dark:text-slate-100">{labels.manageableOrganizations}</p>
-                                <Badge variant="outline">{value.manageableOrgCodes.length}</Badge>
+                                <p className="text-[12px] font-medium text-[#0E1114] dark:text-slate-100">{labels.manageableOrganizations}</p>
+                                <Badge variant="outline" className="h-[20px] rounded-[4px] border-[#E6E7EB] bg-white px-1.5 text-[10px] font-normal text-[#86888F] shadow-none">{value.manageableOrgCodes.length}</Badge>
                             </div>
                         </div>
                         <ScrollArea className="max-h-48 p-3">
@@ -146,8 +146,8 @@ export function AuthorizationBoundaryForm({
                                         <label
                                             key={row.organization.org_code}
                                             className={cn(
-                                                "flex cursor-pointer items-start gap-3 rounded-md px-2 py-2 transition-colors hover:bg-muted/50",
-                                                checked && "bg-muted/50",
+                                                "flex cursor-pointer items-start gap-3 rounded-[4px] px-2 py-2 text-[12px] transition-colors hover:bg-white",
+                                                checked && "bg-white",
                                             )}
                                         >
                                             <Checkbox
@@ -171,11 +171,11 @@ export function AuthorizationBoundaryForm({
                     </div>
 
                     <div className="grid gap-4 lg:grid-cols-2">
-                        <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-slate-50/55 dark:border-slate-800 dark:bg-slate-900/30">
-                            <div className="border-b border-slate-200/80 p-3 dark:border-slate-800">
+                        <div className="overflow-hidden rounded-[6px] border border-[#EBEEF5] bg-[#F7F8FA] dark:border-slate-800 dark:bg-slate-900/30">
+                            <div className="border-b border-[#F2F3F5] p-3 dark:border-slate-800">
                                 <div className="flex items-center justify-between gap-2">
-                                    <p className="text-sm font-medium text-slate-950 dark:text-slate-100">{labels.assignableRoles}</p>
-                                    <Badge variant="outline">{value.assignableRoleCodes.length}</Badge>
+                                    <p className="text-[12px] font-medium text-[#0E1114] dark:text-slate-100">{labels.assignableRoles}</p>
+                                    <Badge variant="outline" className="h-[20px] rounded-[4px] border-[#E6E7EB] bg-white px-1.5 text-[10px] font-normal text-[#86888F] shadow-none">{value.assignableRoleCodes.length}</Badge>
                                 </div>
                             </div>
                             <ScrollArea className="h-64 p-3">
@@ -186,10 +186,10 @@ export function AuthorizationBoundaryForm({
                                             <label
                                                 key={role.code}
                                                 className={cn(
-                                                    "flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition-colors",
+                                                    "flex cursor-pointer items-start gap-3 rounded-[6px] border p-3 transition-colors",
                                                     checked
-                                                        ? "border-teal-200 bg-white/85 dark:border-teal-900/70 dark:bg-teal-950/25"
-                                                        : "border-transparent bg-white/45 hover:border-slate-200 hover:bg-white/75 dark:bg-slate-950/20 dark:hover:border-slate-700 dark:hover:bg-slate-900/50",
+                                                        ? "border-[#1E3BFA] bg-white dark:border-blue-700 dark:bg-blue-950/20"
+                                                        : "border-transparent bg-white/70 hover:border-[#E6E7EB] hover:bg-white dark:bg-slate-950/20 dark:hover:border-slate-700 dark:hover:bg-slate-900/50",
                                                 )}
                                             >
                                                 <Checkbox
@@ -200,7 +200,7 @@ export function AuthorizationBoundaryForm({
                                                     })}
                                                     disabled={disabled || !value.canGrant}
                                                 />
-                                                <span className="text-sm text-slate-950 dark:text-slate-100">
+                                                <span className="text-[12px] text-[#0E1114] dark:text-slate-100">
                                                     {role.name}
                                                     <span className="ml-1 font-mono text-xs text-muted-foreground">{role.code}</span>
                                                 </span>
@@ -211,18 +211,18 @@ export function AuthorizationBoundaryForm({
                             </ScrollArea>
                         </div>
 
-                        <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-slate-50/55 dark:border-slate-800 dark:bg-slate-900/30">
-                            <div className="border-b border-slate-200/80 p-3 dark:border-slate-800">
+                        <div className="overflow-hidden rounded-[6px] border border-[#EBEEF5] bg-[#F7F8FA] dark:border-slate-800 dark:bg-slate-900/30">
+                            <div className="border-b border-[#F2F3F5] p-3 dark:border-slate-800">
                                 <div className="flex items-center justify-between gap-2">
-                                    <p className="text-sm font-medium text-slate-950 dark:text-slate-100">{labels.assignablePermissions}</p>
-                                    <Badge variant="outline">{value.assignablePermissionKeys.length}</Badge>
+                                    <p className="text-[12px] font-medium text-[#0E1114] dark:text-slate-100">{labels.assignablePermissions}</p>
+                                    <Badge variant="outline" className="h-[20px] rounded-[4px] border-[#E6E7EB] bg-white px-1.5 text-[10px] font-normal text-[#86888F] shadow-none">{value.assignablePermissionKeys.length}</Badge>
                                 </div>
                             </div>
                             <ScrollArea className="h-64 p-3">
                                 <div className="space-y-4 pr-3">
                                     {Object.entries(permissionGroups).map(([category, categoryPermissions]) => (
                                         <div key={category} className="space-y-2">
-                                            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                                            <p className="text-[10px] font-medium uppercase tracking-wide text-[#86888F]">
                                                 {categoryLabel(category, labels)}
                                             </p>
                                             {categoryPermissions.map((permission) => {
@@ -231,10 +231,10 @@ export function AuthorizationBoundaryForm({
                                                     <label
                                                         key={permission.key}
                                                         className={cn(
-                                                            "flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition-colors",
+                                                            "flex cursor-pointer items-start gap-3 rounded-[6px] border p-3 transition-colors",
                                                             checked
-                                                                ? "border-teal-200 bg-white/85 dark:border-teal-900/70 dark:bg-teal-950/25"
-                                                                : "border-transparent bg-white/45 hover:border-slate-200 hover:bg-white/75 dark:bg-slate-950/20 dark:hover:border-slate-700 dark:hover:bg-slate-900/50",
+                                                                ? "border-[#1E3BFA] bg-white dark:border-blue-700 dark:bg-blue-950/20"
+                                                                : "border-transparent bg-white/70 hover:border-[#E6E7EB] hover:bg-white dark:bg-slate-950/20 dark:hover:border-slate-700 dark:hover:bg-slate-900/50",
                                                         )}
                                                     >
                                                         <Checkbox
@@ -245,8 +245,10 @@ export function AuthorizationBoundaryForm({
                                                             })}
                                                             disabled={disabled || !value.canGrant}
                                                         />
-                                                        <span className="text-sm text-slate-950 dark:text-slate-100">{permission.name}</span>
-                                                        <span className="block text-xs text-muted-foreground">{permission.description}</span>
+                                                        <span className="min-w-0">
+                                                            <span className="block text-[12px] text-[#0E1114] dark:text-slate-100">{permission.name}</span>
+                                                            <span className="mt-0.5 block text-[11px] leading-5 text-[#86888F]">{permission.description}</span>
+                                                        </span>
                                                     </label>
                                                 );
                                             })}

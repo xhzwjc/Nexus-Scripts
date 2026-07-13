@@ -1,13 +1,11 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Loader2, Plus, Search, SlidersHorizontal } from 'lucide-react';
+import { Info, KeyRound, Loader2, Plus, Search, SlidersHorizontal, Trash2 } from 'lucide-react';
 import { toast } from '@/lib/toast';
 import { authenticatedFetch, clearScriptHubSession, getStoredScriptHubSession, validateStoredScriptHubSession } from '@/lib/auth';
 import { useI18n } from '@/lib/i18n';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
 import {
     Dialog,
     DialogContent,
@@ -410,47 +408,51 @@ export function AccessControlUsersPage({
     };
 
     return (
-        <div className="space-y-4">
-            <div className="rounded-lg border bg-card">
-                <div className="border-b px-5 py-4">
-                    <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                        <div>
-                            <h2 className="text-lg font-semibold">{labels.usersTitle}</h2>
-                            <p className="mt-1 text-sm text-muted-foreground">{labels.usersDesc}</p>
-                        </div>
-                        <Button onClick={openCreateDialog}>
-                            <Plus className="h-4 w-4" />
-                            {labels.addUser}
-                        </Button>
-                    </div>
+        <section aria-labelledby="access-control-users-title" className="space-y-5">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div className="flex min-w-0 flex-wrap items-baseline gap-x-4 gap-y-1">
+                    <h1 id="access-control-users-title" className="text-[18px] font-semibold leading-7 text-[#0E1114] dark:text-white">{labels.usersTitle}</h1>
+                    <p className="text-[12px] leading-5 text-[#B0B2B8] dark:text-slate-400">{labels.usersDesc}</p>
                 </div>
+                <Button className="h-9 shrink-0 rounded-[6px] bg-[#1E3BFA] px-4 text-[13px] font-normal text-white shadow-none hover:bg-[#0F23D9]" onClick={openCreateDialog}>
+                    <Plus className="h-3.5 w-3.5" />
+                    {labels.addUser}
+                </Button>
+            </div>
 
-                <div className="border-b bg-muted/20 px-5 py-4">
-                    <div className="grid gap-3 lg:grid-cols-[minmax(280px,1fr)_180px_160px_180px_auto]">
+            <div className="flex flex-col gap-2 rounded-[6px] bg-[#F7F8FA] px-4 py-3 text-[12px] text-[#33353D] dark:bg-slate-900/60 dark:text-slate-300 md:flex-row md:items-center md:justify-between">
+                <span className="flex min-w-0 items-start gap-2">
+                    <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#2E9CFF]" />
+                    <span className="leading-5">{labels.usersGovernanceHint}</span>
+                </span>
+                <span className="inline-flex h-[22px] shrink-0 items-center rounded-[4px] bg-[rgba(30,59,250,0.08)] px-2 text-[10px] text-[#0F23D9]">{labels.fourLayerModel}</span>
+            </div>
+
+            <div className="overflow-hidden rounded-[8px] border border-[#EBEEF5] bg-white shadow-none dark:border-slate-800 dark:bg-slate-950">
+                <div className="border-b border-[#F2F3F5] bg-[#FAFAFB] px-4 py-3 dark:border-slate-800 dark:bg-slate-900/40">
+                    <div className="grid gap-3 lg:grid-cols-[minmax(260px,1fr)_180px_150px_190px_auto]">
                         <div className="relative">
-                            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                            <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#B0B2B8]" />
                             <Input
-                                className="pl-9"
+                                className="h-9 rounded-[4px] border-[#E6E7EB] bg-white pl-9 text-[12px] shadow-none placeholder:text-[#B0B2B8] focus-visible:border-[#1E3BFA] focus-visible:ring-0 dark:border-slate-700 dark:bg-slate-950"
                                 placeholder={labels.searchPlaceholder}
                                 value={query}
                                 onChange={(event) => setQuery(event.target.value)}
                             />
                         </div>
                         <Select value={dataScopeFilter} onValueChange={(value) => setDataScopeFilter(value as 'all' | DataScope)}>
-                            <SelectTrigger>
+                            <SelectTrigger className="h-9 w-full rounded-[4px] border-[#E6E7EB] bg-white text-[12px] shadow-none focus:ring-0 dark:border-slate-700 dark:bg-slate-950">
                                 <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
                                 <SelectItem value="all">{labels.filterAllDataScopes}</SelectItem>
                                 {DATA_SCOPE_OPTIONS.map((scope) => (
-                                    <SelectItem key={scope} value={scope}>
-                                        {getDataScopeLabel(scope, labels)}
-                                    </SelectItem>
+                                    <SelectItem key={scope} value={scope}>{getDataScopeLabel(scope, labels)}</SelectItem>
                                 ))}
                             </SelectContent>
                         </Select>
                         <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as StatusFilter)}>
-                            <SelectTrigger>
+                            <SelectTrigger className="h-9 w-full rounded-[4px] border-[#E6E7EB] bg-white text-[12px] shadow-none focus:ring-0 dark:border-slate-700 dark:bg-slate-950">
                                 <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
@@ -460,7 +462,7 @@ export function AccessControlUsersPage({
                             </SelectContent>
                         </Select>
                         <Select value={configFilter} onValueChange={(value) => setConfigFilter(value as ConfigFilter)}>
-                            <SelectTrigger>
+                            <SelectTrigger className="h-9 w-full rounded-[4px] border-[#E6E7EB] bg-white text-[12px] shadow-none focus:ring-0 dark:border-slate-700 dark:bg-slate-950">
                                 <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
@@ -470,67 +472,58 @@ export function AccessControlUsersPage({
                                 <SelectItem value="none">{labels.configPermissionNone}</SelectItem>
                             </SelectContent>
                         </Select>
-                        <Button variant="outline" onClick={() => {
+                        <Button variant="outline" className="h-9 rounded-[4px] border-[#E6E7EB] bg-white px-3 text-[12px] font-normal text-[#5E5F66] shadow-none hover:border-[#1E3BFA] hover:bg-white hover:text-[#0F23D9] dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300" onClick={() => {
                             setQuery('');
                             setDataScopeFilter('all');
                             setStatusFilter('all');
                             setConfigFilter('all');
                         }}>
-                            <SlidersHorizontal className="h-4 w-4" />
+                            <SlidersHorizontal className="h-3.5 w-3.5" />
                             {labels.resetFilters}
                         </Button>
                     </div>
                 </div>
 
-                <div className="p-5">
-                    {loading ? (
-                        <div className="flex min-h-[360px] items-center justify-center text-muted-foreground">
-                            <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                            {t.common.loading}
-                        </div>
-                    ) : error ? (
-                        <div className="flex min-h-[360px] flex-col items-center justify-center gap-3 text-center">
-                            <p className="max-w-md text-sm text-destructive">{error}</p>
-                            <Button variant="outline" onClick={() => void onReload()}>{labels.refresh}</Button>
-                        </div>
-                    ) : filteredViewModels.length === 0 ? (
-                        <div className="flex min-h-[360px] flex-col items-center justify-center gap-3 text-center text-sm text-muted-foreground">
-                            <p>{labels.noUsers}</p>
-                            <Button variant="outline" onClick={openCreateDialog}>
-                                <Plus className="h-4 w-4" />
-                                {labels.addUser}
-                            </Button>
-                        </div>
-                    ) : (
-                        <UserTable
-                            users={filteredUsers}
-                            viewModels={filteredViewModels}
-                            permissionMap={permissionMap}
-                            labels={labels}
-                            canManageUsers={canManageUsers}
-                            currentUserId={currentUserId}
-                            onEdit={openEditDialog}
-                            onRotateKey={(user) => {
-                                setRotateDialogError(null);
-                                setRotateErrors({});
-                                setCustomRotateKey('');
-                                setRotateUser(user);
-                            }}
-                            onDelete={(user) => {
-                                setDeleteDialogError(null);
-                                setDeleteUser(user);
-                            }}
-                        />
-                    )}
-                </div>
+                {loading ? (
+                    <div className="flex min-h-[360px] items-center justify-center text-[12px] text-[#86888F]">
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        {t.common.loading}
+                    </div>
+                ) : error ? (
+                    <div className="flex min-h-[360px] flex-col items-center justify-center gap-3 px-6 text-center">
+                        <p className="max-w-md text-[12px] leading-5 text-[#F53F3F]">{error}</p>
+                        <Button variant="outline" className="h-8 rounded-[6px] border-[#E6E7EB] bg-white px-3 text-[12px] font-normal text-[#0F23D9] shadow-none" onClick={() => void onReload()}>{labels.refresh}</Button>
+                    </div>
+                ) : filteredViewModels.length === 0 ? (
+                    <div className="flex min-h-[360px] flex-col items-center justify-center gap-3 px-6 text-center text-[12px] text-[#86888F]">
+                        <p>{labels.noUsers}</p>
+                        <Button variant="outline" className="h-8 rounded-[6px] border-[#1E3BFA] bg-white px-3 text-[12px] font-normal text-[#0F23D9] shadow-none" onClick={openCreateDialog}>
+                            <Plus className="h-3.5 w-3.5" />
+                            {labels.addUser}
+                        </Button>
+                    </div>
+                ) : (
+                    <UserTable
+                        users={filteredUsers}
+                        viewModels={filteredViewModels}
+                        permissionMap={permissionMap}
+                        labels={labels}
+                        canManageUsers={canManageUsers}
+                        currentUserId={currentUserId}
+                        onEdit={openEditDialog}
+                        onRotateKey={(user) => {
+                            setRotateDialogError(null);
+                            setRotateErrors({});
+                            setCustomRotateKey('');
+                            setRotateUser(user);
+                        }}
+                        onDelete={(user) => {
+                            setDeleteDialogError(null);
+                            setDeleteUser(user);
+                        }}
+                    />
+                )}
             </div>
-
-            <Card className="border-dashed">
-                <CardContent className="flex flex-col gap-2 p-4 text-sm text-muted-foreground md:flex-row md:items-center md:justify-between">
-                    <span>{labels.usersGovernanceHint}</span>
-                    <Badge variant="outline">{labels.fourLayerModel}</Badge>
-                </CardContent>
-            </Card>
 
             <UserForm
                 open={createOpen || !!editUser}
@@ -557,30 +550,35 @@ export function AccessControlUsersPage({
             />
 
             <Dialog open={!!deleteUser} onOpenChange={(open) => { if (!open) closeDialogs(); }}>
-                <DialogContent className="sm:max-w-lg">
-                    <DialogHeader>
-                        <DialogTitle>{labels.deleteUserTitle}</DialogTitle>
-                        <DialogDescription>{labels.deleteConfirmDescription}</DialogDescription>
+                <DialogContent className="gap-0 overflow-hidden rounded-[8px] border-0 bg-white p-0 shadow-[0_8px_24px_rgba(14,17,20,0.16)] sm:max-w-[440px] dark:bg-slate-950">
+                    <DialogHeader className="gap-1 border-b border-[#F2F3F5] px-5 pb-4 pr-12 pt-5 text-left dark:border-slate-800">
+                        <DialogTitle className="text-[16px] leading-6 text-[#0E1114] dark:text-white">{labels.deleteUserTitle}</DialogTitle>
+                        <DialogDescription className="text-[12px] leading-5 text-[#86888F]">{labels.deleteConfirmDescription}</DialogDescription>
                     </DialogHeader>
-                    <div className="space-y-4">
+                    <div className="space-y-4 px-5 py-4">
                         {deleteDialogError && (
-                            <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+                            <div className="rounded-[6px] border border-[rgba(245,63,63,0.24)] bg-[rgba(245,63,63,0.06)] px-3 py-2 text-[12px] leading-5 text-[#F53F3F]">
                                 {deleteDialogError}
                             </div>
                         )}
                         {deleteUser && (
-                            <div className="rounded-md border bg-muted/20 p-4">
-                                <p className="text-sm font-medium">{deleteUser.display_name}</p>
-                                <p className="font-mono text-xs text-muted-foreground">{deleteUser.user_code}</p>
+                            <div className="flex items-center gap-3 rounded-[6px] bg-[#F7F8FA] p-3 dark:bg-slate-900/60">
+                                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[6px] bg-[rgba(245,63,63,0.08)] text-[#F53F3F]">
+                                    <Trash2 className="h-4 w-4" />
+                                </span>
+                                <div className="min-w-0">
+                                    <p className="truncate text-[13px] font-medium text-[#0E1114] dark:text-slate-100">{deleteUser.display_name}</p>
+                                    <p className="mt-0.5 truncate font-mono text-[11px] text-[#86888F]">{deleteUser.user_code}</p>
+                                </div>
                             </div>
                         )}
                     </div>
-                    <DialogFooter>
-                        <Button variant="outline" onClick={closeDialogs} disabled={saving}>
+                    <DialogFooter className="border-t border-[#F2F3F5] bg-[#FAFAFB] px-5 py-4 dark:border-slate-800 dark:bg-slate-900/40">
+                        <Button variant="outline" className="h-8 rounded-[6px] border-[#E6E7EB] bg-white px-4 text-[12px] font-normal text-[#33353D] shadow-none" onClick={closeDialogs} disabled={saving}>
                             {t.common.cancel}
                         </Button>
-                        <Button variant="destructive" onClick={() => void handleDeleteUser()} disabled={saving}>
-                            {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+                        <Button variant="destructive" className="h-8 rounded-[6px] bg-[#F53F3F] px-4 text-[12px] font-normal text-white shadow-none hover:bg-[#D9363E]" onClick={() => void handleDeleteUser()} disabled={saving}>
+                            {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                             {labels.deleteConfirmAction}
                         </Button>
                     </DialogFooter>
@@ -588,23 +586,30 @@ export function AccessControlUsersPage({
             </Dialog>
 
             <Dialog open={!!rotateUser} onOpenChange={(open) => { if (!open) closeDialogs(); }}>
-                <DialogContent>
-                    <DialogHeader>
-                        <DialogTitle>{labels.rotateKeyTitle}</DialogTitle>
-                        <DialogDescription>
+                <DialogContent className="gap-0 overflow-hidden rounded-[8px] border-0 bg-white p-0 shadow-[0_8px_24px_rgba(14,17,20,0.16)] sm:max-w-[520px] dark:bg-slate-950">
+                    <DialogHeader className="gap-1 border-b border-[#F2F3F5] px-5 pb-4 pr-12 pt-5 text-left dark:border-slate-800">
+                        <DialogTitle className="text-[16px] leading-6 text-[#0E1114] dark:text-white">{labels.rotateKeyTitle}</DialogTitle>
+                        <DialogDescription className="text-[12px] leading-5 text-[#86888F]">
                             {rotateUser ? `${rotateUser.display_name} (${rotateUser.user_code})` : labels.rotateKeyTitle}
                         </DialogDescription>
                     </DialogHeader>
-                    <div className="space-y-4">
+                    <div className="space-y-4 px-5 py-4">
                         {rotateDialogError && (
-                            <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+                            <div className="rounded-[6px] border border-[rgba(245,63,63,0.24)] bg-[rgba(245,63,63,0.06)] px-3 py-2 text-[12px] leading-5 text-[#F53F3F]">
                                 {rotateDialogError}
                             </div>
                         )}
-                        <div className="space-y-2">
-                            <Label htmlFor="rotate-key">{labels.customKey}</Label>
+                        <div className="flex items-start gap-3 rounded-[6px] bg-[#F7F8FA] p-3 dark:bg-slate-900/60">
+                            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[6px] bg-[rgba(30,59,250,0.08)] text-[#0F23D9]">
+                                <KeyRound className="h-4 w-4" />
+                            </span>
+                            <p className="text-[11px] leading-5 text-[#5E5F66] dark:text-slate-400">{labels.generatedKeyHint}</p>
+                        </div>
+                        <div className="space-y-1.5">
+                            <Label htmlFor="rotate-key" className="text-[12px] font-normal text-[#33353D] dark:text-slate-300">{labels.customKey}</Label>
                             <Input
                                 id="rotate-key"
+                                className="h-9 rounded-[4px] border-[#E6E7EB] text-[12px] shadow-none placeholder:text-[#B0B2B8] focus-visible:border-[#1E3BFA] focus-visible:ring-0 dark:border-slate-700"
                                 value={customRotateKey}
                                 onChange={(event) => {
                                     setRotateErrors({});
@@ -615,22 +620,21 @@ export function AccessControlUsersPage({
                                 disabled={saving}
                             />
                             {rotateErrors.accessKey && (
-                                <p className="text-xs text-destructive">{rotateErrors.accessKey}</p>
+                                <p className="text-[11px] text-[#F53F3F]">{rotateErrors.accessKey}</p>
                             )}
                         </div>
-                        <p className="text-xs text-muted-foreground">{labels.generatedKeyHint}</p>
                     </div>
-                    <DialogFooter>
-                        <Button variant="outline" onClick={closeDialogs} disabled={saving}>
+                    <DialogFooter className="border-t border-[#F2F3F5] bg-[#FAFAFB] px-5 py-4 dark:border-slate-800 dark:bg-slate-900/40">
+                        <Button variant="outline" className="h-8 rounded-[6px] border-[#E6E7EB] bg-white px-4 text-[12px] font-normal text-[#33353D] shadow-none" onClick={closeDialogs} disabled={saving}>
                             {t.common.cancel}
                         </Button>
-                        <Button onClick={() => void handleRotateKey()} disabled={saving}>
-                            {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+                        <Button className="h-8 rounded-[6px] bg-[#1E3BFA] px-4 text-[12px] font-normal text-white shadow-none hover:bg-[#0F23D9]" onClick={() => void handleRotateKey()} disabled={saving}>
+                            {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                             {labels.rotateUserKey}
                         </Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
-        </div>
+        </section>
     );
 }
