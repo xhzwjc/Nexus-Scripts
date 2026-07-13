@@ -1161,21 +1161,18 @@ type CandidatePrototypeTableRowProps = {
     setSelectedCandidateId: React.Dispatch<React.SetStateAction<number | null>>;
     toggleCandidateSelection: (candidateId: number, nextChecked?: boolean) => void;
     onPrimaryAction: (candidate: CandidateSummary) => void;
-    onViewResume: (candidateId: number) => void;
-    onSendResume: (candidateId: number) => void;
     canExecuteProcess: boolean;
     canMoveToTalentPool: boolean;
-    canSendResume: boolean;
     organizationLabel?: string | null;
     resumeMailSummary?: string | null;
     language: string;
     gridTemplateColumns: string;
 };
 
-function getCandidatePrototypeListGridTemplate(canSendResume: boolean) {
-    const actionColumnWidth = canSendResume ? 216 : 168;
+function getCandidatePrototypeListGridTemplate() {
+    const actionColumnWidth = 112;
     return {
-        minWidth: canSendResume ? 1240 : 1192,
+        minWidth: 1136,
         columns: [
             "40px",
             "minmax(210px,1.75fr)",
@@ -1235,11 +1232,8 @@ const CandidatePrototypeTableRow = React.memo(function CandidatePrototypeTableRo
     setSelectedCandidateId,
     toggleCandidateSelection,
     onPrimaryAction,
-    onViewResume,
-    onSendResume,
     canExecuteProcess,
     canMoveToTalentPool,
-    canSendResume,
     organizationLabel,
     resumeMailSummary,
     language,
@@ -1343,14 +1337,6 @@ const CandidatePrototypeTableRow = React.memo(function CandidatePrototypeTableRo
                 <button type="button" className="shrink-0 text-[#0F23D9] hover:text-[#1E3BFA]" onClick={() => onPrimaryAction(candidate)}>
                     {candidatePrototypePrimaryActionLabel(candidate, isZh, canExecuteProcess, canMoveToTalentPool)}
                 </button>
-                <button type="button" className="shrink-0 text-[#0F23D9] hover:text-[#1E3BFA]" onClick={() => onViewResume(candidate.id)}>
-                    {isZh ? "查看简历" : "Resume"}
-                </button>
-                {canSendResume ? (
-                    <button type="button" className="shrink-0 text-[#0F23D9] hover:text-[#1E3BFA]" onClick={() => onSendResume(candidate.id)}>
-                        {isZh ? "发送简历" : "Send"}
-                    </button>
-                ) : null}
             </div>
         </div>
     );
@@ -3836,8 +3822,8 @@ export function CandidatesPage({
         return `56px ${candidateListVisibleColumns.map((key) => `${candidateListEffectiveColumnWidths[key]}px`).join(" ")}`;
     }, [candidateListEffectiveColumnWidths, candidateListVisibleColumns]);
     const candidatePrototypeListGridLayout = React.useMemo(
-        () => getCandidatePrototypeListGridTemplate(permissions.sendMail),
-        [permissions.sendMail],
+        () => getCandidatePrototypeListGridTemplate(),
+        [],
     );
 
     const selectedCandidateIdSet = React.useMemo(() => new Set(selectedCandidateIds), [selectedCandidateIds]);
@@ -5295,11 +5281,8 @@ export function CandidatesPage({
                                                                     openCandidateFromPrimaryAction(item.id, "resume");
                                                                 }
                                                             }}
-                                                            onViewResume={(candidateId) => openCandidateFromPrimaryAction(candidateId, "resume")}
-                                                            onSendResume={(candidateId) => openResumeMailDialog([candidateId])}
                                                             canExecuteProcess={permissions.executeProcess}
                                                             canMoveToTalentPool={permissions.manageCandidate && permissions.viewTalentPool}
-                                                            canSendResume={permissions.sendMail}
                                                             organizationLabel={showOrganizationColumn ? getOrganizationLabel(candidate.org_code) : null}
                                                             resumeMailSummary={getVisibleCandidateResumeMailSummary(candidate.id)}
                                                             language={language}
