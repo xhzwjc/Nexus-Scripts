@@ -1846,12 +1846,12 @@ function CandidatePipelineBar({
         openedByHoverRef.current = true;
         setOpenStageKey(stageKey);
     }, [cancelClose]);
-    const scheduleClose = React.useCallback(() => {
+    const scheduleClose = React.useCallback((stageKey: string) => {
         cancelClose();
         closeTimerRef.current = window.setTimeout(() => {
-            setOpenStageKey(null);
+            setOpenStageKey((current) => current === stageKey ? null : current);
             closeTimerRef.current = null;
-        }, 140);
+        }, 220);
     }, [cancelClose]);
 
     React.useEffect(() => () => cancelClose(), [cancelClose]);
@@ -1866,11 +1866,14 @@ function CandidatePipelineBar({
                         <div
                             key={stage.key}
                             className="relative flex shrink-0 items-center"
-                            onMouseEnter={() => {
+                            onPointerEnter={() => {
                                 if (hasChildMenu) openStageMenu(stage.key);
                             }}
-                            onMouseLeave={() => {
-                                if (hasChildMenu) scheduleClose();
+                            onPointerMove={() => {
+                                if (hasChildMenu && openStageKey !== stage.key) openStageMenu(stage.key);
+                            }}
+                            onPointerLeave={() => {
+                                if (hasChildMenu) scheduleClose(stage.key);
                             }}
                         >
                             <button
@@ -1893,7 +1896,9 @@ function CandidatePipelineBar({
                                     open={openStageKey === stage.key}
                                     onOpenChange={(open) => {
                                         cancelClose();
-                                        setOpenStageKey(open ? stage.key : null);
+                                        setOpenStageKey((current) => open
+                                            ? stage.key
+                                            : current === stage.key ? null : current);
                                     }}
                                 >
                                     <PopoverTrigger asChild>
@@ -1919,8 +1924,8 @@ function CandidatePipelineBar({
                                         onOpenAutoFocus={(event) => {
                                             if (openedByHoverRef.current) event.preventDefault();
                                         }}
-                                        onMouseEnter={cancelClose}
-                                        onMouseLeave={scheduleClose}
+                                        onPointerEnter={cancelClose}
+                                        onPointerLeave={() => scheduleClose(stage.key)}
                                     >
                                         {hasDistinctStageAllOption ? (
                                             <button
