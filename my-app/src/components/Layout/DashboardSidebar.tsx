@@ -51,7 +51,7 @@ type RecruitmentSidebarItem = {
 
 const SIDEBAR_PINNED_STORAGE_KEY = 'scripts.dashboard.sidebarPinned';
 const SIDEBAR_COMPACT_WIDTH = 72;
-const SIDEBAR_EXPANDED_WIDTH = 268;
+const SIDEBAR_EXPANDED_WIDTH = 220;
 const CM_PERMISSION_KEYS = [
     'settlement',
     'commission',
