@@ -15,7 +15,7 @@ import type {
     ScriptHubManagedUser,
     ScriptHubPermissionDefinition,
 } from '@/lib/types';
-import { CompactBadgeList, ConfigPermissionBadge, StatusBadge } from './AccessControlBadges';
+import { CompactBadgeList, ConfigPermissionBadge } from './AccessControlBadges';
 import type { AccessControlLabels } from './utils';
 import { formatDateTime, getDataScopeLabel } from './utils';
 
@@ -46,29 +46,29 @@ export function UserTable({
 
     return (
         <div className="w-full overflow-x-auto">
-            <Table className="w-full min-w-[1180px] table-fixed text-[12px]">
+            <Table className="w-full min-w-[1240px] table-fixed text-[12px]">
                 <colgroup>
-                    <col style={{ width: '16%' }} />
-                    <col style={{ width: '12%' }} />
+                    <col style={{ width: '15%' }} />
+                    <col style={{ width: '11%' }} />
                     <col style={{ width: '10%' }} />
                     <col style={{ width: '10%' }} />
                     <col style={{ width: '9%' }} />
-                    <col style={{ width: '7%' }} />
-                    <col style={{ width: '13%' }} />
+                    <col style={{ width: '6%' }} />
+                    <col style={{ width: '15%' }} />
                     <col style={{ width: '10%' }} />
-                    <col style={{ width: '13%' }} />
+                    <col style={{ width: '14%' }} />
                 </colgroup>
                 <TableHeader>
                     <TableRow className="h-10 border-b border-[#F2F3F5] bg-white hover:bg-white dark:border-slate-800 dark:bg-slate-950 dark:hover:bg-slate-950">
-                        <TableHead className="px-3 text-[11px] font-normal text-[#86888F]">{labels.usersTitle}</TableHead>
-                        <TableHead className="px-3 text-[11px] font-normal text-[#86888F]">{labels.organization}</TableHead>
-                        <TableHead className="px-3 text-[11px] font-normal text-[#86888F]">{labels.roles}</TableHead>
-                        <TableHead className="px-3 text-[11px] font-normal text-[#86888F]">{labels.dataScope}</TableHead>
-                        <TableHead className="px-3 text-[11px] font-normal text-[#86888F]">{labels.configPermission}</TableHead>
-                        <TableHead className="px-3 text-[11px] font-normal text-[#86888F]">{labels.status}</TableHead>
-                        <TableHead className="px-3 text-[11px] font-normal text-[#86888F]">{labels.effectivePermissions}</TableHead>
-                        <TableHead className="px-3 text-[11px] font-normal text-[#86888F]">{labels.lastLogin}</TableHead>
-                        <TableHead className="px-3 text-right text-[11px] font-normal text-[#86888F]">{labels.actions}</TableHead>
+                        <TableHead className="px-3 text-[12px] font-normal text-[#86888F]">{labels.userColumn}</TableHead>
+                        <TableHead className="px-3 text-[12px] font-normal text-[#86888F]">{labels.userFormOrganization}</TableHead>
+                        <TableHead className="px-3 text-[12px] font-normal text-[#86888F]">{labels.roles}</TableHead>
+                        <TableHead className="px-3 text-[12px] font-normal text-[#86888F]">{labels.dataScope}</TableHead>
+                        <TableHead className="px-3 text-[12px] font-normal text-[#86888F]">{labels.configPermission}</TableHead>
+                        <TableHead className="px-3 text-[12px] font-normal text-[#86888F]">{labels.status}</TableHead>
+                        <TableHead className="px-3 text-[12px] font-normal text-[#86888F]">{labels.effectivePermissions}</TableHead>
+                        <TableHead className="px-3 text-[12px] font-normal text-[#86888F]">{labels.lastLogin}</TableHead>
+                        <TableHead className="px-3 text-right text-[12px] font-normal text-[#86888F]">{labels.actions}</TableHead>
                     </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -91,12 +91,12 @@ export function UserTable({
                                         </span>
                                         <div className="min-w-0">
                                             <div className="flex min-w-0 items-center gap-1.5">
-                                                <p className="truncate text-[12px] font-medium" title={user.displayName}>{user.displayName}</p>
+                                                <p className="truncate text-[13px] font-medium" title={user.displayName}>{user.displayName}</p>
                                                 {user.isSuperAdmin && (
                                                     <Badge variant="outline" className="h-[18px] shrink-0 rounded-[4px] border-transparent bg-[rgba(255,171,36,0.12)] px-1.5 text-[9px] font-normal text-[#D48806] shadow-none">{labels.superAdmin}</Badge>
                                                 )}
                                             </div>
-                                            <p className="mt-0.5 truncate font-mono text-[10px] text-[#B0B2B8]" title={user.userCode}>{user.userCode}</p>
+                                            <p className="mt-0.5 truncate font-mono text-[11px] text-[#B0B2B8]" title={user.userCode}>{user.userCode}</p>
                                         </div>
                                     </div>
                                 </TableCell>
@@ -121,7 +121,10 @@ export function UserTable({
                                     <ConfigPermissionBadge state={user.configPermissionState} labels={labels} />
                                 </TableCell>
                                 <TableCell className="px-3 py-1">
-                                    <StatusBadge active={user.isActive} labels={labels} />
+                                    <span className={user.isActive ? 'inline-flex items-center gap-1.5 text-[#0A9C71]' : 'inline-flex items-center gap-1.5 text-[#86888F]'}>
+                                        <span className={user.isActive ? 'h-1.5 w-1.5 rounded-full bg-[#0CC991]' : 'h-1.5 w-1.5 rounded-full bg-[#B0B2B8]'} />
+                                        {user.isActive ? labels.active : labels.inactive}
+                                    </span>
                                 </TableCell>
                                 <TableCell className="px-3 py-1">
                                     <CompactBadgeList items={permissionNames} max={2} variant="outline" />

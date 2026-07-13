@@ -335,3 +335,86 @@ final result: passed
 - 审计流程与提示状态测试：4 passed。
 - `git diff --check`：通过。
 - 开发服务器已在 `http://localhost:3000/` 启动并返回 HTTP 200。
+
+## 2026-07-13 权限中心用户管理新版重构
+
+### 对照范围与实现结果
+
+- 参考原型：`AI Recruitment Redesign Project/权限中心 Permissions.dc.html` 的用户管理列表、新增用户和编辑用户状态；实现入口为 `http://localhost:3000/` 的“权限中心 / 用户管理”。
+- 用户列表按新版原型调整为无外层卡片的标题、筛选和全宽表格结构，搜索与角色、数据范围、账号状态、配置权限筛选保持现有真实业务；列宽按内容权重铺满，操作列不再留下无效空白。
+- 表格保留系统实际存在而原型未展示的“最终权限”、删除和密钥重置，并保留组织、角色、数据范围、配置权限、账号状态、最近登录等真实字段。
+- 新增与编辑统一为 1000px 五步弹窗：基本信息、组织与数据范围、角色与配置权限、授权边界、账号状态；左侧步骤展示当前用户摘要，右侧只渲染当前步骤，底部操作区固定。
+- 继续保留访问密钥自动/自定义、团队资源密钥、额外授予、显式收回、自定义组织、范围降级确认、授权边界、账号启停和超级管理员等现有能力；编辑态用户编码保持不可修改。
+
+### QA 结论
+
+- 桌面视口下表格完整铺满内容区，九列与操作按钮保持同一行；窄于表格最小宽度时由表格内部横向滚动承接，不压缩字段到不可读。
+- 已实际检查新增弹窗五个步骤、编辑态预填摘要、用户编码禁用、账号开关、搜索过滤与清空；未保存、删除、重置密钥或新增用户，避免修改现有权限数据。
+- 字号、主色、语义色、边框、6/8/10px 圆角、34/36px 控件、步骤选中态和弹窗层级与新版原型一致；未发现需要继续修复的 P0/P1/P2 视觉或交互问题。
+- 图片与装饰资产：本轮页面及弹窗均不依赖产品图片，没有新增占位图片、CSS 插画或自绘 SVG。
+- 可访问性：步骤使用语义化 Tab，账号开关使用 `role="switch"` 与 `aria-checked`，表单标签、必填错误、禁用态和键盘焦点保持可用。
+
+### 最终验证
+
+- `npm run typecheck`：通过。
+- 本轮六个相关文件 ESLint：0 error。
+- 隔离目录 `npm run build`：通过，未覆盖本地开发构建目录。
+- `git diff --check`：通过。
+- 浏览器刷新后新增 `error / warn / warning`：0。
+
+final result: passed
+
+## 2026-07-13 用户管理授权边界新版重构
+
+### 对照范围与实现结果
+
+- 参考原型：`AI Recruitment Redesign Project/权限中心 Permissions.dc.html` 中编辑用户的授权边界开启态与关闭态；实现入口为 `http://localhost:3000/` 的“权限中心 / 用户管理 / 编辑用户 / 授权边界”。
+- “允许该用户为他人授权”由旧复选框改为原型式语义开关，保留 `role="switch"`、`aria-checked`、禁用态和键盘焦点。
+- 关闭时只保留授权边界说明与开关卡片，下方最大数据范围、组织、角色和权限配置全部隐藏；再次开启后恢复关闭前尚未保存的边界值，不再因切换开关意外清空配置。
+- 开启时按原型重构为四段连续边界：最大可授予数据范围、可管理组织树、可分配角色、可分配权限；组织层级、类型、编码和选中数量继续使用系统真实字段。
+- 权限边界先显示按业务分类汇总的紧凑标签，通过“添加权限范围”按需展开完整权限编辑器，保留逐项选择、分类全选/取消和全部真实权限点；原型中的静态入口被扩展为可实际操作的现有业务能力。
+- 提交字段和接口语义保持不变：`can_grant`、`manageable_org_codes`、`assignable_role_codes`、`assignable_permission_keys`、`max_data_scope` 均继续沿用；空组织、角色或权限集合仍表示对应维度不限制，并在开启态明确提示。
+
+### 视觉与交互检查
+
+- 全视图对照：`.design-qa/access-control-user-boundary-v2/comparison-open.jpg`、`.design-qa/access-control-user-boundary-v2/comparison-closed.jpg`；局部对照：`.design-qa/access-control-user-boundary-v2/comparison-open-focus.jpg`、`.design-qa/access-control-user-boundary-v2/comparison-closed-focus.jpg`。
+- 初检 P1：旧实现关闭授权后仍显示一整块禁用配置，与原型关闭态不一致；现已改为条件渲染，关闭态下四个下方区域 DOM 数量均为 0。
+- 初检 P2：旧实现直接平铺大量权限，信息密度和层级偏离原型；现已改为分类摘要加按需展开编辑器，未牺牲真实权限字段和编辑能力。
+- 已实际验证开关关闭、开启、关闭后恢复原值、组织选择、角色选择、权限分类展开与收起；弹窗实测 `clientWidth = scrollWidth = 1000`，无横向溢出。
+- 浏览器交互后新增 `error / warn / warning`：0；未发现剩余 P0/P1/P2 视觉、业务或交互问题。
+
+### 最终验证
+
+- `npm run typecheck`：通过。
+- 本轮五个相关文件 ESLint：0 error。
+- 隔离目录 `npm run build`：通过，未覆盖本地开发构建目录。
+- `git diff --check`：通过。
+
+final result: passed
+
+## 2026-07-13 权限中心角色管理新版重构
+
+### 对照范围与实现结果
+
+- 参考原型：`AI Recruitment Redesign Project/权限中心 Permissions.dc.html` 的角色目录、角色详情、新增角色和系统角色复制状态；实现入口为 `http://localhost:3000/` 的“权限中心 / 角色管理”。
+- 页面按新版原型重构为固定高度的左右主从结构：左侧角色目录包含新增、搜索、全部/系统/自定义筛选和滚动列表，右侧在同一区域切换详情、新增、编辑和复制，不再使用旧版表格与弹窗。
+- 系统角色保持后端只读规则，详情中明确提示并提供“复制为自定义角色”；自定义角色保留编辑、启停和删除，已关联用户的角色继续禁止删除。
+- 新增、编辑和复制保留系统真实字段：角色名称、编码、描述、默认首页、AI 招聘菜单收纳方式、启用状态和完整权限目录；角色编码在编辑态不可修改，系统角色复制时自动生成副本名称并清空编码。
+- 权限目录按真实业务分类呈现，支持全局与分类全选/取消；数据库中两个已废弃权限不再进入可编辑权限集合，系统超管显示为 `48 / 48 · 2 项历史权限`，保存或复制时只提交当前有效权限。
+
+### 视觉与交互检查
+
+- 视觉证据：`.design-qa/access-control-roles-v2/source-role-detail.png`、`.design-qa/access-control-roles-v2/source-role-create.png`、`.design-qa/access-control-roles-v2/actual-role-detail-clean-pass1.png`、`.design-qa/access-control-roles-v2/actual-role-create-pass1.png`、`.design-qa/access-control-roles-v2/comparison-role-detail.jpg`、`.design-qa/access-control-roles-v2/comparison-role-create.jpg`。
+- 第一轮发现系统超管按数据库原始权限显示 `50 / 48`，属于 P2 信息偏差；已改为有效权限计数加历史权限提示，并在编辑/复制入口过滤废弃权限。
+- 实现保留了原型没有展示但系统真实存在的角色编码、默认首页、菜单收纳、启停和删除规则；这些字段沿用原型的字号、间距、边框、选中态和固定底部操作区，没有改变业务含义。
+- 已实际验证空表单校验、未保存切换保护、继续编辑、取消返回、系统角色复制、自定义角色编辑、角色编码禁用、启用状态、零用户角色删除确认、已关联用户角色删除禁用、搜索和三类筛选；未执行保存或确认删除，避免修改现有权限数据。
+- 浏览器交互后新增 `error / warn / warning`：0；未发现剩余 P0/P1/P2 视觉、业务或交互问题。
+
+### 最终验证
+
+- `npm run typecheck`：通过。
+- 本轮六个相关文件 ESLint：0 error。
+- 隔离目录 `npm run build`：通过，未覆盖本地开发构建目录。
+- `git diff --check`：通过。
+
+final result: passed

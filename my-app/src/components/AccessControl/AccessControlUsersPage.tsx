@@ -55,6 +55,7 @@ import {
     mapUserMutationError,
     mapUserToForm,
     normalizeBoundary,
+    normalizeDataScope,
     normalizeUserForm,
     validateUserForm,
 } from './utils';
@@ -412,32 +413,32 @@ export function AccessControlUsersPage({
     };
 
     return (
-        <section aria-labelledby="access-control-users-title" className="space-y-5">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                <div className="flex min-w-0 flex-wrap items-baseline gap-x-4 gap-y-1">
-                    <h1 id="access-control-users-title" className="text-[18px] font-semibold leading-7 text-[#0E1114] dark:text-white">{labels.usersTitle}</h1>
+        <section aria-labelledby="access-control-users-title" className="space-y-4">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
+                    <h1 id="access-control-users-title" className="text-[16px] font-semibold leading-6 text-[#0E1114] dark:text-white">{labels.usersTitle}</h1>
                     <p className="text-[12px] leading-5 text-[#B0B2B8] dark:text-slate-400">{labels.usersDesc}</p>
                 </div>
-                <Button className="h-9 shrink-0 rounded-[6px] bg-[#1E3BFA] px-4 text-[13px] font-normal text-white shadow-none hover:bg-[#0F23D9]" onClick={openCreateDialog}>
+                <Button className="h-9 shrink-0 rounded-[6px] bg-[#1E3BFA] px-4 text-[14px] font-normal text-white shadow-none hover:bg-[#0F23D9]" onClick={openCreateDialog}>
                     <Plus className="h-3.5 w-3.5" />
                     {labels.addUser}
                 </Button>
             </div>
 
-            <div className="overflow-hidden rounded-[8px] border border-[#EBEEF5] bg-white shadow-none dark:border-slate-800 dark:bg-slate-950">
-                <div className="border-b border-[#F2F3F5] bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-950">
-                    <div className="grid gap-3 xl:grid-cols-[minmax(260px,1fr)_160px_175px_145px_180px_auto]">
-                        <div className="relative">
+            <div className="bg-white dark:bg-slate-950">
+                <div className="bg-white pb-1 dark:bg-slate-950">
+                    <div className="flex flex-wrap items-center gap-2.5">
+                        <div className="relative w-full max-w-[300px]">
                             <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#B0B2B8]" />
                             <Input
-                                className="h-9 rounded-[4px] border-[#E6E7EB] bg-white pl-9 text-[12px] shadow-none placeholder:text-[#B0B2B8] focus-visible:border-[#1E3BFA] focus-visible:ring-0 dark:border-slate-700 dark:bg-slate-950"
+                                className="h-[34px] rounded-[6px] border-[#E6E7EB] bg-white pl-9 text-[12px] shadow-none placeholder:text-[#B0B2B8] focus-visible:border-[#1E3BFA] focus-visible:ring-0 dark:border-slate-700 dark:bg-slate-950"
                                 placeholder={labels.searchPlaceholder}
                                 value={query}
                                 onChange={(event) => setQuery(event.target.value)}
                             />
                         </div>
                         <Select value={roleFilter || 'all'} onValueChange={(value) => setRoleFilter(value === 'all' ? '' : value)}>
-                            <SelectTrigger className="h-9 w-full rounded-[4px] border-[#E6E7EB] bg-white text-[12px] shadow-none focus:ring-0 dark:border-slate-700 dark:bg-slate-950">
+                            <SelectTrigger className="h-[34px] w-[140px] rounded-[6px] border-[#E6E7EB] bg-white text-[12px] shadow-none focus:ring-0 dark:border-slate-700 dark:bg-slate-950">
                                 <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
@@ -448,7 +449,7 @@ export function AccessControlUsersPage({
                             </SelectContent>
                         </Select>
                         <Select value={dataScopeFilter} onValueChange={(value) => setDataScopeFilter(value as 'all' | DataScope)}>
-                            <SelectTrigger className="h-9 w-full rounded-[4px] border-[#E6E7EB] bg-white text-[12px] shadow-none focus:ring-0 dark:border-slate-700 dark:bg-slate-950">
+                            <SelectTrigger className="h-[34px] w-[155px] rounded-[6px] border-[#E6E7EB] bg-white text-[12px] shadow-none focus:ring-0 dark:border-slate-700 dark:bg-slate-950">
                                 <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
@@ -459,7 +460,7 @@ export function AccessControlUsersPage({
                             </SelectContent>
                         </Select>
                         <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as StatusFilter)}>
-                            <SelectTrigger className="h-9 w-full rounded-[4px] border-[#E6E7EB] bg-white text-[12px] shadow-none focus:ring-0 dark:border-slate-700 dark:bg-slate-950">
+                            <SelectTrigger className="h-[34px] w-[130px] rounded-[6px] border-[#E6E7EB] bg-white text-[12px] shadow-none focus:ring-0 dark:border-slate-700 dark:bg-slate-950">
                                 <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
@@ -469,7 +470,7 @@ export function AccessControlUsersPage({
                             </SelectContent>
                         </Select>
                         <Select value={configFilter} onValueChange={(value) => setConfigFilter(value as ConfigFilter)}>
-                            <SelectTrigger className="h-9 w-full rounded-[4px] border-[#E6E7EB] bg-white text-[12px] shadow-none focus:ring-0 dark:border-slate-700 dark:bg-slate-950">
+                            <SelectTrigger className="h-[34px] w-[160px] rounded-[6px] border-[#E6E7EB] bg-white text-[12px] shadow-none focus:ring-0 dark:border-slate-700 dark:bg-slate-950">
                                 <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
@@ -479,7 +480,7 @@ export function AccessControlUsersPage({
                                 <SelectItem value="none">{labels.configPermissionNone}</SelectItem>
                             </SelectContent>
                         </Select>
-                        <Button variant="outline" className="h-9 rounded-[4px] border-[#E6E7EB] bg-white px-3 text-[12px] font-normal text-[#5E5F66] shadow-none hover:border-[#1E3BFA] hover:bg-white hover:text-[#0F23D9] dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300" onClick={() => {
+                        <Button variant="ghost" className="h-[34px] rounded-[6px] px-2.5 text-[12px] font-normal text-[#86888F] shadow-none hover:bg-[#F7F8FA] hover:text-[#0F23D9] dark:text-slate-400" onClick={() => {
                             setQuery('');
                             setRoleFilter('');
                             setDataScopeFilter('all');
@@ -546,6 +547,7 @@ export function AccessControlUsersPage({
                 grantablePermissions={grantablePermissions}
                 revokablePermissions={revokablePermissions}
                 dataScopeOptions={boundaryFilteredDataScopes}
+                initialDataScope={editUser ? normalizeDataScope(editUser.data_scope) : null}
                 actorBoundary={actorBoundary}
                 showErrors={showFormErrors}
                 errors={mergedErrors}
