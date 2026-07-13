@@ -103,6 +103,7 @@ import {
     NativeSelect,
     SearchField,
 } from "../components/SharedComponents";
+import {CandidateRadarChart} from "../components/CandidateRadarChart";
 import {
     formatActionError,
     formatDateTime,
@@ -2771,6 +2772,7 @@ function CandidateAiOutputDialog({
     raw,
     modelLabel,
     generatedAt,
+    candidateName,
 }: {
     open: boolean;
     onOpenChange: (open: boolean) => void;
@@ -2778,6 +2780,7 @@ function CandidateAiOutputDialog({
     raw?: string | null;
     modelLabel?: string | null;
     generatedAt?: string | null;
+    candidateName?: string | null;
 }) {
     const {language} = useI18n();
     const tr = React.useMemo(() => getCandidatesLocale(language), [language]);
@@ -2827,6 +2830,7 @@ function CandidateAiOutputDialog({
                             <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-[#86888F]">
                                 {modelLabel ? <span>{tr.modelLabel}: {modelLabel}</span> : null}
                                 {generatedAt ? <span>{tr.timeLabel}: {formatLongDateTime(generatedAt)}</span> : null}
+                                {candidateName ? <span>{language !== "en-US" ? "候选人" : "Candidate"}: {candidateName}</span> : null}
                             </div>
                         </div>
                         <Button size="sm" variant="outline" className="h-[30px] rounded-[6px] border-[#E6E7EB] bg-white text-[12px] text-[#33353D] shadow-none hover:border-[#1E3BFA] hover:bg-[#F7F8FA] hover:text-[#1E3BFA]" onClick={() => void copyContent()} disabled={!(markdown || raw)?.trim()}>
@@ -4494,12 +4498,19 @@ export function CandidatesPage({
     );
     const candidateAiOutputPayload = React.useMemo(
         () => resolveCandidateAiOutputPayload(latestResumeScoreLog, candidateDetail?.score, tr),
-        [candidateDetail?.score, latestResumeScoreLog],
+        [candidateDetail?.score, latestResumeScoreLog, tr],
     );
     const candidateAiOutputAvailable = Boolean(
         candidateAiOutputPayload.markdown.trim()
         || candidateAiOutputPayload.raw.trim(),
     );
+    const candidateAiModelLabel = latestResumeScoreLog
+        ? `${labelForProvider(latestResumeScoreLog.model_provider)} / ${latestResumeScoreLog.model_name || tr.unrecorded}`
+        : null;
+    const candidateAiGeneratedAt = latestResumeScoreLog?.created_at
+        || candidateDetail?.score?.updated_at
+        || candidateDetail?.score?.created_at
+        || null;
     const candidateDetailHasScreeningAttempt = Boolean(
         candidateDetail?.score
         || candidateDetail?.workflow_memory?.last_screened_at
@@ -5389,8 +5400,8 @@ export function CandidatesPage({
                                     </div>
                                 </div>
                                 <div className="sticky top-0 z-30 border-b border-[#F2F3F5] bg-white px-7 pb-0 pt-5 dark:border-[#202226] dark:bg-[#0E1114]">
-                                    <div className="flex min-w-0 flex-wrap items-start justify-between gap-2 pb-4">
-                                        <div className="flex w-[324px] max-w-full min-w-0 flex-none items-center gap-3.5">
+                                    <div className="flex min-w-0 flex-nowrap items-start gap-2 pb-4">
+                                        <div className="flex w-[292px] min-w-0 flex-none items-center gap-3.5 overflow-hidden">
                                             <CandidateDetailAvatar name={candidateDetail.candidate.name}/>
                                             <div className="min-w-0 flex-1">
                                                 <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -5416,11 +5427,11 @@ export function CandidatesPage({
                                                 </p>
                                             </div>
                                         </div>
-                                        <div className="ml-auto flex max-w-full shrink-0 flex-wrap items-center justify-end gap-2">
+                                        <div className="ml-auto flex shrink-0 flex-nowrap items-center justify-end gap-1.5 whitespace-nowrap">
                                             {permissions.executeProcess ? (
                                                 <Button
                                                     size="sm"
-                                                    className="h-8 shrink-0 whitespace-nowrap rounded-[6px] border border-[#1E3BFA] bg-[#1E3BFA] px-3.5 text-[12px] text-white shadow-none hover:border-[#0F23D9] hover:bg-[#0F23D9]"
+                                                    className="h-8 shrink-0 whitespace-nowrap rounded-[6px] border border-[#1E3BFA] bg-[#1E3BFA] px-3 text-[12px] text-white shadow-none hover:border-[#0F23D9] hover:bg-[#0F23D9]"
                                                     disabled={screeningSubmitting || candidateDetailScreeningLive}
                                                     onClick={() => void handleCandidateDetailScreeningAction()}
                                                 >
@@ -5432,7 +5443,7 @@ export function CandidatesPage({
                                                 <Button
                                                     size="sm"
                                                     variant="outline"
-                                                    className="h-8 shrink-0 whitespace-nowrap rounded-[6px] border-[#1E3BFA] bg-white px-3.5 text-[12px] text-[#1E3BFA] shadow-none hover:bg-[rgba(30,59,250,0.05)] hover:text-[#1E3BFA]"
+                                                    className="h-8 shrink-0 whitespace-nowrap rounded-[6px] border-[#1E3BFA] bg-white px-3 text-[12px] text-[#1E3BFA] shadow-none hover:bg-[rgba(30,59,250,0.05)] hover:text-[#1E3BFA]"
                                                     onClick={() => openCandidateDetailPanel("interview")}
                                                 >
                                                     {tr.interviewQuestions}
@@ -5442,7 +5453,7 @@ export function CandidatesPage({
                                                 <Button
                                                     size="sm"
                                                     variant="outline"
-                                                    className="h-8 shrink-0 whitespace-nowrap rounded-[6px] border-[#E6E7EB] bg-white px-3.5 text-[12px] text-[#33353D] shadow-none hover:border-[#1E3BFA] hover:bg-[#F7F8FA] hover:text-[#1E3BFA]"
+                                                    className="h-8 shrink-0 whitespace-nowrap rounded-[6px] border-[#E6E7EB] bg-white px-3 text-[12px] text-[#33353D] shadow-none hover:border-[#1E3BFA] hover:bg-[#F7F8FA] hover:text-[#1E3BFA]"
                                                     onClick={() => openResumeMailDialog([candidateDetail.candidate.id])}
                                                 >
                                                     {isZh ? "发送简历" : "Send Resume"}
@@ -5452,7 +5463,7 @@ export function CandidatesPage({
                                                 <Button
                                                     size="sm"
                                                     variant="outline"
-                                                    className="h-8 shrink-0 whitespace-nowrap rounded-[6px] border-[#E6E7EB] bg-white px-3.5 text-[12px] text-[#33353D] shadow-none hover:border-[#1E3BFA] hover:bg-[#F7F8FA] hover:text-[#1E3BFA]"
+                                                    className="h-8 shrink-0 whitespace-nowrap rounded-[6px] border-[#E6E7EB] bg-white px-3 text-[12px] text-[#33353D] shadow-none hover:border-[#1E3BFA] hover:bg-[#F7F8FA] hover:text-[#1E3BFA]"
                                                     disabled={!createDepartmentReview}
                                                     onClick={openDepartmentReviewDialog}
                                                 >
@@ -6744,155 +6755,141 @@ export function CandidatesPage({
 
                                     {candidateDetailPrimaryTab === "ai" && candidateDetailPanel === "assessment" ? (
                                         <>
-                                            <div className="min-w-0 space-y-2">
-                                                <div className="flex flex-wrap items-center justify-between gap-3">
-                                                    <p className="text-sm font-medium text-[#0E1114] dark:text-[#F7F8FA]">{tr.aiScoreAndAdvice}</p>
-                                                    <Button
-                                                        size="sm"
-                                                        variant="outline"
-                                                        className={CANDIDATE_DETAIL_OUTLINE_BUTTON_CLASS}
-                                                        onClick={() => setCandidateAiOutputDialogOpen(true)}
-                                                        disabled={!candidateAiOutputAvailable}
-                                                    >
-                                                        <Bot className="h-4 w-4"/>
-                                                        {tr.viewFullAiOutput}
-                                                    </Button>
-                                                </div>
-                                                    <div className="rounded-[8px] bg-[#F7F8FA] px-5 py-[18px] dark:bg-[#16181B]">
-                                                        <div className="flex flex-wrap items-start justify-between gap-3">
-                                                            <div className="min-w-0 flex-1">
-                                                                <p className="text-[32px] font-semibold text-[#0CC991]">
-                                                                    {candidateScoreDisplayValues.totalScore !== null
-                                                                        ? formatScoreValue(
-                                                                            candidateScoreDisplayValues.totalScore,
-                                                                            candidateScoreDisplayValues.totalScoreScale,
-                                                                        )
-                                                                        : "-"}
-                                                                </p>
-                                                            <p className="mt-1 break-words text-[12px] leading-5 text-[#33353D] dark:text-[#D6D8DD]">
-                                                                {tr.aiRecommendationLine(
-                                                                    candidateScoreDecisionValues.recommendation || "-",
-                                                                    labelForCandidateStatus(candidateScoreDecisionValues.suggestedStatus) || "-",
-                                                                )}
+                                            <div className="min-w-0 space-y-6">
+                                                <section className="rounded-[8px] bg-[#F7F8FA] px-5 py-[18px] dark:bg-[#16181B]">
+                                                    <div className="flex items-center gap-5">
+                                                        <div className="flex w-[94px] shrink-0 flex-col items-center border-r border-[#E6E7EB] pr-5 dark:border-[#33353D]">
+                                                            <p className="text-[32px] font-semibold leading-9 tabular-nums text-[#0CC991]">
+                                                                {candidateScoreDisplayValues.totalScore !== null
+                                                                    ? formatScoreValue(candidateScoreDisplayValues.totalScore, null)
+                                                                    : "-"}
+                                                            </p>
+                                                            <p className="mt-1 text-[11px] text-[#86888F] dark:text-[#B0B2B8]">
+                                                                {isZh ? "总分" : "Total"}{candidateScoreDisplayValues.totalScoreScale ? ` / ${candidateScoreDisplayValues.totalScoreScale}` : ""}
                                                             </p>
                                                         </div>
-                                                        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-                                                            {candidateDetail.score?.score_validation_passed === false ? (
-                                                                <Badge variant="outline" className="h-6 rounded-[3px] border-[rgba(255,171,36,0.32)] bg-[rgba(255,171,36,0.10)] px-2 text-[12px] text-[#D48806]">
-                                                                    {tr.scoreValidationWarnings}
-                                                                </Badge>
-                                                            ) : null}
-                                                            <Badge variant="outline" className="h-6 rounded-[3px] border-[rgba(30,59,250,0.20)] bg-[rgba(30,59,250,0.06)] px-2 text-[12px] text-[#0F23D9]">
-                                                                {tr.matchBadge} {candidateScoreDisplayValues.matchPercent !== null
-                                                                    ? formatPercent(candidateScoreDisplayValues.matchPercent)
-                                                                    : "-"}
-                                                            </Badge>
+                                                        <div className="min-w-0 flex-1">
+                                                            <div className="flex flex-wrap items-center justify-between gap-2">
+                                                                <p className="text-[13px] font-semibold text-[#0E1114] dark:text-[#F7F8FA]">
+                                                                    {isZh ? "AI 建议" : "AI recommendation"}：{labelForCandidateStatus(candidateScoreDecisionValues.suggestedStatus) || "-"}
+                                                                </p>
+                                                                <div className="flex shrink-0 items-center gap-2">
+                                                                    {candidateDetail.score?.score_validation_passed === false ? (
+                                                                        <Badge variant="outline" className="h-[22px] rounded-[4px] border-[rgba(255,171,36,0.32)] bg-[rgba(255,171,36,0.10)] px-2 text-[11px] text-[#D48806]">
+                                                                            {tr.scoreValidationWarnings}
+                                                                        </Badge>
+                                                                    ) : null}
+                                                                    <Badge variant="outline" className="h-[22px] rounded-[4px] border-[rgba(30,59,250,0.20)] bg-[rgba(30,59,250,0.06)] px-2 text-[11px] text-[#0F23D9]">
+                                                                        {tr.matchBadge} {candidateScoreDisplayValues.matchPercent !== null ? formatPercent(candidateScoreDisplayValues.matchPercent) : "-"}
+                                                                    </Badge>
+                                                                </div>
+                                                            </div>
+                                                            <p className="mt-1 break-words text-[12px] leading-5 text-[#33353D] dark:text-[#D6D8DD]">
+                                                                {candidateScoreDecisionValues.recommendation || "-"}
+                                                            </p>
+                                                            <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-[#B0B2B8] dark:text-[#86888F]">
+                                                                {candidateAiModelLabel ? <span>{tr.modelLabel}：{candidateAiModelLabel}</span> : null}
+                                                                {candidateAiGeneratedAt ? <span>· {formatLongDateTime(candidateAiGeneratedAt)}</span> : null}
+                                                                {candidateAiOutputAvailable ? (
+                                                                    <button type="button" className="text-[#1E3BFA] hover:text-[#0F23D9]" onClick={() => setCandidateAiOutputDialogOpen(true)}>
+                                                                        {tr.viewFullAiOutput}
+                                                                    </button>
+                                                                ) : null}
+                                                            </div>
                                                         </div>
                                                     </div>
-                                                    <div className="mt-4 grid gap-4 text-[12px] text-[#33353D] dark:text-[#D6D8DD] sm:grid-cols-2">
-                                                        {Array.isArray(candidateDetail.score?.validation_warnings) && candidateDetail.score.validation_warnings.length > 0 ? (
-                                                            <details className="rounded-[8px] border border-[rgba(255,171,36,0.30)] bg-[rgba(255,171,36,0.08)] px-3 py-2 text-xs text-[#D48806] sm:col-span-2">
-                                                                <summary className="cursor-pointer font-medium">{tr.viewScoreWarnings}</summary>
-                                                                <ul className="mt-2 space-y-1">
-                                                                    {candidateDetail.score.validation_warnings.map((item, index) => (
-                                                                        <li key={`score-warning-${index}`} className="break-words leading-6">
-                                                                            {index + 1}. {item}
-                                                                        </li>
-                                                                    ))}
-                                                                </ul>
-                                                            </details>
-                                                        ) : null}
-                                                        <div className="space-y-2 rounded-[8px] border border-[#EBEEF5] p-4">
-                                                            <p className="font-semibold text-[#0CC991]">{tr.strengths}</p>
-                                                            {readScoreTextArray(candidateDetail.score?.advantages).length > 0 ? (
-                                                                <ul className="space-y-1">
-                                                                    {readScoreTextArray(candidateDetail.score?.advantages).map((item, index) => (
-                                                                        <li key={`advantage-${index}`} className="break-words leading-7">
-                                                                            {index + 1}. {item}
-                                                                        </li>
-                                                                    ))}
-                                                                </ul>
-                                                            ) : (
-                                                                <p className="break-words leading-7">-</p>
-                                                            )}
-                                                        </div>
-                                                        <div className="space-y-2 rounded-[8px] border border-[#EBEEF5] p-4">
-                                                            <p className="font-semibold text-[#D48806]">{tr.risks}</p>
-                                                            {readScoreTextArray(candidateDetail.score?.concerns).length > 0 ? (
-                                                                <ul className="space-y-1">
-                                                                    {readScoreTextArray(candidateDetail.score?.concerns).map((item, index) => (
-                                                                        <li key={`concern-${index}`} className="break-words leading-7">
-                                                                            {index + 1}. {item}
-                                                                        </li>
-                                                                    ))}
-                                                                </ul>
-                                                            ) : (
-                                                                <p className="break-words leading-7">-</p>
-                                                            )}
-                                                        </div>
-                                                        <div className="space-y-3 sm:col-span-2">
-                                                            <p className="text-[14px] font-semibold text-[#0E1114] dark:text-[#F7F8FA]">{tr.dimensionScores}</p>
-                                                            {readScoreDimensions(candidateDetail.score?.dimensions).length > 0 ? (
-                                                                <ul className="space-y-2">
-                                                                    {readScoreDimensions(candidateDetail.score?.dimensions).map((item, index) => {
-                                                                        const label = readScoreText(item.label) || "-";
-                                                                        const scoreValue = readScoreNumberStrict(item.score);
-                                                                        const maxScore = readScoreNumberStrict(item.max_score);
-                                                                        const evidences = readDimensionEvidenceList(item.evidence);
-                                                                        const reason = readScoreText(item.reason);
-                                                                        const isInferred = item.is_inferred === true;
-                                                                        const percent = scoreValue !== null && maxScore !== null && maxScore > 0
-                                                                            ? Math.min(100, Math.round((scoreValue / maxScore) * 100))
-                                                                            : null;
-                                                                        return (
-                                                                            <li key={`dimension-${index}`} className="rounded-[8px] border border-[#E6E7EB]/70 px-3 py-3 dark:border-[#202226]">
-                                                                                <div className="flex items-center justify-between gap-2">
-                                                                                    <p className="text-sm font-medium text-[#0E1114] dark:text-[#F7F8FA]">
-                                                                                        {label}
-                                                                                        {isInferred ? <span className="ml-1 text-xs text-[#B0B2B8] dark:text-[#86888F]">{tr.inferredDimension}</span> : null}
-                                                                                    </p>
-                                                                                    <p className="text-sm font-semibold text-[#33353D] dark:text-[#E6E7EB]">
-                                                                                        {scoreValue !== null ? scoreValue : "-"} / {maxScore !== null ? maxScore : "-"}
-                                                                                    </p>
-                                                                                </div>
-                                                                                {percent !== null && (
-                                                                                    <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-[#E6E7EB] dark:bg-[#33353D]">
-                                                                                        <div
-                                                                                            className={`h-full rounded-full transition-all ${percent >= 80 ? "bg-[#0CC991]" : percent >= 60 ? "bg-[#1E3BFA]" : percent >= 40 ? "bg-[#FFAB24]" : "bg-[#F53F3F]"}`}
-                                                                                            style={{width: `${percent}%`}}
-                                                                                        />
-                                                                                    </div>
-                                                                                )}
-                                                                                {reason && (
-                                                                                    <div className="mt-2 text-xs leading-6 text-[#33353D] dark:text-[#D6D8DD]">
-                                                                                        <p className="font-medium text-[#33353D] dark:text-[#E6E7EB]">{tr.dimensionReason}:</p>
-                                                                                        <p className="mt-0.5 break-words">{reason}</p>
-                                                                                    </div>
-                                                                                )}
-                                                                                <div className="mt-2 text-xs leading-6 text-[#86888F] dark:text-[#B0B2B8]">
-                                                                                    <p>{tr.evidence}:</p>
-                                                                                    {evidences.length ? (
-                                                                                        <ul className="mt-1 space-y-1">
-                                                                                            {evidences.map((evidence, evidenceIndex) => (
-                                                                                                <li key={`dimension-${index}-evidence-${evidenceIndex}`} className="break-words">
-                                                                                                    {evidence}
-                                                                                                </li>
-                                                                                            ))}
-                                                                                        </ul>
-                                                                                    ) : (
-                                                                                        <p>-</p>
-                                                                                    )}
-                                                                                </div>
-                                                                            </li>
-                                                                        );
-                                                                    })}
-                                                                </ul>
-                                                            ) : (
-                                                                <p className="break-words leading-7">-</p>
-                                                            )}
-                                                        </div>
-                                                    </div>
+                                                </section>
+
+                                                {Array.isArray(candidateDetail.score?.validation_warnings) && candidateDetail.score.validation_warnings.length > 0 ? (
+                                                    <details className="rounded-[8px] border border-[rgba(255,171,36,0.30)] bg-[rgba(255,171,36,0.08)] px-3 py-2 text-[12px] text-[#D48806]">
+                                                        <summary className="cursor-pointer font-medium">{tr.viewScoreWarnings}</summary>
+                                                        <ul className="mt-2 space-y-1">
+                                                            {candidateDetail.score.validation_warnings.map((item, index) => (
+                                                                <li key={`score-warning-${index}`} className="break-words leading-6">{index + 1}. {item}</li>
+                                                            ))}
+                                                        </ul>
+                                                    </details>
+                                                ) : null}
+
+                                                <div className="grid gap-4 text-[12px] text-[#33353D] dark:text-[#D6D8DD] sm:grid-cols-2">
+                                                    <section className="space-y-2.5 rounded-[8px] border border-[#EBEEF5] p-4 dark:border-[#33353D]">
+                                                        <p className="text-[13px] font-semibold text-[#0CC991]">{tr.strengths}</p>
+                                                        {readScoreTextArray(candidateDetail.score?.advantages).length > 0 ? (
+                                                            <ul className="space-y-1 leading-[22px]">
+                                                                {readScoreTextArray(candidateDetail.score?.advantages).map((item, index) => (
+                                                                    <li key={`advantage-${index}`} className="break-words">· {item}</li>
+                                                                ))}
+                                                            </ul>
+                                                        ) : <p className="leading-[22px]">-</p>}
+                                                    </section>
+                                                    <section className="space-y-2.5 rounded-[8px] border border-[#EBEEF5] p-4 dark:border-[#33353D]">
+                                                        <p className="text-[13px] font-semibold text-[#D48806]">{tr.risks}</p>
+                                                        {readScoreTextArray(candidateDetail.score?.concerns).length > 0 ? (
+                                                            <ul className="space-y-1 leading-[22px]">
+                                                                {readScoreTextArray(candidateDetail.score?.concerns).map((item, index) => (
+                                                                    <li key={`concern-${index}`} className="break-words">· {item}</li>
+                                                                ))}
+                                                            </ul>
+                                                        ) : <p className="leading-[22px]">-</p>}
+                                                    </section>
                                                 </div>
+
+                                                <CandidateRadarChart
+                                                    dimensions={readScoreDimensions(candidateDetail.score?.dimensions)}
+                                                    radarScores={candidateDetail.score?.radar_scores}
+                                                    isZh={isZh}
+                                                    uiText={{
+                                                        scoreDetails: isZh ? "综合能力概览" : "Capability overview",
+                                                        coreSkills: isZh ? "核心能力" : "Core skills",
+                                                        otherSkills: isZh ? "其他维度" : "Other dimensions",
+                                                        noData: isZh ? "暂无综合能力数据" : "No capability data",
+                                                        benchmark: isZh ? "岗位基准线" : "Role benchmark",
+                                                    }}
+                                                />
+
+                                                <section className="space-y-3">
+                                                    <p className="text-[14px] font-semibold text-[#0E1114] dark:text-[#F7F8FA]">{isZh ? "各维度得分" : "Dimension scores"}</p>
+                                                    {readScoreDimensions(candidateDetail.score?.dimensions).length > 0 ? (
+                                                        <ul className="space-y-2.5">
+                                                            {readScoreDimensions(candidateDetail.score?.dimensions).map((item, index) => {
+                                                                const label = readScoreText(item.label) || "-";
+                                                                const scoreValue = readScoreNumberStrict(item.score);
+                                                                const maxScore = readScoreNumberStrict(item.max_score);
+                                                                const evidences = readDimensionEvidenceList(item.evidence);
+                                                                const reason = readScoreText(item.reason);
+                                                                const isInferred = item.is_inferred === true;
+                                                                const percent = scoreValue !== null && maxScore !== null && maxScore > 0
+                                                                    ? Math.max(0, Math.min(100, Math.round((scoreValue / maxScore) * 100)))
+                                                                    : null;
+                                                                return (
+                                                                    <li key={`dimension-${index}`} className="rounded-[8px] border border-[#EBEEF5] px-3.5 py-3 dark:border-[#33353D]">
+                                                                        <div className="flex items-center justify-between gap-3">
+                                                                            <p className="min-w-0 text-[13px] font-medium text-[#0E1114] dark:text-[#F7F8FA]">
+                                                                                {label}
+                                                                                {isInferred ? <span className="ml-1 text-[11px] text-[#B0B2B8] dark:text-[#86888F]">{tr.inferredDimension}</span> : null}
+                                                                            </p>
+                                                                            <p className="shrink-0 text-[13px] font-semibold tabular-nums text-[#33353D] dark:text-[#E6E7EB]">
+                                                                                {scoreValue !== null ? scoreValue : "-"} / {maxScore !== null ? maxScore : "-"}
+                                                                            </p>
+                                                                        </div>
+                                                                        {percent !== null ? (
+                                                                            <div className="mt-2 h-1.5 w-full overflow-hidden rounded-[3px] bg-[#F2F3F5] dark:bg-[#33353D]">
+                                                                                <div
+                                                                                    className={cn("h-full rounded-[3px]", percent >= 80 ? "bg-[#0CC991]" : percent >= 60 ? "bg-[#1E3BFA]" : percent >= 40 ? "bg-[#FFAB24]" : "bg-[#F53F3F]")}
+                                                                                    style={{width: `${percent}%`}}
+                                                                                />
+                                                                            </div>
+                                                                        ) : null}
+                                                                        <div className="mt-2 space-y-1 text-[11px] leading-[19px]">
+                                                                            <p className="break-words text-[#33353D] dark:text-[#D6D8DD]"><span className="text-[#86888F]">{tr.dimensionReason}：</span>{reason || "-"}</p>
+                                                                            <p className="break-words text-[#B0B2B8] dark:text-[#86888F]"><span className="text-[#86888F]">{tr.evidence}：</span>{evidences.length ? evidences.join("；") : "-"}</p>
+                                                                        </div>
+                                                                    </li>
+                                                                );
+                                                            })}
+                                                        </ul>
+                                                    ) : <p className="text-[12px] leading-6 text-[#B0B2B8]">-</p>}
+                                                </section>
                                             </div>
 
                                             {permissions.manageCandidate ? <>
@@ -8042,8 +8039,9 @@ export function CandidatesPage({
                 onOpenChange={setCandidateAiOutputDialogOpen}
                 markdown={candidateAiOutputPayload.markdown}
                 raw={candidateAiOutputPayload.raw}
-                modelLabel={latestResumeScoreLog ? `${labelForProvider(latestResumeScoreLog.model_provider)} / ${latestResumeScoreLog.model_name || tr.unrecorded}` : null}
-                generatedAt={latestResumeScoreLog?.created_at || candidateDetail?.score?.updated_at || candidateDetail?.score?.created_at}
+                modelLabel={candidateAiModelLabel}
+                generatedAt={candidateAiGeneratedAt}
+                candidateName={candidateDetail?.candidate.name}
             />
             <Dialog open={exportDialogOpen} onOpenChange={setExportDialogOpen}>
                 <DialogContent aria-describedby={undefined} className={cn(candidateDialogClassName, "sm:max-w-[560px]")}>

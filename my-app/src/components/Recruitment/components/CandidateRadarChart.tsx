@@ -26,6 +26,7 @@ interface CandidateScoreDimension {
   score?: number | null;
   max_score?: number | null;
   reason?: string | null;
+  evidence?: string | string[] | null;
   is_inferred?: boolean | null;
   radar_category?: string | null;
 }
@@ -82,48 +83,55 @@ const HorizontalBarsOnly = ({ dimensions }: { dimensions: CandidateScoreDimensio
 
 function AggregatedRadar({ dimensions, radarScores, isZh, uiText }: { dimensions: CandidateScoreDimension[]; radarScores?: RadarScoreItem[] | null; isZh: boolean; uiText: CandidateRadarChartProps["uiText"] }) {
   const chartData = useMemo(() => {
-    // Prefer AI-generated radar_scores
-    if (radarScores && radarScores.length > 0) {
-      return RADAR_CATEGORIES.map((cat) => {
-        const rs = radarScores.find((r) => r.category === cat.key);
-        if (!rs || rs.max_score == null || rs.max_score <= 0) {
-          return { subject: isZh ? cat.key : cat.en, fullLabel: cat.key, candidate: 0, benchmark: 80, rawScore: 0, rawMax: 0, reason: "", evidence: "" };
-        }
-        return {
-          subject: isZh ? cat.key : cat.en,
-          fullLabel: cat.key,
-          candidate: (rs.score! / rs.max_score!) * 100,
-          benchmark: 80,
-          rawScore: rs.score ?? 0,
-          rawMax: rs.max_score ?? 0,
-          reason: rs.reason || "",
-          evidence: rs.evidence || "",
-        };
-      });
-    }
-
-    // Fallback: aggregate from dimensions
     const valid = dimensions.filter(
       (d) => d.label && d.score != null && d.max_score && d.max_score > 0
     );
     return RADAR_CATEGORIES.map((cat) => {
+      const radarScore = radarScores?.find(
+        (item) => item.category === cat.key
+          && item.score != null
+          && Number.isFinite(item.score)
+          && item.max_score != null
+          && Number.isFinite(item.max_score)
+          && item.max_score > 0
+      );
+      if (radarScore) {
+        const rawScore = radarScore.score ?? 0;
+        const rawMax = radarScore.max_score ?? 0;
+        return {
+          subject: isZh ? cat.key : cat.en,
+          fullLabel: isZh ? cat.key : cat.en,
+          candidate: rawMax > 0 ? Math.max(0, Math.min(100, (rawScore / rawMax) * 100)) : 0,
+          benchmark: 80,
+          rawScore,
+          rawMax,
+          reason: radarScore.reason || "",
+          evidence: radarScore.evidence || "",
+        };
+      }
+
       const catDims = valid.filter(
         (d) => (d.radar_category || inferRadarCategory(d.label!)) === cat.key
       );
       if (catDims.length === 0) {
-        return { subject: isZh ? cat.key : cat.en, fullLabel: cat.key, candidate: 0, benchmark: 80, rawScore: 0, rawMax: 0, reason: "", evidence: "" };
+        return { subject: isZh ? cat.key : cat.en, fullLabel: isZh ? cat.key : cat.en, candidate: 0, benchmark: 80, rawScore: 0, rawMax: 0, reason: "", evidence: "" };
       }
       const totalScore = catDims.reduce((s, d) => s + d.score!, 0);
       const totalMax = catDims.reduce((s, d) => s + d.max_score!, 0);
+      const reason = catDims.map((item) => item.reason?.trim()).find(Boolean) || "";
+      const evidence = catDims.map((item) => {
+        if (Array.isArray(item.evidence)) return item.evidence.find((entry) => typeof entry === "string" && entry.trim()) || "";
+        return item.evidence?.trim() || "";
+      }).find(Boolean) || "";
       return {
         subject: isZh ? cat.key : cat.en,
-        fullLabel: cat.key,
-        candidate: totalMax > 0 ? (totalScore / totalMax) * 100 : 0,
+        fullLabel: isZh ? cat.key : cat.en,
+        candidate: totalMax > 0 ? Math.max(0, Math.min(100, (totalScore / totalMax) * 100)) : 0,
         benchmark: 80,
         rawScore: Math.round(totalScore * 10) / 10,
         rawMax: Math.round(totalMax * 10) / 10,
-        reason: "",
-        evidence: "",
+        reason,
+        evidence,
       };
     });
   }, [dimensions, radarScores, isZh]);
@@ -131,7 +139,7 @@ function AggregatedRadar({ dimensions, radarScores, isZh, uiText }: { dimensions
   const hasAnyData = chartData.some((d) => d.rawMax > 0);
   if (!hasAnyData) {
     return (
-      <div className="flex h-[300px] flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50/50 text-sm text-slate-400 dark:border-slate-700 dark:bg-slate-900/45 dark:text-slate-500">
+      <div className="flex h-[220px] flex-col items-center justify-center rounded-[8px] border border-dashed border-[#E6E7EB] bg-[#F7F8FA] text-[12px] text-[#B0B2B8] dark:border-[#33353D] dark:bg-[#16181B]">
         <Info className="mb-2 h-5 w-5 opacity-60" />
         {uiText.noData}
       </div>
@@ -139,57 +147,72 @@ function AggregatedRadar({ dimensions, radarScores, isZh, uiText }: { dimensions
   }
 
   return (
-    <div className="flex flex-col w-full">
-      <div className="w-full h-[320px] relative">
-        <ResponsiveContainer width="100%" height="100%">
-          <RadarChart cx="50%" cy="50%" outerRadius="75%" data={chartData}>
-            <PolarGrid stroke="#e2e8f0" />
-            <PolarAngleAxis dataKey="subject" tick={{ fill: "#64748b", fontSize: 12 }} />
-            <Radar name={uiText.benchmark} dataKey="benchmark" stroke="#94a3b8" strokeDasharray="4 4" fill="transparent" isAnimationActive={false} />
-            <Radar name={isZh ? "候选人得分" : "Score"} dataKey="candidate" stroke="#3b82f6" strokeWidth={2} fill="#3b82f6" fillOpacity={0.5} />
-            <Tooltip
-              content={({ active, payload }) => {
-                if (active && payload && payload.length) {
-                  const data = payload[0].payload as { fullLabel: string; rawScore: number; rawMax: number; reason: string; evidence: string };
-                  return (
-                    <div className="max-w-[280px] rounded-lg border border-slate-200 bg-white p-3 text-xs shadow-xl dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200">
-                      <p className="font-bold mb-1">{data.fullLabel}</p>
-                      <div className="mb-1">
-                        {isZh ? "得分" : "Score"}: <span className="font-mono text-neutral-700 dark:text-slate-100">{data.rawScore}/{data.rawMax}</span>
-                      </div>
-                      {data.reason && <p className="mt-1 text-slate-600 dark:text-slate-300">{data.reason}</p>}
-                      {data.evidence && <p className="mt-1 text-slate-400 italic dark:text-slate-500">"{data.evidence}"</p>}
-                    </div>
-                  );
-                }
-                return null;
-              }}
-            />
-          </RadarChart>
-        </ResponsiveContainer>
+    <div className="w-full">
+      <div className="mb-3.5 flex flex-wrap items-center justify-between gap-3">
+        <p className="text-[14px] font-semibold text-[#0E1114] dark:text-[#F7F8FA]">{uiText.scoreDetails}</p>
+        <div className="flex items-center gap-4 text-[11px] text-[#86888F] dark:text-[#B0B2B8]">
+          <span className="inline-flex items-center gap-1.5">
+            <span className="h-2 w-3.5 rounded-[2px] border border-[#1E3BFA] bg-[rgba(30,59,250,0.25)]" />
+            {isZh ? "候选人得分" : "Candidate score"}
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <span className="w-3.5 border-t border-dashed border-[#B0B2B8]" />
+            {uiText.benchmark}
+          </span>
+        </div>
       </div>
-      {/* 五维评分详情 */}
-      <div className="px-1 pb-2 space-y-2">
-        {chartData.map((d, i) => {
-          if (d.rawMax <= 0) return null;
-          const percent = Math.round((d.rawScore / d.rawMax) * 100);
-          return (
-            <div key={i} className="rounded-lg border border-slate-100 bg-slate-50/50 p-2.5 dark:border-slate-800 dark:bg-slate-900/30">
-              <div className="flex items-center justify-between gap-2 mb-1">
-                <span className="text-xs font-semibold text-slate-700 dark:text-slate-200">{d.fullLabel}</span>
-                <span className="text-xs font-mono text-slate-500">{d.rawScore}/{d.rawMax}</span>
-              </div>
-              <div className="h-1 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
-                <div
-                  className={`h-full rounded-full transition-all ${percent >= 80 ? "bg-emerald-500" : percent >= 60 ? "bg-[#171717]" : percent >= 40 ? "bg-amber-500" : "bg-rose-500"}`}
-                  style={{ width: `${percent}%` }}
+      <div className="grid gap-4 rounded-[8px] border border-[#EBEEF5] p-3.5 dark:border-[#33353D] lg:grid-cols-[minmax(280px,340px)_minmax(0,1fr)]">
+        <div className="flex min-h-[270px] min-w-0 items-center">
+          <div className="relative h-[270px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <RadarChart cx="50%" cy="50%" outerRadius="68%" data={chartData}>
+                <PolarGrid stroke="#EBEEF5" />
+                <PolarAngleAxis dataKey="subject" tick={{ fill: "#33353D", fontSize: 11, fontWeight: 600 }} />
+                <Radar name={uiText.benchmark} dataKey="benchmark" stroke="#B0B2B8" strokeWidth={1.5} strokeDasharray="4 4" fill="transparent" isAnimationActive={false} />
+                <Radar name={isZh ? "候选人得分" : "Candidate score"} dataKey="candidate" stroke="#1E3BFA" strokeWidth={2} fill="#1E3BFA" fillOpacity={0.14} />
+                <Tooltip
+                  content={({ active, payload }) => {
+                    if (active && payload && payload.length) {
+                      const data = payload[0].payload as { fullLabel: string; rawScore: number; rawMax: number; reason: string; evidence: string };
+                      return (
+                        <div className="max-w-[280px] rounded-[6px] border border-[#EBEEF5] bg-white p-3 text-[11px] leading-5 text-[#33353D] shadow-[0_8px_24px_rgba(14,17,20,0.12)] dark:border-[#33353D] dark:bg-[#16181B] dark:text-[#D6D8DD]">
+                          <p className="mb-1 text-[12px] font-semibold text-[#0E1114] dark:text-[#F7F8FA]">{data.fullLabel}</p>
+                          <p>{isZh ? "得分" : "Score"}: <span className="font-medium">{data.rawMax > 0 ? `${data.rawScore} / ${data.rawMax}` : "-"}</span></p>
+                          {data.reason ? <p className="mt-1">{data.reason}</p> : null}
+                          {data.evidence ? <p className="mt-1 italic text-[#B0B2B8]">“{data.evidence}”</p> : null}
+                        </div>
+                      );
+                    }
+                    return null;
+                  }}
                 />
+              </RadarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+        <div className="min-w-0 space-y-2">
+          {chartData.map((data) => {
+            const percent = data.rawMax > 0 ? Math.max(0, Math.min(100, Math.round((data.rawScore / data.rawMax) * 100))) : 0;
+            return (
+              <div key={data.fullLabel} className="rounded-[6px] bg-[#F7F8FA] px-2.5 py-2 dark:bg-[#16181B]">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="truncate text-[12px] font-semibold text-[#0E1114] dark:text-[#F7F8FA]">{data.fullLabel}</span>
+                  <span className="shrink-0 text-[11px] tabular-nums text-[#86888F] dark:text-[#B0B2B8]">
+                    {data.rawMax > 0 ? `${data.rawScore} / ${data.rawMax}` : "-"}
+                  </span>
+                </div>
+                <div className="mt-1 h-1 overflow-hidden rounded-[2px] bg-[#EBEEF5] dark:bg-[#33353D]">
+                  <div
+                    className={cn("h-full rounded-[2px]", percent >= 80 ? "bg-[#0CC991]" : percent >= 60 ? "bg-[#1E3BFA]" : percent >= 40 ? "bg-[#FFAB24]" : "bg-[#F53F3F]")}
+                    style={{width: `${percent}%`}}
+                  />
+                </div>
+                {data.reason ? <p className="mt-1 text-[11px] leading-[18px] text-[#5E5F66] dark:text-[#B0B2B8]">{data.reason}</p> : null}
+                {data.evidence ? <p className="mt-0.5 text-[11px] italic leading-[18px] text-[#B0B2B8] dark:text-[#86888F]">“{data.evidence}”</p> : null}
               </div>
-              {d.reason ? <p className="mt-1.5 text-[11px] leading-5 text-slate-600 dark:text-slate-400">{d.reason}</p> : <p className="mt-1.5 text-[11px] leading-5 text-slate-400 italic">{isZh ? "暂无评分说明" : "No rating explanation"}</p>}
-              {d.evidence && <p className="mt-0.5 text-[11px] leading-5 text-slate-400 dark:text-slate-500 italic">"{d.evidence}"</p>}
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
       </div>
     </div>
   );
