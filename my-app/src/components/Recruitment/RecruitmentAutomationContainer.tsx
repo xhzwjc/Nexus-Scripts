@@ -360,6 +360,7 @@ const InterviewWorkbenchPage = nextDynamic(() => import("./pages/InterviewWorkbe
 const ReviewWorkbenchPage = nextDynamic(() => import("./pages/ReviewWorkbenchPage").then((mod) => mod.ReviewWorkbenchPage), {loading: PageChunkLoading, ssr: false});
 const TalentPoolPage = nextDynamic(() => import("./pages/TalentPoolPage").then((mod) => mod.TalentPoolPage), {loading: PageChunkLoading, ssr: false});
 import { useOptimizedStats, useCachedListData, useCachedObjectData, useTaskSSE, type TaskSSEEvent } from "./hooks";
+import {coalesceCandidatePatchesById, resolveCandidateConsistencyPollIntervalMs} from "./candidateConsistency";
 import {
     INTERVIEW_REJECTED_STATUS_VALUES,
     INTERVIEW_TODO_STATUS_VALUES,
@@ -376,6 +377,12 @@ const TASK_MONITOR_HIDDEN_INTERVAL_MS = 60_000;
 const TASK_MONITOR_MAX_INTERVAL_MS = 30_000;
 const TASK_MONITOR_BATCH_SCALE_THRESHOLD = 8;
 const CANDIDATE_SSE_BATCH_WINDOW_MS = 100;
+const CANDIDATE_CONSISTENCY_POLL_INTERVAL_MS = 12_000;
+const CANDIDATE_CONSISTENCY_IDLE_POLL_INTERVAL_MS = 60_000;
+const CANDIDATE_CONSISTENCY_FULL_REFRESH_INTERVAL_MS = 180_000;
+const CANDIDATE_CONSISTENCY_EVENT_WINDOW_MS = 120_000;
+const CANDIDATE_CONSISTENCY_ACTIVATION_WINDOW_MS = 30_000;
+const CANDIDATE_CONSISTENCY_STATS_CONFIDENCE_MS = 30_000;
 const CANDIDATE_LIST_PAGE_SIZE = 15;
 const CANDIDATE_LIST_PAGE_SIZE_OPTIONS = [10, 15, 20, 30];
 const CANDIDATE_LIST_CACHE_STALE_MS = 120_000;
@@ -408,6 +415,20 @@ type CandidateListPageCache = {
     items: CandidateSummary[];
     total: number;
     loadedAt: number;
+};
+
+type CandidateListRefreshQuerySnapshot = {
+    departmentScope: string;
+    orgScope: string;
+    query: string;
+    positionFilter: string[];
+    statusFilter: string[];
+    sourceFilter: string[];
+    timeFilter: string;
+    matchFilter: string;
+    matchSortOrder: "" | "asc" | "desc";
+    pageIndex: number;
+    pageSize: number;
 };
 
 function mergeCandidatePatch<T extends Partial<CandidateSummary>>(current: T, patch: Partial<CandidateSummary>): T {
@@ -1855,6 +1876,26 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const candidateStatsRefreshTimerRef = useRef<number | null>(null);
     const candidateStatsRefreshInFlightRef = useRef(false);
     const candidateStatsRefreshPendingRef = useRef(false);
+    const candidateStatsLoadRequestIdRef = useRef(0);
+    const candidatePipelineStatsLoadRequestIdRef = useRef(0);
+    const candidateConsistencyPollUntilRef = useRef(0);
+    const candidateConsistencyRunningStatsUntilRef = useRef(0);
+    const candidateConsistencyFullRefreshAtRef = useRef(Date.now() + CANDIDATE_CONSISTENCY_FULL_REFRESH_INTERVAL_MS);
+    const candidateConsistencyForceRefreshRef = useRef(false);
+    const candidateConsistencyRefreshInFlightRef = useRef(false);
+    const candidatePageActiveVisibleRef = useRef(false);
+    const refreshActiveCandidateListRef = useRef<(options?: {silent?: boolean}) => Promise<CandidateSummary[]>>(async () => []);
+    const refreshCandidatePipelineStatsRef = useRef<(
+        departmentScope?: string,
+        orgScope?: string,
+        positionIdOverride?: string,
+    ) => Promise<void>>(async () => undefined);
+    const refreshCandidateStatsRef = useRef<(
+        departmentScope?: string,
+        orgScope?: string,
+    ) => Promise<void>>(async () => undefined);
+    const loadCandidatePositionsRef = useRef<(options?: {force?: boolean}) => Promise<PositionSummary[]>>(async () => []);
+    const [candidateConsistencyPollEpoch, setCandidateConsistencyPollEpoch] = useState(0);
     const requestInflightRef = useRef<Map<string, Promise<unknown>>>(new Map());
     const selectedLogIdRef = useRef<number | null>(null);
     const selectedPositionIdRef = useRef<number | null>(null);
@@ -2564,13 +2605,37 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const [candidateMatchSortLoading, setCandidateMatchSortLoading] = useState(false);
     const candidateMatchSortOrderRef = useRef<"" | "asc" | "desc">("");
     const candidateMatchSortRequestTokenRef = useRef(0);
-    const candidatePositionFilterRef = useRef<string[]>(candidatePositionFilter);
-    candidatePositionFilterRef.current = candidatePositionFilter;
     const [candidateViewMode] = useState<CandidateViewMode>("list");
     const [candidateListColumnWidths, setCandidateListColumnWidths] = useState<Record<CandidateListColumnKey, number>>(
         candidateListColumnDefaultWidths,
     );
     const deferredCandidateQuery = useDeferredValue(candidateQuery);
+    const candidateListRefreshQueryRef = useRef<CandidateListRefreshQuerySnapshot>({
+        departmentScope: selectedDepartmentScope,
+        orgScope: selectedOrgScope,
+        query: deferredCandidateQuery,
+        positionFilter: candidatePositionFilter,
+        statusFilter: candidateStatusFilter,
+        sourceFilter: candidateSourceFilter,
+        timeFilter: candidateTimeFilter,
+        matchFilter: candidateMatchFilter,
+        matchSortOrder: candidateMatchSortOrder,
+        pageIndex: candidatePageIndex,
+        pageSize: candidatePageSize,
+    });
+    candidateListRefreshQueryRef.current = {
+        departmentScope: selectedDepartmentScope,
+        orgScope: selectedOrgScope,
+        query: deferredCandidateQuery,
+        positionFilter: candidatePositionFilter,
+        statusFilter: candidateStatusFilter,
+        sourceFilter: candidateSourceFilter,
+        timeFilter: candidateTimeFilter,
+        matchFilter: candidateMatchFilter,
+        matchSortOrder: candidateMatchSortOrder,
+        pageIndex: candidatePageIndex,
+        pageSize: candidatePageSize,
+    };
 
     const [logTaskTypeFilter, setLogTaskTypeFilter] = useState("all");
     const [logStatusFilter, setLogStatusFilter] = useState("all");
@@ -3377,11 +3442,34 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     ), [activeBatchScreeningTaskIds, visibleLiveScreeningTaskIds]);
 
     const visibleScopeScreeningRunningCount = Number(candidateStatsData?.status_counts?.screening_running || 0);
+    const candidateConsistencyStatsScopeKey = resolveCandidatePipelineStatsScopeKey();
+    const candidateConsistencyStats = candidatePipelineStatsScopeKey === candidateConsistencyStatsScopeKey
+        ? candidatePipelineStatsData
+        : candidateStatsData;
+    const candidateConsistencyRunningCount = Number(candidateConsistencyStats?.status_counts?.screening_running || 0);
     const isBatchScreeningRunning = batchStopScreeningTaskIds.length > 0 || visibleScopeScreeningRunningCount > 0;
     const isBatchScreeningCancelling = batchScreeningStopSubmitting || (
         batchStopScreeningTaskIds.length > 0
         && batchStopScreeningTaskIds.every((taskId) => cancellingTaskIds.includes(taskId))
     );
+
+    const armCandidateConsistencyPolling = useCallback((
+        durationMs = CANDIDATE_CONSISTENCY_EVENT_WINDOW_MS,
+        options?: { forceRefresh?: boolean },
+    ) => {
+        const now = Date.now();
+        const wasInactive = candidateConsistencyPollUntilRef.current <= now;
+        candidateConsistencyPollUntilRef.current = Math.max(
+            candidateConsistencyPollUntilRef.current,
+            now + durationMs,
+        );
+        if (options?.forceRefresh) {
+            candidateConsistencyForceRefreshRef.current = true;
+        }
+        if (wasInactive || options?.forceRefresh) {
+            setCandidateConsistencyPollEpoch((current) => current + 1);
+        }
+    }, []);
 
     const visibleCandidateIdSet = useMemo(
         () => new Set(visibleCandidates.map((c) => c.id)),
@@ -4118,24 +4206,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                     if (cancelled) {
                         return;
                     }
-                    const scopedOrgCode = resolveScopedOrgCode(selectedDepartmentScope, selectedOrgScope);
-                    const orgCodeParam = scopedOrgCode ? `?org_code=${encodeURIComponent(scopedOrgCode)}` : "";
-                    void Promise.allSettled([
-                        recruitmentApi<import("@/lib/recruitment-api").RecruitmentFunnelData>(`/candidates/funnel${orgCodeParam}`)
-                            .then((d) => { if (!cancelled) setFunnelData(d); })
-                            .catch(() => {}),
-                        recruitmentApi<import("@/lib/recruitment-api").SourceStatsData>(`/candidates/source-stats${orgCodeParam}`)
-                            .then((d) => { if (!cancelled) setSourceStatsData(d); })
-                            .catch(() => {}),
-                        recruitmentApi<import("@/lib/recruitment-api").CandidateStatsData>(`/candidates/stats${orgCodeParam}`)
-                            .then((d) => {
-                                if (!cancelled) {
-                                    setCandidateStatsData(d);
-                                    setCandidateScopeTotal(Number(d?.total || 0));
-                                }
-                            })
-                            .catch(() => {}),
-                    ]);
+                    const query = candidateListRefreshQueryRef.current;
+                    void refreshCandidateStatsRef.current(query.departmentScope, query.orgScope);
                 };
                 if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
                     window.requestIdleCallback(() => {
@@ -4175,32 +4247,53 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         }
 
         async function loadCandidatesFirstPage(): Promise<void> {
+            const requestId = candidatesLoadRequestIdRef.current + 1;
+            candidatesLoadRequestIdRef.current = requestId;
+            let controller: AbortController | null = null;
             try {
                 // 设置 loading 状态，防止显示空状态
                 setCandidatesLoading(true);
-                candidateListContextKeyRef.current = buildCandidateListContextKey({ useVisibleFilters: false });
+                const contextKey = buildCandidateListContextKey({ useVisibleFilters: false });
+                candidateListContextKeyRef.current = contextKey;
+                abortCandidateListRequests();
+                controller = new AbortController();
+                candidateListLoadAbortControllerRef.current = controller;
                 const queryString = buildCandidateListQueryString({
                     useVisibleFilters: false,
                 });
                 const url = `/candidates?${queryString}`;
                 const data = await recruitmentApi<{items: CandidateSummary[]; total: number}>(url, {
+                    signal: controller.signal,
                     timeoutMs: 45000,
                 });
-                if (!cancelled) {
-                    const nextItems = deduplicateCandidates(data?.items || []);
-                    const nextTotal = data?.total || 0;
-                    candidateListUsingVisibleFiltersRef.current = false;
-                    candidateListPreloadLoadedAtRef.current = Date.now();
-                    applyCandidateListSnapshot(nextItems, nextTotal, { updateScopeTotal: true });
-                    setCandidatesInitialLoaded(true);
-                    setCandidatesLoading(false);
+                if (
+                    cancelled
+                    || candidatesLoadRequestIdRef.current !== requestId
+                    || candidateListContextKeyRef.current !== contextKey
+                ) {
+                    return;
                 }
+                const nextItems = deduplicateCandidates(data?.items || []);
+                const nextTotal = data?.total || 0;
+                candidateListUsingVisibleFiltersRef.current = false;
+                candidateListPreloadLoadedAtRef.current = Date.now();
+                applyCandidateListSnapshot(nextItems, nextTotal, { updateScopeTotal: true });
+                setCandidatesInitialLoaded(true);
             } catch (error) {
-                if (!cancelled) {
+                if (isRecruitmentRequestAborted(error)) {
+                    return;
+                }
+                if (!cancelled && candidatesLoadRequestIdRef.current === requestId) {
                     setCandidatesInitialLoaded(true);
+                    toast.error(recruitmentToast.loadFailed(recruitmentToastEntities.candidates, formatActionError(error)));
+                }
+            } finally {
+                if (candidateListLoadAbortControllerRef.current === controller) {
+                    candidateListLoadAbortControllerRef.current = null;
+                }
+                if (!cancelled && candidatesLoadRequestIdRef.current === requestId) {
                     setCandidatesLoading(false);
                 }
-                toast.error(recruitmentToast.loadFailed(recruitmentToastEntities.candidates, formatActionError(error)));
             }
         }
 
@@ -4609,6 +4702,21 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             return;
         }
 
+        // 实时补丁只更新当前内存页；失效旧页快照，避免切页或返回页面时重新展示旧任务状态。
+        candidateListPageCacheRef.current = null;
+        candidateListPreloadLoadedAtRef.current = 0;
+        let forceCandidateListRefresh = false;
+        if (activePageRef.current === "candidates" && candidateListLoadAbortControllerRef.current) {
+            candidatesLoadRequestIdRef.current += 1;
+            candidateListLoadAbortControllerRef.current.abort();
+            candidateListLoadAbortControllerRef.current = null;
+            setCandidatesLoading(false);
+            forceCandidateListRefresh = true;
+        }
+        armCandidateConsistencyPolling(CANDIDATE_CONSISTENCY_EVENT_WINDOW_MS, {
+            forceRefresh: forceCandidateListRefresh,
+        });
+
         let nextCandidates = allCandidatesRef.current;
         let nextTalentPoolCandidates = allTalentPoolCandidatesRef.current;
         let candidatesChanged = false;
@@ -4752,7 +4860,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             setCandidateStatsData(applyTransitions);
             setCandidatePipelineStatsData(applyTransitions);
         }
-    }, [activeBusinessOrgCodes, businessRowFilterOptions, matchesActiveCandidateListFilters]);
+    }, [activeBusinessOrgCodes, armCandidateConsistencyPolling, businessRowFilterOptions, matchesActiveCandidateListFilters]);
 
     const syncRealtimeCandidateLists = useCallback((
         snapshot?: Partial<CandidateSummary> | null,
@@ -4794,13 +4902,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         if (!snapshots.length) {
             return;
         }
-        const latestByCandidateId = new Map<number, Partial<CandidateSummary>>();
-        snapshots.forEach((snapshot) => {
-            const candidateId = Number(snapshot.id);
-            if (Number.isFinite(candidateId)) {
-                latestByCandidateId.set(candidateId, { ...snapshot, id: candidateId });
-            }
-        });
+        const latestByCandidateId = coalesceCandidatePatchesById(snapshots);
         if (!latestByCandidateId.size) {
             return;
         }
@@ -4896,9 +4998,10 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             }
             candidateStatsRefreshPendingRef.current = false;
             candidateStatsRefreshInFlightRef.current = true;
+            const query = candidateListRefreshQueryRef.current;
             void Promise.all([
-                refreshCandidateStats(),
-                activePageRef.current === "candidates" ? loadPositions({force: true}) : Promise.resolve(),
+                refreshCandidateStatsRef.current(query.departmentScope, query.orgScope),
+                activePageRef.current === "candidates" ? loadCandidatePositionsRef.current({force: true}) : Promise.resolve(),
             ]).finally(() => {
                 candidateStatsRefreshInFlightRef.current = false;
                 if (mountedRef.current && candidateStatsRefreshPendingRef.current) {
@@ -5048,7 +5151,14 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     useTaskSSE(
         taskSSEEnabled,
         {
+            onConnected: ({reconnected}) => {
+                armCandidateConsistencyPolling(CANDIDATE_CONSISTENCY_EVENT_WINDOW_MS, {forceRefresh: true});
+                if (reconnected) {
+                    scheduleCandidateStatsRefresh();
+                }
+            },
             onTaskCompleted: (event) => {
+                armCandidateConsistencyPolling();
                 const isRootScreeningTask = event.task_type === "screening_flow";
                 const isTerminalScreeningTask = isRootScreeningTask
                     && TERMINAL_SCREENING_TASK_STATUSES.has(String(event.status || "").trim().toLowerCase());
@@ -5143,6 +5253,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 }
             },
             onCandidateUpdated: (event) => {
+                armCandidateConsistencyPolling();
                 queueCandidateUpdatedEvent(event);
                 if (event.task_type === "department_review" && activePageRef.current === "review-workbench") {
                     void loadDepartmentReviewTasks({silent: true});
@@ -5177,6 +5288,130 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             // onTaskProgress 移除：审计日志不在初筛过程中实时更新
         },
     );
+
+    useEffect(() => {
+        const candidatePageActiveVisible = (
+            activePage === "candidates"
+            && pageVisible
+            && candidatesInitialLoaded
+        );
+        const becameActiveVisible = candidatePageActiveVisible && !candidatePageActiveVisibleRef.current;
+        candidatePageActiveVisibleRef.current = candidatePageActiveVisible;
+        if (becameActiveVisible) {
+            armCandidateConsistencyPolling(CANDIDATE_CONSISTENCY_ACTIVATION_WINDOW_MS, {forceRefresh: true});
+        }
+    }, [activePage, armCandidateConsistencyPolling, candidatesInitialLoaded, pageVisible]);
+
+    useEffect(() => {
+        const initialPollInterval = resolveCandidateConsistencyPollIntervalMs({
+            candidatePageActive: activePage === "candidates",
+            pageVisible,
+            candidatesLoaded: candidatesInitialLoaded,
+            hasVisibleLiveTask: visibleLiveScreeningTaskIds.length > 0,
+            hasActiveBatchTask: activeBatchScreeningTaskIds.length > 0,
+            runningCandidateCount: candidateConsistencyRunningCount,
+            runningCountConfirmedUntil: candidateConsistencyRunningStatsUntilRef.current,
+            pollUntil: candidateConsistencyPollUntilRef.current,
+            now: Date.now(),
+        }, {
+            fast: CANDIDATE_CONSISTENCY_POLL_INTERVAL_MS,
+            idle: CANDIDATE_CONSISTENCY_IDLE_POLL_INTERVAL_MS,
+        });
+        if (initialPollInterval == null) {
+            return;
+        }
+
+        let stopped = false;
+        let timer: number | null = null;
+        const reconcileCurrentCandidatePage = async () => {
+            if (
+                stopped
+                || candidateConsistencyRefreshInFlightRef.current
+                || candidateListLoadAbortControllerRef.current
+            ) {
+                return;
+            }
+            candidateConsistencyRefreshInFlightRef.current = true;
+            candidateConsistencyForceRefreshRef.current = false;
+            try {
+                const query = candidateListRefreshQueryRef.current;
+                const shouldRefreshAggregates = Date.now() >= candidateConsistencyFullRefreshAtRef.current;
+                if (shouldRefreshAggregates) {
+                    candidateConsistencyFullRefreshAtRef.current = Date.now() + CANDIDATE_CONSISTENCY_FULL_REFRESH_INTERVAL_MS;
+                }
+                const refreshes: Promise<unknown>[] = [
+                    refreshActiveCandidateListRef.current({silent: true}),
+                ];
+                if (shouldRefreshAggregates) {
+                    refreshes.push(
+                        refreshCandidateStatsRef.current(query.departmentScope, query.orgScope),
+                        loadCandidatePositionsRef.current({force: true}),
+                    );
+                } else {
+                    refreshes.push(refreshCandidatePipelineStatsRef.current(
+                        query.departmentScope,
+                        query.orgScope,
+                        query.positionFilter[0] || "",
+                    ));
+                }
+                await Promise.allSettled(refreshes);
+            } catch {
+                // SSE 和下一次列表级轮询继续兜底，避免一次网络失败中断最终一致性。
+            } finally {
+                candidateConsistencyRefreshInFlightRef.current = false;
+            }
+        };
+
+        const scheduleNextReconcile = () => {
+            if (stopped) {
+                return;
+            }
+            const nextInterval = resolveCandidateConsistencyPollIntervalMs({
+                candidatePageActive: activePageRef.current === "candidates",
+                pageVisible: pageVisibleRef.current,
+                candidatesLoaded: candidatesInitialLoaded,
+                hasVisibleLiveTask: visibleLiveScreeningTaskIds.length > 0,
+                hasActiveBatchTask: activeBatchScreeningTaskIds.length > 0,
+                runningCandidateCount: candidateConsistencyRunningCount,
+                runningCountConfirmedUntil: candidateConsistencyRunningStatsUntilRef.current,
+                pollUntil: candidateConsistencyPollUntilRef.current,
+                now: Date.now(),
+            }, {
+                fast: CANDIDATE_CONSISTENCY_POLL_INTERVAL_MS,
+                idle: CANDIDATE_CONSISTENCY_IDLE_POLL_INTERVAL_MS,
+            });
+            if (nextInterval == null) {
+                return;
+            }
+            timer = window.setTimeout(async () => {
+                await reconcileCurrentCandidatePage();
+                scheduleNextReconcile();
+            }, nextInterval);
+        };
+
+        if (candidateConsistencyForceRefreshRef.current) {
+            void reconcileCurrentCandidatePage();
+        }
+        scheduleNextReconcile();
+
+        return () => {
+            stopped = true;
+            if (timer != null) {
+                window.clearTimeout(timer);
+            }
+        };
+    }, [
+        activeBatchScreeningTaskIds.length,
+        activePage,
+        candidateConsistencyPollEpoch,
+        candidatePageIndex,
+        candidatePageSize,
+        candidateSelectionScopeKey,
+        candidateConsistencyRunningCount,
+        candidatesInitialLoaded,
+        pageVisible,
+        visibleLiveScreeningTaskIds.length,
+    ]);
 
     useEffect(() => {
         const current = positionDetail?.current_jd_version;
@@ -6063,12 +6298,22 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         if (activePageRef.current !== "candidates") {
             return [];
         }
+        const query = candidateListRefreshQueryRef.current;
         return loadCandidates({
             silent: options?.silent ?? true,
             force: true,
             useVisibleFilters: true,
-            pageIndex: candidatePageIndexRef.current,
-            pageSize: candidatePageSizeRef.current,
+            departmentScope: query.departmentScope,
+            orgScope: query.orgScope,
+            query: query.query,
+            positionFilter: query.positionFilter,
+            statusFilter: query.statusFilter,
+            sourceFilter: query.sourceFilter,
+            timeFilter: query.timeFilter,
+            matchFilter: query.matchFilter,
+            matchSortOrder: query.matchSortOrder,
+            pageIndex: query.pageIndex,
+            pageSize: query.pageSize,
         });
     }
 
@@ -6501,21 +6746,39 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     }
 
     function resolveCandidatePipelineStatsScopeKey(departmentScope?: string, orgScope?: string, positionIdOverride?: string) {
-        const scopedOrgCode = resolveScopedOrgCode(departmentScope ?? selectedDepartmentScope, orgScope ?? selectedOrgScope);
+        const query = candidateListRefreshQueryRef.current;
+        const scopedOrgCode = resolveScopedOrgCode(
+            departmentScope ?? query.departmentScope,
+            orgScope ?? query.orgScope,
+        );
         // 使用 ref 获取最新值，避免闭包中 state 是旧值的问题
-        const activePositionId = String(positionIdOverride ?? candidatePositionFilterRef.current[0] ?? "").trim();
+        const activePositionId = String(positionIdOverride ?? query.positionFilter[0] ?? "").trim();
         return `${scopedOrgCode || ""}::${activePositionId}`;
     }
 
+    function resolveCandidateStatsScopeKey(departmentScope?: string, orgScope?: string) {
+        const query = candidateListRefreshQueryRef.current;
+        const scopedOrgCode = resolveScopedOrgCode(
+            departmentScope ?? query.departmentScope,
+            orgScope ?? query.orgScope,
+        );
+        return scopedOrgCode || "";
+    }
+
     async function refreshCandidatePipelineStats(departmentScope?: string, orgScope?: string, positionIdOverride?: string) {
+        const requestId = candidatePipelineStatsLoadRequestIdRef.current + 1;
+        candidatePipelineStatsLoadRequestIdRef.current = requestId;
         try {
-            const scopedOrgCode = resolveScopedOrgCode(departmentScope ?? selectedDepartmentScope, orgScope ?? selectedOrgScope);
+            const query = candidateListRefreshQueryRef.current;
+            const resolvedDepartmentScope = departmentScope ?? query.departmentScope;
+            const resolvedOrgScope = orgScope ?? query.orgScope;
+            const scopedOrgCode = resolveScopedOrgCode(resolvedDepartmentScope, resolvedOrgScope);
             const params = new URLSearchParams();
             if (scopedOrgCode) {
                 params.set("org_code", scopedOrgCode);
             }
             // 使用 ref 获取最新值，避免闭包中 state 是旧值的问题
-            const activePositionId = String(positionIdOverride ?? candidatePositionFilterRef.current[0] ?? "").trim();
+            const activePositionId = String(positionIdOverride ?? query.positionFilter[0] ?? "").trim();
             if (activePositionId) {
                 params.set("position_id", activePositionId);
             }
@@ -6524,44 +6787,91 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 `candidate-pipeline-stats:${queryString || "all"}`,
                 () => recruitmentApi<import("@/lib/recruitment-api").CandidateStatsData>(`/candidates/stats${queryString ? `?${queryString}` : ""}`),
             );
+            const requestedScopeKey = resolveCandidatePipelineStatsScopeKey(
+                resolvedDepartmentScope,
+                resolvedOrgScope,
+                activePositionId,
+            );
+            if (
+                !mountedRef.current
+                || candidatePipelineStatsLoadRequestIdRef.current !== requestId
+                || resolveCandidatePipelineStatsScopeKey() !== requestedScopeKey
+            ) {
+                return;
+            }
             setCandidatePipelineStatsData(stats);
-            setCandidatePipelineStatsScopeKey(resolveCandidatePipelineStatsScopeKey(departmentScope, orgScope, activePositionId));
+            candidateConsistencyRunningStatsUntilRef.current = Number(stats?.status_counts?.screening_running || 0) > 0
+                ? Date.now() + CANDIDATE_CONSISTENCY_STATS_CONFIDENCE_MS
+                : 0;
+            setCandidatePipelineStatsScopeKey(requestedScopeKey);
         } catch {}
     }
 
+    refreshActiveCandidateListRef.current = refreshActiveCandidateList;
+    refreshCandidatePipelineStatsRef.current = refreshCandidatePipelineStats;
+    refreshCandidateStatsRef.current = refreshCandidateStats;
+    loadCandidatePositionsRef.current = loadPositions;
+
     async function refreshCandidateStats(departmentScope?: string, orgScope?: string) {
-        try {
-            const scopedOrgCode = resolveScopedOrgCode(departmentScope ?? selectedDepartmentScope, orgScope ?? selectedOrgScope);
-            const orgCodeParam = scopedOrgCode ? `?org_code=${encodeURIComponent(scopedOrgCode)}` : "";
-            const stats = await runDedupedRequest(
-                `candidate-stats:${scopedOrgCode || "all"}`,
-                () => recruitmentApi<import("@/lib/recruitment-api").CandidateStatsData>(`/candidates/stats${orgCodeParam}`),
-            );
-            setCandidateStatsData(stats);
-            setCandidateScopeTotal(Number(stats?.total || 0));
-            if (activePageRef.current === "candidates") {
-                // 始终刷新 pipeline stats，从 ref 取最新岗位（避免闭包中 candidatePositionFilter 是旧值）
-                await refreshCandidatePipelineStats(departmentScope, orgScope);
-            }
-        } catch {}
-        try {
-            const scopedOrgCode = resolveScopedOrgCode(departmentScope ?? selectedDepartmentScope, orgScope ?? selectedOrgScope);
-            const orgCodeParam = scopedOrgCode ? `?org_code=${encodeURIComponent(scopedOrgCode)}` : "";
-            const f = await runDedupedRequest(
-                `candidate-funnel:${scopedOrgCode || "all"}`,
-                () => recruitmentApi<import("@/lib/recruitment-api").RecruitmentFunnelData>(`/candidates/funnel${orgCodeParam}`),
-            );
-            setFunnelData(f);
-        } catch {}
-        try {
-            const scopedOrgCode = resolveScopedOrgCode(departmentScope ?? selectedDepartmentScope, orgScope ?? selectedOrgScope);
-            const orgCodeParam = scopedOrgCode ? `?org_code=${encodeURIComponent(scopedOrgCode)}` : "";
-            const s = await runDedupedRequest(
-                `candidate-source-stats:${scopedOrgCode || "all"}`,
-                () => recruitmentApi<import("@/lib/recruitment-api").SourceStatsData>(`/candidates/source-stats${orgCodeParam}`),
-            );
-            setSourceStatsData(s);
-        } catch {}
+        const requestId = candidateStatsLoadRequestIdRef.current + 1;
+        candidateStatsLoadRequestIdRef.current = requestId;
+        const query = candidateListRefreshQueryRef.current;
+        const resolvedDepartmentScope = departmentScope ?? query.departmentScope;
+        const resolvedOrgScope = orgScope ?? query.orgScope;
+        const scopedOrgCode = resolveScopedOrgCode(resolvedDepartmentScope, resolvedOrgScope);
+        const requestedScopeKey = resolveCandidateStatsScopeKey(resolvedDepartmentScope, resolvedOrgScope);
+        const orgCodeParam = scopedOrgCode ? `?org_code=${encodeURIComponent(scopedOrgCode)}` : "";
+        const isLatestScope = () => (
+            mountedRef.current
+            && candidateStatsLoadRequestIdRef.current === requestId
+            && resolveCandidateStatsScopeKey() === requestedScopeKey
+        );
+        const refreshSummary = async () => {
+            try {
+                const stats = await runDedupedRequest(
+                    `candidate-stats:${scopedOrgCode || "all"}`,
+                    () => recruitmentApi<import("@/lib/recruitment-api").CandidateStatsData>(`/candidates/stats${orgCodeParam}`),
+                );
+                if (!isLatestScope()) {
+                    return;
+                }
+                setCandidateStatsData(stats);
+                setCandidateScopeTotal(Number(stats?.total || 0));
+                if (activePageRef.current === "candidates") {
+                    // 始终刷新 pipeline stats，从 ref 取最新岗位（避免闭包中 candidatePositionFilter 是旧值）
+                    await refreshCandidatePipelineStats(resolvedDepartmentScope, resolvedOrgScope);
+                }
+            } catch {}
+        };
+        const refreshFunnel = async () => {
+            try {
+                const funnel = await runDedupedRequest(
+                    `candidate-funnel:${scopedOrgCode || "all"}`,
+                    () => recruitmentApi<import("@/lib/recruitment-api").RecruitmentFunnelData>(`/candidates/funnel${orgCodeParam}`),
+                );
+                if (!isLatestScope()) {
+                    return;
+                }
+                setFunnelData(funnel);
+            } catch {}
+        };
+        const refreshSources = async () => {
+            try {
+                const sources = await runDedupedRequest(
+                    `candidate-source-stats:${scopedOrgCode || "all"}`,
+                    () => recruitmentApi<import("@/lib/recruitment-api").SourceStatsData>(`/candidates/source-stats${orgCodeParam}`),
+                );
+                if (!isLatestScope()) {
+                    return;
+                }
+                setSourceStatsData(sources);
+            } catch {}
+        };
+        await Promise.allSettled([
+            refreshSummary(),
+            refreshFunnel(),
+            refreshSources(),
+        ]);
     }
 
     useEffect(() => {
@@ -14759,6 +15069,11 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     );
 
     const handleOrgScopeChange = useCallback(async (orgScope: string, deptScope: string) => {
+        candidateListRefreshQueryRef.current = {
+            ...candidateListRefreshQueryRef.current,
+            departmentScope: deptScope,
+            orgScope,
+        };
         setSelectedOrgScope(orgScope);
         setSelectedDepartmentScope(deptScope);
         setOrgSwitching(true);
@@ -14802,7 +15117,9 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         );
     }
 
-    const positionsPageNode = renderPositionsPage();
+    const positionsPageNode = visitedKeepAlivePagesRef.current.has("positions") && !positionDialogOpen
+        ? renderPositionsPage()
+        : null;
 
     if (bootstrapping) {
         return (

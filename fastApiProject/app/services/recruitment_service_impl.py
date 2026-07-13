@@ -22,7 +22,7 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tupl
 import httpx
 from sqlalchemy import and_, case, func, literal_column, or_
 from sqlalchemy.exc import DataError, IntegrityError, OperationalError, SQLAlchemyError, TimeoutError as SQLAlchemyTimeoutError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, load_only
 
 from ..database import DB_MAX_OVERFLOW, DB_POOL_SIZE, SessionLocal
 from ..permission_governance import (
@@ -100,6 +100,7 @@ SCREENING_FLOW_TASK_TYPE = "screening_flow"
 SCREENING_DEBUG_TASK_TYPE = "resume_screening_debug"
 SCREENING_ONE_PASS_TASK_TYPE = "resume_screening_one_pass"
 SCREENING_SCORE_TASK_TYPES = ("resume_score", SCREENING_ONE_PASS_TASK_TYPE)
+_UNSET = object()
 DEPARTMENT_REVIEW_DEFAULT_VISIBLE_SECTIONS = ("original_resume", "standard_resume", "screening_result", "assessment_result")
 DEPARTMENT_REVIEW_ALLOWED_VISIBLE_SECTIONS = (
     "original_resume",
@@ -9218,42 +9219,55 @@ class RecruitmentService:
             return INTERVIEW_FIRST_REJECTED_STATUS
         return normalized_status
 
-    def _build_interview_display_state_map(self, candidate_ids: Sequence[int]) -> Dict[int, Dict[str, Optional[RecruitmentInterviewSchedule]]]:
+    def _build_interview_display_state_map(self, candidate_ids: Sequence[int]) -> Dict[int, Dict[str, Any]]:
         normalized_candidate_ids = [int(candidate_id) for candidate_id in candidate_ids if candidate_id]
         if not normalized_candidate_ids:
             return {}
-        state_map: Dict[int, Dict[str, Optional[RecruitmentInterviewSchedule]]] = {
+        state_map: Dict[int, Dict[str, Any]] = {
             candidate_id: {"active_schedule": None, "latest_completed_schedule": None}
             for candidate_id in normalized_candidate_ids
         }
-        active_rows = self.db.query(RecruitmentInterviewSchedule).filter(
+        active_schedule_filter = RecruitmentInterviewSchedule.status.in_(list(INTERVIEW_ACTIVE_SCHEDULE_STATUSES))
+        completed_schedule_filter = RecruitmentInterviewSchedule.status.in_(list(INTERVIEW_COMPLETED_SCHEDULE_STATUSES))
+        schedule_category = case(
+            (active_schedule_filter, "active_schedule"),
+            (completed_schedule_filter, "latest_completed_schedule"),
+        )
+        ranked_schedules = self.db.query(
+            RecruitmentInterviewSchedule.id.label("id"),
+            RecruitmentInterviewSchedule.candidate_id.label("candidate_id"),
+            RecruitmentInterviewSchedule.round_index.label("round_index"),
+            RecruitmentInterviewSchedule.result_status.label("result_status"),
+            RecruitmentInterviewSchedule.status.label("status"),
+            schedule_category.label("schedule_category"),
+            func.row_number().over(
+                partition_by=(RecruitmentInterviewSchedule.candidate_id, schedule_category),
+                order_by=(
+                    case((active_schedule_filter, func.coalesce(RecruitmentInterviewSchedule.round_index, 1)), else_=0).desc(),
+                    case((and_(completed_schedule_filter, RecruitmentInterviewSchedule.result_submitted_at.is_(None)), 1), else_=0).asc(),
+                    case((completed_schedule_filter, RecruitmentInterviewSchedule.result_submitted_at), else_=None).desc(),
+                    RecruitmentInterviewSchedule.scheduled_at.is_(None),
+                    RecruitmentInterviewSchedule.scheduled_at.desc(),
+                    RecruitmentInterviewSchedule.id.desc(),
+                ),
+            ).label("schedule_rank"),
+        ).filter(
             RecruitmentInterviewSchedule.candidate_id.in_(normalized_candidate_ids),
-            RecruitmentInterviewSchedule.status.in_(list(INTERVIEW_ACTIVE_SCHEDULE_STATUSES)),
-        ).order_by(
-            RecruitmentInterviewSchedule.candidate_id.asc(),
-            RecruitmentInterviewSchedule.round_index.desc(),
-            RecruitmentInterviewSchedule.scheduled_at.is_(None),
-            RecruitmentInterviewSchedule.scheduled_at.desc(),
-            RecruitmentInterviewSchedule.id.desc(),
-        ).all()
-        for row in active_rows:
-            if row.candidate_id in state_map and state_map[row.candidate_id]["active_schedule"] is None:
-                state_map[row.candidate_id]["active_schedule"] = row
-
-        completed_rows = self.db.query(RecruitmentInterviewSchedule).filter(
-            RecruitmentInterviewSchedule.candidate_id.in_(normalized_candidate_ids),
-            RecruitmentInterviewSchedule.status.in_(list(INTERVIEW_COMPLETED_SCHEDULE_STATUSES)),
-        ).order_by(
-            RecruitmentInterviewSchedule.candidate_id.asc(),
-            RecruitmentInterviewSchedule.result_submitted_at.is_(None),
-            RecruitmentInterviewSchedule.result_submitted_at.desc(),
-            RecruitmentInterviewSchedule.scheduled_at.is_(None),
-            RecruitmentInterviewSchedule.scheduled_at.desc(),
-            RecruitmentInterviewSchedule.id.desc(),
-        ).all()
-        for row in completed_rows:
-            if row.candidate_id in state_map and state_map[row.candidate_id]["latest_completed_schedule"] is None:
-                state_map[row.candidate_id]["latest_completed_schedule"] = row
+            or_(active_schedule_filter, completed_schedule_filter),
+        ).subquery()
+        latest_schedule_rows = self.db.query(
+            ranked_schedules.c.id,
+            ranked_schedules.c.candidate_id,
+            ranked_schedules.c.round_index,
+            ranked_schedules.c.result_status,
+            ranked_schedules.c.status,
+            ranked_schedules.c.schedule_category,
+        ).filter(ranked_schedules.c.schedule_rank == 1).all()
+        for schedule_row in latest_schedule_rows:
+            candidate_id = int(schedule_row.candidate_id or 0)
+            category = str(schedule_row.schedule_category or "")
+            if candidate_id in state_map and category in state_map[candidate_id]:
+                state_map[candidate_id][category] = SimpleNamespace(**dict(schedule_row._mapping))
         return state_map
 
     def _candidate_display_status_expr(self):
@@ -10181,15 +10195,119 @@ class RecruitmentService:
     def _serialize_interview_question(self, row: RecruitmentInterviewQuestion) -> Dict[str, Any]:
         return {"id": row.id, "round_name": row.round_name, "custom_requirements": row.custom_requirements, "skill_ids": json_loads_safe(row.skill_ids_json, []), "html_content": row.html_content or "", "markdown_content": row.markdown_content or "", "status": row.status, "created_by": row.created_by, "created_at": isoformat_or_none(row.created_at)}
 
+    def _build_candidate_list_task_preload_maps(
+        self,
+        candidate_ids: Sequence[int],
+    ) -> Tuple[Dict[int, Any], Dict[int, Any], Dict[int, Any], Dict[int, Any]]:
+        normalized_candidate_ids = [int(candidate_id) for candidate_id in candidate_ids if candidate_id]
+        if not normalized_candidate_ids:
+            return {}, {}, {}, {}
+
+        active_root_filter = and_(
+            self._screening_root_task_filter(),
+            RecruitmentAITaskLog.status.in_(SCREENING_LIVE_TASK_STATUSES),
+        )
+        completed_parse_filter = and_(
+            RecruitmentAITaskLog.task_type == "resume_parse",
+            RecruitmentAITaskLog.status == "success",
+        )
+        completed_score_filter = and_(
+            self._screening_root_task_filter(),
+            RecruitmentAITaskLog.status.in_(list(TERMINAL_AI_TASK_STATUSES)),
+        )
+        ai_match_filter = and_(
+            RecruitmentAITaskLog.task_type == "ai_position_match",
+            RecruitmentAITaskLog.status.in_(["success", "no_match", "failed"]),
+        )
+        task_category = case(
+            (active_root_filter, "active_root"),
+            (completed_parse_filter, "completed_parse"),
+            (completed_score_filter, "completed_score"),
+            (ai_match_filter, "ai_match"),
+        )
+        task_sort_at = case(
+            (active_root_filter, RecruitmentAITaskLog.updated_at),
+            else_=RecruitmentAITaskLog.created_at,
+        )
+        ranked_tasks = self.db.query(
+            RecruitmentAITaskLog.id.label("id"),
+            RecruitmentAITaskLog.related_candidate_id.label("related_candidate_id"),
+            RecruitmentAITaskLog.related_position_id.label("related_position_id"),
+            RecruitmentAITaskLog.screening_run_id.label("screening_run_id"),
+            RecruitmentAITaskLog.task_type.label("task_type"),
+            RecruitmentAITaskLog.stage.label("stage"),
+            RecruitmentAITaskLog.status.label("status"),
+            RecruitmentAITaskLog.created_at.label("created_at"),
+            RecruitmentAITaskLog.updated_at.label("updated_at"),
+            case(
+                (or_(active_root_filter, ai_match_filter), RecruitmentAITaskLog.output_summary),
+                else_=None,
+            ).label("output_summary"),
+            case(
+                (active_root_filter, RecruitmentAITaskLog.output_snapshot),
+                else_=None,
+            ).label("output_snapshot"),
+            case(
+                (ai_match_filter, RecruitmentAITaskLog.parsed_response_json),
+                else_=None,
+            ).label("parsed_response_json"),
+            case(
+                (or_(active_root_filter, completed_score_filter), RecruitmentAITaskLog.validation_meta_json),
+                else_=None,
+            ).label("validation_meta_json"),
+            task_category.label("task_category"),
+            func.row_number().over(
+                partition_by=(RecruitmentAITaskLog.related_candidate_id, task_category),
+                order_by=(task_sort_at.desc(), RecruitmentAITaskLog.id.desc()),
+            ).label("task_rank"),
+        ).filter(
+            RecruitmentAITaskLog.related_candidate_id.in_(normalized_candidate_ids),
+            or_(active_root_filter, completed_parse_filter, completed_score_filter, ai_match_filter),
+        ).subquery()
+        latest_task_rows = self.db.query(
+            ranked_tasks.c.id,
+            ranked_tasks.c.related_candidate_id,
+            ranked_tasks.c.related_position_id,
+            ranked_tasks.c.screening_run_id,
+            ranked_tasks.c.task_type,
+            ranked_tasks.c.stage,
+            ranked_tasks.c.status,
+            ranked_tasks.c.created_at,
+            ranked_tasks.c.updated_at,
+            ranked_tasks.c.output_summary,
+            ranked_tasks.c.output_snapshot,
+            ranked_tasks.c.parsed_response_json,
+            ranked_tasks.c.validation_meta_json,
+            ranked_tasks.c.task_category,
+        ).filter(ranked_tasks.c.task_rank == 1).all()
+
+        active_root_map: Dict[int, Any] = {}
+        completed_parse_map: Dict[int, Any] = {}
+        completed_score_map: Dict[int, Any] = {}
+        ai_match_map: Dict[int, Any] = {}
+        category_maps = {
+            "active_root": active_root_map,
+            "completed_parse": completed_parse_map,
+            "completed_score": completed_score_map,
+            "ai_match": ai_match_map,
+        }
+        for task_row in latest_task_rows:
+            target_map = category_maps.get(str(task_row.task_category or ""))
+            candidate_id = int(task_row.related_candidate_id or 0)
+            if target_map is None or not candidate_id:
+                continue
+            target_map[candidate_id] = SimpleNamespace(**dict(task_row._mapping))
+        return active_root_map, completed_parse_map, completed_score_map, ai_match_map
+
     def _build_candidate_screening_state_summary(
         self,
         row: RecruitmentCandidate,
         *,
-        _preloaded_active_root: Optional[RecruitmentAITaskLog] = None,
-        _preloaded_latest_completed_parse: Optional[RecruitmentAITaskLog] = None,
-        _preloaded_latest_completed_score: Optional[RecruitmentAITaskLog] = None,
+        _preloaded_active_root: Any = _UNSET,
+        _preloaded_latest_completed_parse: Any = _UNSET,
+        _preloaded_latest_completed_score: Any = _UNSET,
     ) -> Dict[str, Any]:
-        if _preloaded_active_root is not None:
+        if _preloaded_active_root is not _UNSET:
             active_root = _preloaded_active_root
         else:
             active_root = self.db.query(RecruitmentAITaskLog).filter(
@@ -10211,7 +10329,7 @@ class RecruitmentService:
                     RecruitmentAITaskLog.id.desc(),
                 ).first()
 
-        if _preloaded_latest_completed_parse is not None:
+        if _preloaded_latest_completed_parse is not _UNSET:
             latest_completed_parse_task = _preloaded_latest_completed_parse
         else:
             latest_completed_parse_task = self.db.query(RecruitmentAITaskLog).filter(
@@ -10223,7 +10341,7 @@ class RecruitmentService:
                 RecruitmentAITaskLog.id.desc(),
             ).first()
 
-        if _preloaded_latest_completed_score is not None:
+        if _preloaded_latest_completed_score is not _UNSET:
             latest_completed_score_task = _preloaded_latest_completed_score
         else:
             latest_completed_score_task = self.db.query(RecruitmentAITaskLog).filter(
@@ -10304,13 +10422,22 @@ class RecruitmentService:
             "display_status_reason": display_status_reason,
         }
 
-    def _build_direct_candidate_ai_match_snapshot(self, row: RecruitmentCandidate) -> Dict[str, Any]:
+    def _build_direct_candidate_ai_match_snapshot(
+        self,
+        row: RecruitmentCandidate,
+        *,
+        include_alternatives: bool = True,
+    ) -> Dict[str, Any]:
         return {
             "ai_match_position_id": getattr(row, "ai_match_position_id", None),
             "ai_match_position_title": getattr(row, "ai_match_position_title", None),
             "ai_match_confidence": getattr(row, "ai_match_confidence", None),
             "ai_match_reason": getattr(row, "ai_match_reason", None),
-            "ai_match_alternatives": json_loads_safe(getattr(row, "ai_match_alternatives", None), None),
+            "ai_match_alternatives": (
+                json_loads_safe(getattr(row, "ai_match_alternatives", None), None)
+                if include_alternatives
+                else None
+            ),
             "ai_potential_position": getattr(row, "ai_potential_position", None),
             "ai_potential_reason": getattr(row, "ai_potential_reason", None),
         }
@@ -10329,7 +10456,7 @@ class RecruitmentService:
         snapshot: Dict[str, Any],
         latest_match_log: Optional[RecruitmentAITaskLog],
         *,
-        _preloaded_position: Optional[RecruitmentPosition] = None,
+        _preloaded_position: Any = _UNSET,
     ) -> Dict[str, Any]:
         if not latest_match_log:
             return snapshot
@@ -10349,7 +10476,7 @@ class RecruitmentService:
         fallback_position_title = str(parsed_response.get("position_title") or "").strip() or None
         if not fallback_position_title and fallback_position_id:
             fallback_position = _preloaded_position
-            if fallback_position is None or fallback_position.id != fallback_position_id:
+            if fallback_position is _UNSET:
                 fallback_position = self.db.query(RecruitmentPosition).filter(
                     RecruitmentPosition.id == fallback_position_id,
                     RecruitmentPosition.deleted.is_(False),
@@ -10370,9 +10497,14 @@ class RecruitmentService:
             "ai_potential_reason": snapshot["ai_potential_reason"] or (str(parsed_response.get("potential_reason") or "").strip() or None),
         }
 
-    def _build_candidate_ai_match_snapshot_map(self, rows: Sequence[RecruitmentCandidate]) -> Dict[int, Dict[str, Any]]:
+    def _build_candidate_ai_match_snapshot_map(
+        self,
+        rows: Sequence[RecruitmentCandidate],
+        *,
+        _preloaded_latest_match_logs: Any = _UNSET,
+    ) -> Dict[int, Dict[str, Any]]:
         snapshot_map = {
-            row.id: self._build_direct_candidate_ai_match_snapshot(row)
+            row.id: self._build_direct_candidate_ai_match_snapshot(row, include_alternatives=False)
             for row in rows
         }
         fallback_candidate_ids = [
@@ -10383,20 +10515,27 @@ class RecruitmentService:
         if not fallback_candidate_ids:
             return snapshot_map
 
-        latest_match_logs: Dict[int, RecruitmentAITaskLog] = {}
-        log_rows = self.db.query(RecruitmentAITaskLog).filter(
-            RecruitmentAITaskLog.related_candidate_id.in_(fallback_candidate_ids),
-            RecruitmentAITaskLog.task_type == "ai_position_match",
-            RecruitmentAITaskLog.status.in_(["success", "no_match", "failed"]),
-        ).order_by(
-            RecruitmentAITaskLog.related_candidate_id.asc(),
-            RecruitmentAITaskLog.created_at.desc(),
-            RecruitmentAITaskLog.id.desc(),
-        ).all()
-        for log_row in log_rows:
-            candidate_id = int(log_row.related_candidate_id or 0)
-            if candidate_id and candidate_id not in latest_match_logs:
-                latest_match_logs[candidate_id] = log_row
+        if _preloaded_latest_match_logs is not _UNSET:
+            latest_match_logs = {
+                candidate_id: log_row
+                for candidate_id, log_row in _preloaded_latest_match_logs.items()
+                if candidate_id in fallback_candidate_ids
+            }
+        else:
+            latest_match_logs: Dict[int, RecruitmentAITaskLog] = {}
+            log_rows = self.db.query(RecruitmentAITaskLog).filter(
+                RecruitmentAITaskLog.related_candidate_id.in_(fallback_candidate_ids),
+                RecruitmentAITaskLog.task_type == "ai_position_match",
+                RecruitmentAITaskLog.status.in_(["success", "no_match", "failed"]),
+            ).order_by(
+                RecruitmentAITaskLog.related_candidate_id.asc(),
+                RecruitmentAITaskLog.created_at.desc(),
+                RecruitmentAITaskLog.id.desc(),
+            ).all()
+            for log_row in log_rows:
+                candidate_id = int(log_row.related_candidate_id or 0)
+                if candidate_id and candidate_id not in latest_match_logs:
+                    latest_match_logs[candidate_id] = log_row
 
         fallback_position_ids: set[int] = set()
         fallback_parsed_payloads: Dict[int, Dict[str, Any]] = {}
@@ -10416,13 +10555,19 @@ class RecruitmentService:
             if fallback_position_id and not fallback_position_title:
                 fallback_position_ids.add(int(fallback_position_id))
 
-        fallback_position_map: Dict[int, RecruitmentPosition] = {}
+        fallback_position_map: Dict[int, Any] = {}
         if fallback_position_ids:
-            for position_row in self.db.query(RecruitmentPosition).filter(
+            for position_row in self.db.query(
+                RecruitmentPosition.id,
+                RecruitmentPosition.title,
+            ).filter(
                 RecruitmentPosition.id.in_(fallback_position_ids),
                 RecruitmentPosition.deleted.is_(False),
             ).all():
-                fallback_position_map[position_row.id] = position_row
+                fallback_position_map[position_row.id] = SimpleNamespace(
+                    id=position_row.id,
+                    title=position_row.title,
+                )
 
         for row in rows:
             latest_match_log = latest_match_logs.get(row.id)
@@ -10463,16 +10608,23 @@ class RecruitmentService:
         self,
         row: RecruitmentCandidate,
         *,
-        _preloaded_score_row: Optional[RecruitmentCandidateScore] = None,
-        _preloaded_screening_state: Optional[Dict[str, Any]] = None,
-        _preloaded_interview_state: Optional[Dict[str, Optional[RecruitmentInterviewSchedule]]] = None,
+        _preloaded_score_row: Any = _UNSET,
+        _preloaded_screening_state: Any = _UNSET,
+        _preloaded_interview_state: Any = _UNSET,
     ) -> Dict[str, Any]:
-        score_row = _preloaded_score_row if _preloaded_score_row is not None else (
+        score_row = _preloaded_score_row if _preloaded_score_row is not _UNSET else (
             self.db.query(RecruitmentCandidateScore).filter(RecruitmentCandidateScore.id == row.latest_score_id).first()
             if row.latest_score_id else None
         )
-        serialized_score = self._serialize_score(score_row) if score_row else None
-        screening_state = _preloaded_screening_state if _preloaded_screening_state is not None else self._build_candidate_screening_state_summary(row)
+        if score_row and getattr(score_row, "_candidate_list_projection", False):
+            serialized_score = {
+                "suggested_status": _normalize_suggested_status(score_row.suggested_status) or score_row.suggested_status,
+                "match_percent": _parse_score_number(score_row.match_percent),
+                "total_score": _parse_score_number(score_row.total_score),
+            }
+        else:
+            serialized_score = self._serialize_score(score_row) if score_row else None
+        screening_state = (_preloaded_screening_state if _preloaded_screening_state is not _UNSET else self._build_candidate_screening_state_summary(row)) or {}
         score_suggested_status = str(serialized_score.get("suggested_status") or "").strip() if serialized_score else ""
         ai_recommended_status = score_suggested_status or str(row.ai_recommended_status or "").strip() or None
         active_screening_auto_retry_scheduled = bool(screening_state.get("active_screening_auto_retry_scheduled"))
@@ -10488,8 +10640,10 @@ class RecruitmentService:
             display_status = "talent_pool"
         else:
             interview_state = _preloaded_interview_state
-            if interview_state is None and str(row.status or "").strip() in INTERVIEW_DISPLAY_SOURCE_STATUSES:
+            if interview_state is _UNSET and str(row.status or "").strip() in INTERVIEW_DISPLAY_SOURCE_STATUSES:
                 interview_state = self._build_interview_display_state_map([row.id]).get(row.id, {})
+            elif interview_state is _UNSET:
+                interview_state = {}
             interview_state = interview_state or {}
             display_status = self._resolve_interview_display_status(
                 row.status,
@@ -10509,14 +10663,14 @@ class RecruitmentService:
         self,
         row: RecruitmentCandidate,
         *,
-        _preloaded_position: Optional[RecruitmentPosition] = None,
-        _preloaded_score_row: Optional[RecruitmentCandidateScore] = None,
-        _preloaded_screening_state: Optional[Dict[str, Any]] = None,
-        _preloaded_interview_state: Optional[Dict[str, Optional[RecruitmentInterviewSchedule]]] = None,
+        _preloaded_position: Any = _UNSET,
+        _preloaded_score_row: Any = _UNSET,
+        _preloaded_screening_state: Any = _UNSET,
+        _preloaded_interview_state: Any = _UNSET,
         _preloaded_skill_rows: Optional[Dict[str, List[RecruitmentSkill]]] = None,
     ) -> Dict[str, Any]:
-        position = _preloaded_position if _preloaded_position is not None else (self.db.query(RecruitmentPosition).filter(RecruitmentPosition.id == row.position_id, RecruitmentPosition.deleted.is_(False)).first() if row.position_id else None)
-        score_row = _preloaded_score_row if _preloaded_score_row is not None else (self.db.query(RecruitmentCandidateScore).filter(RecruitmentCandidateScore.id == row.latest_score_id).first() if row.latest_score_id else None)
+        position = _preloaded_position if _preloaded_position is not _UNSET else (self.db.query(RecruitmentPosition).filter(RecruitmentPosition.id == row.position_id, RecruitmentPosition.deleted.is_(False)).first() if row.position_id else None)
+        score_row = _preloaded_score_row if _preloaded_score_row is not _UNSET else (self.db.query(RecruitmentCandidateScore).filter(RecruitmentCandidateScore.id == row.latest_score_id).first() if row.latest_score_id else None)
         display_payload = self._build_candidate_list_display_payload(
             row,
             _preloaded_score_row=score_row,
@@ -10545,13 +10699,13 @@ class RecruitmentService:
         self,
         row: RecruitmentCandidate,
         *,
-        _preloaded_position: Optional[RecruitmentPosition] = None,
-        _preloaded_score_row: Optional[RecruitmentCandidateScore] = None,
-        _preloaded_screening_state: Optional[Dict[str, Any]] = None,
-        _preloaded_interview_state: Optional[Dict[str, Optional[RecruitmentInterviewSchedule]]] = None,
-        _preloaded_ai_match_snapshot: Optional[Dict[str, Any]] = None,
+        _preloaded_position: Any = _UNSET,
+        _preloaded_score_row: Any = _UNSET,
+        _preloaded_screening_state: Any = _UNSET,
+        _preloaded_interview_state: Any = _UNSET,
+        _preloaded_ai_match_snapshot: Any = _UNSET,
     ) -> Dict[str, Any]:
-        position = _preloaded_position if _preloaded_position is not None else (
+        position = _preloaded_position if _preloaded_position is not _UNSET else (
             self.db.query(RecruitmentPosition).filter(
                 RecruitmentPosition.id == row.position_id,
                 RecruitmentPosition.deleted.is_(False)
@@ -10564,7 +10718,7 @@ class RecruitmentService:
             _preloaded_interview_state=_preloaded_interview_state,
         )
         screening_state = display_payload["screening_state"]
-        ai_match_snapshot = _preloaded_ai_match_snapshot if _preloaded_ai_match_snapshot is not None else self._resolve_candidate_ai_match_snapshot(row)
+        ai_match_snapshot = (_preloaded_ai_match_snapshot if _preloaded_ai_match_snapshot is not _UNSET else self._resolve_candidate_ai_match_snapshot(row)) or {}
         return {
             "id": row.id,
             "candidate_code": row.candidate_code,
@@ -10618,11 +10772,11 @@ class RecruitmentService:
         self,
         row: RecruitmentCandidate,
         *,
-        _preloaded_position: Optional[RecruitmentPosition] = None,
-        _preloaded_score_row: Optional[RecruitmentCandidateScore] = None,
-        _preloaded_screening_state: Optional[Dict[str, Any]] = None,
-        _preloaded_interview_state: Optional[Dict[str, Optional[RecruitmentInterviewSchedule]]] = None,
-        _preloaded_ai_match_snapshot: Optional[Dict[str, Any]] = None,
+        _preloaded_position: Any = _UNSET,
+        _preloaded_score_row: Any = _UNSET,
+        _preloaded_screening_state: Any = _UNSET,
+        _preloaded_interview_state: Any = _UNSET,
+        _preloaded_ai_match_snapshot: Any = _UNSET,
     ) -> Dict[str, Any]:
         display_payload = self._build_candidate_list_display_payload(
             row,
@@ -10631,8 +10785,8 @@ class RecruitmentService:
             _preloaded_interview_state=_preloaded_interview_state,
         )
         screening_state = display_payload["screening_state"]
-        ai_match_snapshot = _preloaded_ai_match_snapshot if _preloaded_ai_match_snapshot is not None else self._resolve_candidate_ai_match_snapshot(row)
-        position = _preloaded_position if _preloaded_position is not None else (
+        ai_match_snapshot = (_preloaded_ai_match_snapshot if _preloaded_ai_match_snapshot is not _UNSET else self._resolve_candidate_ai_match_snapshot(row)) or {}
+        position = _preloaded_position if _preloaded_position is not _UNSET else (
             self.db.query(RecruitmentPosition).filter(
                 RecruitmentPosition.id == row.position_id,
                 RecruitmentPosition.deleted.is_(False),
@@ -11001,89 +11155,132 @@ class RecruitmentService:
             builder = builder.order_by(RecruitmentCandidate.updated_at.desc(), RecruitmentCandidate.id.desc())
         if limit > 0:
             builder = builder.limit(limit).offset(offset)
+        candidate_list_columns = [
+            RecruitmentCandidate.id,
+            RecruitmentCandidate.candidate_code,
+            RecruitmentCandidate.org_code,
+            RecruitmentCandidate.position_id,
+            RecruitmentCandidate.name,
+            RecruitmentCandidate.phone,
+            RecruitmentCandidate.email,
+            RecruitmentCandidate.current_company,
+            RecruitmentCandidate.years_of_experience,
+            RecruitmentCandidate.education,
+            RecruitmentCandidate.age,
+            RecruitmentCandidate.city,
+            RecruitmentCandidate.expected_city,
+            RecruitmentCandidate.source,
+            RecruitmentCandidate.source_detail,
+            RecruitmentCandidate.status,
+            RecruitmentCandidate.ai_recommended_status,
+            RecruitmentCandidate.match_percent,
+            RecruitmentCandidate.ai_match_position_id,
+            RecruitmentCandidate.ai_match_position_title,
+            RecruitmentCandidate.ai_match_confidence,
+            RecruitmentCandidate.ai_match_reason,
+            RecruitmentCandidate.ai_potential_position,
+            RecruitmentCandidate.ai_potential_reason,
+            RecruitmentCandidate.talent_pool_reason,
+            RecruitmentCandidate.talent_pool_source_status,
+            RecruitmentCandidate.talent_pool_moved_by,
+            RecruitmentCandidate.talent_pool_moved_at,
+            RecruitmentCandidate.tags_json,
+            RecruitmentCandidate.latest_resume_file_id,
+            RecruitmentCandidate.latest_parse_result_id,
+            RecruitmentCandidate.latest_score_id,
+            RecruitmentCandidate.owner_id,
+            RecruitmentCandidate.created_by,
+            RecruitmentCandidate.updated_by,
+            RecruitmentCandidate.created_at,
+            RecruitmentCandidate.updated_at,
+        ]
+        if compact:
+            candidate_list_columns.append(RecruitmentCandidate.notes)
+        builder = builder.options(load_only(*candidate_list_columns))
         rows = builder.all()
         if not rows:
             return {"items": [], "total": total}
 
         # Batch preload positions
         position_ids = {row.position_id for row in rows if row.position_id}
-        position_map: Dict[int, RecruitmentPosition] = {}
+        position_map: Dict[int, Any] = {}
         if position_ids:
-            for pos in self.db.query(RecruitmentPosition).filter(
+            for position_row in self.db.query(
+                RecruitmentPosition.id,
+                RecruitmentPosition.title,
+            ).filter(
                 RecruitmentPosition.id.in_(position_ids),
                 RecruitmentPosition.deleted.is_(False),
             ).all():
-                position_map[pos.id] = pos
+                position_map[position_row.id] = SimpleNamespace(
+                    id=position_row.id,
+                    title=position_row.title,
+                )
 
         # Batch preload scores
         score_ids = {row.latest_score_id for row in rows if row.latest_score_id}
-        score_map: Dict[int, RecruitmentCandidateScore] = {}
+        score_map: Dict[int, Any] = {}
+        legacy_score_ids: List[int] = []
         if score_ids:
-            for score in self.db.query(RecruitmentCandidateScore).filter(
+            for score_row in self.db.query(
+                RecruitmentCandidateScore.id,
+                RecruitmentCandidateScore.candidate_id,
+                RecruitmentCandidateScore.parse_result_id,
+                RecruitmentCandidateScore.total_score,
+                RecruitmentCandidateScore.match_percent,
+                RecruitmentCandidateScore.suggested_status,
+            ).filter(
                 RecruitmentCandidateScore.id.in_(score_ids),
             ).all():
-                score_map[score.id] = score
+                if score_row.total_score is None or score_row.match_percent is None or not str(score_row.suggested_status or "").strip():
+                    legacy_score_ids.append(score_row.id)
+                else:
+                    score_map[score_row.id] = SimpleNamespace(
+                        id=score_row.id,
+                        candidate_id=score_row.candidate_id,
+                        parse_result_id=score_row.parse_result_id,
+                        total_score=score_row.total_score,
+                        match_percent=score_row.match_percent,
+                        suggested_status=score_row.suggested_status,
+                        _candidate_list_projection=True,
+                    )
+        if legacy_score_ids:
+            for legacy_score_row in self.db.query(
+                RecruitmentCandidateScore.id,
+                RecruitmentCandidateScore.candidate_id,
+                RecruitmentCandidateScore.parse_result_id,
+                RecruitmentCandidateScore.score_json,
+                RecruitmentCandidateScore.total_score,
+                RecruitmentCandidateScore.match_percent,
+                RecruitmentCandidateScore.recommendation,
+                RecruitmentCandidateScore.suggested_status,
+                RecruitmentCandidateScore.manual_override_score,
+                RecruitmentCandidateScore.manual_override_reason,
+                RecruitmentCandidateScore.hr_feedback,
+                RecruitmentCandidateScore.hr_feedback_reason,
+                RecruitmentCandidateScore.created_at,
+                RecruitmentCandidateScore.updated_at,
+            ).filter(
+                RecruitmentCandidateScore.id.in_(legacy_score_ids),
+            ).all():
+                serialized_legacy_score = self._serialize_score(SimpleNamespace(**dict(legacy_score_row._mapping)))
+                score_map[legacy_score_row.id] = SimpleNamespace(
+                    id=legacy_score_row.id,
+                    candidate_id=legacy_score_row.candidate_id,
+                    parse_result_id=legacy_score_row.parse_result_id,
+                    total_score=serialized_legacy_score.get("total_score"),
+                    match_percent=serialized_legacy_score.get("match_percent"),
+                    suggested_status=serialized_legacy_score.get("suggested_status"),
+                    _candidate_list_projection=True,
+                )
 
-        # Batch preload screening state (active root tasks)
         candidate_ids = [row.id for row in rows]
         interview_display_state_map = self._build_interview_display_state_map(candidate_ids)
-        active_root_map: Dict[int, RecruitmentAITaskLog] = {}
-        if candidate_ids:
-            active_rows = self.db.query(RecruitmentAITaskLog).filter(
-                RecruitmentAITaskLog.related_candidate_id.in_(candidate_ids),
-                self._screening_root_task_filter(),
-                RecruitmentAITaskLog.status.in_(SCREENING_LIVE_TASK_STATUSES),
-            ).order_by(
-                RecruitmentAITaskLog.related_candidate_id,
-                RecruitmentAITaskLog.updated_at.desc(),
-                RecruitmentAITaskLog.id.desc(),
-            ).all()
-            seen_cids: set[int] = set()
-            for ar in active_rows:
-                cid = ar.related_candidate_id
-                if cid not in seen_cids:
-                    seen_cids.add(cid)
-                    active_root_map[cid] = ar
-
-        # Batch preload latest completed parse tasks
-        completed_parse_map: Dict[int, RecruitmentAITaskLog] = {}
-        if candidate_ids:
-            parse_rows = self.db.query(RecruitmentAITaskLog).filter(
-                RecruitmentAITaskLog.related_candidate_id.in_(candidate_ids),
-                RecruitmentAITaskLog.task_type == "resume_parse",
-                RecruitmentAITaskLog.status == "success",
-            ).order_by(
-                RecruitmentAITaskLog.related_candidate_id,
-                RecruitmentAITaskLog.created_at.desc(),
-                RecruitmentAITaskLog.id.desc(),
-            ).all()
-            seen_cids_parse: set[int] = set()
-            for pr in parse_rows:
-                cid = pr.related_candidate_id
-                if cid not in seen_cids_parse:
-                    seen_cids_parse.add(cid)
-                    completed_parse_map[cid] = pr
-
-        # Batch preload latest completed score tasks
-        completed_score_map: Dict[int, RecruitmentAITaskLog] = {}
-        if candidate_ids:
-            score_task_rows = self.db.query(RecruitmentAITaskLog).filter(
-                RecruitmentAITaskLog.related_candidate_id.in_(candidate_ids),
-                self._screening_root_task_filter(),
-                RecruitmentAITaskLog.status.in_(list(TERMINAL_AI_TASK_STATUSES)),
-            ).order_by(
-                RecruitmentAITaskLog.related_candidate_id,
-                RecruitmentAITaskLog.created_at.desc(),
-                RecruitmentAITaskLog.id.desc(),
-            ).all()
-            seen_cids_score: set[int] = set()
-            for sr in score_task_rows:
-                cid = sr.related_candidate_id
-                if cid not in seen_cids_score:
-                    seen_cids_score.add(cid)
-                    completed_score_map[cid] = sr
-
-        ai_match_snapshot_map: Dict[int, Dict[str, Any]] = self._build_candidate_ai_match_snapshot_map(rows)
+        active_root_map, completed_parse_map, completed_score_map, latest_match_log_map = self._build_candidate_list_task_preload_maps(candidate_ids)
+        ai_match_snapshot_map: Dict[int, Dict[str, Any]] = self._build_candidate_ai_match_snapshot_map(
+            rows,
+            _preloaded_latest_match_logs=latest_match_log_map,
+        )
 
         serialized_rows = []
         serializer = self._serialize_position_candidate_item if compact else self._serialize_candidate_list_item

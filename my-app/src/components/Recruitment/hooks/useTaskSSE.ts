@@ -93,6 +93,9 @@ async function ensureSharedConnection(baseUrl: string, connection: SharedSSEConn
     let buffer = "";
     connection.reconnectDelay = 2000;
     connection.hasConnectedOnce = true;
+    dispatchSharedEvent(connection, (handlers) => handlers.onConnected?.({
+      reconnected: wasReconnected,
+    }));
 
     if (wasReconnected) {
       dispatchSharedEvent(connection, (handlers) => handlers.onReconnect?.());
@@ -185,6 +188,7 @@ export type TaskSSEEvent = {
 };
 
 export type TaskSSEHandlers = {
+  onConnected?: (connection: { reconnected: boolean }) => void;
   onTaskProgress?: (event: TaskSSEEvent) => void;
   onTaskCompleted?: (event: TaskSSEEvent) => void;
   onCandidateUpdated?: (event: TaskSSEEvent) => void;

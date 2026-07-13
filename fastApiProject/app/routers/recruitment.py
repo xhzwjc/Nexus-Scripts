@@ -471,7 +471,7 @@ async def get_dashboard(_session: Dict[str, Any] = Depends(require_script_hub_pe
 
 
 @recruitment_router.get("/positions")
-async def list_positions(query: Optional[str] = Query(None), status: Optional[str] = Query(None), _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-dashboard-view")), service: RecruitmentService = Depends(get_recruitment_service)):
+def list_positions(query: Optional[str] = Query(None), status: Optional[str] = Query(None), _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-dashboard-view")), service: RecruitmentService = Depends(get_recruitment_service)):
     data = service.list_positions(query=query, status=status)
     return {"success": True, "data": data, "total": len(data), "request_id": str(uuid.uuid4())}
 
@@ -620,25 +620,25 @@ async def activate_jd_version(position_id: int, version_id: int, _session: Dict[
 
 
 @recruitment_router.get("/candidates/stats")
-async def get_candidate_stats(position_id: Optional[int] = Query(None), org_code: Optional[str] = Query(None), _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-dashboard-view")), service: RecruitmentService = Depends(get_recruitment_service)):
+def get_candidate_stats(position_id: Optional[int] = Query(None), org_code: Optional[str] = Query(None), _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-dashboard-view")), service: RecruitmentService = Depends(get_recruitment_service)):
     stats = service.get_candidate_stats(position_id=position_id, org_code=org_code)
     return {"success": True, "data": stats, "request_id": str(uuid.uuid4())}
 
 
 @recruitment_router.get("/candidates/funnel")
-async def get_recruitment_funnel(position_id: Optional[int] = Query(None), org_code: Optional[str] = Query(None), _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-dashboard-view")), service: RecruitmentService = Depends(get_recruitment_service)):
+def get_recruitment_funnel(position_id: Optional[int] = Query(None), org_code: Optional[str] = Query(None), _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-dashboard-view")), service: RecruitmentService = Depends(get_recruitment_service)):
     funnel = service.get_recruitment_funnel(position_id=position_id, org_code=org_code)
     return {"success": True, "data": funnel, "request_id": str(uuid.uuid4())}
 
 
 @recruitment_router.get("/candidates/source-stats")
-async def get_source_stats(position_id: Optional[int] = Query(None), org_code: Optional[str] = Query(None), _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-dashboard-view")), service: RecruitmentService = Depends(get_recruitment_service)):
+def get_source_stats(position_id: Optional[int] = Query(None), org_code: Optional[str] = Query(None), _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-dashboard-view")), service: RecruitmentService = Depends(get_recruitment_service)):
     stats = service.get_source_stats(position_id=position_id, org_code=org_code)
     return {"success": True, "data": stats, "request_id": str(uuid.uuid4())}
 
 
 @recruitment_router.get("/candidates")
-async def list_candidates(query: Optional[str] = Query(None), status: Optional[str] = Query(None), position_id: Optional[int] = Query(None), tag: Optional[str] = Query(None), limit: int = Query(0), offset: int = Query(0), org_code: Optional[str] = Query(None), compact: bool = Query(False), sort_by: Optional[str] = Query(None), sort_order: Optional[str] = Query(None), source: Optional[str] = Query(None), time_filter: Optional[str] = Query(None), match_min: Optional[float] = Query(None), _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-dashboard-view")), service: RecruitmentService = Depends(get_recruitment_service)):
+def list_candidates(query: Optional[str] = Query(None), status: Optional[str] = Query(None), position_id: Optional[int] = Query(None), tag: Optional[str] = Query(None), limit: int = Query(0), offset: int = Query(0), org_code: Optional[str] = Query(None), compact: bool = Query(False), sort_by: Optional[str] = Query(None), sort_order: Optional[str] = Query(None), source: Optional[str] = Query(None), time_filter: Optional[str] = Query(None), match_min: Optional[float] = Query(None), _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-dashboard-view")), service: RecruitmentService = Depends(get_recruitment_service)):
     result = service.list_candidates(query=query, status=status, position_id=position_id, tag=tag, limit=limit, offset=offset, org_code=org_code, compact=compact, sort_by=sort_by, sort_order=sort_order, source=source, time_filter=time_filter, match_min=match_min)
     return {"success": True, "data": {"items": result["items"], "total": result["total"]}, "request_id": str(uuid.uuid4())}
 
