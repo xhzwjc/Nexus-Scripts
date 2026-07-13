@@ -667,6 +667,7 @@ export interface Translations {
     selectAll: string;
     deselectAll: string;
     landingPageLabel: string;
+    landingPageFirstMenu: string;
     landingPageHome: string;
     landingPageWelcome: string;
     landingPageHint: string;

@@ -142,7 +142,8 @@ def serialize_user_session(db: Session, user: ScriptHubUser) -> Dict[str, Any]:
     )
     # 根据角色配置决定默认首页（从数据库读取，而非硬编码 catalog）
     primary_role_record = next((r for r in roles if r.role_code == primary_role), None)
-    landing_page = getattr(primary_role_record, "landing_page", None) or "home"
+    stored_landing_page = getattr(primary_role_record, "landing_page", None)
+    landing_page = stored_landing_page if stored_landing_page is not None else "home"
     recruitment_menu_grouped = getattr(primary_role_record, "recruitment_menu_grouped", True)
     return {
         "id": user.user_code,

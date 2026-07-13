@@ -466,6 +466,7 @@ export const zhCN: Translations = {
         systemRoleCloneHint: '系统角色不能直接修改；保留其权限作为起点，填写新编码后创建自定义角色。',
         systemRoleReadonlyHint: '系统内建角色为只读；如需调整，请复制为自定义角色后再修改。',
         landingPageLabel: '默认首页',
+        landingPageFirstMenu: '留空（默认第一个菜单）',
         landingPageHome: '首页（控制台）',
         landingPageWelcome: '欢迎页',
         landingPageHint: '设置该角色的用户登录后默认进入的页面。',

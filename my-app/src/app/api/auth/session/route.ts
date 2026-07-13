@@ -59,7 +59,7 @@ function createLocalSessionResponse(token: string) {
             permissionVersion: session.permissionVersion,
             accessKeyVersion: session.accessKeyVersion,
             teamResourcesLoginKeyEnabled: session.teamResourcesLoginKeyEnabled,
-            landingPage: session.landingPage || 'home',
+            landingPage: session.landingPage ?? 'home',
             recruitmentMenuGrouped: session.recruitmentMenuGrouped !== false,
         },
         expiresAt: session.exp,

@@ -18,7 +18,7 @@ class RoleDefinition:
     description: str
     sort_order: int
     permissions: Tuple[str, ...]
-    landing_page: str = "home"  # "home" | "welcome"
+    landing_page: str = "home"  # "" (first menu) | "home" | "welcome"
     recruitment_menu_grouped: bool = True
 
 

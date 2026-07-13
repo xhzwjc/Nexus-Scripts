@@ -63,9 +63,79 @@ import { I18nProvider, useI18n } from './lib/i18n';
 import { toast } from './lib/toast';
 
 // 类型和配置导入
-import type { ViewType } from './lib/types';
+import type { Permission, ViewType } from './lib/types';
 
 import { ThemeProvider } from '@/lib/theme';
+
+type InitialMenuTarget = {
+    view: ViewType;
+    selectedSystem?: string;
+    recruitmentPage?: string;
+};
+
+const FIRST_MENU_CM_PERMISSION_KEYS = [
+    'settlement',
+    'commission',
+    'balance',
+    'task-automation',
+    'sms_operations_center',
+    'tax-reporting',
+    'tax-calculation',
+    'settlement-sim',
+    'payment-stats',
+    'delivery-tool',
+    'biz-scene',
+    'biz-task',
+];
+
+function resolveFirstRecruitmentMenu(permissions: Permission) {
+    const canManagePosition = Boolean(permissions['recruitment-position-manage']);
+    const canManageCandidate = Boolean(permissions['recruitment-candidate-manage']);
+    const canUseWorkspace = Boolean(
+        permissions['recruitment-dashboard-view']
+        || permissions['recruitment-process-execute']
+        || canManagePosition
+        || canManageCandidate
+        || permissions['recruitment-log-view']
+    );
+    if (canUseWorkspace) return 'workspace';
+    if (canManagePosition) return 'positions';
+    if (canManageCandidate) return 'candidates';
+    if (permissions['recruitment-talent-pool-view']) return 'talent-pool';
+    if (permissions['recruitment-interview-view'] || permissions['recruitment-interview-act'] || permissions['recruitment-interview-manage']) return 'interviews';
+    if (permissions['recruitment-review-view'] || permissions['recruitment-review-act']) return 'review-workbench';
+    if (permissions['recruitment-log-view']) return 'audit';
+    if (permissions['recruitment-assistant-view']) return 'assistant';
+    if (permissions['recruitment-mail-view'] || permissions['recruitment-mail-config-manage'] || permissions['recruitment-mail-sender-manage']) return 'settings-mail';
+    if (permissions['recruitment-llm-config-view'] || permissions['recruitment-llm-config-manage']) return 'settings-models';
+    if (permissions['recruitment-skill-view'] || permissions['recruitment-skill-manage']) return 'settings-skills';
+    return 'workspace';
+}
+
+function resolveFirstBusinessMenu(permissions: Permission): InitialMenuTarget {
+    if (FIRST_MENU_CM_PERMISSION_KEYS.some((permission) => permissions[permission])) {
+        return { view: 'system', selectedSystem: 'chunmiao' };
+    }
+    if (permissions['ocr-tool']) return { view: 'ocr-tool' };
+    if (permissions['server-monitoring']) return { view: 'ops-center' };
+    if (permissions['team-resources']) return { view: 'team-resources' };
+    if (permissions['ai-resources']) return { view: 'ai-resources' };
+    if (permissions['agent-chat']) return { view: 'agent-chat' };
+    if (permissions['ai-recruitment']) {
+        return {
+            view: 'ai-recruitment',
+            recruitmentPage: resolveFirstRecruitmentMenu(permissions),
+        };
+    }
+    if (permissions['rbac-manage']) return { view: 'access-control' };
+    return { view: 'home' };
+}
+
+function resolveInitialMenuTarget(landingPage: '' | 'home' | 'welcome' | undefined, permissions: Permission): InitialMenuTarget {
+    if (landingPage === 'welcome') return { view: 'welcome' };
+    if (landingPage === '') return resolveFirstBusinessMenu(permissions);
+    return { view: 'home' };
+}
 
 /* ============== 主应用 ============== */
 export default function App() {
@@ -221,12 +291,19 @@ function AppContent() {
             recruitmentSourceSnapshotRef.current = null;
         },
     });
-    const landingView: ViewType = currentUser?.landingPage === 'welcome' ? 'welcome' : 'home';
+    const initialMenuTarget = useMemo(
+        () => resolveInitialMenuTarget(currentUser?.landingPage, currentUser?.permissions || {}),
+        [currentUser?.landingPage, currentUser?.permissions],
+    );
+    const landingView = initialMenuTarget.view;
 
     function restoreAppView(snapshot?: AppViewSnapshot | null) {
         if (!snapshot) {
-            setSelectedSystem('');
+            setSelectedSystem(initialMenuTarget.selectedSystem || '');
             setSelectedScript('');
+            if (initialMenuTarget.recruitmentPage) {
+                setRecruitmentInitialPage(initialMenuTarget.recruitmentPage);
+            }
             setCurrentView(landingView);
             return;
         }
@@ -239,11 +316,13 @@ function AppContent() {
     useEffect(() => {
         if (!currentUser || landingPageApplied) return;
         setLandingPageApplied(true);
-        const landing = currentUser.landingPage || 'home';
-        if (landing === 'welcome') {
-            setCurrentView('welcome');
+        setSelectedSystem(initialMenuTarget.selectedSystem || '');
+        setSelectedScript('');
+        if (initialMenuTarget.recruitmentPage) {
+            setRecruitmentInitialPage(initialMenuTarget.recruitmentPage);
         }
-    }, [currentUser, landingPageApplied]);
+        setCurrentView(initialMenuTarget.view);
+    }, [currentUser, initialMenuTarget, landingPageApplied]);
 
     useEffect(() => {
         const currentSnapshot: AppViewSnapshot = {
@@ -543,7 +622,7 @@ function AppContent() {
                 />
 
                 <div className="relative z-0 flex h-full min-w-0 flex-1 flex-col">
-                    <main className={`flex-1 overflow-y-auto overflow-x-hidden relative scrollbar-hide ${currentView === 'help' || currentView === 'ai-recruitment' ? 'p-0' : 'px-2 py-6'}`}>
+                    <main className={`flex-1 overflow-y-auto overflow-x-hidden relative scrollbar-hide ${currentView === 'help' || currentView === 'ai-recruitment' || currentView === 'access-control' ? 'p-0' : 'px-2 py-6'}`}>
                         {currentView === 'home' && renderHomeContent()}
                         {currentView === 'welcome' && renderWelcomeContent()}
                         {currentView === 'system' && renderSystemContent()}

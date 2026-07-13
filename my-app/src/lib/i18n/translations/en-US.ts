@@ -467,6 +467,7 @@ export const enUS: Translations = {
         systemRoleCloneHint: 'System roles cannot be edited directly. Keep these permissions as a starting point and enter a new code to create a custom role.',
         systemRoleReadonlyHint: 'Built-in system roles are read-only. Copy one as a custom role before changing it.',
         landingPageLabel: 'Default Homepage',
+        landingPageFirstMenu: 'None (open first menu)',
         landingPageHome: 'Home Dashboard',
         landingPageWelcome: 'Welcome Page',
         landingPageHint: 'Select the default landing page for users with this role.',

@@ -37,7 +37,7 @@ export interface RoleFormState {
     description: string;
     permissionKeys: string[];
     isActive: boolean;
-    landingPage: 'home' | 'welcome';
+    landingPage: '' | 'home' | 'welcome';
     recruitmentMenuGrouped: boolean;
 }
 

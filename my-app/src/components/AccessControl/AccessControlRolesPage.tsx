@@ -106,7 +106,14 @@ function RoleDetailPanel({
                         <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-[#B0B2B8]">
                             <span>{labels.assignedUsers} {role.assigned_user_count}</span>
                             <span>·</span>
-                            <span>{labels.landingPageLabel} {role.landing_page === 'welcome' ? labels.landingPageWelcome : labels.landingPageHome}</span>
+                            <span>
+                                {labels.landingPageLabel}{' '}
+                                {role.landing_page === 'welcome'
+                                    ? labels.landingPageWelcome
+                                    : role.landing_page === 'home'
+                                        ? labels.landingPageHome
+                                        : labels.landingPageFirstMenu}
+                            </span>
                             <span>·</span>
                             <span>{role.recruitment_menu_grouped ? labels.recruitmentMenuGroupedShort : labels.recruitmentMenuFlatShort}</span>
                         </div>

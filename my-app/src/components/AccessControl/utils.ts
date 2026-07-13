@@ -155,7 +155,7 @@ export function mapRoleToForm(role: ScriptHubRoleDefinition): RoleFormState {
         description: role.description || '',
         permissionKeys: [...role.permission_keys],
         isActive: role.is_active,
-        landingPage: role.landing_page || 'home',
+        landingPage: role.landing_page ?? 'home',
         recruitmentMenuGrouped: role.recruitment_menu_grouped !== false,
     };
 }

@@ -502,6 +502,7 @@ def _get_assigned_user_count(db: Session, role_id: int) -> int:
 
 
 def serialize_admin_role(db: Session, role: ScriptHubRole) -> Dict[str, object]:
+    landing_page = getattr(role, "landing_page", None)
     return {
         "code": role.role_code,
         "name": role.name,
@@ -511,7 +512,7 @@ def serialize_admin_role(db: Session, role: ScriptHubRole) -> Dict[str, object]:
         "is_system": bool(role.is_system),
         "is_active": bool(role.is_active),
         "assigned_user_count": _get_assigned_user_count(db, role.id),
-        "landing_page": getattr(role, "landing_page", None) or "home",
+        "landing_page": landing_page if landing_page is not None else "home",
         "recruitment_menu_grouped": bool(getattr(role, "recruitment_menu_grouped", True)),
     }
 
@@ -952,7 +953,7 @@ def create_rbac_role(
         sort_order=next_sort_order,
         is_system=False,
         is_active=True,
-        landing_page=landing_page if landing_page in ("home", "welcome") else "home",
+        landing_page=landing_page if landing_page in ("", "home", "welcome") else "home",
         recruitment_menu_grouped=bool(recruitment_menu_grouped),
     )
     db.add(role)
@@ -1009,7 +1010,7 @@ def update_rbac_role(
         role.description = _normalize_text(description)
 
     if landing_page is not None:
-        role.landing_page = landing_page if landing_page in ("home", "welcome") else "home"
+        role.landing_page = landing_page if landing_page in ("", "home", "welcome") else "home"
 
     if recruitment_menu_grouped is not None:
         role.recruitment_menu_grouped = bool(recruitment_menu_grouped)

@@ -185,7 +185,7 @@ def create_script_hub_session(user: Dict[str, Any]) -> Dict[str, Any]:
             "permissionVersion": int(payload.get("permissionVersion") or 1),
             "accessKeyVersion": int(payload.get("accessKeyVersion") or 1),
             "teamResourcesLoginKeyEnabled": bool(payload.get("teamResourcesLoginKeyEnabled")),
-            "landingPage": payload.get("landingPage") or "home",
+            "landingPage": payload.get("landingPage") if payload.get("landingPage") is not None else "home",
             "recruitmentMenuGrouped": payload.get("recruitmentMenuGrouped") is not False,
         },
         "expiresAt": payload["exp"],

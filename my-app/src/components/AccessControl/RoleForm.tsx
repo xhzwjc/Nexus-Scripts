@@ -45,6 +45,8 @@ const CATEGORY_ACCENTS: Record<string, string> = {
     'recruitment-config': '#E5484D',
 };
 
+const FIRST_MENU_LANDING_VALUE = '__first_menu__';
+
 export function RoleForm({
     mode,
     role,
@@ -182,12 +184,18 @@ export function RoleForm({
                     <div className="space-y-1.5">
                         <Label>{labels.landingPageLabel}</Label>
                         <Select
-                            value={form.landingPage}
-                            onValueChange={(value) => onChange({ ...form, landingPage: value as 'home' | 'welcome' })}
+                            value={form.landingPage || FIRST_MENU_LANDING_VALUE}
+                            onValueChange={(value) => onChange({
+                                ...form,
+                                landingPage: value === FIRST_MENU_LANDING_VALUE
+                                    ? ''
+                                    : value as 'home' | 'welcome',
+                            })}
                             disabled={saving}
                         >
                             <SelectTrigger><SelectValue /></SelectTrigger>
                             <SelectContent>
+                                <SelectItem value={FIRST_MENU_LANDING_VALUE}>{labels.landingPageFirstMenu}</SelectItem>
                                 <SelectItem value="home">{labels.landingPageHome}</SelectItem>
                                 <SelectItem value="welcome">{labels.landingPageWelcome}</SelectItem>
                             </SelectContent>

@@ -270,6 +270,7 @@ export const DashboardHeader: React.FC<HeaderProps> = ({
     const [compactSearchOpen, setCompactSearchOpen] = useState(false);
     const [productMenuOpen, setProductMenuOpen] = useState(false);
     const permissions = useMemo(() => currentUser?.permissions || {}, [currentUser?.permissions]);
+    const showLandingNavigation = currentUser?.landingPage !== '';
     const homeView: ViewType = currentUser?.landingPage === 'welcome' ? 'welcome' : 'home';
     const canUseRecruitmentWorkspace = Boolean(
         permissions['recruitment-dashboard-view']
@@ -323,13 +324,13 @@ export const DashboardHeader: React.FC<HeaderProps> = ({
 
     const productItems = useMemo<ProductMenuItem[]>(() => {
         const items: Array<ProductMenuItem | null> = [
-            {
+            showLandingNavigation ? {
                 key: 'home',
                 label: currentUser?.landingPage === 'welcome' ? (language === 'zh-CN' ? '欢迎' : 'Welcome') : t.nav.home,
                 icon: <Home className="h-4 w-4"/>,
                 active: currentView === 'home' || currentView === 'welcome',
                 onSelect: () => setCurrentView(homeView),
-            },
+            } : null,
             CM_PERMISSION_KEYS.some((permission) => permissions[permission]) ? {
                 key: 'system',
                 label: t.nav.cmTools,
@@ -414,7 +415,7 @@ export const DashboardHeader: React.FC<HeaderProps> = ({
             } : null,
         ];
         return items.filter((item): item is ProductMenuItem => Boolean(item));
-    }, [currentUser?.landingPage, currentView, homeView, language, permissions, recruitmentLandingPage, selectedSystem, setCurrentView, setRecruitmentInitialPage, setScriptQuery, setSelectedSystem, t]);
+    }, [currentUser?.landingPage, currentView, homeView, language, permissions, recruitmentLandingPage, selectedSystem, setCurrentView, setRecruitmentInitialPage, setScriptQuery, setSelectedSystem, showLandingNavigation, t]);
 
     const currentProductLabel = useMemo(() => {
         const currentItem = productItems.find((item) => item.active);
@@ -469,15 +470,17 @@ export const DashboardHeader: React.FC<HeaderProps> = ({
     return (
         <header className="dashboard-header relative z-40 flex h-[56px] shrink-0 items-center justify-between border-b border-[#F2F3F5] bg-white px-[24px] dark:border-slate-800 dark:bg-slate-950">
             <div className="flex min-w-0 items-center gap-[16px]">
-                <button
-                    type="button"
-                    className="dashboard-header-icon-button dashboard-home-trigger"
-                    onClick={() => setCurrentView(homeView)}
-                    aria-label={t.nav.home}
-                    title={t.nav.home}
-                >
-                    <Home className="h-[20px] w-[20px]" strokeWidth={1.8}/>
-                </button>
+                {showLandingNavigation ? (
+                    <button
+                        type="button"
+                        className="dashboard-header-icon-button dashboard-home-trigger"
+                        onClick={() => setCurrentView(homeView)}
+                        aria-label={t.nav.home}
+                        title={t.nav.home}
+                    >
+                        <Home className="h-[20px] w-[20px]" strokeWidth={1.8}/>
+                    </button>
+                ) : null}
 
                 <div className="flex shrink-0 items-center gap-2">
                     <span className="flex h-[24px] w-[24px] items-center justify-center rounded-[6px] bg-[#1E3BFA] text-[12px] font-bold text-white">N</span>

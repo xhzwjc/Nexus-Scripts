@@ -86,6 +86,7 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
     const [aiRecruitmentExpanded, setAiRecruitmentExpanded] = React.useState(false);
     const [activeRecruitmentPage, setActiveRecruitmentPage] = React.useState<string | null>(null);
     const userLandingPage = currentUser?.landingPage || 'home';
+    const showLandingNavigation = currentUser?.landingPage !== '';
     const homeNavView: ViewType = userLandingPage === 'welcome' ? 'welcome' : 'home';
     const homeNavLabel = userLandingPage === 'welcome'
         ? (language === 'en-US' ? 'Welcome' : '欢迎')
@@ -263,12 +264,12 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
             >
                 <ScrollArea className="min-h-0 flex-1">
                     <nav className="space-y-1 pb-4" aria-label={language === 'zh-CN' ? '主导航' : 'Primary navigation'}>
-                        {renderNavItem({
+                        {showLandingNavigation ? renderNavItem({
                             active: currentView === 'home' || currentView === 'welcome',
                             label: homeNavLabel,
                             icon: <Home className="h-[18px] w-[18px]" strokeWidth={1.8}/>,
                             onClick: () => setCurrentView(homeNavView),
-                        })}
+                        }) : null}
 
                         {CM_PERMISSION_KEYS.some((permission) => permissions[permission]) ? renderNavItem({
                             active: (currentView === 'system' || currentView === 'script') && selectedSystem !== 'haoshi',
