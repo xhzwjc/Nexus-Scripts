@@ -51,7 +51,7 @@ type RecruitmentSidebarItem = {
 
 const SIDEBAR_PINNED_STORAGE_KEY = 'scripts.dashboard.sidebarPinned';
 const SIDEBAR_COMPACT_WIDTH = 72;
-const SIDEBAR_EXPANDED_WIDTH = 220;
+const SIDEBAR_EXPANDED_WIDTH = 200;
 const CM_PERMISSION_KEYS = [
     'settlement',
     'commission',
@@ -256,7 +256,7 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
             <aside
                 className={cn(
                     'dashboard-sidebar absolute left-0 top-0 z-30 flex h-full flex-col overflow-hidden border-r border-[#F7F8FA] py-[16px]',
-                    collapsed ? 'px-[12px]' : 'px-[20px]',
+                    collapsed ? 'px-[12px]' : 'px-[16px]',
                     collapsed && 'collapsed',
                     sidebarPreviewExpanded && 'preview-expanded',
                 )}
