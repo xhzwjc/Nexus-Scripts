@@ -1,20 +1,14 @@
 'use client';
 
-import { Activity, DatabaseZap, ShieldAlert, ShieldCheck, UsersRound } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import type { DataScope, ScriptHubRbacOverview } from '@/lib/types';
-import { CONFIG_PERMISSION_KEYS, DATA_SCOPE_OPTIONS, RESOURCE_DOMAINS } from './constants';
+import { cn } from '@/lib/utils';
+import { CONFIG_PERMISSION_KEYS, DATA_SCOPE_OPTIONS } from './constants';
 import { CompactBadgeList } from './AccessControlBadges';
 import type { AccessControlLabels } from './utils';
 import {
     countBy,
     createPermissionMap,
-    formatAuditAction,
-    formatDateTime,
     getDataScopeLabel,
-    getResourceDomainLabel,
     normalizeDataScope,
 } from './utils';
 
@@ -23,11 +17,19 @@ interface AccessControlOverviewPageProps {
     labels: AccessControlLabels;
 }
 
+const SCOPE_COLORS: Record<DataScope, string> = {
+    ALL: '#1E3BFA',
+    ORG_AND_CHILDREN: '#2E9CFF',
+    ORG_ONLY: '#0CC991',
+    CUSTOM_ORGS: '#FFAB24',
+    SELF: '#86888F',
+};
+
 export function AccessControlOverviewPage({ overview, labels }: AccessControlOverviewPageProps) {
     const users = overview?.users || [];
     const roles = overview?.catalog.roles || [];
     const permissions = overview?.catalog.permissions || [];
-    const auditLogs = overview?.audit_logs || [];
+    const organizations = overview?.catalog.organizations || [];
     const permissionMap = createPermissionMap(permissions);
     const activeUsers = users.filter((user) => user.is_active).length;
     const systemRoles = roles.filter((role) => role.is_system).length;
@@ -36,177 +38,139 @@ export function AccessControlOverviewPage({ overview, labels }: AccessControlOve
         user.is_super_admin ||
         user.effective_permission_keys.some((permissionKey) => CONFIG_PERMISSION_KEYS.includes(permissionKey))
     ));
+    const maxScopeCount = Math.max(1, ...DATA_SCOPE_OPTIONS.map((scope) => scopeCounts[scope] || 0));
 
     const statCards = [
-        { label: labels.totalUsers, value: users.length, icon: UsersRound },
-        { label: labels.totalRoles, value: roles.length, icon: ShieldCheck },
-        { label: labels.activeUsers, value: activeUsers, icon: Activity },
-        { label: labels.systemRoles, value: systemRoles, icon: ShieldAlert },
+        {
+            label: labels.totalUsers,
+            value: users.length,
+            sub: `${organizations.length} ${labels.organizationsPageTitle}`,
+            color: '#1E3BFA',
+        },
+        {
+            label: labels.activeUsers,
+            value: activeUsers,
+            sub: `${users.length - activeUsers} ${labels.inactive}`,
+            color: '#0CC991',
+        },
+        {
+            label: labels.totalRoles,
+            value: roles.length,
+            sub: `${systemRoles} ${labels.systemRole}`,
+            color: '#2E9CFF',
+        },
+        {
+            label: labels.highRiskConfigSummary,
+            value: highRiskUsers.length,
+            sub: labels.highRiskConfigSummaryDesc,
+            color: '#FFAB24',
+        },
+    ];
+
+    const governanceLayers = [
+        { number: '1', title: labels.rolePermissions, description: labels.rolePermissionOnlyHint, color: '#1E3BFA', background: 'rgba(30,59,250,0.08)' },
+        { number: '2', title: labels.organization, description: labels.organizationsPageDesc, color: '#0A9C71', background: 'rgba(12,201,145,0.1)' },
+        { number: '3', title: labels.dataScope, description: labels.dataScopeDistributionDesc, color: '#2E9CFF', background: 'rgba(46,156,255,0.1)' },
+        { number: '4', title: labels.authorizationBoundary, description: labels.authorizationBoundaryHelp, color: '#D48806', background: 'rgba(255,171,36,0.14)' },
     ];
 
     return (
-        <div className="space-y-4">
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                {statCards.map((item) => {
-                    const Icon = item.icon;
-                    return (
-                        <Card key={item.label}>
-                            <CardContent className="flex items-center justify-between p-5">
-                                <div>
-                                    <p className="text-sm text-muted-foreground">{item.label}</p>
-                                    <p className="mt-2 text-2xl font-semibold">{item.value}</p>
-                                </div>
-                                <div className="rounded-lg bg-teal-50 p-3 text-teal-700 dark:bg-teal-950/30 dark:text-teal-300">
-                                    <Icon className="h-5 w-5" />
-                                </div>
-                            </CardContent>
-                        </Card>
-                    );
-                })}
+        <section aria-labelledby="access-control-overview-title" className="space-y-5">
+            <h2 id="access-control-overview-title" className="sr-only">{labels.navOverview}</h2>
+
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                {statCards.map((item) => (
+                    <div key={item.label} className="min-w-0 rounded-[8px] border border-[#EBEEF5] bg-white px-5 py-4 shadow-none dark:border-slate-800 dark:bg-slate-950">
+                        <div className="flex items-center gap-2 text-[12px] text-[#5E5F66] dark:text-slate-400">
+                            <span className="h-4 w-[3px] rounded-full" style={{ backgroundColor: item.color }} />
+                            <span className="truncate">{item.label}</span>
+                        </div>
+                        <p className="mt-2 text-[28px] font-semibold leading-8 tabular-nums text-[#0E1114] dark:text-white">{item.value}</p>
+                        <p className="mt-2 truncate text-[11px] text-[#B0B2B8]" title={item.sub}>{item.sub}</p>
+                    </div>
+                ))}
             </div>
 
-            <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(360px,0.8fr)]">
-                <Card>
-                    <CardHeader>
-                        <CardTitle>{labels.dataScopeDistribution}</CardTitle>
-                        <CardDescription>{labels.dataScopeDistributionDesc}</CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-3">
-                        {DATA_SCOPE_OPTIONS.map((scope) => (
-                            <div key={scope} className="flex items-center justify-between rounded-md border bg-muted/10 px-3 py-2">
-                                <span className="text-sm">{getDataScopeLabel(scope as DataScope, labels)}</span>
-                                <Badge variant="outline">{scopeCounts[scope as DataScope] || 0}</Badge>
+            <div className="grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(360px,1fr)]">
+                <div className="rounded-[8px] border border-[#EBEEF5] bg-white p-5 dark:border-slate-800 dark:bg-slate-950">
+                    <div className="mb-4 flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
+                        <h3 className="text-[16px] font-semibold text-[#0E1114] dark:text-white">{labels.fourLayerModel}</h3>
+                        <p className="text-[12px] leading-5 text-[#B0B2B8]">{labels.usersGovernanceHint}</p>
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-4">
+                        {governanceLayers.map((layer) => (
+                            <div key={layer.number} className="min-h-[130px] rounded-[6px] bg-[#F8F8F9] p-4 dark:bg-slate-900/70">
+                                <span className="inline-flex h-8 w-8 items-center justify-center rounded-[6px] text-[14px] font-semibold" style={{ color: layer.color, backgroundColor: layer.background }}>
+                                    {layer.number}
+                                </span>
+                                <h4 className="mt-3 text-[14px] font-semibold text-[#0E1114] dark:text-white">{layer.title}</h4>
+                                <p className="mt-1 line-clamp-3 text-[11px] leading-5 text-[#86888F]">{layer.description}</p>
                             </div>
                         ))}
-                    </CardContent>
-                </Card>
+                    </div>
+                </div>
 
-                <Card>
-                    <CardHeader>
-                        <CardTitle>{labels.highRiskConfigSummary}</CardTitle>
-                        <CardDescription>{labels.highRiskConfigSummaryDesc}</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                        {highRiskUsers.length === 0 ? (
-                            <div className="flex min-h-48 items-center justify-center text-sm text-muted-foreground">
-                                {labels.noHighRiskUsers}
-                            </div>
-                        ) : (
-                            <div className="space-y-3">
-                                {highRiskUsers.slice(0, 6).map((user) => {
-                                    const riskyPermissions = user.effective_permission_keys
-                                        .filter((permissionKey) => CONFIG_PERMISSION_KEYS.includes(permissionKey))
-                                        .map((permissionKey) => permissionMap.get(permissionKey)?.name || permissionKey);
-                                    return (
-                                        <div key={user.user_code} className="rounded-md border p-3">
-                                            <div className="flex items-start justify-between gap-3">
-                                                <div>
-                                                    <p className="text-sm font-medium">{user.display_name}</p>
-                                                    <p className="font-mono text-xs text-muted-foreground">{user.user_code}</p>
-                                                </div>
-                                                {user.is_super_admin && <Badge variant="outline">{labels.superAdmin}</Badge>}
-                                            </div>
-                                            <div className="mt-3">
-                                                <CompactBadgeList items={riskyPermissions} max={3} emptyLabel={labels.configPermissionNone} />
-                                            </div>
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        )}
-                    </CardContent>
-                </Card>
-            </div>
-
-            <div className="grid gap-4 xl:grid-cols-3">
-                <Card>
-                    <CardHeader>
-                        <CardTitle>{labels.recentActivityTitle}</CardTitle>
-                        <CardDescription>{labels.recentActivityDesc}</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                        <ScrollArea className="h-72 pr-3">
-                            <div className="space-y-3">
-                                {auditLogs.length === 0 ? (
-                                    <div className="flex min-h-48 items-center justify-center text-sm text-muted-foreground">
-                                        {labels.noAuditLogs}
+                <div className="rounded-[8px] border border-[#EBEEF5] bg-white p-5 dark:border-slate-800 dark:bg-slate-950">
+                    <h3 className="text-[16px] font-semibold text-[#0E1114] dark:text-white">{labels.dataScopeDistribution}</h3>
+                    <div className="mt-4 space-y-4">
+                        {DATA_SCOPE_OPTIONS.map((scope) => {
+                            const count = scopeCounts[scope] || 0;
+                            return (
+                                <div key={scope}>
+                                    <div className="mb-1.5 flex items-center justify-between gap-3 text-[12px]">
+                                        <span className="text-[#33353D] dark:text-slate-300">{getDataScopeLabel(scope, labels)}</span>
+                                        <span className="shrink-0 tabular-nums text-[#86888F]">{count}</span>
                                     </div>
-                                ) : auditLogs.slice(0, 8).map((log) => (
-                                    <div key={log.id} className="rounded-md border p-3">
-                                        <div className="flex items-start justify-between gap-3">
-                                            <div>
-                                                <p className="text-sm font-medium">{formatAuditAction(log.action, labels)}</p>
-                                                <p className="mt-1 text-xs text-muted-foreground">
-                                                    {log.actor_display_name || log.actor_user_code || labels.auditUnknownActor}
-                                                </p>
-                                            </div>
-                                            <Badge variant={log.result === 'success' ? 'default' : 'destructive'}>
-                                                {log.result === 'success' ? labels.auditResultSuccess : labels.auditResultFailed}
-                                            </Badge>
-                                        </div>
-                                        <p className="mt-2 text-xs text-muted-foreground">
-                                            {formatDateTime(log.created_at) || '-'}
-                                        </p>
-                                    </div>
-                                ))}
-                            </div>
-                        </ScrollArea>
-                    </CardContent>
-                </Card>
-
-                <Card>
-                    <CardHeader>
-                        <CardTitle>{labels.roleDirectorySummary}</CardTitle>
-                        <CardDescription>{labels.roleDirectorySummaryDesc}</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                        <ScrollArea className="h-72 pr-3">
-                            <div className="space-y-3">
-                                {roles.map((role) => (
-                                    <div key={role.code} className="rounded-md border p-3">
-                                        <div className="flex items-start justify-between gap-3">
-                                            <div>
-                                                <p className="text-sm font-medium">{role.name}</p>
-                                                <p className="font-mono text-xs text-muted-foreground">{role.code}</p>
-                                            </div>
-                                            <Badge variant={role.is_system ? 'secondary' : 'outline'}>
-                                                {role.is_system ? labels.systemRole : labels.customRole}
-                                            </Badge>
-                                        </div>
-                                        <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
-                                            <span>{labels.permissionsTitle}: {role.permission_keys.length}</span>
-                                            <span>{labels.assignedUsers}: {role.assigned_user_count}</span>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        </ScrollArea>
-                    </CardContent>
-                </Card>
-
-                <Card>
-                    <CardHeader>
-                        <CardTitle>{labels.resourceDomainSummary}</CardTitle>
-                        <CardDescription>{labels.resourceDomainSummaryDesc}</CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-3">
-                        {RESOURCE_DOMAINS.map((domain) => (
-                            <div key={domain} className="flex items-center justify-between rounded-md border p-3">
-                                <div className="flex items-center gap-3">
-                                    <div className="rounded-md bg-muted p-2">
-                                        <DatabaseZap className="h-4 w-4 text-muted-foreground" />
-                                    </div>
-                                    <div>
-                                        <p className="text-sm font-medium">{getResourceDomainLabel(domain, labels)}</p>
-                                        <p className="text-xs text-muted-foreground">{labels.resourceDomainReadyHint}</p>
+                                    <div className="h-1.5 overflow-hidden rounded-full bg-[#F2F3F5] dark:bg-slate-800">
+                                        <div
+                                            className="h-full rounded-full transition-[width]"
+                                            style={{ width: `${Math.max(count ? 8 : 0, (count / maxScopeCount) * 100)}%`, backgroundColor: SCOPE_COLORS[scope] }}
+                                        />
                                     </div>
                                 </div>
-                                <Badge variant="outline">{labels.resourceDomainPending}</Badge>
-                            </div>
-                        ))}
-                    </CardContent>
-                </Card>
+                            );
+                        })}
+                    </div>
+                </div>
             </div>
-        </div>
+
+            <div className="rounded-[8px] border border-[#EBEEF5] bg-white p-5 dark:border-slate-800 dark:bg-slate-950">
+                <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
+                    <h3 className="text-[16px] font-semibold text-[#0E1114] dark:text-white">{labels.highRiskConfigSummary}</h3>
+                    <p className="text-[12px] leading-5 text-[#B0B2B8]">{labels.highRiskConfigSummaryDesc}</p>
+                </div>
+                {highRiskUsers.length === 0 ? (
+                    <div className="flex min-h-24 items-center justify-center text-[12px] text-[#86888F]">{labels.noHighRiskUsers}</div>
+                ) : (
+                    <div className="mt-4 flex flex-wrap gap-3">
+                        {highRiskUsers.slice(0, 8).map((user, index) => {
+                            const riskyPermissions = user.effective_permission_keys
+                                .filter((permissionKey) => CONFIG_PERMISSION_KEYS.includes(permissionKey))
+                                .map((permissionKey) => permissionMap.get(permissionKey)?.name || permissionKey);
+                            return (
+                                <div key={user.user_code} className="flex min-w-[230px] max-w-[340px] items-center gap-3 rounded-[6px] border border-[#EBEEF5] px-3 py-2.5 dark:border-slate-800">
+                                    <span className={cn(
+                                        'flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[12px] font-medium text-white',
+                                        index % 3 === 0 ? 'bg-[#7B61FF]' : index % 3 === 1 ? 'bg-[#0CC991]' : 'bg-[#1E3BFA]',
+                                    )}>
+                                        {(user.display_name || user.user_code).slice(0, 1)}
+                                    </span>
+                                    <div className="min-w-0">
+                                        <p className="truncate text-[12px] font-medium text-[#0E1114] dark:text-white">{user.display_name}</p>
+                                        <div className="mt-1">
+                                            <CompactBadgeList
+                                                items={user.is_super_admin ? [labels.superAdmin] : riskyPermissions}
+                                                max={2}
+                                                emptyLabel={labels.configPermissionNone}
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
+            </div>
+        </section>
     );
 }

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertCircle, ChevronDown, KeyRound, Layers3, Loader2, ShieldCheck, UserRound } from 'lucide-react';
+import { AlertCircle, ChevronDown, Loader2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -23,7 +23,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tabs, TabsContent } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import type {
@@ -105,6 +105,7 @@ export function UserForm({
     ), [form.customOrgCodes, organizationMap]);
 
     const [activeTab, setActiveTab] = useState('basic');
+    const [accessKeyMode, setAccessKeyMode] = useState<'auto' | 'custom'>('auto');
     const [expandedPermCategories, setExpandedPermCategories] = useState<Set<string>>(new Set());
     const togglePermCategoryExpand = (category: string) => {
         setExpandedPermCategories((prev) => {
@@ -118,8 +119,9 @@ export function UserForm({
         if (open) {
             setActiveTab('basic');
             setExpandedPermCategories(new Set());
+            setAccessKeyMode(form.accessKey ? 'custom' : 'auto');
         }
-    }, [mode, open]);
+    }, [form.accessKey, mode, open]);
 
     const tabErrors = useMemo(() => {
         const tabMap: Record<string, string[]> = { basic: [], permissions: [], scope: [], boundary: [] };
@@ -170,7 +172,7 @@ export function UserForm({
 
     return (
         <Dialog open={open} onOpenChange={(next) => { if (!next) onCancel(); }}>
-            <DialogContent className="flex max-h-[calc(100vh-32px)] flex-col gap-0 overflow-hidden rounded-[8px] border-0 bg-white p-0 shadow-[0_8px_24px_rgba(14,17,20,0.16)] sm:max-w-[1120px] dark:bg-slate-950" onOpenAutoFocus={handleOpenAutoFocus}>
+            <DialogContent className="flex max-h-[90vh] flex-col gap-0 overflow-hidden rounded-[8px] border-0 bg-white p-0 shadow-[0_8px_24px_rgba(14,17,20,0.16)] sm:max-w-[860px] dark:bg-slate-950" onOpenAutoFocus={handleOpenAutoFocus}>
                 <DialogHeader className="shrink-0 gap-1 border-b border-[#F2F3F5] px-6 pb-4 pr-14 pt-5 text-left dark:border-slate-800">
                     <DialogTitle className="text-[16px] leading-6 text-[#0E1114] dark:text-white">{mode === 'create' ? labels.createTitle : labels.editTitle}</DialogTitle>
                     <DialogDescription className="text-[12px] leading-5 text-[#86888F]">{labels.userFormDescription}</DialogDescription>
@@ -182,40 +184,16 @@ export function UserForm({
                     </div>
                 )}
 
-                <Tabs value={activeTab} onValueChange={setActiveTab} className="min-h-0 flex-1 gap-0 [&_[data-slot=checkbox][data-state=checked]]:border-[#1E3BFA] [&_[data-slot=checkbox][data-state=checked]]:bg-[#1E3BFA] [&_[data-slot=input]]:h-9 [&_[data-slot=input]]:rounded-[4px] [&_[data-slot=input]]:border-[#E6E7EB] [&_[data-slot=input]]:text-[12px] [&_[data-slot=input]]:shadow-none [&_[data-slot=input]]:focus-visible:border-[#1E3BFA] [&_[data-slot=input]]:focus-visible:ring-0 [&_[data-slot=label]]:text-[12px] [&_[data-slot=label]]:font-normal [&_[data-slot=select-trigger]]:h-9 [&_[data-slot=select-trigger]]:rounded-[4px] [&_[data-slot=select-trigger]]:border-[#E6E7EB] [&_[data-slot=select-trigger]]:text-[12px] [&_[data-slot=select-trigger]]:shadow-none [&_[data-slot=select-trigger]]:focus:ring-0 [&_[data-slot=textarea]]:rounded-[4px] [&_[data-slot=textarea]]:border-[#E6E7EB] [&_[data-slot=textarea]]:text-[12px] [&_[data-slot=textarea]]:shadow-none [&_[data-slot=textarea]]:focus-visible:border-[#1E3BFA] [&_[data-slot=textarea]]:focus-visible:ring-0">
-                    <TabsList className="mx-6 mt-4 h-9 w-fit max-w-[calc(100%-3rem)] shrink-0 justify-start overflow-x-auto rounded-[6px] bg-[#F7F8FA] p-0.5 dark:bg-slate-900">
-                        <TabsTrigger value="basic" className="relative h-8 flex-none rounded-[5px] border-0 px-4 text-[12px] font-normal text-[#5E5F66] shadow-none data-[state=active]:bg-white data-[state=active]:font-medium data-[state=active]:text-[#0F23D9] data-[state=active]:shadow-[0_1px_4px_rgba(14,17,20,0.08)] dark:data-[state=active]:bg-slate-800 dark:data-[state=active]:text-blue-300">
-                            <UserRound className="h-3.5 w-3.5" />
-                            {labels.userFormBasicInfo}
-                            {showErrors && tabErrors.basic.length > 0 && (
-                                <span className="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-medium text-destructive-foreground">
-                                    {tabErrors.basic.length}
-                                </span>
-                            )}
-                        </TabsTrigger>
-                        <TabsTrigger value="permissions" className="relative h-8 flex-none rounded-[5px] border-0 px-4 text-[12px] font-normal text-[#5E5F66] shadow-none data-[state=active]:bg-white data-[state=active]:font-medium data-[state=active]:text-[#0F23D9] data-[state=active]:shadow-[0_1px_4px_rgba(14,17,20,0.08)] dark:data-[state=active]:bg-slate-800 dark:data-[state=active]:text-blue-300">
-                            <KeyRound className="h-3.5 w-3.5" />
-                            {labels.userFormConfigPermission}
-                            {showErrors && tabErrors.permissions.length > 0 && (
-                                <span className="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-medium text-destructive-foreground">
-                                    {tabErrors.permissions.length}
-                                </span>
-                            )}
-                        </TabsTrigger>
-                        <TabsTrigger value="scope" className="h-8 flex-none rounded-[5px] border-0 px-4 text-[12px] font-normal text-[#5E5F66] shadow-none data-[state=active]:bg-white data-[state=active]:font-medium data-[state=active]:text-[#0F23D9] data-[state=active]:shadow-[0_1px_4px_rgba(14,17,20,0.08)] dark:data-[state=active]:bg-slate-800 dark:data-[state=active]:text-blue-300">
-                            <Layers3 className="h-3.5 w-3.5" />
-                            {labels.userFormDataScope}
-                        </TabsTrigger>
-                        <TabsTrigger value="boundary" className="h-8 flex-none rounded-[5px] border-0 px-4 text-[12px] font-normal text-[#5E5F66] shadow-none data-[state=active]:bg-white data-[state=active]:font-medium data-[state=active]:text-[#0F23D9] data-[state=active]:shadow-[0_1px_4px_rgba(14,17,20,0.08)] dark:data-[state=active]:bg-slate-800 dark:data-[state=active]:text-blue-300">
-                            <ShieldCheck className="h-3.5 w-3.5" />
-                            {labels.authorizationBoundary}
-                        </TabsTrigger>
-                    </TabsList>
+                <Tabs value={activeTab} onValueChange={setActiveTab} className="flex min-h-0 flex-1 flex-col gap-0 overflow-y-auto [&_[data-slot=checkbox][data-state=checked]]:border-[#1E3BFA] [&_[data-slot=checkbox][data-state=checked]]:bg-[#1E3BFA] [&_[data-slot=input]]:h-9 [&_[data-slot=input]]:rounded-[4px] [&_[data-slot=input]]:border-[#E6E7EB] [&_[data-slot=input]]:text-[12px] [&_[data-slot=input]]:shadow-none [&_[data-slot=input]]:focus-visible:border-[#1E3BFA] [&_[data-slot=input]]:focus-visible:ring-0 [&_[data-slot=label]]:text-[12px] [&_[data-slot=label]]:font-normal [&_[data-slot=select-trigger]]:h-9 [&_[data-slot=select-trigger]]:rounded-[4px] [&_[data-slot=select-trigger]]:border-[#E6E7EB] [&_[data-slot=select-trigger]]:text-[12px] [&_[data-slot=select-trigger]]:shadow-none [&_[data-slot=select-trigger]]:focus:ring-0 [&_[data-slot=textarea]]:rounded-[4px] [&_[data-slot=textarea]]:border-[#E6E7EB] [&_[data-slot=textarea]]:text-[12px] [&_[data-slot=textarea]]:shadow-none [&_[data-slot=textarea]]:focus-visible:border-[#1E3BFA] [&_[data-slot=textarea]]:focus-visible:ring-0">
 
                     {/* ─── Tab 1: 基本信息 ─── */}
-                    <TabsContent value="basic" className="mt-0 min-h-0 flex-1 overflow-y-auto px-6 pb-5 pt-4">
+                    <TabsContent forceMount value="basic" className="order-1 mt-0 block px-6 pb-5 pt-5 data-[state=inactive]:block">
                         <div className="space-y-5">
-                            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                            <div className="flex items-center gap-2">
+                                <span className="h-3 w-[3px] rounded-full bg-[#1E3BFA]" />
+                                <h3 className="text-[13px] font-semibold text-[#0E1114] dark:text-white">{labels.userFormBasicInfo}</h3>
+                            </div>
+                            <div className="grid gap-4 md:grid-cols-2">
                                 <div className="space-y-2">
                                     <Label htmlFor="rbac-user-code">{labels.userCode}</Label>
                                     <Input
@@ -250,54 +228,45 @@ export function UserForm({
                                 {mode === 'create' && (
                                     <div className="space-y-2">
                                         <Label htmlFor="rbac-access-key">{labels.accessKey}</Label>
-                                        <Input
-                                            id="rbac-access-key"
-                                            value={form.accessKey}
-                                            onChange={(event) => {
-                                                onFieldChange('accessKey');
-                                                onChange({ ...form, accessKey: event.target.value });
-                                            }}
-                                            placeholder={labels.accessKeyHint}
-                                            disabled={saving}
-                                        />
+                                        <div className="grid grid-cols-2 gap-2">
+                                            <button
+                                                type="button"
+                                                className={cn('h-8 rounded-[4px] border text-[12px] transition-colors', accessKeyMode === 'auto' ? 'border-[#1E3BFA] text-[#0F23D9]' : 'border-[#E6E7EB] text-[#33353D] hover:border-[#1E3BFA]')}
+                                                onClick={() => {
+                                                    setAccessKeyMode('auto');
+                                                    onFieldChange('accessKey');
+                                                    onChange({ ...form, accessKey: '' });
+                                                }}
+                                                disabled={saving}
+                                            >
+                                                {labels.autoGenerate}
+                                            </button>
+                                            <button
+                                                type="button"
+                                                className={cn('h-8 rounded-[4px] border text-[12px] transition-colors', accessKeyMode === 'custom' ? 'border-[#1E3BFA] text-[#0F23D9]' : 'border-[#E6E7EB] text-[#33353D] hover:border-[#1E3BFA]')}
+                                                onClick={() => setAccessKeyMode('custom')}
+                                                disabled={saving}
+                                            >
+                                                {labels.customKey}
+                                            </button>
+                                        </div>
+                                        {accessKeyMode === 'custom' && (
+                                            <Input
+                                                id="rbac-access-key"
+                                                value={form.accessKey}
+                                                onChange={(event) => {
+                                                    onFieldChange('accessKey');
+                                                    onChange({ ...form, accessKey: event.target.value });
+                                                }}
+                                                placeholder={labels.accessKeyHint}
+                                                disabled={saving}
+                                            />
+                                        )}
                                         {errors.accessKey && (
                                             <p className="text-[11px] text-[#F53F3F]">{errors.accessKey}</p>
                                         )}
                                     </div>
                                 )}
-                            </div>
-
-                            <div className="grid gap-4 md:grid-cols-2">
-                                <div className="space-y-2">
-                                    <Label>{labels.organization}</Label>
-                                    <Select
-                                        value={form.primaryOrgCode}
-                                        onValueChange={(value) => onChange({ ...form, primaryOrgCode: value })}
-                                        disabled={saving}
-                                    >
-                                        <SelectTrigger className="w-full">
-                                            <span className="truncate">
-                                                {selectedPrimaryOrganization?.name || labels.organization}
-                                            </span>
-                                        </SelectTrigger>
-                                        <SelectContent className="max-h-80 min-w-[420px]">
-                                            {organizationRows.map((row) => (
-                                                <SelectItem
-                                                    key={row.organization.org_code}
-                                                    value={row.organization.org_code}
-                                                    textValue={row.organization.name}
-                                                    className="py-2"
-                                                >
-                                                    <OrganizationTreeText
-                                                        row={row}
-                                                        labels={labels}
-                                                        organizationMap={organizationMap}
-                                                    />
-                                                </SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
-                                </div>
                                 <div className="space-y-2">
                                     <Label htmlFor="rbac-notes">{labels.notes}</Label>
                                     <Textarea
@@ -310,45 +279,16 @@ export function UserForm({
                                 </div>
                             </div>
 
-                            <div className="grid gap-3 md:grid-cols-2">
-                                <label className={cn(
-                                    "flex items-center gap-3 rounded-[6px] border p-3 transition-colors",
-                                    form.isActive
-                                        ? "border-[rgba(12,201,145,0.28)] bg-[rgba(12,201,145,0.06)] dark:border-teal-900/70 dark:bg-teal-950/25"
-                                        : "border-[#E6E7EB] bg-white dark:border-slate-800 dark:bg-slate-950",
-                                )}>
-                                    <Checkbox
-                                        checked={form.isActive}
-                                        onCheckedChange={(checked) => onChange({ ...form, isActive: checked === true })}
-                                        disabled={saving}
-                                    />
-                                    <div>
-                                        <span className="text-[12px] font-medium">{labels.active}</span>
-                                        <span className="ml-2 text-[11px] text-[#86888F]">{form.isActive ? labels.active : labels.inactive}</span>
-                                    </div>
-                                </label>
-                                <label className={cn(
-                                    "flex items-center gap-3 rounded-[6px] border p-3 transition-colors",
-                                    form.isSuperAdmin
-                                        ? "border-[rgba(255,171,36,0.32)] bg-[rgba(255,171,36,0.08)] dark:border-amber-900/70 dark:bg-amber-950/25"
-                                        : "border-[#E6E7EB] bg-white dark:border-slate-800 dark:bg-slate-950",
-                                )}>
-                                    <Checkbox
-                                        checked={form.isSuperAdmin}
-                                        onCheckedChange={(checked) => onChange({ ...form, isSuperAdmin: checked === true })}
-                                        disabled={saving}
-                                    />
-                                    <div>
-                                        <span className="text-[12px] font-medium">{labels.superAdmin}</span>
-                                    </div>
-                                </label>
-                            </div>
                         </div>
                     </TabsContent>
 
                     {/* ─── Tab 2: 角色与权限 ─── */}
-                    <TabsContent value="permissions" className="mt-0 min-h-0 flex-1 overflow-y-auto px-6 pb-5 pt-4">
+                    <TabsContent forceMount value="permissions" className="order-3 mt-0 block border-t border-[#F2F3F5] px-6 py-5 data-[state=inactive]:block dark:border-slate-800">
                         <div className="space-y-5">
+                            <div className="flex items-center gap-2">
+                                <span className="h-3 w-[3px] rounded-full bg-[#0CC991]" />
+                                <h3 className="text-[13px] font-semibold text-[#0E1114] dark:text-white">{labels.userFormConfigPermission}</h3>
+                            </div>
                             {/* Team Resource Key */}
                             <div
                                 className={cn(
@@ -576,9 +516,43 @@ export function UserForm({
                     </TabsContent>
 
                     {/* ─── Tab 3: 数据范围 ─── */}
-                    <TabsContent value="scope" className="mt-0 min-h-0 flex-1 overflow-y-auto px-6 pb-5 pt-4">
+                    <TabsContent forceMount value="scope" className="order-2 mt-0 block border-t border-[#F2F3F5] px-6 py-5 data-[state=inactive]:block dark:border-slate-800">
                         <div className="space-y-5">
-                            <div className="grid gap-4 lg:grid-cols-[260px_minmax(0,1fr)]">
+                            <div className="flex items-center gap-2">
+                                <span className="h-3 w-[3px] rounded-full bg-[#2E9CFF]" />
+                                <h3 className="text-[13px] font-semibold text-[#0E1114] dark:text-white">{labels.userFormDataScope}</h3>
+                            </div>
+                            <div className="grid gap-4 md:grid-cols-2">
+                                <div className="space-y-2">
+                                    <Label>{labels.organization}</Label>
+                                    <Select
+                                        value={form.primaryOrgCode}
+                                        onValueChange={(value) => onChange({ ...form, primaryOrgCode: value })}
+                                        disabled={saving}
+                                    >
+                                        <SelectTrigger className="w-full">
+                                            <span className="truncate">
+                                                {selectedPrimaryOrganization?.name || labels.organization}
+                                            </span>
+                                        </SelectTrigger>
+                                        <SelectContent className="max-h-80 min-w-[420px]">
+                                            {organizationRows.map((row) => (
+                                                <SelectItem
+                                                    key={row.organization.org_code}
+                                                    value={row.organization.org_code}
+                                                    textValue={row.organization.name}
+                                                    className="py-2"
+                                                >
+                                                    <OrganizationTreeText
+                                                        row={row}
+                                                        labels={labels}
+                                                        organizationMap={organizationMap}
+                                                    />
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
                                 <div className="space-y-2">
                                     <Label>{labels.dataScope}</Label>
                                     <Select
@@ -598,7 +572,7 @@ export function UserForm({
                                         </SelectContent>
                                     </Select>
                                 </div>
-                                <label className="flex items-start gap-3 rounded-[6px] border border-[rgba(255,171,36,0.32)] bg-[rgba(255,171,36,0.08)] p-3 text-[#5E5F66] dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-100">
+                                <label className="flex items-start gap-3 rounded-[6px] border border-[rgba(255,171,36,0.32)] bg-[rgba(255,171,36,0.08)] p-3 text-[#5E5F66] md:col-span-2 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-100">
                                     <Checkbox
                                         checked={form.dataScopeDowngradeConfirmed}
                                         onCheckedChange={(checked) => onChange({ ...form, dataScopeDowngradeConfirmed: checked === true })}
@@ -649,8 +623,12 @@ export function UserForm({
                     </TabsContent>
 
                     {/* ─── Tab 4: 授权边界 ─── */}
-                    <TabsContent value="boundary" className="mt-0 min-h-0 flex-1 overflow-y-auto px-6 pb-5 pt-4">
+                    <TabsContent forceMount value="boundary" className="order-4 mt-0 block border-t border-[#F2F3F5] px-6 py-5 data-[state=inactive]:block dark:border-slate-800">
                         <div>
+                            <div className="mb-4 flex items-center gap-2">
+                                <span className="h-3 w-[3px] rounded-full bg-[#FFAB24]" />
+                                <h3 className="text-[13px] font-semibold text-[#0E1114] dark:text-white">{labels.authorizationBoundary}</h3>
+                            </div>
                             <AuthorizationBoundaryForm
                                 value={form.authorizationBoundary}
                                 organizations={organizations}
@@ -662,6 +640,43 @@ export function UserForm({
                                 disabled={saving}
                                 onChange={(authorizationBoundary) => onChange({ ...form, authorizationBoundary })}
                             />
+                            <div className="mt-5 flex items-center gap-2 border-t border-[#F2F3F5] pt-5 dark:border-slate-800">
+                                <span className="h-3 w-[3px] rounded-full bg-[#F53F3F]" />
+                                <h3 className="text-[13px] font-semibold text-[#0E1114] dark:text-white">{labels.userFormStatusNotes}</h3>
+                            </div>
+                            <div className="mt-4 grid gap-3 md:grid-cols-2">
+                                <label className={cn(
+                                    "flex items-center gap-3 rounded-[6px] border p-3 transition-colors",
+                                    form.isActive
+                                        ? "border-[rgba(12,201,145,0.28)] bg-[rgba(12,201,145,0.06)] dark:border-teal-900/70 dark:bg-teal-950/25"
+                                        : "border-[#E6E7EB] bg-white dark:border-slate-800 dark:bg-slate-950",
+                                )}>
+                                    <Checkbox
+                                        checked={form.isActive}
+                                        onCheckedChange={(checked) => onChange({ ...form, isActive: checked === true })}
+                                        disabled={saving}
+                                    />
+                                    <div>
+                                        <span className="text-[12px] font-medium">{labels.active}</span>
+                                        <span className="ml-2 text-[11px] text-[#86888F]">{form.isActive ? labels.active : labels.inactive}</span>
+                                    </div>
+                                </label>
+                                <label className={cn(
+                                    "flex items-center gap-3 rounded-[6px] border p-3 transition-colors",
+                                    form.isSuperAdmin
+                                        ? "border-[rgba(255,171,36,0.32)] bg-[rgba(255,171,36,0.08)] dark:border-amber-900/70 dark:bg-amber-950/25"
+                                        : "border-[#E6E7EB] bg-white dark:border-slate-800 dark:bg-slate-950",
+                                )}>
+                                    <Checkbox
+                                        checked={form.isSuperAdmin}
+                                        onCheckedChange={(checked) => onChange({ ...form, isSuperAdmin: checked === true })}
+                                        disabled={saving}
+                                    />
+                                    <div>
+                                        <span className="text-[12px] font-medium">{labels.superAdmin}</span>
+                                    </div>
+                                </label>
+                            </div>
                         </div>
                     </TabsContent>
                 </Tabs>

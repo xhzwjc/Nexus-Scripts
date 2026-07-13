@@ -46,23 +46,33 @@ export function UserTable({
 
     return (
         <div className="w-full overflow-x-auto">
-            <Table className="w-full min-w-[1230px] table-fixed text-[12px]">
+            <Table className="w-full min-w-[1180px] table-fixed text-[12px]">
+                <colgroup>
+                    <col style={{ width: '16%' }} />
+                    <col style={{ width: '12%' }} />
+                    <col style={{ width: '10%' }} />
+                    <col style={{ width: '10%' }} />
+                    <col style={{ width: '9%' }} />
+                    <col style={{ width: '7%' }} />
+                    <col style={{ width: '13%' }} />
+                    <col style={{ width: '10%' }} />
+                    <col style={{ width: '13%' }} />
+                </colgroup>
                 <TableHeader>
                     <TableRow className="h-10 border-b border-[#F2F3F5] bg-white hover:bg-white dark:border-slate-800 dark:bg-slate-950 dark:hover:bg-slate-950">
-                        <TableHead className="w-[80px] px-3 text-[11px] font-normal text-[#86888F]">{labels.userCode}</TableHead>
-                        <TableHead className="w-[105px] px-3 text-[11px] font-normal text-[#86888F]">{labels.displayName}</TableHead>
-                        <TableHead className="w-[150px] px-3 text-[11px] font-normal text-[#86888F]">{labels.organization}</TableHead>
-                        <TableHead className="w-[115px] px-3 text-[11px] font-normal text-[#86888F]">{labels.roles}</TableHead>
-                        <TableHead className="w-[115px] px-3 text-[11px] font-normal text-[#86888F]">{labels.dataScope}</TableHead>
-                        <TableHead className="w-[105px] px-3 text-[11px] font-normal text-[#86888F]">{labels.configPermission}</TableHead>
-                        <TableHead className="w-[65px] px-3 text-[11px] font-normal text-[#86888F]">{labels.status}</TableHead>
-                        <TableHead className="w-[200px] px-3 text-[11px] font-normal text-[#86888F]">{labels.effectivePermissions}</TableHead>
-                        <TableHead className="w-[145px] px-3 text-[11px] font-normal text-[#86888F]">{labels.lastLogin}</TableHead>
-                        <TableHead className="w-[150px] px-3 text-right text-[11px] font-normal text-[#86888F]">{labels.actions}</TableHead>
+                        <TableHead className="px-3 text-[11px] font-normal text-[#86888F]">{labels.usersTitle}</TableHead>
+                        <TableHead className="px-3 text-[11px] font-normal text-[#86888F]">{labels.organization}</TableHead>
+                        <TableHead className="px-3 text-[11px] font-normal text-[#86888F]">{labels.roles}</TableHead>
+                        <TableHead className="px-3 text-[11px] font-normal text-[#86888F]">{labels.dataScope}</TableHead>
+                        <TableHead className="px-3 text-[11px] font-normal text-[#86888F]">{labels.configPermission}</TableHead>
+                        <TableHead className="px-3 text-[11px] font-normal text-[#86888F]">{labels.status}</TableHead>
+                        <TableHead className="px-3 text-[11px] font-normal text-[#86888F]">{labels.effectivePermissions}</TableHead>
+                        <TableHead className="px-3 text-[11px] font-normal text-[#86888F]">{labels.lastLogin}</TableHead>
+                        <TableHead className="px-3 text-right text-[11px] font-normal text-[#86888F]">{labels.actions}</TableHead>
                     </TableRow>
                 </TableHeader>
                 <TableBody>
-                    {viewModels.map((user) => {
+                    {viewModels.map((user, index) => {
                         const rawUser = userByCode.get(user.userCode);
                         if (!rawUser) {
                             return null;
@@ -75,14 +85,19 @@ export function UserTable({
                         return (
                             <TableRow key={user.userCode} className="h-[56px] border-b border-[#F2F3F5] text-[#0F1014] hover:bg-[#F8F8F9] dark:border-slate-800 dark:text-slate-200 dark:hover:bg-slate-900/60">
                                 <TableCell className="px-3 py-1">
-                                    <span className="font-mono text-[11px] text-[#5E5F66] dark:text-slate-400">{user.userCode}</span>
-                                </TableCell>
-                                <TableCell className="px-3 py-1">
-                                    <div className="space-y-1.5">
-                                        <p className="truncate text-[12px] font-medium" title={user.displayName}>{user.displayName}</p>
-                                        {user.isSuperAdmin && (
-                                            <Badge variant="outline" className="h-[20px] rounded-[4px] border-transparent bg-[rgba(30,59,250,0.08)] px-1.5 text-[10px] font-normal text-[#0F23D9] shadow-none">{labels.superAdmin}</Badge>
-                                        )}
+                                    <div className="flex min-w-0 items-center gap-2.5">
+                                        <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[12px] font-medium text-white ${index % 4 === 0 ? 'bg-[#7B61FF]' : index % 4 === 1 ? 'bg-[#1E3BFA]' : index % 4 === 2 ? 'bg-[#0CC991]' : 'bg-[#2E9CFF]'}`}>
+                                            {(user.displayName || user.userCode).slice(0, 1)}
+                                        </span>
+                                        <div className="min-w-0">
+                                            <div className="flex min-w-0 items-center gap-1.5">
+                                                <p className="truncate text-[12px] font-medium" title={user.displayName}>{user.displayName}</p>
+                                                {user.isSuperAdmin && (
+                                                    <Badge variant="outline" className="h-[18px] shrink-0 rounded-[4px] border-transparent bg-[rgba(255,171,36,0.12)] px-1.5 text-[9px] font-normal text-[#D48806] shadow-none">{labels.superAdmin}</Badge>
+                                                )}
+                                            </div>
+                                            <p className="mt-0.5 truncate font-mono text-[10px] text-[#B0B2B8]" title={user.userCode}>{user.userCode}</p>
+                                        </div>
                                     </div>
                                 </TableCell>
                                 <TableCell className="px-3 py-1">
@@ -116,7 +131,7 @@ export function UserTable({
                                 </TableCell>
                                 <TableCell className="px-3 py-1 text-right">
                                     {user.userCode === 'admin' && currentUserId !== 'admin' ? null : (
-                                    <div className="flex items-center justify-end gap-3 whitespace-nowrap text-[11px]">
+                                    <div className="flex items-center justify-end gap-2.5 whitespace-nowrap text-[11px]">
                                         <button type="button" className="text-[#0F23D9] transition-colors hover:text-[#1E3BFA]" onClick={() => {
                                             if (!canManageUsers) { toast.warning(labels.adminOnlyTooltip); return; }
                                             onEdit(rawUser);

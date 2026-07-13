@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ChevronDown, Loader2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -16,7 +16,6 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import type { ScriptHubPermissionDefinition, ScriptHubRoleDefinition } from '@/lib/types';
@@ -35,6 +34,7 @@ interface RoleFormProps {
     errors: RoleFormErrors;
     dialogError?: string | null;
     saving: boolean;
+    readOnly?: boolean;
     onChange: (form: RoleFormState) => void;
     onFieldChange: (field: keyof RoleFormErrors) => void;
     onCancel: () => void;
@@ -52,13 +52,21 @@ export function RoleForm({
     errors,
     dialogError,
     saving,
+    readOnly = false,
     onChange,
     onFieldChange,
     onCancel,
     onSubmit,
 }: RoleFormProps) {
-    const permissionGroups = groupPermissionsByCategory(permissions);
+    const permissionGroups = useMemo(() => groupPermissionsByCategory(permissions), [permissions]);
     const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
+    const readOnlyMode = readOnly || !!role?.is_system;
+
+    useEffect(() => {
+        if (open) {
+            setExpandedCategories(new Set(Object.keys(permissionGroups)));
+        }
+    }, [open, permissionGroups]);
 
     const toggleCategoryExpand = (category: string) => {
         setExpandedCategories((prev) => {
@@ -93,13 +101,13 @@ export function RoleForm({
 
     return (
         <Dialog open={open} onOpenChange={(next) => { if (!next) onCancel(); }}>
-            <DialogContent className="sm:max-w-5xl">
-                <DialogHeader>
-                    <DialogTitle>{mode === 'create' ? labels.createRole : labels.editRole}</DialogTitle>
-                    <DialogDescription>{labels.roleFormDescription}</DialogDescription>
+            <DialogContent className="flex max-h-[90vh] flex-col gap-0 overflow-hidden rounded-[8px] border-0 bg-white p-0 shadow-[0_8px_24px_rgba(14,17,20,0.16)] sm:max-w-[900px] dark:bg-slate-950 [&_[data-slot=checkbox][data-state=checked]]:border-[#1E3BFA] [&_[data-slot=checkbox][data-state=checked]]:bg-[#1E3BFA] [&_[data-slot=input]]:h-9 [&_[data-slot=input]]:rounded-[4px] [&_[data-slot=input]]:border-[#E6E7EB] [&_[data-slot=input]]:text-[12px] [&_[data-slot=input]]:shadow-none [&_[data-slot=input]]:focus-visible:border-[#1E3BFA] [&_[data-slot=input]]:focus-visible:ring-0 [&_[data-slot=label]]:text-[12px] [&_[data-slot=label]]:font-normal [&_[data-slot=select-trigger]]:h-9 [&_[data-slot=select-trigger]]:rounded-[4px] [&_[data-slot=select-trigger]]:border-[#E6E7EB] [&_[data-slot=select-trigger]]:text-[12px] [&_[data-slot=select-trigger]]:shadow-none [&_[data-slot=select-trigger]]:focus:ring-0 [&_[data-slot=textarea]]:rounded-[4px] [&_[data-slot=textarea]]:border-[#E6E7EB] [&_[data-slot=textarea]]:text-[12px] [&_[data-slot=textarea]]:shadow-none [&_[data-slot=textarea]]:focus-visible:border-[#1E3BFA] [&_[data-slot=textarea]]:focus-visible:ring-0">
+                <DialogHeader className="shrink-0 gap-1 border-b border-[#F2F3F5] px-6 pb-4 pr-14 pt-5 text-left dark:border-slate-800">
+                    <DialogTitle className="text-[16px] leading-6 text-[#0E1114] dark:text-white">{readOnlyMode ? labels.viewPermissions : mode === 'create' ? labels.createRole : labels.editRole}</DialogTitle>
+                    <DialogDescription className="text-[12px] leading-5 text-[#86888F]">{labels.roleFormBoundaryHint}</DialogDescription>
                 </DialogHeader>
 
-                <div className="max-h-[70vh] overflow-y-auto pr-2">
+                <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
                     <div className="space-y-6 pb-1">
                         {dialogError && (
                             <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
@@ -107,10 +115,12 @@ export function RoleForm({
                             </div>
                         )}
 
-                        <section className="rounded-lg border bg-muted/10 p-4">
+                        <section>
                             <div className="mb-4">
-                                <h3 className="text-sm font-semibold">{labels.roleFormBasicInfo}</h3>
-                                <p className="text-xs text-muted-foreground">{labels.roleFormBoundaryHint}</p>
+                                <div className="flex items-center gap-2">
+                                    <span className="h-3 w-[3px] rounded-full bg-[#1E3BFA]" />
+                                    <h3 className="text-[13px] font-semibold text-[#0E1114] dark:text-white">{labels.roleFormBasicInfo}</h3>
+                                </div>
                             </div>
                             <div className="grid gap-4 md:grid-cols-2">
                                 <div className="space-y-2">
@@ -122,7 +132,7 @@ export function RoleForm({
                                             onFieldChange('code');
                                             onChange({ ...form, code: event.target.value });
                                         }}
-                                        disabled={mode === 'edit' || saving}
+                                        disabled={mode === 'edit' || saving || readOnlyMode}
                                     />
                                     {showErrors && errors.code && (
                                         <p className="text-xs text-destructive">{errors.code}</p>
@@ -137,7 +147,7 @@ export function RoleForm({
                                             onFieldChange('name');
                                             onChange({ ...form, name: event.target.value });
                                         }}
-                                        disabled={saving}
+                                        disabled={saving || readOnlyMode}
                                     />
                                     {showErrors && errors.name && (
                                         <p className="text-xs text-destructive">{errors.name}</p>
@@ -152,7 +162,7 @@ export function RoleForm({
                                     value={form.description}
                                     onChange={(event) => onChange({ ...form, description: event.target.value })}
                                     rows={3}
-                                    disabled={saving}
+                                    disabled={saving || readOnlyMode}
                                 />
                             </div>
 
@@ -162,7 +172,7 @@ export function RoleForm({
                                     <Select
                                         value={form.landingPage}
                                         onValueChange={(value) => onChange({ ...form, landingPage: value as 'home' | 'welcome' })}
-                                        disabled={saving}
+                                        disabled={saving || readOnlyMode}
                                     >
                                         <SelectTrigger>
                                             <SelectValue />
@@ -179,7 +189,7 @@ export function RoleForm({
                                         className="mt-0.5"
                                         checked={form.recruitmentMenuGrouped}
                                         onCheckedChange={(checked) => onChange({ ...form, recruitmentMenuGrouped: checked === true })}
-                                        disabled={saving}
+                                        disabled={saving || readOnlyMode}
                                     />
                                     <span className="space-y-1">
                                         <span className="block text-sm font-medium">{labels.recruitmentMenuGroupedLabel}</span>
@@ -205,7 +215,7 @@ export function RoleForm({
                                             <Checkbox
                                                 checked={form.isActive}
                                                 onCheckedChange={(checked) => onChange({ ...form, isActive: checked === true })}
-                                                disabled={saving}
+                                                disabled={saving || readOnlyMode}
                                             />
                                             <span className="text-sm font-medium">
                                                 {form.isActive ? labels.active : labels.disableRole}
@@ -216,37 +226,40 @@ export function RoleForm({
                             )}
                         </section>
 
-                        <section className="rounded-lg border bg-muted/10 p-4">
+                        <section className="border-t border-[#F2F3F5] pt-5 dark:border-slate-800">
                             <div className="mb-4">
                                 <div className="flex items-start justify-between gap-3">
                                     <div>
-                                        <h3 className="text-sm font-semibold">{labels.permissionsTitle}</h3>
-                                        <p className="text-xs text-muted-foreground">{labels.rolePermissionOnlyHint}</p>
+                                        <div className="flex items-center gap-2">
+                                            <span className="h-3 w-[3px] rounded-full bg-[#0CC991]" />
+                                            <h3 className="text-[13px] font-semibold text-[#0E1114] dark:text-white">{labels.permissionsTitle}</h3>
+                                        </div>
+                                        <p className="mt-1 text-[11px] text-[#86888F]">{labels.rolePermissionOnlyHint}</p>
                                     </div>
                                     <Badge variant="outline">{form.permissionKeys.length}</Badge>
                                 </div>
                                 {showErrors && errors.permissionKeys && (
-                                    <p className="mt-2 text-xs text-destructive">{errors.permissionKeys}</p>
+                                    <p className="mt-2 text-[11px] text-[#F53F3F]">{errors.permissionKeys}</p>
                                 )}
                             </div>
 
-                            <ScrollArea className="h-[420px] pr-3">
+                            <div className="space-y-2">
                                 <div className="space-y-2">
                                     {Object.entries(permissionGroups).map(([category, categoryPermissions]) => {
                                         const isExpanded = expandedCategories.has(category);
                                         const selectedCount = categorySelectedCounts[category] ?? 0;
                                         return (
-                                            <div key={category} className="rounded-lg border bg-background">
+                                            <div key={category} className="rounded-[6px] border border-[#EBEEF5] bg-white dark:border-slate-800 dark:bg-slate-950">
                                                 <button
                                                     type="button"
-                                                    className="flex w-full items-center justify-between px-4 py-3 text-left transition-colors hover:bg-muted/30"
+                                                    className="flex w-full items-center justify-between px-4 py-3 text-left transition-colors hover:bg-[#F8F8F9] dark:hover:bg-slate-900"
                                                     onClick={() => toggleCategoryExpand(category)}
                                                 >
                                                     <div className="flex items-center gap-2">
                                                         <ChevronDown className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200", !isExpanded && "-rotate-90")} />
-                                                        <span className="text-sm font-medium">{categoryLabel(category, labels)}</span>
+                                                        <span className="text-[12px] font-medium">{categoryLabel(category, labels)}</span>
                                                     </div>
-                                                    <Badge variant={selectedCount > 0 ? "default" : "outline"} className="text-xs">
+                                                    <Badge variant="outline" className={`h-[20px] rounded-[4px] border-transparent px-1.5 text-[10px] font-normal shadow-none ${selectedCount > 0 ? 'bg-[rgba(30,59,250,0.08)] text-[#0F23D9]' : 'bg-[#F2F3F5] text-[#86888F]'}`}>
                                                         {selectedCount}/{categoryPermissions.length}
                                                     </Badge>
                                                 </button>
@@ -255,25 +268,25 @@ export function RoleForm({
                                                         <div className="mb-3 flex items-center justify-end gap-2">
                                                             <button
                                                                 type="button"
-                                                                className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                                                                className="text-[11px] text-[#0F23D9] transition-colors hover:text-[#1E3BFA] disabled:text-[#B0B2B8]"
                                                                 onClick={() => toggleCategory(categoryPermissions, true)}
-                                                                disabled={saving}
+                                                                disabled={saving || readOnlyMode}
                                                             >
                                                                 {labels.selectAll}
                                                             </button>
                                                             <span className="text-xs text-muted-foreground/40">|</span>
                                                             <button
                                                                 type="button"
-                                                                className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                                                                className="text-[11px] text-[#86888F] transition-colors hover:text-[#33353D] disabled:text-[#B0B2B8]"
                                                                 onClick={() => toggleCategory(categoryPermissions, false)}
-                                                                disabled={saving}
+                                                                disabled={saving || readOnlyMode}
                                                             >
                                                                 {labels.deselectAll}
                                                             </button>
                                                         </div>
                                                         <div className="grid gap-3 md:grid-cols-2">
                                                             {categoryPermissions.map((permission) => (
-                                                                <label key={permission.key} className="flex items-start gap-3">
+                                                                <label key={permission.key} className="flex items-start gap-3 rounded-[6px] border border-[#F2F3F5] px-3 py-2.5 transition-colors hover:bg-[#F8F8F9] dark:border-slate-800 dark:hover:bg-slate-900">
                                                                     <Checkbox
                                                                         checked={form.permissionKeys.includes(permission.key)}
                                                                         onCheckedChange={(checked) => {
@@ -283,11 +296,11 @@ export function RoleForm({
                                                                                 permissionKeys: toggleItem(form.permissionKeys, permission.key, checked === true),
                                                                             });
                                                                         }}
-                                                                        disabled={saving}
+                                                                        disabled={saving || readOnlyMode}
                                                                     />
                                                                     <span>
-                                                                        <span className="block text-sm font-medium">{permission.name}</span>
-                                                                        <span className="block text-xs text-muted-foreground">{permission.description}</span>
+                                                                        <span className="block text-[12px] font-medium text-[#0E1114] dark:text-white">{permission.name}</span>
+                                                                        <span className="mt-0.5 block text-[11px] leading-5 text-[#86888F]">{permission.description}</span>
                                                                     </span>
                                                                 </label>
                                                             ))}
@@ -298,19 +311,21 @@ export function RoleForm({
                                         );
                                     })}
                                 </div>
-                            </ScrollArea>
+                            </div>
                         </section>
                     </div>
                 </div>
 
-                <DialogFooter>
-                    <Button variant="outline" onClick={onCancel} disabled={saving}>
-                        {labels.cancelLabel}
+                <DialogFooter className="shrink-0 border-t border-[#F2F3F5] bg-[#FAFAFB] px-6 py-4 dark:border-slate-800 dark:bg-slate-900/40">
+                    <Button variant="outline" className="h-8 rounded-[6px] border-[#E6E7EB] bg-white px-4 text-[12px] font-normal text-[#33353D] shadow-none" onClick={onCancel} disabled={saving}>
+                        {readOnlyMode ? labels.close : labels.cancelLabel}
                     </Button>
-                    <Button onClick={onSubmit} disabled={saving || !!role?.is_system}>
-                        {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-                        {mode === 'create' ? labels.createRole : labels.saveChanges}
-                    </Button>
+                    {!readOnlyMode && (
+                        <Button className="h-8 rounded-[6px] bg-[#1E3BFA] px-4 text-[12px] font-normal text-white shadow-none hover:bg-[#0F23D9]" onClick={onSubmit} disabled={saving}>
+                            {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                            {mode === 'create' ? labels.createRole : labels.saveChanges}
+                        </Button>
+                    )}
                 </DialogFooter>
             </DialogContent>
         </Dialog>

@@ -1,6 +1,6 @@
 import type { AccessControlView, DataScope, ResourceDomain, ResourceListItem, SharePolicy } from '@/lib/types';
 
-export const ACCESS_CONTROL_VIEWS: AccessControlView[] = ['overview', 'organizations', 'users', 'roles', 'resources', 'audit'];
+export const ACCESS_CONTROL_VIEWS: AccessControlView[] = ['overview', 'organizations', 'users', 'roles', 'audit'];
 
 export const DATA_SCOPE_OPTIONS: DataScope[] = [
     'ALL',

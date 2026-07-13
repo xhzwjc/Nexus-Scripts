@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Building2, ChevronDown, ChevronRight, Loader2, Pencil, Plus, Search, Trash2, Users } from 'lucide-react';
+import { Building2, ChevronDown, ChevronRight, Loader2, Plus, Search } from 'lucide-react';
 import { toast } from '@/lib/toast';
 import { authenticatedFetch } from '@/lib/auth';
 import { useI18n } from '@/lib/i18n';
@@ -258,11 +258,18 @@ export function AccessControlOrganizationsPage({
             .catch(() => { if (!cancelled) setActionOrgUsers(null); })
             .finally(() => { if (!cancelled) setActionOrgUsersLoading(false); });
         return () => { cancelled = true; };
-    }, [actionOrg?.org_code]);
+    }, [actionOrg]);
 
     const hasActionOrgUsers = (actionOrgUsers?.total_count ?? 0) > 0;
 
     const organizations = overview?.catalog.organizations ?? EMPTY_ORGANIZATIONS;
+    const userCountByOrg = useMemo(() => {
+        const counts = new Map<string, number>();
+        (overview?.users || []).forEach((user) => {
+            counts.set(user.primary_org_code, (counts.get(user.primary_org_code) || 0) + 1);
+        });
+        return counts;
+    }, [overview?.users]);
     const activeOrganizations = useMemo(() => organizations.filter((organization) => organization.is_active), [organizations]);
     const organizationMap = useMemo(() => createOrganizationMap(organizations), [organizations]);
     const treeRows = useMemo(
@@ -465,38 +472,36 @@ export function AccessControlOrganizationsPage({
     };
 
     return (
-        <div className="rounded-lg border bg-card">
-            <div className="border-b px-5 py-4">
-                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                    <div>
-                        <h2 className="text-lg font-semibold">{labels.organizationsPageTitle}</h2>
-                        <p className="mt-1 text-sm text-muted-foreground">{labels.organizationsPageDesc}</p>
+        <section aria-labelledby="access-control-organizations-title" className="space-y-5">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="flex min-w-0 flex-wrap items-baseline gap-x-4 gap-y-1">
+                        <h2 id="access-control-organizations-title" className="text-[18px] font-semibold leading-7 text-[#0E1114] dark:text-white">{labels.organizationsPageTitle}</h2>
+                        <p className="text-[12px] leading-5 text-[#B0B2B8]">{labels.organizationsPageDesc}</p>
                     </div>
-                    <Button onClick={openCreateDialog}>
-                        <Plus className="h-4 w-4" />
+                    <Button className="h-9 shrink-0 rounded-[6px] bg-[#1E3BFA] px-4 text-[13px] font-normal text-white shadow-none hover:bg-[#0F23D9]" onClick={openCreateDialog}>
+                        <Plus className="h-3.5 w-3.5" />
                         {labels.createOrganization}
                     </Button>
-                </div>
             </div>
 
-            <div className="border-b bg-muted/20 px-5 py-4">
+            <div>
                 <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-                    <div className="relative max-w-md flex-1">
-                        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <div className="relative max-w-[380px] flex-1">
+                        <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#B0B2B8]" />
                         <Input
-                            className="pl-9"
+                            className="h-9 rounded-[4px] border-[#E6E7EB] bg-white pl-9 text-[12px] shadow-none placeholder:text-[#B0B2B8] focus-visible:border-[#1E3BFA] focus-visible:ring-0 dark:border-slate-700 dark:bg-slate-950"
                             placeholder={labels.organizationsSearchPlaceholder}
                             value={query}
                             onChange={(event) => setQuery(event.target.value)}
                         />
                     </div>
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                        <p className="text-xs text-muted-foreground">{labels.organizationHierarchyHint}</p>
+                        <p className="text-[11px] text-[#B0B2B8]">{labels.organizationHierarchyHint}</p>
                         <div className="flex gap-2">
-                            <Button variant="outline" size="sm" onClick={expandAll} disabled={parentOrgCodes.length === 0}>
+                            <Button variant="outline" className="h-8 rounded-[4px] border-[#E6E7EB] bg-white px-3 text-[11px] font-normal text-[#5E5F66] shadow-none" onClick={expandAll} disabled={parentOrgCodes.length === 0}>
                                 {labels.expandAll}
                             </Button>
-                            <Button variant="outline" size="sm" onClick={collapseAll} disabled={parentOrgCodes.length === 0}>
+                            <Button variant="outline" className="h-8 rounded-[4px] border-[#E6E7EB] bg-white px-3 text-[11px] font-normal text-[#5E5F66] shadow-none" onClick={collapseAll} disabled={parentOrgCodes.length === 0}>
                                 {labels.collapseAll}
                             </Button>
                         </div>
@@ -504,122 +509,121 @@ export function AccessControlOrganizationsPage({
                 </div>
             </div>
 
-            <div className="p-5">
+            <div>
                 {loading ? (
-                    <div className="flex min-h-[360px] items-center justify-center text-muted-foreground">
-                        <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                    <div className="flex min-h-[360px] items-center justify-center rounded-[8px] border border-[#EBEEF5] text-[12px] text-[#86888F]">
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                         {t.common.loading}
                     </div>
                 ) : error ? (
-                    <div className="flex min-h-[360px] flex-col items-center justify-center gap-3 text-center">
-                        <p className="max-w-md text-sm text-destructive">{error}</p>
-                        <Button variant="outline" onClick={() => void onReload()}>{labels.refresh}</Button>
+                    <div className="flex min-h-[360px] flex-col items-center justify-center gap-3 rounded-[8px] border border-[#EBEEF5] text-center">
+                        <p className="max-w-md text-[12px] text-[#F53F3F]">{error}</p>
+                        <Button variant="outline" className="h-8 rounded-[6px] border-[#E6E7EB] bg-white px-3 text-[12px] font-normal text-[#0F23D9] shadow-none" onClick={() => void onReload()}>{labels.refresh}</Button>
                     </div>
                 ) : treeRows.length === 0 ? (
-                    <div className="flex min-h-[360px] flex-col items-center justify-center gap-3 text-center text-sm text-muted-foreground">
-                        <Building2 className="h-8 w-8" />
+                    <div className="flex min-h-[360px] flex-col items-center justify-center gap-3 rounded-[8px] border border-[#EBEEF5] text-center text-[12px] text-[#86888F]">
+                        <Building2 className="h-7 w-7" />
                         <p>{labels.noOrganizations}</p>
-                        <Button variant="outline" onClick={openCreateDialog}>
-                            <Plus className="h-4 w-4" />
+                        <Button variant="outline" className="h-8 rounded-[6px] border-[#1E3BFA] bg-white px-3 text-[12px] font-normal text-[#0F23D9] shadow-none" onClick={openCreateDialog}>
+                            <Plus className="h-3.5 w-3.5" />
                             {labels.createOrganization}
                         </Button>
                     </div>
                 ) : (
-                    <div className="overflow-x-auto rounded-md border">
-                        <Table>
+                    <div className="overflow-x-auto rounded-[8px] border border-[#EBEEF5] bg-white dark:border-slate-800 dark:bg-slate-950">
+                        <Table className="w-full min-w-[1100px] table-fixed text-[12px]">
+                            <colgroup>
+                                <col style={{ width: '30%' }} />
+                                <col style={{ width: '9%' }} />
+                                <col style={{ width: '12%' }} />
+                                <col style={{ width: '7%' }} />
+                                <col style={{ width: '8%' }} />
+                                <col style={{ width: '7%' }} />
+                                <col style={{ width: '27%' }} />
+                            </colgroup>
                             <TableHeader>
-                                <TableRow className="bg-muted/50">
-                                    <TableHead>{labels.organizationName}</TableHead>
-                                    <TableHead>{labels.organizationCode}</TableHead>
-                                    <TableHead>{labels.organizationType}</TableHead>
-                                    <TableHead>{labels.parentOrganization}</TableHead>
-                                    <TableHead>{labels.organizationPath}</TableHead>
-                                    <TableHead>{labels.sortOrder}</TableHead>
-                                    <TableHead>{labels.status}</TableHead>
-                                    <TableHead className="text-right">{labels.actions}</TableHead>
+                                <TableRow className="h-10 border-b border-[#F2F3F5] bg-[#FAFAFB] hover:bg-[#FAFAFB] dark:border-slate-800 dark:bg-slate-900/40 dark:hover:bg-slate-900/40">
+                                    <TableHead className="px-4 text-[11px] font-normal text-[#86888F]">{labels.organizationName}</TableHead>
+                                    <TableHead className="px-4 text-[11px] font-normal text-[#86888F]">{labels.organizationType}</TableHead>
+                                    <TableHead className="px-4 text-[11px] font-normal text-[#86888F]">{labels.parentOrganization}</TableHead>
+                                    <TableHead className="px-4 text-[11px] font-normal text-[#86888F]">{labels.organizationChildren}</TableHead>
+                                    <TableHead className="px-4 text-[11px] font-normal text-[#86888F]">{labels.viewOrgUsersTitle}</TableHead>
+                                    <TableHead className="px-4 text-[11px] font-normal text-[#86888F]">{labels.status}</TableHead>
+                                    <TableHead className="px-4 text-right text-[11px] font-normal text-[#86888F]">{labels.actions}</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
                                 {treeRows.map(({ organization, level, childCount }) => (
-                                    <TableRow key={organization.org_code}>
-                                        <TableCell>
+                                    <TableRow key={organization.org_code} className="h-[56px] border-b border-[#F2F3F5] text-[#0F1014] hover:bg-[#F8F8F9] dark:border-slate-800 dark:text-slate-200 dark:hover:bg-slate-900/60">
+                                        <TableCell className="px-4 py-1">
                                             <div className="flex items-center gap-2" style={{ paddingLeft: `${level * 24}px` }}>
                                                 {childCount > 0 ? (
                                                     <Button
                                                         variant="ghost"
                                                         size="icon"
-                                                        className="h-7 w-7 shrink-0"
+                                                        className="h-6 w-6 shrink-0 rounded-[4px] text-[#86888F] hover:bg-[#F2F3F5]"
                                                         onClick={() => toggleCollapsed(organization.org_code)}
                                                         aria-label={collapsedOrgCodes.has(organization.org_code) ? labels.expandAll : labels.collapseAll}
                                                     >
                                                         {collapsedOrgCodes.has(organization.org_code) ? (
-                                                            <ChevronRight className="h-4 w-4" />
+                                                            <ChevronRight className="h-3.5 w-3.5" />
                                                         ) : (
-                                                            <ChevronDown className="h-4 w-4" />
+                                                            <ChevronDown className="h-3.5 w-3.5" />
                                                         )}
                                                     </Button>
                                                 ) : (
-                                                    <span className="h-7 w-7 shrink-0" />
+                                                    <span className="h-6 w-6 shrink-0" />
                                                 )}
                                                 <div className="min-w-0">
                                                     <div className="flex flex-wrap items-center gap-2">
-                                                        <span className="font-medium">{organization.name}</span>
-                                                        {childCount > 0 && (
-                                                            <Badge variant="secondary" className="text-[11px]">
-                                                                {labels.organizationChildrenCount.replace('{count}', String(childCount))}
-                                                            </Badge>
-                                                        )}
+                                                        <span className="truncate text-[12px] font-medium">{organization.name}</span>
                                                     </div>
-                                                    <p className="mt-1 font-mono text-xs text-muted-foreground">{organization.path}</p>
+                                                    <p className="mt-0.5 truncate font-mono text-[10px] text-[#B0B2B8]" title={`${organization.org_code} · ${organization.path}`}>{organization.org_code} · {organization.path}</p>
                                                 </div>
                                             </div>
                                         </TableCell>
-                                        <TableCell className="font-mono text-xs">{organization.org_code}</TableCell>
-                                        <TableCell>
-                                            <Badge variant="outline">{orgTypeLabel(organization.org_type, labels)}</Badge>
+                                        <TableCell className="px-4 py-1">
+                                            <Badge variant="outline" className="h-[20px] rounded-[4px] border-transparent bg-[rgba(46,156,255,0.1)] px-1.5 text-[10px] font-normal text-[#2E9CFF] shadow-none">{orgTypeLabel(organization.org_type, labels)}</Badge>
                                         </TableCell>
-                                        <TableCell className="font-mono text-xs">{organization.parent_org_code || '-'}</TableCell>
-                                        <TableCell className="font-mono text-xs text-muted-foreground">{organization.path}</TableCell>
-                                        <TableCell>{organization.sort_order}</TableCell>
-                                        <TableCell>
+                                        <TableCell className="px-4 py-1">
+                                            <p className="truncate font-mono text-[10px] text-[#86888F]" title={organization.parent_org_code || '-'}>{organization.parent_org_code || '-'}</p>
+                                            <p className="mt-0.5 text-[10px] text-[#B0B2B8]">{labels.sortOrder} {organization.sort_order}</p>
+                                        </TableCell>
+                                        <TableCell className="px-4 py-1 tabular-nums text-[#86888F]">{childCount}</TableCell>
+                                        <TableCell className="px-4 py-1 tabular-nums text-[#86888F]">{userCountByOrg.get(organization.org_code) || 0}</TableCell>
+                                        <TableCell className="px-4 py-1">
                                             <StatusBadge active={organization.is_active} labels={labels} />
                                         </TableCell>
-                                        <TableCell className="text-right">
-                                            <div className="flex justify-end gap-2">
-                                                <Button variant="outline" size="sm" onClick={() => void openViewOrgUsers(organization)}>
-                                                    <Users className="h-4 w-4" />
+                                        <TableCell className="px-4 py-1 text-right">
+                                            <div className="flex justify-end gap-3 whitespace-nowrap text-[11px]">
+                                                <button type="button" className="text-[#0F23D9] hover:text-[#1E3BFA]" onClick={() => void openViewOrgUsers(organization)}>
                                                     {labels.viewOrgUsers}
-                                                </Button>
-                                                <Button variant="outline" size="sm" onClick={() => openEditDialog(organization)}>
-                                                    <Pencil className="h-4 w-4" />
+                                                </button>
+                                                <button type="button" className="text-[#0F23D9] hover:text-[#1E3BFA]" onClick={() => openEditDialog(organization)}>
                                                     {labels.editOrganization}
-                                                </Button>
-                                                <Button
-                                                    variant="ghost"
-                                                    size="sm"
-                                                    className="text-destructive hover:text-destructive"
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    className="text-[#D48806] hover:text-[#B76E00] disabled:cursor-not-allowed disabled:text-[#B0B2B8]"
                                                     disabled={organization.org_code === 'group' || !organization.is_active}
                                                     onClick={() => {
                                                         setDeleteDialogError(null);
                                                         setDeleteOrganization(organization);
                                                     }}
                                                 >
-                                                    <Trash2 className="h-4 w-4" />
                                                     {labels.disableOrganization}
-                                                </Button>
-                                                <Button
-                                                    variant="ghost"
-                                                    size="sm"
-                                                    className="text-destructive hover:text-destructive"
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    className="text-[#F53F3F] hover:text-[#D9363E] disabled:cursor-not-allowed disabled:text-[#B0B2B8]"
                                                     disabled={organization.org_code === 'group' || childCount > 0}
                                                     onClick={() => {
                                                         setSoftDeleteDialogError(null);
                                                         setSoftDeleteOrganization(organization);
                                                     }}
                                                 >
-                                                    <Trash2 className="h-4 w-4" />
                                                     {labels.softDeleteOrganization}
-                                                </Button>
+                                                </button>
                                             </div>
                                         </TableCell>
                                     </TableRow>
@@ -631,12 +635,12 @@ export function AccessControlOrganizationsPage({
             </div>
 
             <Dialog open={createOpen || !!editOrganization} onOpenChange={(open) => { if (!open) closeDialogs(); }}>
-                <DialogContent className="sm:max-w-3xl">
-                    <DialogHeader>
-                        <DialogTitle>{createOpen ? labels.createOrganization : labels.editOrganization}</DialogTitle>
-                        <DialogDescription>{labels.organizationFormDesc}</DialogDescription>
+                <DialogContent className="gap-0 overflow-hidden rounded-[8px] border-0 bg-white p-0 shadow-[0_8px_24px_rgba(14,17,20,0.16)] sm:max-w-[560px] dark:bg-slate-950 [&_[data-slot=checkbox][data-state=checked]]:border-[#1E3BFA] [&_[data-slot=checkbox][data-state=checked]]:bg-[#1E3BFA] [&_[data-slot=input]]:h-9 [&_[data-slot=input]]:rounded-[4px] [&_[data-slot=input]]:border-[#E6E7EB] [&_[data-slot=input]]:text-[12px] [&_[data-slot=input]]:shadow-none [&_[data-slot=input]]:focus-visible:border-[#1E3BFA] [&_[data-slot=input]]:focus-visible:ring-0 [&_[data-slot=label]]:text-[12px] [&_[data-slot=label]]:font-normal [&_[data-slot=select-trigger]]:h-9 [&_[data-slot=select-trigger]]:rounded-[4px] [&_[data-slot=select-trigger]]:border-[#E6E7EB] [&_[data-slot=select-trigger]]:text-[12px] [&_[data-slot=select-trigger]]:shadow-none [&_[data-slot=select-trigger]]:focus:ring-0">
+                    <DialogHeader className="gap-1 border-b border-[#F2F3F5] px-5 pb-4 pr-12 pt-5 text-left dark:border-slate-800">
+                        <DialogTitle className="text-[16px] leading-6 text-[#0E1114] dark:text-white">{createOpen ? labels.createOrganization : labels.editOrganization}</DialogTitle>
+                        <DialogDescription className="text-[12px] leading-5 text-[#86888F]">{labels.organizationFormDesc}</DialogDescription>
                     </DialogHeader>
-                    <div className="space-y-5">
+                    <div className="space-y-5 px-5 py-4">
                         {dialogError && (
                             <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
                                 {dialogError}
@@ -725,22 +729,22 @@ export function AccessControlOrganizationsPage({
                                     disabled={saving}
                                 />
                             </div>
-                            <label className="flex items-center gap-3 rounded-md border bg-background p-4">
+                            <label className="flex h-9 items-center gap-3 rounded-[4px] border border-[#E6E7EB] bg-white px-3 dark:border-slate-800 dark:bg-slate-950">
                                 <Checkbox
                                     checked={form.isActive}
                                     onCheckedChange={(checked) => setForm((current) => ({ ...current, isActive: checked === true }))}
                                     disabled={saving || editOrganization?.org_code === 'group'}
                                 />
-                                <span className="text-sm font-medium">{labels.active}</span>
+                                <span className="text-[12px] font-medium">{labels.active}</span>
                             </label>
                         </div>
                     </div>
-                    <DialogFooter>
-                        <Button variant="outline" onClick={closeDialogs} disabled={saving}>
+                    <DialogFooter className="border-t border-[#F2F3F5] bg-[#FAFAFB] px-5 py-4 dark:border-slate-800 dark:bg-slate-900/40">
+                        <Button variant="outline" className="h-8 rounded-[6px] border-[#E6E7EB] bg-white px-4 text-[12px] font-normal text-[#33353D] shadow-none" onClick={closeDialogs} disabled={saving}>
                             {t.common.cancel}
                         </Button>
-                        <Button onClick={() => void upsertOrganization(createOpen ? 'create' : 'edit')} disabled={saving}>
-                            {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+                        <Button className="h-8 rounded-[6px] bg-[#1E3BFA] px-4 text-[12px] font-normal text-white shadow-none hover:bg-[#0F23D9]" onClick={() => void upsertOrganization(createOpen ? 'create' : 'edit')} disabled={saving}>
+                            {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                             {createOpen ? labels.createOrganization : labels.saveChanges}
                         </Button>
                     </DialogFooter>
@@ -748,21 +752,21 @@ export function AccessControlOrganizationsPage({
             </Dialog>
 
             <Dialog open={!!deleteOrganization} onOpenChange={(open) => { if (!open) closeDialogs(); }}>
-                <DialogContent className="sm:max-w-lg">
-                    <DialogHeader>
-                        <DialogTitle>{labels.disableOrganizationTitle}</DialogTitle>
-                        <DialogDescription>{labels.disableOrganizationDesc}</DialogDescription>
+                <DialogContent className="gap-0 overflow-hidden rounded-[8px] border-0 bg-white p-0 shadow-[0_8px_24px_rgba(14,17,20,0.16)] sm:max-w-[460px] dark:bg-slate-950">
+                    <DialogHeader className="gap-1 border-b border-[#F2F3F5] px-5 pb-4 pr-12 pt-5 text-left dark:border-slate-800">
+                        <DialogTitle className="text-[16px] leading-6 text-[#0E1114] dark:text-white">{labels.disableOrganizationTitle}</DialogTitle>
+                        <DialogDescription className="text-[12px] leading-5 text-[#86888F]">{labels.disableOrganizationDesc}</DialogDescription>
                     </DialogHeader>
-                    <div className="space-y-4">
+                    <div className="space-y-4 px-5 py-4">
                         {deleteDialogError && (
                             <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
                                 {deleteDialogError}
                             </div>
                         )}
                         {deleteOrganization && (
-                            <div className="rounded-md border bg-muted/20 p-4">
-                                <p className="text-sm font-medium">{deleteOrganization.name}</p>
-                                <p className="font-mono text-xs text-muted-foreground">{deleteOrganization.org_code}</p>
+                            <div className="rounded-[6px] border border-[#EBEEF5] bg-[#FAFAFB] p-3 dark:border-slate-800 dark:bg-slate-900/40">
+                                <p className="text-[13px] font-medium text-[#0E1114] dark:text-white">{deleteOrganization.name}</p>
+                                <p className="mt-0.5 font-mono text-[11px] text-[#86888F]">{deleteOrganization.org_code}</p>
                             </div>
                         )}
                         {actionOrgUsersLoading && (
@@ -779,12 +783,12 @@ export function AccessControlOrganizationsPage({
                             </div>
                         )}
                     </div>
-                    <DialogFooter>
-                        <Button variant="outline" onClick={closeDialogs} disabled={saving}>
+                    <DialogFooter className="border-t border-[#F2F3F5] bg-[#FAFAFB] px-5 py-4 dark:border-slate-800 dark:bg-slate-900/40">
+                        <Button variant="outline" className="h-8 rounded-[6px] border-[#E6E7EB] bg-white px-4 text-[12px] font-normal text-[#33353D] shadow-none" onClick={closeDialogs} disabled={saving}>
                             {t.common.cancel}
                         </Button>
-                        <Button variant="destructive" onClick={() => void handleDeleteOrganization()} disabled={saving || hasActionOrgUsers}>
-                            {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+                        <Button variant="destructive" className="h-8 rounded-[6px] bg-[#D48806] px-4 text-[12px] font-normal text-white shadow-none hover:bg-[#B76E00]" onClick={() => void handleDeleteOrganization()} disabled={saving || hasActionOrgUsers}>
+                            {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                             {labels.disableOrganization}
                         </Button>
                     </DialogFooter>
@@ -792,21 +796,21 @@ export function AccessControlOrganizationsPage({
             </Dialog>
 
             <Dialog open={!!softDeleteOrganization} onOpenChange={(open) => { if (!open) closeDialogs(); }}>
-                <DialogContent className="sm:max-w-lg">
-                    <DialogHeader>
-                        <DialogTitle>{labels.softDeleteOrganizationTitle}</DialogTitle>
-                        <DialogDescription>{labels.softDeleteOrganizationDesc}</DialogDescription>
+                <DialogContent className="gap-0 overflow-hidden rounded-[8px] border-0 bg-white p-0 shadow-[0_8px_24px_rgba(14,17,20,0.16)] sm:max-w-[460px] dark:bg-slate-950">
+                    <DialogHeader className="gap-1 border-b border-[#F2F3F5] px-5 pb-4 pr-12 pt-5 text-left dark:border-slate-800">
+                        <DialogTitle className="text-[16px] leading-6 text-[#0E1114] dark:text-white">{labels.softDeleteOrganizationTitle}</DialogTitle>
+                        <DialogDescription className="text-[12px] leading-5 text-[#86888F]">{labels.softDeleteOrganizationDesc}</DialogDescription>
                     </DialogHeader>
-                    <div className="space-y-4">
+                    <div className="space-y-4 px-5 py-4">
                         {softDeleteDialogError && (
                             <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
                                 {softDeleteDialogError}
                             </div>
                         )}
                         {softDeleteOrganization && (
-                            <div className="rounded-md border bg-muted/20 p-4">
-                                <p className="text-sm font-medium">{softDeleteOrganization.name}</p>
-                                <p className="font-mono text-xs text-muted-foreground">{softDeleteOrganization.org_code}</p>
+                            <div className="rounded-[6px] border border-[#EBEEF5] bg-[#FAFAFB] p-3 dark:border-slate-800 dark:bg-slate-900/40">
+                                <p className="text-[13px] font-medium text-[#0E1114] dark:text-white">{softDeleteOrganization.name}</p>
+                                <p className="mt-0.5 font-mono text-[11px] text-[#86888F]">{softDeleteOrganization.org_code}</p>
                             </div>
                         )}
                         {actionOrgUsersLoading && (
@@ -823,12 +827,12 @@ export function AccessControlOrganizationsPage({
                             </div>
                         )}
                     </div>
-                    <DialogFooter>
-                        <Button variant="outline" onClick={closeDialogs} disabled={saving}>
+                    <DialogFooter className="border-t border-[#F2F3F5] bg-[#FAFAFB] px-5 py-4 dark:border-slate-800 dark:bg-slate-900/40">
+                        <Button variant="outline" className="h-8 rounded-[6px] border-[#E6E7EB] bg-white px-4 text-[12px] font-normal text-[#33353D] shadow-none" onClick={closeDialogs} disabled={saving}>
                             {t.common.cancel}
                         </Button>
-                        <Button variant="destructive" onClick={() => void handleSoftDeleteOrganization()} disabled={saving || hasActionOrgUsers}>
-                            {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+                        <Button variant="destructive" className="h-8 rounded-[6px] bg-[#F53F3F] px-4 text-[12px] font-normal text-white shadow-none hover:bg-[#D9363E]" onClick={() => void handleSoftDeleteOrganization()} disabled={saving || hasActionOrgUsers}>
+                            {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                             {labels.softDeleteOrganization}
                         </Button>
                     </DialogFooter>
@@ -836,11 +840,11 @@ export function AccessControlOrganizationsPage({
             </Dialog>
 
             <Dialog open={!!viewOrgUsers} onOpenChange={(open) => { if (!open) closeDialogs(); }}>
-                <DialogContent className="sm:max-w-2xl">
-                    <DialogHeader>
-                        <DialogTitle>{viewOrgUsers?.name} — {labels.viewOrgUsersTitle}</DialogTitle>
+                <DialogContent className="gap-0 overflow-hidden rounded-[8px] border-0 bg-white p-0 shadow-[0_8px_24px_rgba(14,17,20,0.16)] sm:max-w-[680px] dark:bg-slate-950">
+                    <DialogHeader className="gap-1 border-b border-[#F2F3F5] px-5 pb-4 pr-12 pt-5 text-left dark:border-slate-800">
+                        <DialogTitle className="text-[16px] leading-6 text-[#0E1114] dark:text-white">{viewOrgUsers?.name} — {labels.viewOrgUsersTitle}</DialogTitle>
                     </DialogHeader>
-                    <div className="space-y-4">
+                    <div className="max-h-[60vh] space-y-4 overflow-y-auto px-5 py-4">
                         {orgUsersLoading ? (
                             <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
                                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -909,13 +913,13 @@ export function AccessControlOrganizationsPage({
                             </div>
                         ) : null}
                     </div>
-                    <DialogFooter>
-                        <Button variant="outline" onClick={closeDialogs}>
+                    <DialogFooter className="border-t border-[#F2F3F5] bg-[#FAFAFB] px-5 py-4 dark:border-slate-800 dark:bg-slate-900/40">
+                        <Button variant="outline" className="h-8 rounded-[6px] border-[#E6E7EB] bg-white px-4 text-[12px] font-normal text-[#33353D] shadow-none" onClick={closeDialogs}>
                             {t.common.close}
                         </Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
-        </div>
+        </section>
     );
 }

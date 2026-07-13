@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Info, KeyRound, Loader2, Plus, Search, SlidersHorizontal, Trash2 } from 'lucide-react';
+import { KeyRound, Loader2, Plus, Search, SlidersHorizontal, Trash2 } from 'lucide-react';
 import { toast } from '@/lib/toast';
 import { authenticatedFetch, clearScriptHubSession, getStoredScriptHubSession, validateStoredScriptHubSession } from '@/lib/auth';
 import { useI18n } from '@/lib/i18n';
@@ -82,6 +82,7 @@ function filterUserViewModels(
         dataScope: 'all' | DataScope;
         status: StatusFilter;
         config: ConfigFilter;
+        role: string;
     },
 ) {
     const query = filters.query.trim().toLowerCase();
@@ -100,7 +101,8 @@ function filterUserViewModels(
             (!query || haystack.includes(query)) &&
             (filters.dataScope === 'all' || user.dataScope === filters.dataScope) &&
             (filters.status === 'all' || (filters.status === 'active' ? user.isActive : !user.isActive)) &&
-            (filters.config === 'all' || user.configPermissionState === filters.config)
+            (filters.config === 'all' || user.configPermissionState === filters.config) &&
+            (!filters.role || user.roleCodes.includes(filters.role))
         );
     });
 }
@@ -118,6 +120,7 @@ export function AccessControlUsersPage({
     const [dataScopeFilter, setDataScopeFilter] = useState<'all' | DataScope>('all');
     const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
     const [configFilter, setConfigFilter] = useState<ConfigFilter>('all');
+    const [roleFilter, setRoleFilter] = useState('');
     const [saving, setSaving] = useState(false);
     const [createOpen, setCreateOpen] = useState(false);
     const [editUser, setEditUser] = useState<ScriptHubManagedUser | null>(null);
@@ -152,8 +155,9 @@ export function AccessControlUsersPage({
             dataScope: dataScopeFilter,
             status: statusFilter,
             config: configFilter,
+            role: roleFilter,
         }),
-        [configFilter, dataScopeFilter, query, statusFilter, userViewModels],
+        [configFilter, dataScopeFilter, query, roleFilter, statusFilter, userViewModels],
     );
     const filteredUsers = useMemo(() => {
         const allowedCodes = new Set(filteredViewModels.map((user) => user.userCode));
@@ -420,17 +424,9 @@ export function AccessControlUsersPage({
                 </Button>
             </div>
 
-            <div className="flex flex-col gap-2 rounded-[6px] bg-[#F7F8FA] px-4 py-3 text-[12px] text-[#33353D] dark:bg-slate-900/60 dark:text-slate-300 md:flex-row md:items-center md:justify-between">
-                <span className="flex min-w-0 items-start gap-2">
-                    <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#2E9CFF]" />
-                    <span className="leading-5">{labels.usersGovernanceHint}</span>
-                </span>
-                <span className="inline-flex h-[22px] shrink-0 items-center rounded-[4px] bg-[rgba(30,59,250,0.08)] px-2 text-[10px] text-[#0F23D9]">{labels.fourLayerModel}</span>
-            </div>
-
             <div className="overflow-hidden rounded-[8px] border border-[#EBEEF5] bg-white shadow-none dark:border-slate-800 dark:bg-slate-950">
-                <div className="border-b border-[#F2F3F5] bg-[#FAFAFB] px-4 py-3 dark:border-slate-800 dark:bg-slate-900/40">
-                    <div className="grid gap-3 lg:grid-cols-[minmax(260px,1fr)_180px_150px_190px_auto]">
+                <div className="border-b border-[#F2F3F5] bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-950">
+                    <div className="grid gap-3 xl:grid-cols-[minmax(260px,1fr)_160px_175px_145px_180px_auto]">
                         <div className="relative">
                             <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#B0B2B8]" />
                             <Input
@@ -440,6 +436,17 @@ export function AccessControlUsersPage({
                                 onChange={(event) => setQuery(event.target.value)}
                             />
                         </div>
+                        <Select value={roleFilter || 'all'} onValueChange={(value) => setRoleFilter(value === 'all' ? '' : value)}>
+                            <SelectTrigger className="h-9 w-full rounded-[4px] border-[#E6E7EB] bg-white text-[12px] shadow-none focus:ring-0 dark:border-slate-700 dark:bg-slate-950">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="all">{labels.filterAllRoles}</SelectItem>
+                                {assignableRoles.map((role) => (
+                                    <SelectItem key={role.code} value={role.code}>{role.name}</SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
                         <Select value={dataScopeFilter} onValueChange={(value) => setDataScopeFilter(value as 'all' | DataScope)}>
                             <SelectTrigger className="h-9 w-full rounded-[4px] border-[#E6E7EB] bg-white text-[12px] shadow-none focus:ring-0 dark:border-slate-700 dark:bg-slate-950">
                                 <SelectValue />
@@ -474,6 +481,7 @@ export function AccessControlUsersPage({
                         </Select>
                         <Button variant="outline" className="h-9 rounded-[4px] border-[#E6E7EB] bg-white px-3 text-[12px] font-normal text-[#5E5F66] shadow-none hover:border-[#1E3BFA] hover:bg-white hover:text-[#0F23D9] dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300" onClick={() => {
                             setQuery('');
+                            setRoleFilter('');
                             setDataScopeFilter('all');
                             setStatusFilter('all');
                             setConfigFilter('all');

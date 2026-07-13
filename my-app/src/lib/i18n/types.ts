@@ -569,6 +569,7 @@ export interface Translations {
     organizationsPageDesc: string;
     organizationHierarchyHint: string;
     organizationChildrenCount: string;
+    organizationChildren: string;
     expandAll: string;
     collapseAll: string;
     organizationsSearchPlaceholder: string;
@@ -636,6 +637,7 @@ export interface Translations {
     permissionsTitle: string;
     createRole: string;
     editRole: string;
+    viewPermissions: string;
     roleCode: string;
     roleName: string;
     roleDescription: string;
@@ -824,6 +826,7 @@ export interface Translations {
     errorOrganizationActiveChildren: string;
     errorOrganizationAssignedUsers: string;
     filterAllDataScopes: string;
+    filterAllRoles: string;
     filterAllStatuses: string;
     filterAllConfigPermissions: string;
     filterAllSharePolicies: string;

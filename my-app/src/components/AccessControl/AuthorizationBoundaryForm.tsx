@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo } from 'react';
-import { AlertTriangle, ShieldCheck } from 'lucide-react';
+import { AlertTriangle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
@@ -56,19 +56,9 @@ export function AuthorizationBoundaryForm({
     const organizationMap = useMemo(() => createOrganizationMap(actorFilteredOrganizations), [actorFilteredOrganizations]);
 
     return (
-        <div className="rounded-[8px] border border-[#EBEEF5] bg-white shadow-none dark:border-slate-800 dark:bg-slate-950">
-            <div className="border-b border-[#F2F3F5] p-4 dark:border-slate-800">
-                <div className="flex items-start gap-3">
-                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[6px] bg-[rgba(30,59,250,0.08)] text-[#0F23D9] dark:bg-blue-950/30 dark:text-blue-300">
-                        <ShieldCheck className="h-4 w-4" />
-                    </span>
-                    <div>
-                        <h4 className="text-[13px] font-semibold text-[#0E1114] dark:text-slate-100">{labels.authorizationBoundary}</h4>
-                        <p className="mt-1 text-[11px] leading-5 text-[#86888F]">{labels.authorizationBoundaryHelp}</p>
-                    </div>
-                </div>
-            </div>
-            <div className="grid gap-4 p-4">
+        <div className="bg-white dark:bg-slate-950">
+            <p className="mb-3 text-[11px] leading-5 text-[#86888F]">{labels.authorizationBoundaryHelp}</p>
+            <div className="grid gap-4">
                 <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
                     <label
                         className={cn(

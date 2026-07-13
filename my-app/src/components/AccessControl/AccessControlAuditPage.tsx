@@ -52,31 +52,31 @@ export function AccessControlAuditPage({
     }), [actor, logs, query, result, sensitivity, targetType]);
 
     return (
-        <div className="rounded-lg border bg-card">
-            <div className="border-b px-5 py-4">
-                <div>
-                    <h2 className="text-lg font-semibold">{labels.auditPageTitle}</h2>
-                    <p className="mt-1 text-sm text-muted-foreground">{labels.auditPageDesc}</p>
-                </div>
+        <section aria-labelledby="access-control-audit-title" className="space-y-5">
+            <div className="flex min-w-0 flex-wrap items-baseline gap-x-4 gap-y-1">
+                    <h2 id="access-control-audit-title" className="text-[18px] font-semibold leading-7 text-[#0E1114] dark:text-white">{labels.auditPageTitle}</h2>
+                    <p className="text-[12px] leading-5 text-[#B0B2B8]">{labels.auditPageDesc}</p>
             </div>
-            <div className="border-b bg-muted/20 px-5 py-4">
-                <div className="grid gap-3 xl:grid-cols-[minmax(260px,1fr)_180px_180px_160px_170px_auto]">
+
+            <div>
+                <div className="grid gap-3 xl:grid-cols-[minmax(260px,1fr)_180px_180px_150px_170px_auto]">
                     <div className="relative">
-                        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                        <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#B0B2B8]" />
                         <Input
-                            className="pl-9"
+                            className="h-9 rounded-[4px] border-[#E6E7EB] bg-white pl-9 text-[12px] shadow-none placeholder:text-[#B0B2B8] focus-visible:border-[#1E3BFA] focus-visible:ring-0 dark:border-slate-700 dark:bg-slate-950"
                             placeholder={labels.auditSearchPlaceholder}
                             value={query}
                             onChange={(event) => setQuery(event.target.value)}
                         />
                     </div>
                     <Input
+                        className="h-9 rounded-[4px] border-[#E6E7EB] bg-white text-[12px] shadow-none placeholder:text-[#B0B2B8] focus-visible:border-[#1E3BFA] focus-visible:ring-0 dark:border-slate-700 dark:bg-slate-950"
                         placeholder={labels.auditActorFilter}
                         value={actor}
                         onChange={(event) => setActor(event.target.value)}
                     />
                     <Select value={targetType || 'all'} onValueChange={(value) => setTargetType(value === 'all' ? '' : value)}>
-                        <SelectTrigger>
+                        <SelectTrigger className="h-9 rounded-[4px] border-[#E6E7EB] bg-white text-[12px] shadow-none focus:ring-0 dark:border-slate-700 dark:bg-slate-950">
                             <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -87,7 +87,7 @@ export function AccessControlAuditPage({
                         </SelectContent>
                     </Select>
                     <Select value={result || 'all'} onValueChange={(value) => setResult(value === 'all' ? '' : value)}>
-                        <SelectTrigger>
+                        <SelectTrigger className="h-9 rounded-[4px] border-[#E6E7EB] bg-white text-[12px] shadow-none focus:ring-0 dark:border-slate-700 dark:bg-slate-950">
                             <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -97,7 +97,7 @@ export function AccessControlAuditPage({
                         </SelectContent>
                     </Select>
                     <Select value={sensitivity || 'all'} onValueChange={(value) => setSensitivity(value === 'all' ? '' : value)}>
-                        <SelectTrigger>
+                        <SelectTrigger className="h-9 rounded-[4px] border-[#E6E7EB] bg-white text-[12px] shadow-none focus:ring-0 dark:border-slate-700 dark:bg-slate-950">
                             <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -106,37 +106,37 @@ export function AccessControlAuditPage({
                             <SelectItem value="sensitive">{labels.sensitivitySensitive}</SelectItem>
                         </SelectContent>
                     </Select>
-                    <Button variant="outline" onClick={() => {
+                    <Button variant="outline" className="h-9 rounded-[4px] border-[#E6E7EB] bg-white px-3 text-[12px] font-normal text-[#5E5F66] shadow-none hover:border-[#1E3BFA] hover:bg-white hover:text-[#0F23D9]" onClick={() => {
                         setQuery('');
                         setActor('');
                         setTargetType('');
                         setResult('');
                         setSensitivity('');
                     }}>
-                        <SlidersHorizontal className="h-4 w-4" />
+                        <SlidersHorizontal className="h-3.5 w-3.5" />
                         {labels.resetFilters}
                     </Button>
                 </div>
             </div>
-            <div className="p-5">
+            <div>
                 {loading ? (
-                    <div className="flex min-h-[360px] items-center justify-center text-muted-foreground">
-                        <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                    <div className="flex min-h-[360px] items-center justify-center rounded-[8px] border border-[#EBEEF5] text-[12px] text-[#86888F]">
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                         {t.common.loading}
                     </div>
                 ) : error ? (
-                    <div className="flex min-h-[360px] flex-col items-center justify-center gap-3 text-center">
-                        <p className="max-w-md text-sm text-destructive">{error}</p>
-                        <Button variant="outline" onClick={() => void onReload()}>{labels.refresh}</Button>
+                    <div className="flex min-h-[360px] flex-col items-center justify-center gap-3 rounded-[8px] border border-[#EBEEF5] text-center">
+                        <p className="max-w-md text-[12px] text-[#F53F3F]">{error}</p>
+                        <Button variant="outline" className="h-8 rounded-[6px] border-[#E6E7EB] bg-white px-3 text-[12px] font-normal text-[#0F23D9] shadow-none" onClick={() => void onReload()}>{labels.refresh}</Button>
                     </div>
                 ) : filteredLogs.length === 0 ? (
-                    <div className="flex min-h-[360px] items-center justify-center text-sm text-muted-foreground">
+                    <div className="flex min-h-[360px] items-center justify-center rounded-[8px] border border-[#EBEEF5] text-[12px] text-[#86888F]">
                         {labels.noAuditLogs}
                     </div>
                 ) : (
                     <AuditTable logs={filteredLogs} labels={labels} />
                 )}
             </div>
-        </div>
+        </section>
     );
 }

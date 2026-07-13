@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
-import { Copy, Loader2, RefreshCw, X } from 'lucide-react';
+import { Copy, Loader2, RefreshCw, ShieldCheck, X } from 'lucide-react';
 import { toast } from '@/lib/toast';
 import { authenticatedFetch } from '@/lib/auth';
 import { useI18n } from '@/lib/i18n';
@@ -33,10 +33,6 @@ const AccessControlOrganizationsPage = dynamic(
 );
 const AccessControlRolesPage = dynamic(
     () => import('./AccessControlRolesPage').then((module) => module.AccessControlRolesPage),
-    { loading: AccessControlViewLoading },
-);
-const AccessControlResourcesPage = dynamic(
-    () => import('./AccessControlResourcesPage').then((module) => module.AccessControlResourcesPage),
     { loading: AccessControlViewLoading },
 );
 const AccessControlAuditPage = dynamic(
@@ -117,8 +113,6 @@ export function AccessControlCenter() {
                         onReload={loadOverview}
                     />
                 );
-            case 'resources':
-                return <AccessControlResourcesPage />;
             case 'audit':
                 return (
                     <AccessControlAuditPage
@@ -137,21 +131,34 @@ export function AccessControlCenter() {
         <div className="h-full min-h-0 overflow-y-auto bg-white text-[#0E1114] dark:bg-slate-950 dark:text-slate-100">
             <div className="min-h-full px-5 pb-12 pt-4 lg:px-8 2xl:px-10">
                 <div className="mx-auto w-full max-w-[1680px]">
-                    <div className="mb-6 flex min-w-0 items-stretch gap-3 overflow-x-auto border-b border-transparent">
-                        <AccessControlTabs value={activeView} labels={t.accessControl} onChange={setActiveView} />
-                        <div className="flex h-12 shrink-0 items-center">
+                    <div className="mb-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
+                            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[6px] bg-[#1E3BFA] text-white" aria-hidden="true">
+                                <ShieldCheck className="h-4 w-4" />
+                            </span>
+                            <h1 className="text-[18px] font-semibold leading-7 text-[#0E1114] dark:text-white">{t.accessControl.title}</h1>
+                            <span className="inline-flex h-[22px] items-center rounded-[4px] bg-[rgba(30,59,250,0.08)] px-2 text-[11px] text-[#0F23D9]">
+                                {t.accessControl.governanceConsole}
+                            </span>
+                            <p className="min-w-0 text-[12px] leading-5 text-[#B0B2B8] dark:text-slate-400">{t.accessControl.subtitle}</p>
+                        </div>
+                        <div className="flex shrink-0 items-center">
                             <Button
                                 variant="outline"
-                                size="icon"
                                 title={t.accessControl.refresh}
                                 aria-label={t.accessControl.refresh}
-                                className="h-9 w-9 rounded-[6px] border-[#E6E7EB] bg-white text-[#33353D] shadow-none hover:border-[#1E3BFA] hover:bg-[#F7F8FA] hover:text-[#0F23D9] dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300"
+                                className="h-9 rounded-[6px] border-[#E6E7EB] bg-white px-4 text-[12px] font-normal text-[#33353D] shadow-none hover:border-[#1E3BFA] hover:bg-[#F7F8FA] hover:text-[#0F23D9] dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300"
                                 onClick={() => void loadOverview()}
                                 disabled={loading}
                             >
                                 {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                                {t.accessControl.refresh}
                             </Button>
                         </div>
+                    </div>
+
+                    <div className="mb-5 min-w-0 overflow-x-auto border-b border-[#F2F3F5] dark:border-slate-800">
+                        <AccessControlTabs value={activeView} labels={t.accessControl} onChange={setActiveView} />
                     </div>
 
                     <div className="space-y-5">
