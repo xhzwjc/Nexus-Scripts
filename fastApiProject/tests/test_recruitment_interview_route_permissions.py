@@ -1,4 +1,3 @@
-import asyncio
 import json
 import re
 from pathlib import Path
@@ -248,21 +247,21 @@ def test_next_and_fastapi_interview_permission_sets_stay_aligned():
 @pytest.mark.parametrize("permission", INTERVIEW_SCOPED_PERMISSIONS)
 def test_task_event_dependency_accepts_each_pure_interview_permission(permission):
     dependency = require_script_hub_any_permission(recruitment.RECRUITMENT_TASK_EVENT_PERMISSIONS)
-    session = asyncio.run(dependency(_request_with_permission(permission)))
+    session = dependency(_request_with_permission(permission))
     assert session["permissions"] == {permission: True}
 
 
 @pytest.mark.parametrize("permission", REVIEW_SCOPED_PERMISSIONS)
 def test_task_event_dependency_accepts_each_pure_review_permission(permission):
     dependency = require_script_hub_any_permission(recruitment.RECRUITMENT_TASK_EVENT_PERMISSIONS)
-    session = asyncio.run(dependency(_request_with_permission(permission)))
+    session = dependency(_request_with_permission(permission))
     assert session["permissions"] == {permission: True}
 
 
 def test_task_event_dependency_rejects_unrelated_permission():
     dependency = require_script_hub_any_permission(recruitment.RECRUITMENT_TASK_EVENT_PERMISSIONS)
     with pytest.raises(HTTPException) as exc_info:
-        asyncio.run(dependency(_request_with_permission("recruitment-talent-pool-view")))
+        dependency(_request_with_permission("recruitment-talent-pool-view"))
     assert exc_info.value.status_code == 403
 
 

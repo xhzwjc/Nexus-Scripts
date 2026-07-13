@@ -33,16 +33,15 @@ import {
     TableHeader,
     TableRow,
 } from '@/components/ui/table';
-import type { ScriptHubOrganizationDefinition, ScriptHubRbacOverview } from '@/lib/types';
+import type { ScriptHubOrganizationDefinition } from '@/lib/types';
 import { StatusBadge } from './AccessControlBadges';
+import { invalidateRbacCache, useRbacQuery } from './accessControlQuery';
 import { createOrganizationMap, OrganizationTreeText } from './organizationTree';
+import type { RbacOrganizationsResponse, RbacOrganizationUsersResponse } from './types';
 import { mapAccessControlApiError, type AccessControlLabels } from './utils';
 
 interface AccessControlOrganizationsPageProps {
-    overview: ScriptHubRbacOverview | null;
-    loading: boolean;
-    error: string | null;
-    onReload: () => Promise<void>;
+    refreshToken: number;
 }
 
 interface OrganizationFormState {
@@ -65,20 +64,6 @@ interface DeleteMutationResponse {
     error?: string;
 }
 
-interface OrgUserItem {
-    user_code: string;
-    display_name: string;
-    is_active: boolean;
-}
-
-interface OrgUsersResponse {
-    org_code: string;
-    org_name: string;
-    primary_users: OrgUserItem[];
-    data_scope_users: OrgUserItem[];
-    total_count: number;
-}
-
 interface OrganizationTreeRow {
     organization: ScriptHubOrganizationDefinition;
     level: number;
@@ -88,6 +73,7 @@ interface OrganizationTreeRow {
 const EMPTY_ORGANIZATIONS: ScriptHubOrganizationDefinition[] = [];
 const ORG_TYPES = ['group', 'sub_group', 'company', 'department'];
 const ROOT_PARENT_VALUE = '__root__';
+const ORG_USERS_PAGE_SIZE = 50;
 
 function createEmptyOrganizationForm(): OrganizationFormState {
     return {
@@ -220,10 +206,7 @@ function buildOrganizationTreeRows(
 }
 
 export function AccessControlOrganizationsPage({
-    overview,
-    loading,
-    error,
-    onReload,
+    refreshToken,
 }: AccessControlOrganizationsPageProps) {
     const { t } = useI18n();
     const labels = t.accessControl;
@@ -238,38 +221,53 @@ export function AccessControlOrganizationsPage({
     const [deleteDialogError, setDeleteDialogError] = useState<string | null>(null);
     const [softDeleteDialogError, setSoftDeleteDialogError] = useState<string | null>(null);
     const [viewOrgUsers, setViewOrgUsers] = useState<ScriptHubOrganizationDefinition | null>(null);
-    const [orgUsersData, setOrgUsersData] = useState<OrgUsersResponse | null>(null);
+    const [orgUsersData, setOrgUsersData] = useState<RbacOrganizationUsersResponse | null>(null);
     const [orgUsersLoading, setOrgUsersLoading] = useState(false);
+    const [orgUsersError, setOrgUsersError] = useState<string | null>(null);
+    const [orgUsersPage, setOrgUsersPage] = useState(1);
+    const [orgUsersReloadToken, setOrgUsersReloadToken] = useState(0);
     const [collapsedOrgCodes, setCollapsedOrgCodes] = useState<Set<string>>(() => new Set());
-    const [actionOrgUsers, setActionOrgUsers] = useState<OrgUsersResponse | null>(null);
+    const [actionOrgUsers, setActionOrgUsers] = useState<RbacOrganizationUsersResponse | null>(null);
     const [actionOrgUsersLoading, setActionOrgUsersLoading] = useState(false);
+    const [actionOrgUsersError, setActionOrgUsersError] = useState(false);
 
     const actionOrg = deleteOrganization || softDeleteOrganization;
     useEffect(() => {
         if (!actionOrg) {
             setActionOrgUsers(null);
+            setActionOrgUsersLoading(false);
+            setActionOrgUsersError(false);
             return;
         }
-        let cancelled = false;
+        const controller = new AbortController();
         setActionOrgUsersLoading(true);
-        void authenticatedFetch(`/api/admin/rbac/organizations/${encodeURIComponent(actionOrg.org_code)}/users`)
+        setActionOrgUsersError(false);
+        void authenticatedFetch(`/api/admin/rbac/organizations/${encodeURIComponent(actionOrg.org_code)}/users?page=1&page_size=1`, {
+            signal: controller.signal,
+        })
             .then((res) => res.ok ? res.json() : null)
-            .then((data) => { if (!cancelled) setActionOrgUsers(data as OrgUsersResponse | null); })
-            .catch(() => { if (!cancelled) setActionOrgUsers(null); })
-            .finally(() => { if (!cancelled) setActionOrgUsersLoading(false); });
-        return () => { cancelled = true; };
+            .then((data) => { if (!controller.signal.aborted) setActionOrgUsers(data as RbacOrganizationUsersResponse | null); })
+            .catch(() => {
+                if (!controller.signal.aborted) {
+                    setActionOrgUsers(null);
+                    setActionOrgUsersError(true);
+                }
+            })
+            .finally(() => { if (!controller.signal.aborted) setActionOrgUsersLoading(false); });
+        return () => controller.abort();
     }, [actionOrg]);
 
     const hasActionOrgUsers = (actionOrgUsers?.total_count ?? 0) > 0;
+    const actionPrimaryUserCount = actionOrgUsers?.primary_total_count ?? actionOrgUsers?.primary_users.length ?? 0;
+    const actionDataScopeUserCount = actionOrgUsers?.data_scope_total_count ?? actionOrgUsers?.data_scope_users.length ?? 0;
 
-    const organizations = overview?.catalog.organizations ?? EMPTY_ORGANIZATIONS;
-    const userCountByOrg = useMemo(() => {
-        const counts = new Map<string, number>();
-        (overview?.users || []).forEach((user) => {
-            counts.set(user.primary_org_code, (counts.get(user.primary_org_code) || 0) + 1);
-        });
-        return counts;
-    }, [overview?.users]);
+    const organizationsQuery = useRbacQuery<RbacOrganizationsResponse>('/api/admin/rbac/organizations', labels.loadFailed, refreshToken);
+    const organizations = organizationsQuery.data?.items ?? EMPTY_ORGANIZATIONS;
+    const loading = organizationsQuery.loading;
+    const error = organizationsQuery.error;
+    const userCountByOrg = useMemo(() => new Map(
+        organizations.map((organization) => [organization.org_code, organization.primary_user_count || 0]),
+    ), [organizations]);
     const activeOrganizations = useMemo(() => organizations.filter((organization) => organization.is_active), [organizations]);
     const organizationMap = useMemo(() => createOrganizationMap(organizations), [organizations]);
     const treeRows = useMemo(
@@ -304,6 +302,63 @@ export function AccessControlOrganizationsPage({
         ? null
         : organizationMap.get(form.parentOrgCode);
 
+    const reloadOrganizationSlice = () => {
+        invalidateRbacCache('/api/admin/rbac/organizations');
+        invalidateRbacCache('/api/admin/rbac/catalog');
+        invalidateRbacCache('/api/admin/rbac/summary');
+        invalidateRbacCache('/api/admin/rbac/audit-logs');
+        organizationsQuery.reload();
+    };
+
+    useEffect(() => {
+        if (!viewOrgUsers) {
+            setOrgUsersData(null);
+            setOrgUsersLoading(false);
+            setOrgUsersError(null);
+            return;
+        }
+
+        const controller = new AbortController();
+        const params = new URLSearchParams({
+            page: String(orgUsersPage),
+            page_size: String(ORG_USERS_PAGE_SIZE),
+        });
+        setOrgUsersLoading(true);
+        setOrgUsersError(null);
+        void authenticatedFetch(`/api/admin/rbac/organizations/${encodeURIComponent(viewOrgUsers.org_code)}/users?${params.toString()}`, {
+            signal: controller.signal,
+        }).then(async (response) => {
+            if (!response.ok) {
+                throw new Error('Failed to fetch users');
+            }
+            const payload = await response.json() as RbacOrganizationUsersResponse;
+            if (!controller.signal.aborted) {
+                setOrgUsersData(payload);
+            }
+        }).catch(() => {
+            if (!controller.signal.aborted) {
+                setOrgUsersData(null);
+                setOrgUsersError(labels.loadFailed);
+            }
+        }).finally(() => {
+            if (!controller.signal.aborted) {
+                setOrgUsersLoading(false);
+            }
+        });
+
+        return () => controller.abort();
+    }, [labels.loadFailed, orgUsersPage, orgUsersReloadToken, viewOrgUsers]);
+
+    useEffect(() => {
+        if (!orgUsersData) {
+            return;
+        }
+        const totalPages = Math.max(1, Math.ceil(orgUsersData.total_count / ORG_USERS_PAGE_SIZE));
+        if (orgUsersPage > totalPages) {
+            setOrgUsersPage(totalPages);
+        }
+    }, [orgUsersData, orgUsersPage]);
+
     const closeDialogs = () => {
         setCreateOpen(false);
         setEditOrganization(null);
@@ -311,6 +366,8 @@ export function AccessControlOrganizationsPage({
         setSoftDeleteOrganization(null);
         setViewOrgUsers(null);
         setOrgUsersData(null);
+        setOrgUsersError(null);
+        setOrgUsersPage(1);
         setForm(createEmptyOrganizationForm());
         setDialogError(null);
         setDeleteDialogError(null);
@@ -329,22 +386,11 @@ export function AccessControlOrganizationsPage({
         setEditOrganization(organization);
     };
 
-    const openViewOrgUsers = async (organization: ScriptHubOrganizationDefinition) => {
+    const openViewOrgUsers = (organization: ScriptHubOrganizationDefinition) => {
         setViewOrgUsers(organization);
         setOrgUsersData(null);
-        setOrgUsersLoading(true);
-        try {
-            const response = await authenticatedFetch(`/api/admin/rbac/organizations/${encodeURIComponent(organization.org_code)}/users`);
-            if (!response.ok) {
-                throw new Error('Failed to fetch users');
-            }
-            const data = await response.json() as OrgUsersResponse;
-            setOrgUsersData(data);
-        } catch {
-            setOrgUsersData({ org_code: organization.org_code, org_name: organization.name, primary_users: [], data_scope_users: [], total_count: 0 });
-        } finally {
-            setOrgUsersLoading(false);
-        }
+        setOrgUsersError(null);
+        setOrgUsersPage(1);
     };
 
     const toggleCollapsed = (orgCode: string) => {
@@ -411,7 +457,7 @@ export function AccessControlOrganizationsPage({
 
             toast.success(mode === 'create' ? labels.organizationCreated : labels.organizationUpdated);
             closeDialogs();
-            await onReload();
+            reloadOrganizationSlice();
         } catch (saveError) {
             setDialogError(mapAccessControlApiError(saveError instanceof Error ? saveError.message : labels.organizationSaveFailed, labels));
         } finally {
@@ -437,7 +483,7 @@ export function AccessControlOrganizationsPage({
 
             toast.success(labels.organizationDeleted);
             closeDialogs();
-            await onReload();
+            reloadOrganizationSlice();
         } catch (deleteError) {
             setDeleteDialogError(mapAccessControlApiError(deleteError instanceof Error ? deleteError.message : labels.organizationDeleteFailed, labels));
         } finally {
@@ -463,7 +509,7 @@ export function AccessControlOrganizationsPage({
 
             toast.success(labels.organizationSoftDeleted);
             closeDialogs();
-            await onReload();
+            reloadOrganizationSlice();
         } catch (deleteError) {
             setSoftDeleteDialogError(mapAccessControlApiError(deleteError instanceof Error ? deleteError.message : labels.organizationSoftDeleteFailed, labels));
         } finally {
@@ -518,7 +564,7 @@ export function AccessControlOrganizationsPage({
                 ) : error ? (
                     <div className="flex min-h-[360px] flex-col items-center justify-center gap-3 rounded-[8px] border border-[#EBEEF5] text-center">
                         <p className="max-w-md text-[12px] text-[#F53F3F]">{error}</p>
-                        <Button variant="outline" className="h-8 rounded-[6px] border-[#E6E7EB] bg-white px-3 text-[12px] font-normal text-[#0F23D9] shadow-none" onClick={() => void onReload()}>{labels.refresh}</Button>
+                        <Button variant="outline" className="h-8 rounded-[6px] border-[#E6E7EB] bg-white px-3 text-[12px] font-normal text-[#0F23D9] shadow-none" onClick={reloadOrganizationSlice}>{labels.refresh}</Button>
                     </div>
                 ) : treeRows.length === 0 ? (
                     <div className="flex min-h-[360px] flex-col items-center justify-center gap-3 rounded-[8px] border border-[#EBEEF5] text-center text-[12px] text-[#86888F]">
@@ -596,7 +642,7 @@ export function AccessControlOrganizationsPage({
                                         </TableCell>
                                         <TableCell className="px-4 py-1 text-right">
                                             <div className="flex justify-end gap-3 whitespace-nowrap text-[11px]">
-                                                <button type="button" className="text-[#0F23D9] hover:text-[#1E3BFA]" onClick={() => void openViewOrgUsers(organization)}>
+                                                <button type="button" className="text-[#0F23D9] hover:text-[#1E3BFA]" onClick={() => openViewOrgUsers(organization)}>
                                                     {labels.viewOrgUsers}
                                                 </button>
                                                 <button type="button" className="text-[#0F23D9] hover:text-[#1E3BFA]" onClick={() => openEditDialog(organization)}>
@@ -775,11 +821,14 @@ export function AccessControlOrganizationsPage({
                                 {t.common.loading}
                             </div>
                         )}
+                        {actionOrgUsersError && !actionOrgUsersLoading && (
+                            <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">{labels.loadFailed}</div>
+                        )}
                         {hasActionOrgUsers && actionOrgUsers && !actionOrgUsersLoading && (
                             <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
                                 {labels.orgUserSummary
-                                    .replace('{primary}', String(actionOrgUsers.primary_users.length))
-                                    .replace('{dataScope}', String(actionOrgUsers.data_scope_users.length))}
+                                    .replace('{primary}', String(actionPrimaryUserCount))
+                                    .replace('{dataScope}', String(actionDataScopeUserCount))}
                             </div>
                         )}
                     </div>
@@ -787,7 +836,7 @@ export function AccessControlOrganizationsPage({
                         <Button variant="outline" className="h-8 rounded-[6px] border-[#E6E7EB] bg-white px-4 text-[12px] font-normal text-[#33353D] shadow-none" onClick={closeDialogs} disabled={saving}>
                             {t.common.cancel}
                         </Button>
-                        <Button variant="destructive" className="h-8 rounded-[6px] bg-[#D48806] px-4 text-[12px] font-normal text-white shadow-none hover:bg-[#B76E00]" onClick={() => void handleDeleteOrganization()} disabled={saving || hasActionOrgUsers}>
+                        <Button variant="destructive" className="h-8 rounded-[6px] bg-[#D48806] px-4 text-[12px] font-normal text-white shadow-none hover:bg-[#B76E00]" onClick={() => void handleDeleteOrganization()} disabled={saving || actionOrgUsersLoading || actionOrgUsers === null || hasActionOrgUsers}>
                             {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                             {labels.disableOrganization}
                         </Button>
@@ -819,11 +868,14 @@ export function AccessControlOrganizationsPage({
                                 {t.common.loading}
                             </div>
                         )}
+                        {actionOrgUsersError && !actionOrgUsersLoading && (
+                            <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">{labels.loadFailed}</div>
+                        )}
                         {hasActionOrgUsers && actionOrgUsers && !actionOrgUsersLoading && (
                             <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
                                 {labels.orgUserSummary
-                                    .replace('{primary}', String(actionOrgUsers.primary_users.length))
-                                    .replace('{dataScope}', String(actionOrgUsers.data_scope_users.length))}
+                                    .replace('{primary}', String(actionPrimaryUserCount))
+                                    .replace('{dataScope}', String(actionDataScopeUserCount))}
                             </div>
                         )}
                     </div>
@@ -831,7 +883,7 @@ export function AccessControlOrganizationsPage({
                         <Button variant="outline" className="h-8 rounded-[6px] border-[#E6E7EB] bg-white px-4 text-[12px] font-normal text-[#33353D] shadow-none" onClick={closeDialogs} disabled={saving}>
                             {t.common.cancel}
                         </Button>
-                        <Button variant="destructive" className="h-8 rounded-[6px] bg-[#F53F3F] px-4 text-[12px] font-normal text-white shadow-none hover:bg-[#D9363E]" onClick={() => void handleSoftDeleteOrganization()} disabled={saving || hasActionOrgUsers}>
+                        <Button variant="destructive" className="h-8 rounded-[6px] bg-[#F53F3F] px-4 text-[12px] font-normal text-white shadow-none hover:bg-[#D9363E]" onClick={() => void handleSoftDeleteOrganization()} disabled={saving || actionOrgUsersLoading || actionOrgUsers === null || hasActionOrgUsers}>
                             {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                             {labels.softDeleteOrganization}
                         </Button>
@@ -850,6 +902,11 @@ export function AccessControlOrganizationsPage({
                                 <Loader2 className="h-4 w-4 animate-spin" />
                                 {t.common.loading}
                             </div>
+                        ) : orgUsersError ? (
+                            <div className="flex flex-col items-center justify-center gap-3 py-8 text-sm text-[#F53F3F]">
+                                <span>{orgUsersError}</span>
+                                <Button variant="outline" className="h-8 rounded-[6px] px-3 text-[12px] text-[#0F23D9]" onClick={() => setOrgUsersReloadToken((current) => current + 1)}>{labels.refresh}</Button>
+                            </div>
                         ) : orgUsersData && orgUsersData.total_count === 0 ? (
                             <div className="flex items-center justify-center py-8 text-sm text-muted-foreground">
                                 {labels.orgNoUsers}
@@ -858,7 +915,7 @@ export function AccessControlOrganizationsPage({
                             <div className="space-y-4">
                                 {orgUsersData.primary_users.length > 0 && (
                                     <div>
-                                        <h4 className="mb-2 text-sm font-semibold">{labels.orgPrimaryUsers} ({orgUsersData.primary_users.length})</h4>
+                                        <h4 className="mb-2 text-sm font-semibold">{labels.orgPrimaryUsers} ({orgUsersData.primary_total_count ?? orgUsersData.primary_users.length})</h4>
                                         <div className="rounded-md border">
                                             <Table>
                                                 <TableHeader>
@@ -885,7 +942,7 @@ export function AccessControlOrganizationsPage({
                                 )}
                                 {orgUsersData.data_scope_users.length > 0 && (
                                     <div>
-                                        <h4 className="mb-2 text-sm font-semibold">{labels.orgDataScopeUsers} ({orgUsersData.data_scope_users.length})</h4>
+                                        <h4 className="mb-2 text-sm font-semibold">{labels.orgDataScopeUsers} ({orgUsersData.data_scope_total_count ?? orgUsersData.data_scope_users.length})</h4>
                                         <div className="rounded-md border">
                                             <Table>
                                                 <TableHeader>
@@ -914,6 +971,13 @@ export function AccessControlOrganizationsPage({
                         ) : null}
                     </div>
                     <DialogFooter className="border-t border-[#F2F3F5] bg-[#FAFAFB] px-5 py-4 dark:border-slate-800 dark:bg-slate-900/40">
+                        {orgUsersData && orgUsersData.total_count > 0 && (
+                            <div className="mr-auto flex items-center gap-2 text-[12px] text-[#86888F]">
+                                <span>{orgUsersPage} / {Math.max(1, Math.ceil(orgUsersData.total_count / ORG_USERS_PAGE_SIZE))} · {orgUsersData.total_count}</span>
+                                <Button variant="outline" className="h-8 rounded-[6px] px-3 text-[12px]" disabled={orgUsersPage <= 1 || orgUsersLoading} onClick={() => setOrgUsersPage((current) => Math.max(1, current - 1))}>{t.common.prev}</Button>
+                                <Button variant="outline" className="h-8 rounded-[6px] px-3 text-[12px]" disabled={orgUsersPage >= Math.ceil(orgUsersData.total_count / ORG_USERS_PAGE_SIZE) || orgUsersLoading} onClick={() => setOrgUsersPage((current) => current + 1)}>{t.common.next}</Button>
+                            </div>
+                        )}
                         <Button variant="outline" className="h-8 rounded-[6px] border-[#E6E7EB] bg-white px-4 text-[12px] font-normal text-[#33353D] shadow-none" onClick={closeDialogs}>
                             {t.common.close}
                         </Button>

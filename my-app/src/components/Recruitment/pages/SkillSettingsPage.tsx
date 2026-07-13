@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import {Plus, Search, Sparkles} from "lucide-react";
+import {Loader2, Plus, Search, Sparkles} from "lucide-react";
 
 import type {RecruitmentSkill} from "@/lib/recruitment-api";
 import {useI18n} from "@/lib/i18n";
@@ -17,18 +17,30 @@ import {
 import {Input} from "@/components/ui/input";
 
 import {EmptyState, LoadingPanel} from "../components/SharedComponents";
-import {formatDateTime, parseSkillContent, shortText} from "../utils";
+import {formatDateTime, shortText} from "../utils";
 import type {SkillTaskKind} from "../types";
 
 type SkillSettingsPageProps = {
     skillsLoading: boolean;
-    skills: RecruitmentSkill[];
+    skills: Array<RecruitmentSkill & {
+        content_preview?: string | null;
+        dimension_count?: number;
+    }>;
+    skillDetailLoadingId: number | null;
+    query: string;
+    taskFilter: "all" | SkillTaskKind;
+    total: number;
+    pageIndex: number;
+    pageSize: number;
     canManageSkill: boolean;
     openSkillEditor: (skill?: RecruitmentSkill) => void;
     openSkillEditorByTaskKind: (taskKind: SkillTaskKind) => void;
     openSkillEditorWithAI: (boundPositionId?: number | null) => void;
     toggleSkill: (skillId: number, enabled: boolean) => Promise<void>;
     setSkillDeleteTarget: (skill: RecruitmentSkill) => void;
+    onQueryChange: (query: string) => void;
+    onTaskFilterChange: (taskFilter: "all" | SkillTaskKind) => void;
+    onPageChange: (pageIndex: number) => void;
 };
 
 const taskTone: Record<string, string> = {
@@ -40,38 +52,32 @@ const taskTone: Record<string, string> = {
 export function SkillSettingsPage({
     skillsLoading,
     skills,
+    skillDetailLoadingId,
+    query,
+    taskFilter,
+    total,
+    pageIndex,
+    pageSize,
     canManageSkill,
     openSkillEditor,
     openSkillEditorByTaskKind,
     openSkillEditorWithAI,
     toggleSkill,
     setSkillDeleteTarget,
+    onQueryChange,
+    onTaskFilterChange,
+    onPageChange,
 }: SkillSettingsPageProps) {
     const {t, language} = useI18n();
     const isZh = language === "zh-CN";
-    const [query, setQuery] = React.useState("");
-    const [taskFilter, setTaskFilter] = React.useState<"all" | SkillTaskKind>("all");
     const [createDialogOpen, setCreateDialogOpen] = React.useState(false);
+    const pageCount = Math.max(1, Math.ceil(total / pageSize));
     const taskTypeLabels = React.useMemo<Record<SkillTaskKind, string>>(() => ({
         screening: t.recruitment.taskTypeScreening,
         jd: t.recruitment.taskTypeJd,
         interview: t.recruitment.taskTypeInterview,
     }), [t.recruitment.taskTypeInterview, t.recruitment.taskTypeJd, t.recruitment.taskTypeScreening]);
-    const filteredSkills = React.useMemo(() => {
-        const normalizedQuery = query.trim().toLowerCase();
-        return skills.filter((skill) => {
-            const matchesTask = taskFilter === "all" || skill.task_types?.includes(taskFilter);
-            const haystack = [skill.name, skill.description, skill.bound_position_title, ...(skill.tags || [])]
-                .filter(Boolean)
-                .join(" ")
-                .toLowerCase();
-            return matchesTask && (!normalizedQuery || haystack.includes(normalizedQuery));
-        }).sort((left, right) => {
-            const leftTime = new Date(left.updated_at || left.created_at || 0).getTime();
-            const rightTime = new Date(right.updated_at || right.created_at || 0).getTime();
-            return rightTime - leftTime || right.id - left.id;
-        });
-    }, [query, skills, taskFilter]);
+    const filteredSkills = skills;
     const createOptions = React.useMemo(() => ([
         {kind: "screening" as const, title: isZh ? "初筛评估方案" : "Screening Assessment", description: isZh ? "用于简历初筛评分：维度、满分与硬性要求" : "Define scoring dimensions, weights, and hard requirements."},
         {kind: "jd" as const, title: isZh ? "JD 分析方案" : "JD Analysis", description: isZh ? "约束 JD 生成的结构、语气与必备栏目" : "Guide the structure and tone of generated job descriptions."},
@@ -96,14 +102,14 @@ export function SkillSettingsPage({
                             value={query}
                             placeholder={isZh ? "搜索方案名称、岗位或标签" : "Search name, position, or tag"}
                             className="h-9 rounded-[4px] border-[#E6E7EB] bg-white pl-9 text-[12px] shadow-none placeholder:text-[#B0B2B8] focus-visible:border-[#1E3BFA] focus-visible:ring-[#1E3BFA]/15"
-                            onChange={(event) => setQuery(event.target.value)}
+                            onChange={(event) => onQueryChange(event.target.value)}
                         />
                     </div>
                     <select
                         aria-label={isZh ? "按方案类型筛选" : "Filter by plan type"}
                         className="h-9 min-w-[140px] rounded-[4px] border border-[#E6E7EB] bg-white px-3 text-[12px] text-[#33353D] outline-none transition focus:border-[#1E3BFA] dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200"
                         value={taskFilter}
-                        onChange={(event) => setTaskFilter(event.target.value as "all" | SkillTaskKind)}
+                        onChange={(event) => onTaskFilterChange(event.target.value as "all" | SkillTaskKind)}
                     >
                         <option value="all">{isZh ? "全部类型" : "All types"}</option>
                         <option value="screening">{t.recruitment.taskTypeScreening}</option>
@@ -133,9 +139,8 @@ export function SkillSettingsPage({
                 <div className="grid gap-4 xl:grid-cols-2">
                     {filteredSkills.map((skill) => {
                         const taskTypes = (skill.task_types || []) as SkillTaskKind[];
-                        const parsedDimensions = taskTypes.includes("screening") ? parseSkillContent(skill.content).dimensions : undefined;
                         const meta = [
-                            parsedDimensions?.length ? (isZh ? `维度 ${parsedDimensions.length}` : `${parsedDimensions.length} dimensions`) : null,
+                            skill.dimension_count ? (isZh ? `维度 ${skill.dimension_count}` : `${skill.dimension_count} dimensions`) : null,
                             skill.bound_position_title ? (isZh ? `岗位：${skill.bound_position_title}` : `Position: ${skill.bound_position_title}`) : null,
                             `${isZh ? "更新于" : "Updated"} ${formatDateTime(skill.updated_at || skill.created_at)}`,
                             skill.updated_by || skill.created_by || null,
@@ -150,7 +155,7 @@ export function SkillSettingsPage({
                                                 <span key={`${skill.id}-${taskType}`} className={cn("inline-flex h-[22px] items-center rounded-[4px] px-2 text-[11px]", taskTone[taskType] || "bg-[#F2F3F5] text-[#86888F]")}>{taskTypeLabels[taskType] || taskType}</span>
                                             ))}
                                         </div>
-                                        <p className="mt-1 line-clamp-2 text-[12px] leading-5 text-[#86888F] dark:text-slate-400">{shortText(skill.description || skill.content, 150)}</p>
+                                        <p className="mt-1 line-clamp-2 text-[12px] leading-5 text-[#86888F] dark:text-slate-400">{shortText(skill.description || skill.content_preview || skill.content, 150)}</p>
                                     </div>
                                     <span className={cn("inline-flex h-[22px] shrink-0 items-center rounded-[4px] px-2 text-[11px]", skill.is_enabled ? "bg-[rgba(12,201,145,0.1)] text-[#0B9F75]" : "bg-[#F2F3F5] text-[#86888F]")}>{skill.is_enabled ? t.recruitment.enabled : t.recruitment.disabled}</span>
                                 </div>
@@ -165,7 +170,7 @@ export function SkillSettingsPage({
                                     <p className="min-w-0 truncate text-[11px] leading-5 text-[#B0B2B8] dark:text-slate-500">{meta}</p>
                                     {canManageSkill ? (
                                         <div className="ml-auto flex shrink-0 items-center gap-4 text-[12px]">
-                                            <button type="button" className="text-[#0F23D9] hover:text-[#1E3BFA]" onClick={() => openSkillEditor(skill)}>{t.common.edit}</button>
+                                            <button type="button" className="inline-flex items-center gap-1 text-[#0F23D9] hover:text-[#1E3BFA] disabled:opacity-50" onClick={() => openSkillEditor(skill)} disabled={skillDetailLoadingId === skill.id}>{skillDetailLoadingId === skill.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true"/> : null}{t.common.edit}</button>
                                             <button type="button" className="text-[#0F23D9] hover:text-[#1E3BFA]" onClick={() => void toggleSkill(skill.id, !skill.is_enabled)}>{skill.is_enabled ? t.recruitment.disable : t.recruitment.enable}</button>
                                             <button type="button" className="text-[#F53F3F] hover:text-[#D9363E]" onClick={() => setSkillDeleteTarget(skill)}>{t.common.delete}</button>
                                         </div>
@@ -180,6 +185,14 @@ export function SkillSettingsPage({
                     <EmptyState title={t.common.noSkills || "No Assessment Plans Yet"} description={query || taskFilter !== "all" ? (isZh ? "没有符合当前筛选条件的评估方案。" : "No assessment plans match the current filters.") : (t.common.skillsEmptyHint || "Admins can maintain assessment plans here for AI screening and interview question generation.")}/>
                 </div>
             )}
+
+            {total > pageSize ? (
+                <div className="mt-5 flex items-center justify-end gap-3 text-[12px] text-[#86888F]">
+                    <Button variant="outline" size="sm" disabled={pageIndex <= 0 || skillsLoading} onClick={() => onPageChange(pageIndex - 1)}>{t.common.prev}</Button>
+                    <span>{t.common.pagination.prefix} {pageIndex + 1} {t.common.pagination.separator} {pageCount} {t.common.pagination.suffix}</span>
+                    <Button variant="outline" size="sm" disabled={pageIndex + 1 >= pageCount || skillsLoading} onClick={() => onPageChange(pageIndex + 1)}>{t.common.next}</Button>
+                </div>
+            ) : null}
 
             <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
                 <DialogContent className="gap-0 overflow-hidden rounded-[8px] border-[#EBEEF5] bg-white p-0 text-[#0E1114] shadow-[0_8px_24px_rgba(14,17,20,0.16)] sm:max-w-[560px] dark:border-[#EBEEF5] dark:bg-white dark:text-[#0E1114] [&_[data-slot=dialog-close]]:right-5 [&_[data-slot=dialog-close]]:top-[18px] [&_[data-slot=dialog-close]]:text-[#86888F]">

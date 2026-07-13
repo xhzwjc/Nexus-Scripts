@@ -503,6 +503,31 @@ def test_functional_permission_points_gate_direct_api_calls(permission_app, monk
 
     assert client.get("/admin/rbac/overview", headers=_headers(permission_app, "viewer")).status_code == 403
     assert client.get("/admin/rbac/overview", headers=_headers(permission_app, "rbac_manager")).status_code == 200
+    for path in (
+        "/admin/rbac/catalog",
+        "/admin/rbac/summary",
+        "/admin/rbac/users?page=1&page_size=10",
+        "/admin/rbac/roles",
+        "/admin/rbac/organizations",
+        "/admin/rbac/audit-logs?page=1&page_size=10",
+    ):
+        assert client.get(path, headers=_headers(permission_app, "viewer")).status_code == 403
+        assert client.get(path, headers=_headers(permission_app, "rbac_manager")).status_code == 200
+
+    user_detail = client.get(
+        "/admin/rbac/users/rbac-manager",
+        headers=_headers(permission_app, "rbac_manager"),
+    )
+    assert user_detail.status_code == 200
+    assert user_detail.json()["user_code"] == "rbac-manager"
+
+    org_users = client.get(
+        "/admin/rbac/organizations/company-a/users?page=1&page_size=2",
+        headers=_headers(permission_app, "rbac_manager"),
+    )
+    assert org_users.status_code == 200
+    assert org_users.json()["page_size"] == 2
+    assert org_users.json()["total_count"] >= 2
 
 
 def test_authorization_boundary_blocks_cross_org_and_overpowered_grants(permission_app):

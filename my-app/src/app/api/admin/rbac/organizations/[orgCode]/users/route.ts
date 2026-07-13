@@ -13,7 +13,10 @@ export async function GET(request: NextRequest, context: RouteContext) {
     }
 
     const { orgCode } = await context.params;
-    return proxyAdminRbacRequest(request, `/admin/rbac/organizations/${encodeURIComponent(orgCode)}/users`, {
+    const query = request.nextUrl.searchParams.toString();
+    const basePath = `/admin/rbac/organizations/${encodeURIComponent(orgCode)}/users`;
+    const path = query ? `${basePath}?${query}` : basePath;
+    return proxyAdminRbacRequest(request, path, {
         method: 'GET',
         signal: AbortSignal.timeout(20000),
     });

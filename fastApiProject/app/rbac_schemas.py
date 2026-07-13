@@ -191,6 +191,74 @@ class ScriptHubRbacOverviewResponse(BaseModel):
     audit_logs: List[ScriptHubAuditLogSchema]
 
 
+class ScriptHubRbacUsersResponse(BaseModel):
+    items: List[ScriptHubAdminUserSchema]
+    total: int
+    page: int
+    page_size: int
+
+
+class ScriptHubRbacRolesResponse(BaseModel):
+    items: List[ScriptHubAdminRoleSchema]
+    total: int
+
+
+class ScriptHubOrganizationDirectorySchema(ScriptHubOrganizationSchema):
+    primary_user_count: int = 0
+
+
+class ScriptHubRbacOrganizationsResponse(BaseModel):
+    items: List[ScriptHubOrganizationDirectorySchema]
+    total: int
+
+
+class ScriptHubOrganizationUserItemSchema(BaseModel):
+    user_code: str
+    display_name: str
+    is_active: bool
+
+
+class ScriptHubOrganizationUsersResponse(BaseModel):
+    org_code: str
+    org_name: str
+    primary_users: List[ScriptHubOrganizationUserItemSchema]
+    data_scope_users: List[ScriptHubOrganizationUserItemSchema]
+    primary_total_count: int
+    data_scope_total_count: int
+    total_count: int
+    page: Optional[int] = None
+    page_size: Optional[int] = None
+
+
+class ScriptHubRbacAuditLogsResponse(BaseModel):
+    items: List[ScriptHubAuditLogSchema]
+    total: int
+    page: int
+    page_size: int
+    target_types: List[str] = Field(default_factory=list)
+
+
+class ScriptHubRbacHighRiskUserSchema(BaseModel):
+    user_code: str
+    display_name: str
+    is_super_admin: bool
+    effective_permission_keys: List[str]
+
+
+class ScriptHubRbacSummaryResponse(BaseModel):
+    user_count: int
+    active_user_count: int
+    role_count: int
+    active_role_count: int
+    system_role_count: int
+    organization_count: int
+    active_organization_count: int
+    audit_log_count: int
+    data_scope_counts: Dict[str, int]
+    high_risk_user_count: int
+    high_risk_users: List[ScriptHubRbacHighRiskUserSchema]
+
+
 class ScriptHubUserCreateRequest(BaseModel):
     user_code: str = Field(min_length=2, max_length=100)
     display_name: str = Field(min_length=1, max_length=100)

@@ -47,7 +47,7 @@ import { saveRecentScript } from './components/Layout/QuickActions';
 import { DashboardLoadingScreen } from './components/Layout/DashboardLoadingScreen';
 import { getScriptDesc, getScriptName, getSystemDesc, getSystemName } from './components/AppShell/dashboardLabels';
 import { HomeDashboard } from './components/AppShell/HomeDashboard';
-import { WelcomePage, WelcomePageUnauthorized } from './components/AppShell/WelcomePage';
+import { WelcomePage } from './components/AppShell/WelcomePage';
 import { LoginScreen } from './components/AppShell/LoginScreen';
 import { LockScreenOverlay } from './components/AppShell/LockScreenOverlay';
 import { useDashboardSearch } from './components/AppShell/hooks/useDashboardSearch';
@@ -64,6 +64,7 @@ import { toast } from './lib/toast';
 
 // 类型和配置导入
 import type { Permission, ViewType } from './lib/types';
+import type { RecruitmentPage } from './components/Recruitment/types';
 
 import { ThemeProvider } from '@/lib/theme';
 
@@ -501,7 +502,7 @@ function AppContent() {
     if (!isDashboardReady) {
         return (
             <DashboardLoadingScreen
-                minDisplayTime={800}
+                minDisplayTime={120}
                 onComplete={() => {
                     sessionStorage.setItem('dashboard_ready', 'true');
                     setIsDashboardReady(true);
@@ -663,7 +664,7 @@ function AppContent() {
                         )}
                         {currentView === 'ai-recruitment' && (
                             <div className="h-full p-0">
-                                <RecruitmentAutomationContainer onBack={handleRecruitmentBack} initialPage={recruitmentInitialPage as any} />
+                                <RecruitmentAutomationContainer onBack={handleRecruitmentBack} initialPage={recruitmentInitialPage as RecruitmentPage} />
                             </div>
                         )}
                         {currentView === 'access-control' && (

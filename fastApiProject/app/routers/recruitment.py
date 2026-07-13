@@ -1936,13 +1936,22 @@ async def delete_resume_file(
 
 
 @recruitment_router.get("/skills")
-async def list_skills(_session: Dict[str, Any] = Depends(require_script_hub_any_permission(["recruitment-skill-view", "recruitment-skill-bind", "recruitment-skill-manage"])), service: RecruitmentService = Depends(get_recruitment_service)):
+def list_skills(query: Optional[str] = Query(None), task_type: Optional[str] = Query(None), org_code: Optional[List[str]] = Query(None), limit: int = Query(0, ge=0, le=100), offset: int = Query(0, ge=0), summary: bool = Query(False), _session: Dict[str, Any] = Depends(require_script_hub_any_permission(["recruitment-skill-view", "recruitment-skill-bind", "recruitment-skill-manage"])), service: RecruitmentService = Depends(get_recruitment_service)):
     try:
-        data = service.list_skills()
-        return {"success": True, "data": data, "total": len(data), "request_id": str(uuid.uuid4())}
+        data = service.list_skills(query=query, task_type=task_type, org_codes=org_code, limit=limit, offset=offset, summary=summary)
+        total = int(data.get("total") or 0) if isinstance(data, dict) else len(data)
+        return {"success": True, "data": data, "total": total, "request_id": str(uuid.uuid4())}
     except Exception as exc:
         logger.error("list_skills failed: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail=str(exc))
+
+
+@recruitment_router.get("/skills/{skill_id}")
+def get_skill_detail(skill_id: int, _session: Dict[str, Any] = Depends(require_script_hub_any_permission(["recruitment-skill-view", "recruitment-skill-bind", "recruitment-skill-manage"])), service: RecruitmentService = Depends(get_recruitment_service)):
+    try:
+        return {"success": True, "data": service.get_skill_detail(skill_id), "request_id": str(uuid.uuid4())}
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
 
 
 @recruitment_router.post("/skills")
@@ -2164,7 +2173,7 @@ async def copy_resource(
 
 
 @recruitment_router.get("/llm-configs")
-async def list_llm_configs(_session: Dict[str, Any] = Depends(require_script_hub_any_permission(["recruitment-llm-config-view", "recruitment-llm-config-manage"])), service: RecruitmentService = Depends(get_recruitment_service)):
+def list_llm_configs(_session: Dict[str, Any] = Depends(require_script_hub_any_permission(["recruitment-llm-config-view", "recruitment-llm-config-manage"])), service: RecruitmentService = Depends(get_recruitment_service)):
     data = service.list_llm_configs()
     return {"success": True, "data": data, "total": len(data), "request_id": str(uuid.uuid4())}
 
@@ -2202,7 +2211,7 @@ async def delete_llm_config(http_request: Request, config_id: int, db: Session =
 
 
 @recruitment_router.get("/mail-senders")
-async def list_mail_senders(_session: Dict[str, Any] = Depends(require_script_hub_any_permission(["recruitment-mail-view", "recruitment-mail-sender-manage"])), service: RecruitmentService = Depends(get_recruitment_service)):
+def list_mail_senders(_session: Dict[str, Any] = Depends(require_script_hub_any_permission(["recruitment-mail-view", "recruitment-mail-sender-manage"])), service: RecruitmentService = Depends(get_recruitment_service)):
     try:
         data = service.list_mail_senders()
         return {"success": True, "data": data, "total": len(data), "request_id": str(uuid.uuid4())}
@@ -2242,13 +2251,13 @@ async def delete_mail_sender(http_request: Request, sender_id: int, db: Session 
 
 
 @recruitment_router.get("/mail-recipients")
-async def list_mail_recipients(_session: Dict[str, Any] = Depends(require_script_hub_any_permission(["recruitment-mail-view", "recruitment-mail-config-manage"])), service: RecruitmentService = Depends(get_recruitment_service)):
+def list_mail_recipients(_session: Dict[str, Any] = Depends(require_script_hub_any_permission(["recruitment-mail-view", "recruitment-mail-config-manage"])), service: RecruitmentService = Depends(get_recruitment_service)):
     data = service.list_mail_recipients()
     return {"success": True, "data": data, "total": len(data), "request_id": str(uuid.uuid4())}
 
 
 @recruitment_router.get("/mail-auto-config")
-async def get_mail_auto_push_global_config(_session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-mail-view")), service: RecruitmentService = Depends(get_recruitment_service)):
+def get_mail_auto_push_global_config(_session: Dict[str, Any] = Depends(require_script_hub_any_permission(["recruitment-mail-view", "recruitment-mail-config-manage"])), service: RecruitmentService = Depends(get_recruitment_service)):
     return {"success": True, "data": service.get_mail_auto_push_global_config(), "request_id": str(uuid.uuid4())}
 
 
@@ -2290,9 +2299,18 @@ async def delete_mail_recipient(http_request: Request, recipient_id: int, db: Se
 
 
 @recruitment_router.get("/resume-mail-dispatches")
-async def list_resume_mail_dispatches(_session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-mail-view")), service: RecruitmentService = Depends(get_recruitment_service)):
-    data = service.list_resume_mail_dispatches()
-    return {"success": True, "data": data, "total": len(data), "request_id": str(uuid.uuid4())}
+def list_resume_mail_dispatches(org_code: Optional[List[str]] = Query(None), limit: int = Query(0, ge=0, le=100), offset: int = Query(0, ge=0), summary: bool = Query(False), _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-mail-view")), service: RecruitmentService = Depends(get_recruitment_service)):
+    data = service.list_resume_mail_dispatches(org_codes=org_code, limit=limit, offset=offset, summary=summary)
+    total = int(data.get("total") or 0) if isinstance(data, dict) else len(data)
+    return {"success": True, "data": data, "total": total, "request_id": str(uuid.uuid4())}
+
+
+@recruitment_router.get("/resume-mail-dispatches/{dispatch_id}")
+def get_resume_mail_dispatch(dispatch_id: int, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-mail-view")), service: RecruitmentService = Depends(get_recruitment_service)):
+    try:
+        return {"success": True, "data": service.get_resume_mail_dispatch(dispatch_id), "request_id": str(uuid.uuid4())}
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
 
 
 @recruitment_router.post("/resume-mail-dispatches/send")

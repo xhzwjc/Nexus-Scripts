@@ -2,16 +2,26 @@ import json
 import logging
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 
+from .. import database
 from ..database import get_db
 from ..rbac_schemas import (
     ScriptHubDeleteResponse,
     ScriptHubOrganizationCreateRequest,
+    ScriptHubOrganizationUsersResponse,
     ScriptHubOrganizationMutationResponse,
     ScriptHubOrganizationUpdateRequest,
+    ScriptHubAdminUserSchema,
+    ScriptHubRbacAuditLogsResponse,
+    ScriptHubRbacCatalogSchema,
+    ScriptHubRbacOrganizationsResponse,
     ScriptHubRbacOverviewResponse,
+    ScriptHubRbacRolesResponse,
+    ScriptHubRbacSummaryResponse,
+    ScriptHubRbacUsersResponse,
     ScriptHubRotateAccessKeyRequest,
     ScriptHubRoleCreateRequest,
     ScriptHubRoleMutationResponse,
@@ -35,8 +45,15 @@ from ..services.script_hub_admin_service import (
     delete_organization,
     delete_rbac_role,
     delete_rbac_user,
+    get_rbac_summary,
+    get_rbac_user,
     get_org_users,
+    list_rbac_audit_logs,
+    list_rbac_catalog,
+    list_rbac_organizations,
     list_rbac_overview,
+    list_rbac_roles,
+    list_rbac_users,
     soft_delete_organization,
     rotate_user_access_key,
     update_organization,
@@ -50,6 +67,14 @@ logger = logging.getLogger(__name__)
 
 auth_router = APIRouter(prefix="/auth", tags=["认证"])
 rbac_router = APIRouter(prefix="/admin/rbac", tags=["权限管理"])
+
+
+def _authenticate_access_key_with_owned_session(access_key: str) -> Optional[Dict[str, Any]]:
+    db = database.SessionLocal()
+    try:
+        return authenticate_access_key(db, access_key)
+    finally:
+        db.close()
 
 
 def _audit_details_from_payload(payload: Any) -> Dict[str, Any]:
@@ -119,7 +144,7 @@ def _write_failed_audit_log(
 
 
 @auth_router.post("/session")
-async def create_auth_session(request: Request, db: Session = Depends(get_db)):
+async def create_auth_session(request: Request):
     try:
         body = await request.json()
     except Exception:
@@ -129,7 +154,7 @@ async def create_auth_session(request: Request, db: Session = Depends(get_db)):
     if not key:
         raise HTTPException(status_code=400, detail="Missing access key")
 
-    user = authenticate_access_key(db, key)
+    user = await run_in_threadpool(_authenticate_access_key_with_owned_session, key)
     if not user:
         raise HTTPException(status_code=401, detail="Invalid access key")
 
@@ -137,7 +162,7 @@ async def create_auth_session(request: Request, db: Session = Depends(get_db)):
 
 
 @auth_router.get("/session")
-async def verify_auth_session(request: Request, db: Session = Depends(get_db)):
+def verify_auth_session(request: Request, db: Session = Depends(get_db)):
     token = get_script_hub_token_from_request(request)
     if not token:
         raise HTTPException(status_code=401, detail="Unauthorized")
@@ -159,11 +184,113 @@ async def verify_auth_session(request: Request, db: Session = Depends(get_db)):
 
 
 @rbac_router.get("/overview", response_model=ScriptHubRbacOverviewResponse)
-async def get_rbac_overview(
+def get_rbac_overview(
     db: Session = Depends(get_db),
     session: Dict[str, Any] = Depends(require_script_hub_permission("rbac-manage")),
 ):
     return list_rbac_overview(db, actor=session)
+
+
+@rbac_router.get("/catalog", response_model=ScriptHubRbacCatalogSchema)
+def get_rbac_catalog_endpoint(
+    db: Session = Depends(get_db),
+    session: Dict[str, Any] = Depends(require_script_hub_permission("rbac-manage")),
+):
+    return list_rbac_catalog(db, actor=session)
+
+
+@rbac_router.get("/summary", response_model=ScriptHubRbacSummaryResponse)
+def get_rbac_summary_endpoint(
+    db: Session = Depends(get_db),
+    session: Dict[str, Any] = Depends(require_script_hub_permission("rbac-manage")),
+):
+    return get_rbac_summary(db, actor=session)
+
+
+@rbac_router.get("/users", response_model=ScriptHubRbacUsersResponse)
+def list_rbac_users_endpoint(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=100),
+    search: Optional[str] = Query(default=None, max_length=200),
+    org_code: Optional[str] = Query(default=None, max_length=100),
+    role_code: Optional[str] = Query(default=None, max_length=100),
+    data_scope: Optional[str] = Query(default=None, max_length=40),
+    is_active: Optional[bool] = Query(default=None),
+    config_state: Optional[str] = Query(default=None, max_length=20),
+    db: Session = Depends(get_db),
+    session: Dict[str, Any] = Depends(require_script_hub_permission("rbac-manage")),
+):
+    try:
+        return list_rbac_users(
+            db,
+            actor=session,
+            page=page,
+            page_size=page_size,
+            search=search,
+            org_code=org_code,
+            role_code=role_code,
+            data_scope=data_scope,
+            is_active=is_active,
+            config_state=config_state,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=_rbac_value_error_status(exc), detail=str(exc))
+
+
+@rbac_router.get("/users/{user_code}", response_model=ScriptHubAdminUserSchema)
+def get_rbac_user_endpoint(
+    user_code: str,
+    db: Session = Depends(get_db),
+    session: Dict[str, Any] = Depends(require_script_hub_permission("rbac-manage")),
+):
+    try:
+        return get_rbac_user(db, user_code, actor=session)
+    except ValueError as exc:
+        status_code = 404 if str(exc) == "User not found" else _rbac_value_error_status(exc)
+        raise HTTPException(status_code=status_code, detail=str(exc))
+
+
+@rbac_router.get("/roles", response_model=ScriptHubRbacRolesResponse)
+def list_rbac_roles_endpoint(
+    db: Session = Depends(get_db),
+    session: Dict[str, Any] = Depends(require_script_hub_permission("rbac-manage")),
+):
+    return list_rbac_roles(db)
+
+
+@rbac_router.get("/organizations", response_model=ScriptHubRbacOrganizationsResponse)
+def list_rbac_organizations_endpoint(
+    db: Session = Depends(get_db),
+    session: Dict[str, Any] = Depends(require_script_hub_permission("rbac-manage")),
+):
+    return list_rbac_organizations(db, actor=session)
+
+
+@rbac_router.get("/audit-logs", response_model=ScriptHubRbacAuditLogsResponse)
+def list_rbac_audit_logs_endpoint(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=100),
+    search: Optional[str] = Query(default=None, max_length=200),
+    actor: Optional[str] = Query(default=None, max_length=100),
+    action: Optional[str] = Query(default=None, max_length=100),
+    target_type: Optional[str] = Query(default=None, max_length=50),
+    result: Optional[str] = Query(default=None, max_length=20),
+    sensitivity: Optional[str] = Query(default=None, max_length=40),
+    db: Session = Depends(get_db),
+    session: Dict[str, Any] = Depends(require_script_hub_permission("rbac-manage")),
+):
+    return list_rbac_audit_logs(
+        db,
+        actor=session,
+        page=page,
+        page_size=page_size,
+        search=search,
+        actor_search=actor,
+        action=action,
+        target_type=target_type,
+        result=result,
+        sensitivity=sensitivity,
+    )
 
 
 @rbac_router.post("/users", response_model=ScriptHubUserMutationResponse)
@@ -580,14 +707,28 @@ async def delete_rbac_organization_endpoint(
         raise HTTPException(status_code=_rbac_value_error_status(exc), detail=str(exc))
 
 
-@rbac_router.get("/organizations/{org_code}/users")
-async def get_rbac_organization_users_endpoint(
+@rbac_router.get(
+    "/organizations/{org_code}/users",
+    response_model=ScriptHubOrganizationUsersResponse,
+    response_model_exclude_none=True,
+)
+def get_rbac_organization_users_endpoint(
     org_code: str,
+    page: Optional[int] = Query(default=None, ge=1),
+    page_size: Optional[int] = Query(default=None, ge=1, le=100),
+    search: Optional[str] = Query(default=None, max_length=200),
     db: Session = Depends(get_db),
     session: Dict[str, Any] = Depends(require_script_hub_permission("rbac-manage")),
 ):
     try:
-        return get_org_users(db, org_code, actor=session)
+        return get_org_users(
+            db,
+            org_code,
+            actor=session,
+            page=page,
+            page_size=page_size,
+            search=search,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=_rbac_value_error_status(exc), detail=str(exc))
 

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import dynamic from 'next/dynamic';
 import { AlertTriangle, CopyPlus, Loader2, Pencil, Plus, Trash2 } from 'lucide-react';
 import { toast } from '@/lib/toast';
 import { authenticatedFetch } from '@/lib/auth';
@@ -17,10 +18,11 @@ import {
     DialogHeader,
     DialogTitle,
 } from '@/components/ui/dialog';
-import type { ScriptHubPermissionDefinition, ScriptHubRbacOverview, ScriptHubRoleDefinition } from '@/lib/types';
-import { RoleForm, type RoleEditorMode } from './RoleForm';
+import type { ScriptHubPermissionDefinition, ScriptHubRoleDefinition } from '@/lib/types';
+import type { RoleEditorMode } from './RoleForm';
 import { RoleTable, type RoleDirectoryFilter } from './RoleTable';
-import type { DeleteMutationResponse, RoleFormErrors, RoleFormState, RoleMutationResponse } from './types';
+import type { DeleteMutationResponse, RbacCatalogResponse, RoleFormErrors, RoleFormState, RoleMutationResponse } from './types';
+import { invalidateRbacCache, useRbacQuery } from './accessControlQuery';
 import {
     categoryLabel,
     createEmptyRoleForm,
@@ -33,10 +35,7 @@ import {
 import type { AccessControlLabels } from './utils';
 
 interface AccessControlRolesPageProps {
-    overview: ScriptHubRbacOverview | null;
-    loading: boolean;
-    error: string | null;
-    onReload: () => Promise<void>;
+    refreshToken: number;
 }
 
 interface PendingNavigation {
@@ -46,6 +45,16 @@ interface PendingNavigation {
 
 const EMPTY_ROLES: ScriptHubRoleDefinition[] = [];
 const EMPTY_PERMISSIONS: ScriptHubPermissionDefinition[] = [];
+const RoleForm = dynamic(
+    () => import('./RoleForm').then((module) => module.RoleForm),
+    {
+        loading: () => (
+            <div className="flex h-full min-h-[360px] items-center justify-center text-[#86888F]">
+                <Loader2 className="h-5 w-5 animate-spin" />
+            </div>
+        ),
+    },
+);
 const CATEGORY_ACCENTS: Record<string, string> = {
     business: '#1E3BFA',
     finance: '#0CC991',
@@ -199,10 +208,7 @@ function RoleDetailPanel({
 }
 
 export function AccessControlRolesPage({
-    overview,
-    loading,
-    error,
-    onReload,
+    refreshToken,
 }: AccessControlRolesPageProps) {
     const { t } = useI18n();
     const labels = t.accessControl;
@@ -221,8 +227,11 @@ export function AccessControlRolesPage({
     const [dialogError, setDialogError] = useState<string | null>(null);
     const [deleteDialogError, setDeleteDialogError] = useState<string | null>(null);
 
-    const roles = overview?.catalog.roles ?? EMPTY_ROLES;
-    const permissions = overview?.catalog.permissions ?? EMPTY_PERMISSIONS;
+    const catalogQuery = useRbacQuery<RbacCatalogResponse>('/api/admin/rbac/catalog', labels.loadFailed, refreshToken);
+    const roles = catalogQuery.data?.roles ?? EMPTY_ROLES;
+    const permissions = catalogQuery.data?.permissions ?? EMPTY_PERMISSIONS;
+    const loading = catalogQuery.loading;
+    const error = catalogQuery.error;
     const visibleRoles = useMemo(() => {
         const normalizedQuery = query.trim().toLowerCase();
         return roles.filter((role) => {
@@ -239,6 +248,14 @@ export function AccessControlRolesPage({
     const mergedErrors = useMemo(() => ({ ...serverErrors, ...formErrors }), [formErrors, serverErrors]);
     const isFormValid = Object.keys(formErrors).length === 0;
     const formDirty = useMemo(() => JSON.stringify(form) !== JSON.stringify(initialForm), [form, initialForm]);
+
+    const reloadRoleSlice = () => {
+        invalidateRbacCache('/api/admin/rbac/catalog');
+        invalidateRbacCache('/api/admin/rbac/users');
+        invalidateRbacCache('/api/admin/rbac/summary');
+        invalidateRbacCache('/api/admin/rbac/audit-logs');
+        catalogQuery.reload();
+    };
 
     useEffect(() => {
         if (editorMode) return;
@@ -366,7 +383,7 @@ export function AccessControlRolesPage({
 
             toast.success(mutationMode === 'create' ? labels.roleCreated : labels.roleUpdated);
             resetEditorState();
-            await onReload();
+            reloadRoleSlice();
             setSelectedRoleCode(payload.role.code);
         } catch (saveError) {
             const message = saveError instanceof Error ? saveError.message : labels.roleSaveFailed;
@@ -392,7 +409,7 @@ export function AccessControlRolesPage({
             toast.success(labels.roleDeleted);
             setSelectedRoleCode(null);
             setDeleteRole(null);
-            await onReload();
+            reloadRoleSlice();
         } catch (deleteError) {
             const message = deleteError instanceof Error ? deleteError.message : labels.deleteFailed;
             const mapped = mapRoleMutationError(message, labels);
@@ -415,7 +432,7 @@ export function AccessControlRolesPage({
         return (
             <div className="flex min-h-[560px] flex-col items-center justify-center gap-3 rounded-[10px] border border-[#EBEEF5] px-6 text-center">
                 <p className="max-w-md text-[12px] leading-5 text-[#F53F3F]">{error}</p>
-                <Button variant="outline" className="h-8 rounded-[6px] border-[#E6E7EB] bg-white px-3 text-[12px] font-normal text-[#0F23D9] shadow-none" onClick={() => void onReload()}>{labels.refresh}</Button>
+                <Button variant="outline" className="h-8 rounded-[6px] border-[#E6E7EB] bg-white px-3 text-[12px] font-normal text-[#0F23D9] shadow-none" onClick={reloadRoleSlice}>{labels.refresh}</Button>
             </div>
         );
     }

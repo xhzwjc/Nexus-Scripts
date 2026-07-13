@@ -8,6 +8,18 @@ type Context = {
     }>;
 };
 
+export async function GET(request: NextRequest, context: Context) {
+    const auth = ensureRbacAdmin(request);
+    if ('response' in auth) {
+        return auth.response;
+    }
+
+    const { userCode } = await context.params;
+    return proxyAdminRbacRequest(request, `/admin/rbac/users/${encodeURIComponent(userCode)}`, {
+        method: 'GET',
+    });
+}
+
 export async function PATCH(request: NextRequest, context: Context) {
     const auth = ensureRbacAdmin(request);
     if ('response' in auth) {

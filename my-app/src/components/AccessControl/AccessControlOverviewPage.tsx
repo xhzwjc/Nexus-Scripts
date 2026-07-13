@@ -1,20 +1,23 @@
 'use client';
 
-import type { DataScope, ScriptHubRbacOverview } from '@/lib/types';
+import { Loader2 } from 'lucide-react';
+import type { DataScope } from '@/lib/types';
+import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
 import { CONFIG_PERMISSION_KEYS, DATA_SCOPE_OPTIONS } from './constants';
 import { CompactBadgeList } from './AccessControlBadges';
+import { useRbacQuery } from './accessControlQuery';
+import type { RbacCatalogResponse, RbacSummaryResponse } from './types';
 import type { AccessControlLabels } from './utils';
 import {
-    countBy,
     createPermissionMap,
     getDataScopeLabel,
-    normalizeDataScope,
 } from './utils';
 
 interface AccessControlOverviewPageProps {
-    overview: ScriptHubRbacOverview | null;
     labels: AccessControlLabels;
+    refreshToken: number;
 }
 
 const SCOPE_COLORS: Record<DataScope, string> = {
@@ -25,43 +28,38 @@ const SCOPE_COLORS: Record<DataScope, string> = {
     SELF: '#86888F',
 };
 
-export function AccessControlOverviewPage({ overview, labels }: AccessControlOverviewPageProps) {
-    const users = overview?.users || [];
-    const roles = overview?.catalog.roles || [];
-    const permissions = overview?.catalog.permissions || [];
-    const organizations = overview?.catalog.organizations || [];
-    const permissionMap = createPermissionMap(permissions);
-    const activeUsers = users.filter((user) => user.is_active).length;
-    const systemRoles = roles.filter((role) => role.is_system).length;
-    const scopeCounts = countBy(users.map((user) => normalizeDataScope(user.data_scope)));
-    const highRiskUsers = users.filter((user) => (
-        user.is_super_admin ||
-        user.effective_permission_keys.some((permissionKey) => CONFIG_PERMISSION_KEYS.includes(permissionKey))
-    ));
+export function AccessControlOverviewPage({ labels, refreshToken }: AccessControlOverviewPageProps) {
+    const { t } = useI18n();
+    const summaryQuery = useRbacQuery<RbacSummaryResponse>('/api/admin/rbac/summary', labels.loadFailed, refreshToken);
+    const catalogQuery = useRbacQuery<RbacCatalogResponse>('/api/admin/rbac/catalog', labels.loadFailed, refreshToken);
+    const summary = summaryQuery.data;
+    const permissionMap = createPermissionMap(catalogQuery.data?.permissions || []);
+    const scopeCounts = summary?.data_scope_counts || {};
+    const highRiskUsers = summary?.high_risk_users || [];
     const maxScopeCount = Math.max(1, ...DATA_SCOPE_OPTIONS.map((scope) => scopeCounts[scope] || 0));
 
     const statCards = [
         {
             label: labels.totalUsers,
-            value: users.length,
-            sub: `${organizations.length} ${labels.organizationsPageTitle}`,
+            value: summary?.user_count || 0,
+            sub: `${summary?.organization_count || 0} ${labels.organizationsPageTitle}`,
             color: '#1E3BFA',
         },
         {
             label: labels.activeUsers,
-            value: activeUsers,
-            sub: `${users.length - activeUsers} ${labels.inactive}`,
+            value: summary?.active_user_count || 0,
+            sub: `${Math.max(0, (summary?.user_count || 0) - (summary?.active_user_count || 0))} ${labels.inactive}`,
             color: '#0CC991',
         },
         {
             label: labels.totalRoles,
-            value: roles.length,
-            sub: `${systemRoles} ${labels.systemRole}`,
+            value: summary?.role_count || 0,
+            sub: `${summary?.system_role_count || 0} ${labels.systemRole}`,
             color: '#2E9CFF',
         },
         {
             label: labels.highRiskConfigSummary,
-            value: highRiskUsers.length,
+            value: summary?.high_risk_user_count || 0,
             sub: labels.highRiskConfigSummaryDesc,
             color: '#FFAB24',
         },
@@ -73,6 +71,24 @@ export function AccessControlOverviewPage({ overview, labels }: AccessControlOve
         { number: '3', title: labels.dataScope, description: labels.dataScopeDistributionDesc, color: '#2E9CFF', background: 'rgba(46,156,255,0.1)' },
         { number: '4', title: labels.authorizationBoundary, description: labels.authorizationBoundaryHelp, color: '#D48806', background: 'rgba(255,171,36,0.14)' },
     ];
+
+    if (summaryQuery.loading) {
+        return (
+            <div className="flex min-h-[360px] items-center justify-center rounded-[8px] border border-[#EBEEF5] text-[12px] text-[#86888F]">
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                {t.common.loading}
+            </div>
+        );
+    }
+
+    if (summaryQuery.error || !summary) {
+        return (
+            <div className="flex min-h-[360px] flex-col items-center justify-center gap-3 rounded-[8px] border border-[#EBEEF5] px-6 text-center">
+                <p className="max-w-md text-[12px] text-[#F53F3F]">{summaryQuery.error || labels.loadFailed}</p>
+                <Button variant="outline" className="h-8 rounded-[6px] border-[#E6E7EB] bg-white px-3 text-[12px] font-normal text-[#0F23D9] shadow-none" onClick={summaryQuery.reload}>{labels.refresh}</Button>
+            </div>
+        );
+    }
 
     return (
         <section aria-labelledby="access-control-overview-title" className="space-y-5">
@@ -143,7 +159,7 @@ export function AccessControlOverviewPage({ overview, labels }: AccessControlOve
                     <div className="flex min-h-24 items-center justify-center text-[12px] text-[#86888F]">{labels.noHighRiskUsers}</div>
                 ) : (
                     <div className="mt-4 flex flex-wrap gap-3">
-                        {highRiskUsers.slice(0, 8).map((user, index) => {
+                        {highRiskUsers.map((user, index) => {
                             const riskyPermissions = user.effective_permission_keys
                                 .filter((permissionKey) => CONFIG_PERMISSION_KEYS.includes(permissionKey))
                                 .map((permissionKey) => permissionMap.get(permissionKey)?.name || permissionKey);

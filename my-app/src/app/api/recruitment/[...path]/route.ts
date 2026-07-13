@@ -64,7 +64,7 @@ function resolveRecruitmentPermission(path: string, method: string): string | st
 
   if (path === "llm-configs" || path.startsWith("llm-configs/")) {
     return normalizedMethod === "GET" || normalizedMethod === "HEAD"
-      ? "recruitment-llm-config-view"
+      ? ["recruitment-llm-config-view", "recruitment-llm-config-manage"]
       : "recruitment-llm-config-manage";
   }
 
@@ -136,13 +136,17 @@ function resolveRecruitmentPermission(path: string, method: string): string | st
     return "recruitment-mail-send";
   }
 
+  if (path === "resume-mail-dispatches" || path.startsWith("resume-mail-dispatches/")) {
+    return "recruitment-mail-view";
+  }
+
   if (path === "resource-governance" || path.startsWith("resource-governance/")) {
     return "resource-sharing-manage";
   }
 
   if (path === "mail-senders" || path.startsWith("mail-senders/")) {
     return normalizedMethod === "GET" || normalizedMethod === "HEAD"
-      ? "recruitment-mail-view"
+      ? ["recruitment-mail-view", "recruitment-mail-sender-manage"]
       : "recruitment-mail-sender-manage";
   }
 
@@ -152,13 +156,13 @@ function resolveRecruitmentPermission(path: string, method: string): string | st
     || path === "mail-auto-config"
   ) {
     return normalizedMethod === "GET" || normalizedMethod === "HEAD"
-      ? "recruitment-mail-view"
+      ? ["recruitment-mail-view", "recruitment-mail-config-manage"]
       : "recruitment-mail-config-manage";
   }
 
   if (path === "skills" || path.startsWith("skills/")) {
     return normalizedMethod === "GET" || normalizedMethod === "HEAD"
-      ? "recruitment-skill-view"
+      ? ["recruitment-skill-view", "recruitment-skill-bind", "recruitment-skill-manage"]
       : "recruitment-skill-manage";
   }
 
@@ -285,6 +289,7 @@ async function proxyRecruitmentRequest(
       if (!responseHeaders.has("content-type")) {
         responseHeaders.set("content-type", "application/json; charset=utf-8");
       }
+      responseHeaders.set("Server-Timing", `recruitment-upstream;dur=${elapsedMs}`);
       if (isSSE && response.body) {
         // Prevent Next.js compression and upstream proxy buffering
         responseHeaders.set("Cache-Control", "no-cache, no-transform");
@@ -297,8 +302,7 @@ async function proxyRecruitmentRequest(
           headers: responseHeaders,
         });
       }
-      const raw = await response.arrayBuffer();
-      return new NextResponse(raw, {
+      return new Response(response.body, {
         status: response.status,
         headers: responseHeaders,
       });

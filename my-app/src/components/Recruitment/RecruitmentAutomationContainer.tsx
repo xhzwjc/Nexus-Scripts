@@ -243,10 +243,14 @@ import {
 import {StructuredSkillEditor} from "./components/StructuredSkillEditor";
 import {SettingsPageLayout, type RecruitmentSettingsPage} from "./components/SettingsPageLayout";
 import {AssistantPage} from "./pages/AssistantPage";
-import {ModelSettingsPage} from "./pages/ModelSettingsPage";
 import {PositionsListPage} from "./pages/PositionsListPage";
-import {SkillSettingsPage} from "./pages/SkillSettingsPage";
 import {WorkspacePage} from "./pages/WorkspacePage";
+import {
+    buildSettingsListQuery,
+    normalizeSettingsListResponse,
+    shouldBootstrapRecruitmentCore,
+    type SettingsListResponse,
+} from "./settingsPerformance";
 
 function PageChunkLoading() {
     return (
@@ -356,6 +360,8 @@ function uniqueAiTaskLogs(logs: AITaskLog[]) {
 }
 const CandidatesPage = nextDynamic(() => import("./pages/CandidatesPage").then((mod) => mod.CandidatesPage), {loading: PageChunkLoading, ssr: false});
 const MailSettingsPage = nextDynamic(() => import("./pages/MailSettingsPage").then((mod) => mod.MailSettingsPage), {loading: PageChunkLoading, ssr: false});
+const ModelSettingsPage = nextDynamic(() => import("./pages/ModelSettingsPage").then((mod) => mod.ModelSettingsPage), {loading: PageChunkLoading, ssr: false});
+const SkillSettingsPage = nextDynamic(() => import("./pages/SkillSettingsPage").then((mod) => mod.SkillSettingsPage), {loading: PageChunkLoading, ssr: false});
 const InterviewWorkbenchPage = nextDynamic(() => import("./pages/InterviewWorkbenchPage").then((mod) => mod.InterviewWorkbenchPage), {loading: PageChunkLoading, ssr: false});
 const ReviewWorkbenchPage = nextDynamic(() => import("./pages/ReviewWorkbenchPage").then((mod) => mod.ReviewWorkbenchPage), {loading: PageChunkLoading, ssr: false});
 const TalentPoolPage = nextDynamic(() => import("./pages/TalentPoolPage").then((mod) => mod.TalentPoolPage), {loading: PageChunkLoading, ssr: false});
@@ -373,6 +379,25 @@ import {
 } from '@/lib/recruitmentNavBus';
 
 const TASK_MONITOR_VISIBLE_INTERVAL_MS = 30_000;
+const SETTINGS_LIST_PAGE_SIZE = 50;
+const SETTINGS_SEARCH_DEBOUNCE_MS = 300;
+const SETTINGS_RECONCILIATION_INTERVAL_MS = 180_000;
+
+type RecruitmentSkillSummary = Omit<RecruitmentSkill, "content"> & {
+    content?: string;
+    content_preview?: string | null;
+    dimension_count?: number;
+};
+
+type RecruitmentSkillSettingsRow = RecruitmentSkill & {
+    content_preview?: string | null;
+    dimension_count?: number;
+};
+
+type RecruitmentResumeMailDispatchSummary = RecruitmentResumeMailDispatch & {
+    candidate_names?: string[];
+    position_title?: string | null;
+};
 const TASK_MONITOR_HIDDEN_INTERVAL_MS = 60_000;
 const TASK_MONITOR_MAX_INTERVAL_MS = 30_000;
 const TASK_MONITOR_BATCH_SCALE_THRESHOLD = 8;
@@ -1903,8 +1928,29 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const recentlyDeletedCandidateIdsRef = useRef<Set<number>>(new Set());
     const recentlyCompletedScreeningCandidatesRef = useRef<Map<number, number>>(new Map());
     const logsFiltersInitializedRef = useRef(false);
+    const workspaceDataLoadStartedRef = useRef(false);
+    const positionsLoadStartedRef = useRef(false);
+    const positionsLoadedOnceRef = useRef(false);
     const positionsLoadRequestIdRef = useRef(0);
     const candidatesLoadRequestIdRef = useRef(0);
+    const skillSettingsLoadRequestIdRef = useRef(0);
+    const skillSettingsLoadAbortControllerRef = useRef<AbortController | null>(null);
+    const skillSettingsScopeKeyRef = useRef("");
+    const skillDetailLoadRequestIdRef = useRef(0);
+    const skillDetailLoadAbortControllerRef = useRef<AbortController | null>(null);
+    const llmConfigsLoadRequestIdRef = useRef(0);
+    const llmConfigsLoadAbortControllerRef = useRef<AbortController | null>(null);
+    const mailSendersLoadRequestIdRef = useRef(0);
+    const mailSendersLoadAbortControllerRef = useRef<AbortController | null>(null);
+    const mailRecipientsLoadRequestIdRef = useRef(0);
+    const mailRecipientsLoadAbortControllerRef = useRef<AbortController | null>(null);
+    const mailDispatchesLoadRequestIdRef = useRef(0);
+    const mailDispatchesLoadAbortControllerRef = useRef<AbortController | null>(null);
+    const mailDispatchesScopeKeyRef = useRef("");
+    const mailDispatchDetailLoadRequestIdRef = useRef(0);
+    const mailDispatchDetailLoadAbortControllerRef = useRef<AbortController | null>(null);
+    const mailAutoConfigLoadRequestIdRef = useRef(0);
+    const mailAutoConfigLoadAbortControllerRef = useRef<AbortController | null>(null);
     const candidateListTransitionTokenRef = useRef(0);
     const positionDetailLoadRequestIdRef = useRef(0);
     const candidatePageTargetCandidateIdRef = useRef<number | null>(null);
@@ -1965,7 +2011,9 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const canManageSkill = Boolean(perms["recruitment-skill-manage"]);
     const canViewMail = Boolean(perms["recruitment-mail-view"]);
     const canSendMail = Boolean(perms["recruitment-mail-send"]);
-    const canManageMailConfig = Boolean(perms["recruitment-mail-config-manage"] || perms["recruitment-mail-sender-manage"]);
+    const canManageMailSenders = Boolean(perms["recruitment-mail-sender-manage"]);
+    const canManageMailRecipients = Boolean(perms["recruitment-mail-config-manage"]);
+    const canManageMailConfig = canManageMailSenders || canManageMailRecipients;
     const canViewLLMConfig = Boolean(perms["recruitment-llm-config-view"]);
     const canManageLLMConfig = Boolean(perms["recruitment-llm-config-manage"]);
     const canUseRecruitmentWorkspace = Boolean(
@@ -2356,9 +2404,6 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         || activePage === "audit"
         || activePage === "talent-pool"
         || activePage === "assistant"
-        || activePage === "settings-skills"
-        || activePage === "settings-models"
-        || activePage === "settings-mail"
     );
     const taskSSEEnabled = taskSSEPageActive && (
         canExecuteProcess
@@ -2551,7 +2596,11 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const [talentPoolPreferredStatFilter, setTalentPoolPreferredStatFilter] = useState<TalentPoolStatFilter | null>(null);
     const clearTalentPoolPreferredStatFilter = useCallback(() => setTalentPoolPreferredStatFilter(null), []);
     const skillsLoadedOnceRef = useRef(false);
-    const mailSettingsLoadedOnceRef = useRef(false);
+    const mailSendersLoadedOnceRef = useRef(false);
+    const mailRecipientsLoadedOnceRef = useRef(false);
+    const mailDispatchesLoadedOnceRef = useRef(false);
+    const resumeMailDispatchHistoryLoadedOnceRef = useRef(false);
+    const mailAutoConfigLoadedOnceRef = useRef(false);
     const llmConfigsLoadedOnceRef = useRef(false);
     allCandidatesRef.current = allCandidates;
     allTalentPoolCandidatesRef.current = allTalentPoolCandidates;
@@ -2567,6 +2616,12 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         skill_ids: [],
         skills: [],
     });
+    const [skillSettingsRows, setSkillSettingsRows] = useState<RecruitmentSkillSettingsRow[]>([]);
+    const [skillSettingsTotal, setSkillSettingsTotal] = useState(0);
+    const [skillSettingsPageIndex, setSkillSettingsPageIndex] = useState(0);
+    const [skillSettingsQueryInput, setSkillSettingsQueryInput] = useState("");
+    const [skillSettingsQuery, setSkillSettingsQuery] = useState("");
+    const [skillSettingsTaskFilter, setSkillSettingsTaskFilter] = useState<"all" | SkillTaskKind>("all");
     const [allLlmConfigs, setAllLlmConfigs] = useState<RecruitmentLLMConfig[]>([]);
     const [llmConfigs, setLlmConfigs] = useState<RecruitmentLLMConfig[]>([]);
     const [allMailSenderConfigs, setAllMailSenderConfigs] = useState<RecruitmentMailSenderConfig[]>([]);
@@ -2579,6 +2634,9 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     );
     const [allResumeMailDispatches, setAllResumeMailDispatches] = useState<RecruitmentResumeMailDispatch[]>([]);
     const [resumeMailDispatches, setResumeMailDispatches] = useState<RecruitmentResumeMailDispatch[]>([]);
+    const [mailDispatchSettingsRows, setMailDispatchSettingsRows] = useState<RecruitmentResumeMailDispatchSummary[]>([]);
+    const [resumeMailDispatchTotal, setResumeMailDispatchTotal] = useState(0);
+    const [resumeMailDispatchPageIndex, setResumeMailDispatchPageIndex] = useState(0);
     const [mailAutoPushGlobalConfig, setMailAutoPushGlobalConfig] = useState<RecruitmentMailAutoPushGlobalConfig>({
         global_default_recipient_ids: [],
         global_default_recipient_emails: [],
@@ -2660,15 +2718,22 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const checkedDuplicateCandidateIdRef = useRef<number | null>(null);
     const [logsLoading, setLogsLoading] = useState(false);
     const [logDetailLoading, setLogDetailLoading] = useState(false);
-    const [skillsLoading, setSkillsLoading] = useState(false);
+    const [, setSkillsLoading] = useState(false);
+    const [skillSettingsLoading, setSkillSettingsLoading] = useState(false);
+    const [skillDetailLoadingId, setSkillDetailLoadingId] = useState<number | null>(null);
     const [modelsLoading, setModelsLoading] = useState(false);
-    const [mailSettingsLoading, setMailSettingsLoading] = useState(false);
+    const [mailSendersLoading, setMailSendersLoading] = useState(false);
+    const [mailRecipientsLoading, setMailRecipientsLoading] = useState(false);
+    const [mailDispatchesLoading, setMailDispatchesLoading] = useState(false);
+    const [mailAutoConfigLoading, setMailAutoConfigLoading] = useState(false);
+    const mailSettingsLoading = mailSendersLoading || mailRecipientsLoading || mailDispatchesLoading || mailAutoConfigLoading;
     const [mailAutoPushConfigSaving, setMailAutoPushConfigSaving] = useState(false);
     const [orgSwitching, setOrgSwitching] = useState(false);
     const [skillSubmitting, setSkillSubmitting] = useState(false);
     const [llmSubmitting, setLlmSubmitting] = useState(false);
     const [resumeMailSubmitting, setResumeMailSubmitting] = useState(false);
     const [mailDispatchActionKey, setMailDispatchActionKey] = useState<string | null>(null);
+    const [mailDispatchDetailLoadingId, setMailDispatchDetailLoadingId] = useState<number | null>(null);
     const [chatSending, setChatSending] = useState(false);
     const [cancellingTaskIds, setCancellingTaskIds] = useState<number[]>([]);
     const [batchScreeningStopSubmitting, setBatchScreeningStopSubmitting] = useState(false);
@@ -2950,6 +3015,10 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         }
         return selectedCompanyOrgCodes;
     }, [organizationMap, selectedCompanyOrgCodes, selectedDepartmentScope]);
+    const activeBusinessOrgScopeKey = useMemo(
+        () => activeBusinessOrgCodes.join("|"),
+        [activeBusinessOrgCodes],
+    );
     const recruitmentDataCacheKey = useMemo(
         () => buildOrganizationScopeRequestKey(getStoredScriptHubSession()),
         [],
@@ -4102,12 +4171,45 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     }, []);
 
     useEffect(() => {
+        if (bootstrapping || !canUseRecruitmentWorkspace || isSettingsPage) {
+            return;
+        }
+        if ((activePage === "workspace" || activePage === "assistant") && !workspaceDataLoadStartedRef.current) {
+            workspaceDataLoadStartedRef.current = true;
+            const query = candidateListRefreshQueryRef.current;
+            void Promise.allSettled([
+                loadPositions(),
+                loadCandidates({silent: true, force: true, useVisibleFilters: false}),
+                refreshCandidateStatsRef.current(query.departmentScope, query.orgScope),
+            ]);
+            return;
+        }
+        if (
+            (activePage === "positions" || activePage === "candidates")
+            && !positionsLoadStartedRef.current
+            && !positionsLoadedOnceRef.current
+        ) {
+            void loadPositions().catch(() => undefined);
+        }
+        // 页面切换后的加载函数通过自身 requestId 保证 latest-wins。
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activePage, bootstrapping, canUseRecruitmentWorkspace, isSettingsPage]);
+
+    useEffect(() => {
         mountedRef.current = true;
         const taskMonitorTimers = taskMonitorTimersRef.current;
         const taskMonitorTokens = taskMonitorTokensRef.current;
         const inflightRequests = requestInflightRef.current;
         return () => {
             mountedRef.current = false;
+            skillSettingsLoadAbortControllerRef.current?.abort();
+            skillDetailLoadAbortControllerRef.current?.abort();
+            llmConfigsLoadAbortControllerRef.current?.abort();
+            mailSendersLoadAbortControllerRef.current?.abort();
+            mailRecipientsLoadAbortControllerRef.current?.abort();
+            mailDispatchesLoadAbortControllerRef.current?.abort();
+            mailDispatchDetailLoadAbortControllerRef.current?.abort();
+            mailAutoConfigLoadAbortControllerRef.current?.abort();
             taskMonitorTimers.forEach((timerId) => window.clearTimeout(timerId));
             taskMonitorTimers.clear();
             taskMonitorTokens.clear();
@@ -4189,13 +4291,14 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
 
                 if (cancelled) return;
 
-                if (!canUseRecruitmentWorkspace) {
+                if (!shouldBootstrapRecruitmentCore(activePageRef.current, canUseRecruitmentWorkspace)) {
                     criticalLoaded = true;
                     setBootstrapping(false);
                     return;
                 }
 
                 // 阶段 2: 关键首屏列表尽早开始，避免被统计接口阻塞
+                workspaceDataLoadStartedRef.current = true;
                 void loadPositionsWithCache();
                 void loadCandidatesFirstPage();
                 criticalLoaded = true;
@@ -4228,6 +4331,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         async function loadPositionsWithCache(): Promise<void> {
             const requestId = positionsLoadRequestIdRef.current + 1;
             positionsLoadRequestIdRef.current = requestId;
+            positionsLoadStartedRef.current = true;
             setPositionsLoading(true);
             try {
                 const data = await getCachedPositions(
@@ -4236,8 +4340,10 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 );
                 if (!cancelled && positionsLoadRequestIdRef.current === requestId) {
                     setAllPositions(data);
+                    positionsLoadedOnceRef.current = true;
                 }
             } catch (error) {
+                positionsLoadStartedRef.current = false;
                 toast.error(recruitmentToast.loadFailed(recruitmentToastEntities.positions, formatActionError(error)));
             } finally {
                 if (!cancelled && positionsLoadRequestIdRef.current === requestId) {
@@ -4417,22 +4523,112 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     }, [activePage, canActInterview]);
 
     useEffect(() => {
-        if (activePage === "settings-skills") {
-            void ensureSkillsLoaded();
+        const timer = window.setTimeout(() => {
+            setSkillSettingsPageIndex(0);
+            setSkillSettingsQuery(skillSettingsQueryInput.trim());
+        }, SETTINGS_SEARCH_DEBOUNCE_MS);
+        return () => window.clearTimeout(timer);
+    }, [skillSettingsQueryInput]);
+
+    useEffect(() => {
+        if (activePage !== "settings-skills") {
+            return undefined;
         }
+        const scopeChanged = skillSettingsScopeKeyRef.current !== activeBusinessOrgScopeKey;
+        if (scopeChanged) {
+            skillSettingsScopeKeyRef.current = activeBusinessOrgScopeKey;
+            skillSettingsLoadAbortControllerRef.current?.abort();
+            if (skillSettingsPageIndex !== 0) {
+                setSkillSettingsPageIndex(0);
+                return undefined;
+            }
+        }
+        void loadSkillSettingsPage({pageIndex: skillSettingsPageIndex}).catch(() => undefined);
+        return () => {
+            skillSettingsLoadAbortControllerRef.current?.abort();
+        };
+        // 设置请求函数保持最新 state 闭包，并通过 requestId/AbortController 防止旧响应回写。
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activeBusinessOrgScopeKey, activePage, skillSettingsPageIndex, skillSettingsQuery, skillSettingsTaskFilter]);
+
+    useEffect(() => {
+        if (activePage !== "settings-mail") {
+            return undefined;
+        }
+        if (!mailDispatchesScopeKeyRef.current) {
+            mailDispatchesScopeKeyRef.current = activeBusinessOrgScopeKey;
+        }
+        void ensureMailSettingsLoaded().catch(() => undefined);
+        return () => {
+            mailSendersLoadAbortControllerRef.current?.abort();
+            mailRecipientsLoadAbortControllerRef.current?.abort();
+            mailDispatchesLoadAbortControllerRef.current?.abort();
+            mailDispatchDetailLoadAbortControllerRef.current?.abort();
+            mailAutoConfigLoadAbortControllerRef.current?.abort();
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activePage]);
 
     useEffect(() => {
-        if (activePage === "settings-mail") {
-            void ensureMailSettingsLoaded();
+        if (activePage !== "settings-mail") {
+            return;
         }
-    }, [activePage]);
+        const scopeChanged = mailDispatchesScopeKeyRef.current !== activeBusinessOrgScopeKey;
+        if (scopeChanged) {
+            mailDispatchesScopeKeyRef.current = activeBusinessOrgScopeKey;
+            mailDispatchesLoadAbortControllerRef.current?.abort();
+            if (resumeMailDispatchPageIndex !== 0) {
+                setResumeMailDispatchPageIndex(0);
+                return;
+            }
+        }
+        if (!mailDispatchesLoadedOnceRef.current && !scopeChanged) {
+            return;
+        }
+        void loadMailDispatches({pageIndex: resumeMailDispatchPageIndex}).catch(() => undefined);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activeBusinessOrgScopeKey, activePage, resumeMailDispatchPageIndex]);
 
     useEffect(() => {
-        if (activePage === "settings-models" && (canViewLLMConfig || canManageLLMConfig)) {
-            void ensureLLMConfigsLoaded();
+        if (activePage !== "settings-models" || (!canViewLLMConfig && !canManageLLMConfig)) {
+            return undefined;
         }
+        void ensureLLMConfigsLoaded().catch(() => undefined);
+        return () => {
+            llmConfigsLoadAbortControllerRef.current?.abort();
+        };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activePage, canManageLLMConfig, canViewLLMConfig]);
+
+    useEffect(() => {
+        if (!pageVisible || !isSettingsPage) {
+            return undefined;
+        }
+        const reconcileActiveSettingsPage = () => {
+            if (activePageRef.current === "settings-mail") {
+                void loadMailSettings({silent: true}).catch(() => undefined);
+                return;
+            }
+            if (activePageRef.current === "settings-models") {
+                void loadLLMConfigs({silent: true}).catch(() => undefined);
+                return;
+            }
+            if (activePageRef.current === "settings-skills") {
+                void loadSkillSettingsPage({pageIndex: skillSettingsPageIndex, silent: true}).catch(() => undefined);
+            }
+        };
+        const timer = window.setInterval(reconcileActiveSettingsPage, SETTINGS_RECONCILIATION_INTERVAL_MS);
+        return () => window.clearInterval(timer);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [
+        activeBusinessOrgScopeKey,
+        isSettingsPage,
+        pageVisible,
+        resumeMailDispatchPageIndex,
+        skillSettingsPageIndex,
+        skillSettingsQuery,
+        skillSettingsTaskFilter,
+    ]);
 
     const scrollCandidateListToTop = useCallback(() => {
         const viewport = resolveScrollAreaViewport(candidateListScrollElRef.current);
@@ -5993,6 +6189,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     async function loadPositions(options?: { force?: boolean }) {
         const requestId = positionsLoadRequestIdRef.current + 1;
         positionsLoadRequestIdRef.current = requestId;
+        positionsLoadStartedRef.current = true;
         setPositionsLoading(true);
         try {
             const data = options?.force
@@ -6005,8 +6202,10 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 return data;
             }
             setAllPositions(data);
+            positionsLoadedOnceRef.current = true;
             return data;
         } catch (error) {
+            positionsLoadStartedRef.current = false;
             toast.error(recruitmentToast.loadFailed(recruitmentToastEntities.positions, formatActionError(error)));
             throw error;
         } finally {
@@ -6625,23 +6824,96 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         }
     }
 
-    async function loadLLMConfigs() {
-        if (!canManageLLMConfig) {
-            return [];
+    async function loadSkillSettingsPage(options?: {pageIndex?: number; silent?: boolean}) {
+        const requestedPageIndex = Math.max(0, options?.pageIndex ?? skillSettingsPageIndex);
+        const requestId = skillSettingsLoadRequestIdRef.current + 1;
+        skillSettingsLoadRequestIdRef.current = requestId;
+        skillSettingsLoadAbortControllerRef.current?.abort();
+        const controller = new AbortController();
+        skillSettingsLoadAbortControllerRef.current = controller;
+        if (!options?.silent) {
+            setSkillSettingsLoading(true);
         }
-        setModelsLoading(true);
         try {
-            const data = await runDedupedRequest("llm-configs", () => recruitmentApi<RecruitmentLLMConfig[]>("/llm-configs"));
-            if (mountedRef.current) {
-                setAllLlmConfigs(data);
+            const offset = requestedPageIndex * SETTINGS_LIST_PAGE_SIZE;
+            const queryString = buildSettingsListQuery({
+                limit: SETTINGS_LIST_PAGE_SIZE,
+                offset,
+                summary: true,
+                query: skillSettingsQuery,
+                taskType: skillSettingsTaskFilter,
+                orgCodes: activeBusinessOrgCodes,
+            });
+            const response = await recruitmentApi<SettingsListResponse<RecruitmentSkillSummary>>(`/skills?${queryString}`, {
+                signal: controller.signal,
+            });
+            const page = normalizeSettingsListResponse(response, SETTINGS_LIST_PAGE_SIZE, offset);
+            if (!mountedRef.current || skillSettingsLoadRequestIdRef.current !== requestId) {
+                return page;
             }
-            llmConfigsLoadedOnceRef.current = true;
-            return data;
+            const lastPageIndex = Math.max(0, Math.ceil(page.total / SETTINGS_LIST_PAGE_SIZE) - 1);
+            if (requestedPageIndex > lastPageIndex) {
+                setSkillSettingsPageIndex(lastPageIndex);
+                return page;
+            }
+            setSkillSettingsRows(page.items.map((item) => ({
+                ...item,
+                content: item.content || "",
+            })));
+            setSkillSettingsTotal(page.total);
+            return page;
         } catch (error) {
-            toast.error(recruitmentToast.loadFailed(recruitmentToastEntities.modelConfigs, formatActionError(error)));
+            if (isRecruitmentRequestAborted(error)) {
+                return null;
+            }
+            if (!options?.silent) {
+                toast.error(recruitmentToast.loadFailed(recruitmentToastEntities.skills, formatActionError(error)));
+            }
             throw error;
         } finally {
-            setModelsLoading(false);
+            if (skillSettingsLoadAbortControllerRef.current === controller) {
+                skillSettingsLoadAbortControllerRef.current = null;
+            }
+            if (skillSettingsLoadRequestIdRef.current === requestId) {
+                setSkillSettingsLoading(false);
+            }
+        }
+    }
+
+    async function loadLLMConfigs(options?: {silent?: boolean}) {
+        if (!canViewLLMConfig && !canManageLLMConfig) {
+            return [];
+        }
+        const requestId = llmConfigsLoadRequestIdRef.current + 1;
+        llmConfigsLoadRequestIdRef.current = requestId;
+        llmConfigsLoadAbortControllerRef.current?.abort();
+        const controller = new AbortController();
+        llmConfigsLoadAbortControllerRef.current = controller;
+        if (!options?.silent) {
+            setModelsLoading(true);
+        }
+        try {
+            const data = await recruitmentApi<RecruitmentLLMConfig[]>("/llm-configs", {signal: controller.signal});
+            if (mountedRef.current && llmConfigsLoadRequestIdRef.current === requestId) {
+                setAllLlmConfigs(data);
+                llmConfigsLoadedOnceRef.current = true;
+            }
+            return data;
+        } catch (error) {
+            if (isRecruitmentRequestAborted(error)) {
+                return [];
+            }
+            if (!options?.silent) {
+                toast.error(recruitmentToast.loadFailed(recruitmentToastEntities.modelConfigs, formatActionError(error)));
+            }
+            throw error;
+        } finally {
+            if (llmConfigsLoadAbortControllerRef.current === controller) {
+                llmConfigsLoadAbortControllerRef.current = null;
+            }
+            if (llmConfigsLoadRequestIdRef.current === requestId) {
+                setModelsLoading(false);
+            }
         }
     }
 
@@ -6658,36 +6930,209 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         }
     }
 
-    async function loadMailSettings() {
-        setMailSettingsLoading(true);
+    async function loadMailSenders(options?: {silent?: boolean; reportError?: boolean}) {
+        if (!canViewMail && !canManageMailSenders) {
+            return [];
+        }
+        const requestId = mailSendersLoadRequestIdRef.current + 1;
+        mailSendersLoadRequestIdRef.current = requestId;
+        mailSendersLoadAbortControllerRef.current?.abort();
+        const controller = new AbortController();
+        mailSendersLoadAbortControllerRef.current = controller;
+        if (!options?.silent) {
+            setMailSendersLoading(true);
+        }
         try {
-            const {senders, recipients, dispatches, autoPushConfig} = await runDedupedRequest("mail-settings", async () => {
-                const [nextSenders, nextRecipients, nextDispatches, nextAutoPushConfig] = await Promise.all([
-                    recruitmentApi<RecruitmentMailSenderConfig[]>("/mail-senders"),
-                    recruitmentApi<RecruitmentMailRecipient[]>("/mail-recipients"),
-                    recruitmentApi<RecruitmentResumeMailDispatch[]>("/resume-mail-dispatches"),
-                    recruitmentApi<RecruitmentMailAutoPushGlobalConfig>("/mail-auto-config"),
-                ]);
-                return {
-                    senders: nextSenders,
-                    recipients: nextRecipients,
-                    dispatches: nextDispatches,
-                    autoPushConfig: nextAutoPushConfig,
-                };
-            });
-            if (mountedRef.current) {
-                setAllMailSenderConfigs(senders);
-                setAllMailRecipients(recipients);
-                setAllResumeMailDispatches(dispatches);
-                setMailAutoPushGlobalConfig(autoPushConfig);
+            const data = await recruitmentApi<RecruitmentMailSenderConfig[]>("/mail-senders", {signal: controller.signal});
+            if (mountedRef.current && mailSendersLoadRequestIdRef.current === requestId) {
+                setAllMailSenderConfigs(data);
+                mailSendersLoadedOnceRef.current = true;
             }
-            mailSettingsLoadedOnceRef.current = true;
-            return {senders, recipients, dispatches, autoPushConfig};
+            return data;
         } catch (error) {
-            toast.error(recruitmentToast.loadFailed(recruitmentToastEntities.mailSettings, formatActionError(error)));
+            if (isRecruitmentRequestAborted(error)) {
+                return [];
+            }
+            if (!options?.silent && options?.reportError !== false) {
+                toast.error(recruitmentToast.loadFailed(recruitmentToastEntities.mailSettings, formatActionError(error)));
+            }
             throw error;
         } finally {
-            setMailSettingsLoading(false);
+            if (mailSendersLoadAbortControllerRef.current === controller) {
+                mailSendersLoadAbortControllerRef.current = null;
+            }
+            if (mailSendersLoadRequestIdRef.current === requestId) {
+                setMailSendersLoading(false);
+            }
+        }
+    }
+
+    async function loadMailRecipients(options?: {silent?: boolean; reportError?: boolean}) {
+        if (!canViewMail && !canManageMailRecipients) {
+            return [];
+        }
+        const requestId = mailRecipientsLoadRequestIdRef.current + 1;
+        mailRecipientsLoadRequestIdRef.current = requestId;
+        mailRecipientsLoadAbortControllerRef.current?.abort();
+        const controller = new AbortController();
+        mailRecipientsLoadAbortControllerRef.current = controller;
+        if (!options?.silent) {
+            setMailRecipientsLoading(true);
+        }
+        try {
+            const data = await recruitmentApi<RecruitmentMailRecipient[]>("/mail-recipients", {signal: controller.signal});
+            if (mountedRef.current && mailRecipientsLoadRequestIdRef.current === requestId) {
+                setAllMailRecipients(data);
+                mailRecipientsLoadedOnceRef.current = true;
+            }
+            return data;
+        } catch (error) {
+            if (isRecruitmentRequestAborted(error)) {
+                return [];
+            }
+            if (!options?.silent && options?.reportError !== false) {
+                toast.error(recruitmentToast.loadFailed(recruitmentToastEntities.mailSettings, formatActionError(error)));
+            }
+            throw error;
+        } finally {
+            if (mailRecipientsLoadAbortControllerRef.current === controller) {
+                mailRecipientsLoadAbortControllerRef.current = null;
+            }
+            if (mailRecipientsLoadRequestIdRef.current === requestId) {
+                setMailRecipientsLoading(false);
+            }
+        }
+    }
+
+    async function loadMailDispatches(options?: {pageIndex?: number; silent?: boolean; reportError?: boolean}) {
+        if (!canViewMail) {
+            return null;
+        }
+        const requestedPageIndex = Math.max(0, options?.pageIndex ?? resumeMailDispatchPageIndex);
+        const requestId = mailDispatchesLoadRequestIdRef.current + 1;
+        mailDispatchesLoadRequestIdRef.current = requestId;
+        mailDispatchesLoadAbortControllerRef.current?.abort();
+        const controller = new AbortController();
+        mailDispatchesLoadAbortControllerRef.current = controller;
+        if (!options?.silent) {
+            setMailDispatchesLoading(true);
+        }
+        try {
+            const offset = requestedPageIndex * SETTINGS_LIST_PAGE_SIZE;
+            const queryString = buildSettingsListQuery({
+                limit: SETTINGS_LIST_PAGE_SIZE,
+                offset,
+                summary: true,
+                orgCodes: activeBusinessOrgCodes,
+            });
+            const response = await recruitmentApi<SettingsListResponse<RecruitmentResumeMailDispatchSummary>>(
+                `/resume-mail-dispatches?${queryString}`,
+                {signal: controller.signal},
+            );
+            const page = normalizeSettingsListResponse(response, SETTINGS_LIST_PAGE_SIZE, offset);
+            if (!mountedRef.current || mailDispatchesLoadRequestIdRef.current !== requestId) {
+                return page;
+            }
+            const lastPageIndex = Math.max(0, Math.ceil(page.total / SETTINGS_LIST_PAGE_SIZE) - 1);
+            if (requestedPageIndex > lastPageIndex) {
+                setResumeMailDispatchPageIndex(lastPageIndex);
+                return page;
+            }
+            setMailDispatchSettingsRows(page.items);
+            setResumeMailDispatchTotal(page.total);
+            mailDispatchesLoadedOnceRef.current = true;
+            return page;
+        } catch (error) {
+            if (isRecruitmentRequestAborted(error)) {
+                return null;
+            }
+            if (!options?.silent && options?.reportError !== false) {
+                toast.error(recruitmentToast.loadFailed(recruitmentToastEntities.mailSettings, formatActionError(error)));
+            }
+            throw error;
+        } finally {
+            if (mailDispatchesLoadAbortControllerRef.current === controller) {
+                mailDispatchesLoadAbortControllerRef.current = null;
+            }
+            if (mailDispatchesLoadRequestIdRef.current === requestId) {
+                setMailDispatchesLoading(false);
+            }
+        }
+    }
+
+    async function ensureResumeMailDispatchHistoryLoaded(options?: {force?: boolean}) {
+        if (!canViewMail) {
+            return [];
+        }
+        if (!options?.force && resumeMailDispatchHistoryLoadedOnceRef.current) {
+            return allResumeMailDispatches;
+        }
+        try {
+            const data = await runDedupedRequest(
+                "resume-mail-dispatch-history",
+                () => recruitmentApi<RecruitmentResumeMailDispatch[]>("/resume-mail-dispatches"),
+            );
+            if (mountedRef.current) {
+                setAllResumeMailDispatches(data);
+                resumeMailDispatchHistoryLoadedOnceRef.current = true;
+            }
+            return data;
+        } catch (error) {
+            toast.error(recruitmentToast.loadFailed(recruitmentToastEntities.resumeMail, formatActionError(error)));
+            throw error;
+        }
+    }
+
+    async function loadMailAutoConfig(options?: {silent?: boolean; reportError?: boolean}) {
+        if (!canViewMail && !canManageMailRecipients) {
+            return null;
+        }
+        const requestId = mailAutoConfigLoadRequestIdRef.current + 1;
+        mailAutoConfigLoadRequestIdRef.current = requestId;
+        mailAutoConfigLoadAbortControllerRef.current?.abort();
+        const controller = new AbortController();
+        mailAutoConfigLoadAbortControllerRef.current = controller;
+        if (!options?.silent) {
+            setMailAutoConfigLoading(true);
+        }
+        try {
+            const data = await recruitmentApi<RecruitmentMailAutoPushGlobalConfig>("/mail-auto-config", {signal: controller.signal});
+            if (mountedRef.current && mailAutoConfigLoadRequestIdRef.current === requestId) {
+                setMailAutoPushGlobalConfig(data);
+                mailAutoConfigLoadedOnceRef.current = true;
+            }
+            return data;
+        } catch (error) {
+            if (isRecruitmentRequestAborted(error)) {
+                return null;
+            }
+            if (!options?.silent && options?.reportError !== false) {
+                toast.error(recruitmentToast.loadFailed(recruitmentToastEntities.mailSettings, formatActionError(error)));
+            }
+            throw error;
+        } finally {
+            if (mailAutoConfigLoadAbortControllerRef.current === controller) {
+                mailAutoConfigLoadAbortControllerRef.current = null;
+            }
+            if (mailAutoConfigLoadRequestIdRef.current === requestId) {
+                setMailAutoConfigLoading(false);
+            }
+        }
+    }
+
+    async function loadMailSettings(options?: {silent?: boolean}) {
+        const results = await Promise.allSettled([
+            loadMailSenders({...options, reportError: false}),
+            loadMailRecipients({...options, reportError: false}),
+            loadMailDispatches({...options, reportError: false}),
+            loadMailAutoConfig({...options, reportError: false}),
+        ]);
+        const failed = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
+        if (failed) {
+            if (!options?.silent) {
+                toast.error(recruitmentToast.loadFailed(recruitmentToastEntities.mailSettings, formatActionError(failed.reason)));
+            }
+            throw failed.reason;
         }
     }
 
@@ -6701,26 +7146,56 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     }
 
     async function ensureMailSettingsLoaded(options?: { force?: boolean }) {
-        if (!options?.force && mailSettingsLoadedOnceRef.current) {
-            return {
-                senders: allMailSenderConfigs,
-                recipients: allMailRecipients,
-                dispatches: allResumeMailDispatches,
-                autoPushConfig: mailAutoPushGlobalConfig,
-            };
+        const tasks: Promise<unknown>[] = [];
+        const requestOptions = {reportError: false};
+        if ((canViewMail || canManageMailSenders) && (options?.force || !mailSendersLoadedOnceRef.current)) {
+            tasks.push(loadMailSenders(requestOptions));
         }
-        const data = await loadMailSettings();
-        mailSettingsLoadedOnceRef.current = true;
-        return data;
+        if ((canViewMail || canManageMailRecipients) && (options?.force || !mailRecipientsLoadedOnceRef.current)) {
+            tasks.push(loadMailRecipients(requestOptions));
+        }
+        if (canViewMail && (options?.force || !mailDispatchesLoadedOnceRef.current)) {
+            tasks.push(loadMailDispatches(requestOptions));
+        }
+        if ((canViewMail || canManageMailRecipients) && (options?.force || !mailAutoConfigLoadedOnceRef.current)) {
+            tasks.push(loadMailAutoConfig(requestOptions));
+        }
+        if (!tasks.length) {
+            return;
+        }
+        const results = await Promise.allSettled(tasks);
+        const failed = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
+        if (failed) {
+            toast.error(recruitmentToast.loadFailed(recruitmentToastEntities.mailSettings, formatActionError(failed.reason)));
+            throw failed.reason;
+        }
+    }
+
+    async function ensureResumeMailComposerDataLoaded() {
+        const tasks: Promise<unknown>[] = [];
+        const requestOptions = {reportError: false};
+        if ((canViewMail || canManageMailSenders) && !mailSendersLoadedOnceRef.current) {
+            tasks.push(loadMailSenders(requestOptions));
+        }
+        if ((canViewMail || canManageMailRecipients) && !mailRecipientsLoadedOnceRef.current) {
+            tasks.push(loadMailRecipients(requestOptions));
+        }
+        if (!tasks.length) {
+            return;
+        }
+        const results = await Promise.allSettled(tasks);
+        const failed = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
+        if (failed) {
+            toast.error(recruitmentToast.loadFailed(recruitmentToastEntities.resumeMail, formatActionError(failed.reason)));
+            throw failed.reason;
+        }
     }
 
     async function ensureLLMConfigsLoaded(options?: { force?: boolean }) {
         if (!options?.force && llmConfigsLoadedOnceRef.current) {
             return allLlmConfigs;
         }
-        const data = await loadLLMConfigs();
-        llmConfigsLoadedOnceRef.current = true;
-        return data;
+        return loadLLMConfigs();
     }
 
     async function saveMailAutoPushGlobalConfig(nextConfig: RecruitmentMailAutoPushGlobalConfig) {
@@ -8785,7 +9260,10 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                     .filter((value) => Number.isFinite(value) && value > 0),
             ),
         );
-        const tasks: Promise<unknown>[] = [loadSkills(), loadPositions()];
+        const tasks: Promise<unknown>[] = [];
+        if (normalizedIds.length) {
+            tasks.push(loadPositions());
+        }
         if (selectedPositionId && normalizedIds.includes(selectedPositionId)) {
             tasks.push(loadPositionDetail(selectedPositionId));
         }
@@ -8797,6 +9275,48 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             skill,
             ...current.filter((item) => item.id !== skill.id),
         ]);
+        if (activePageRef.current !== "settings-skills") {
+            return;
+        }
+        const normalizedQuery = skillSettingsQuery.trim().toLowerCase();
+        const matchesTask = skillSettingsTaskFilter === "all" || skill.task_types?.includes(skillSettingsTaskFilter);
+        const matchesQuery = !normalizedQuery || [
+            skill.name,
+            skill.description,
+            skill.bound_position_title,
+            ...(skill.tags || []),
+        ].filter(Boolean).join(" ").toLowerCase().includes(normalizedQuery);
+        const settingsRow: RecruitmentSkillSettingsRow = {
+            ...skill,
+            content_preview: shortText(skill.content, 150),
+            dimension_count: skill.task_types?.includes("screening")
+                ? (parseSkillContent(skill.content).dimensions?.length || 0)
+                : undefined,
+        };
+        const existsOnCurrentPage = skillSettingsRows.some((item) => item.id === skill.id);
+        if (!matchesTask || !matchesQuery) {
+            setSkillSettingsRows((current) => current.filter((item) => item.id !== skill.id));
+            if (existsOnCurrentPage) {
+                setSkillSettingsTotal((total) => Math.max(0, total - 1));
+            }
+            return;
+        }
+        if (existsOnCurrentPage) {
+            setSkillSettingsRows((current) => current.map((item) => item.id === skill.id ? settingsRow : item));
+            return;
+        }
+        if (skillSettingsPageIndex === 0) {
+            setSkillSettingsRows((current) => [settingsRow, ...current].slice(0, SETTINGS_LIST_PAGE_SIZE));
+            setSkillSettingsTotal((total) => total + 1);
+        }
+    }
+
+    function reconcileSkillSettingsAfterMutation() {
+        if (activePageRef.current !== "settings-skills") {
+            return;
+        }
+        setSkillSettingsPageIndex(0);
+        void loadSkillSettingsPage({pageIndex: 0, silent: true}).catch(() => undefined);
     }
 
     function updateSkillFormField<K extends keyof SkillFormState>(field: K, value: SkillFormState[K]) {
@@ -10940,7 +11460,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             }
             setMailSenderDialogOpen(false);
             try {
-                await loadMailSettings();
+                await loadMailSenders();
             } catch (refreshError) {
                 toast.error(recruitmentToast.savedButRefreshFailed(recruitmentToastEntities.mailSender, formatActionError(refreshError)));
             }
@@ -10958,7 +11478,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             await recruitmentApi(`/mail-senders/${senderId}`, {method: "DELETE"});
             setMailSenderDeleteTarget(null);
             toast.success(recruitmentToast.deleted(recruitmentToastEntities.mailSender));
-            await loadMailSettings();
+            await loadMailSenders();
         } catch (error) {
             toast.error(recruitmentToast.deleteFailed(recruitmentToastEntities.mailSender, error instanceof Error ? error.message : recruitmentToast.unknownError));
         } finally {
@@ -11015,7 +11535,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 toast.success(recruitmentToast.created(recruitmentToastEntities.mailRecipient));
             }
             setMailRecipientDialogOpen(false);
-            await loadMailSettings();
+            await loadMailRecipients();
         } catch (error) {
             toast.error(recruitmentToast.saveFailed(recruitmentToastEntities.mailRecipient, error instanceof Error ? error.message : recruitmentToast.unknownError));
         } finally {
@@ -11029,8 +11549,12 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         try {
             await recruitmentApi(`/mail-recipients/${recipientId}`, {method: "DELETE"});
             setMailRecipientDeleteTarget(null);
+            setMailAutoPushGlobalConfig((current) => ({
+                ...current,
+                global_default_recipient_ids: current.global_default_recipient_ids.filter((id) => id !== recipientId),
+            }));
             toast.success(recruitmentToast.deleted(recruitmentToastEntities.mailRecipient));
-            await loadMailSettings();
+            await loadMailRecipients();
         } catch (error) {
             toast.error(recruitmentToast.deleteFailed(recruitmentToastEntities.mailRecipient, error instanceof Error ? error.message : recruitmentToast.unknownError));
         } finally {
@@ -11042,7 +11566,6 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         candidateIds?: number[],
         overrides?: Partial<ResumeMailFormState> & { mode?: ResumeMailDialogMode; sourceDispatchId?: number | null },
     ) {
-        void ensureMailSettingsLoaded();
         const nextCandidateIds = Array.from(new Set(
             (candidateIds?.length
                 ? candidateIds
@@ -11053,6 +11576,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             toast.error(recruitmentToast.noResumeMailCandidates);
             return;
         }
+        void ensureResumeMailComposerDataLoaded().catch(() => undefined);
+        void ensureResumeMailDispatchHistoryLoaded().catch(() => undefined);
         setResumeMailDialogMode(overrides?.mode || "send");
         setResumeMailSourceDispatchId(overrides?.sourceDispatchId ?? null);
         setResumeMailForm({
@@ -11066,16 +11591,49 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         setResumeMailDialogOpen(true);
     }
 
-    function openResumeMailReplayDialog(dispatch: RecruitmentResumeMailDispatch) {
-        void ensureMailSettingsLoaded();
-        openResumeMailDialog(dispatch.candidate_ids, {
+    async function loadResumeMailDispatchDetail(dispatchId: number) {
+        const requestId = mailDispatchDetailLoadRequestIdRef.current + 1;
+        mailDispatchDetailLoadRequestIdRef.current = requestId;
+        mailDispatchDetailLoadAbortControllerRef.current?.abort();
+        const controller = new AbortController();
+        mailDispatchDetailLoadAbortControllerRef.current = controller;
+        setMailDispatchDetailLoadingId(dispatchId);
+        try {
+            const detail = await recruitmentApi<RecruitmentResumeMailDispatch>(`/resume-mail-dispatches/${dispatchId}`, {
+                signal: controller.signal,
+            });
+            if (!mountedRef.current || mailDispatchDetailLoadRequestIdRef.current !== requestId) {
+                return null;
+            }
+            return detail;
+        } catch (error) {
+            if (!isRecruitmentRequestAborted(error)) {
+                toast.error(recruitmentToast.loadFailed(recruitmentToastEntities.resumeMail, formatActionError(error)));
+            }
+            return null;
+        } finally {
+            if (mailDispatchDetailLoadAbortControllerRef.current === controller) {
+                mailDispatchDetailLoadAbortControllerRef.current = null;
+            }
+            if (mailDispatchDetailLoadRequestIdRef.current === requestId) {
+                setMailDispatchDetailLoadingId(null);
+            }
+        }
+    }
+
+    async function openResumeMailReplayDialog(dispatch: RecruitmentResumeMailDispatch) {
+        const detail = await loadResumeMailDispatchDetail(dispatch.id);
+        if (!detail) {
+            return;
+        }
+        openResumeMailDialog(detail.candidate_ids, {
             mode: "resend",
-            sourceDispatchId: dispatch.id,
-            senderConfigId: dispatch.sender_config_id ? String(dispatch.sender_config_id) : defaultMailSenderId,
-            recipientIds: dispatch.recipient_ids,
-            extraRecipientEmails: dispatch.recipient_emails.join(", "),
-            subject: dispatch.subject || "",
-            bodyText: dispatch.body_text || "",
+            sourceDispatchId: detail.id,
+            senderConfigId: detail.sender_config_id ? String(detail.sender_config_id) : defaultMailSenderId,
+            recipientIds: detail.recipient_ids,
+            extraRecipientEmails: detail.recipient_emails.join(", "),
+            subject: detail.subject || "",
+            bodyText: detail.body_text || "",
         });
     }
 
@@ -11095,14 +11653,20 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 method: "POST",
                 body: JSON.stringify(payload),
             });
+            if (resumeMailDispatchHistoryLoadedOnceRef.current) {
+                setAllResumeMailDispatches((current) => [dispatch, ...current.filter((item) => item.id !== dispatch.id)]);
+            }
             toast.success(options?.successMessage || recruitmentToast.sent(recruitmentToastEntities.resumeMail));
             if (options?.closeDialog !== false) {
                 setResumeMailDialogOpen(false);
             }
-            try {
-                await loadMailSettings();
-            } catch (refreshError) {
-                toast.error(recruitmentToast.savedButRefreshFailed(recruitmentToastEntities.resumeMail, formatActionError(refreshError)));
+            setResumeMailDispatchPageIndex(0);
+            if (activePageRef.current === "settings-mail" && canViewMail) {
+                try {
+                    await loadMailDispatches({pageIndex: 0});
+                } catch (refreshError) {
+                    toast.error(recruitmentToast.savedButRefreshFailed(recruitmentToastEntities.resumeMail, formatActionError(refreshError)));
+                }
             }
             return dispatch;
         } catch (error) {
@@ -11255,14 +11819,18 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         const actionKey = `mail-dispatch-${dispatch.id}`;
         setMailDispatchActionKey(actionKey);
         try {
+            const detail = await loadResumeMailDispatchDetail(dispatch.id);
+            if (!detail) {
+                return;
+            }
             await sendResumeMailRequest(
                 {
-                    sender_config_id: dispatch.sender_config_id ? Number(dispatch.sender_config_id) : null,
-                    candidate_ids: dispatch.candidate_ids,
-                    recipient_ids: dispatch.recipient_ids,
-                    recipient_emails: dispatch.recipient_emails,
-                    subject: dispatch.subject?.trim() || null,
-                    body_text: dispatch.body_text?.trim() || null,
+                    sender_config_id: detail.sender_config_id ? Number(detail.sender_config_id) : null,
+                    candidate_ids: detail.candidate_ids,
+                    recipient_ids: detail.recipient_ids,
+                    recipient_emails: detail.recipient_emails,
+                    subject: detail.subject?.trim() || null,
+                    body_text: detail.body_text?.trim() || null,
                 },
                 {successMessage: "失败记录已重试发送", closeDialog: false},
             );
@@ -11996,8 +12564,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         }
     }
 
-    function openSkillEditor(skill?: RecruitmentSkill) {
-        void ensureSkillsLoaded();
+    function applySkillEditorState(skill?: RecruitmentSkill) {
         if (skill) {
             const taskTypes = (skill.task_types || []) as SkillTaskKind[];
             const isBasicMode = taskTypes.length > 0 && !taskTypes.includes("screening");
@@ -12055,8 +12622,38 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         setSkillDialogOpen(true);
     }
 
+    async function openSkillEditor(skill?: RecruitmentSkill) {
+        if (!skill) {
+            applySkillEditorState();
+            return;
+        }
+        const requestId = skillDetailLoadRequestIdRef.current + 1;
+        skillDetailLoadRequestIdRef.current = requestId;
+        skillDetailLoadAbortControllerRef.current?.abort();
+        const controller = new AbortController();
+        skillDetailLoadAbortControllerRef.current = controller;
+        setSkillDetailLoadingId(skill.id);
+        try {
+            const detail = await recruitmentApi<RecruitmentSkill>(`/skills/${skill.id}`, {signal: controller.signal});
+            if (!mountedRef.current || skillDetailLoadRequestIdRef.current !== requestId) {
+                return;
+            }
+            applySkillEditorState(detail);
+        } catch (error) {
+            if (!isRecruitmentRequestAborted(error)) {
+                toast.error(recruitmentToast.loadFailed(recruitmentToastEntities.skills, formatActionError(error)));
+            }
+        } finally {
+            if (skillDetailLoadAbortControllerRef.current === controller) {
+                skillDetailLoadAbortControllerRef.current = null;
+            }
+            if (skillDetailLoadRequestIdRef.current === requestId) {
+                setSkillDetailLoadingId(null);
+            }
+        }
+    }
+
     function openSkillEditorByTaskKind(taskKind: SkillTaskKind) {
-        void ensureSkillsLoaded();
         const nextSkillForm = emptySkillForm();
         nextSkillForm.taskTypes = [taskKind];
         const nextEditorData = emptyScreeningSkillForm();
@@ -12079,7 +12676,6 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     }
 
     function openSkillEditorWithAI(boundPositionId: number | null = null) {
-        void ensureSkillsLoaded();
         const nextSkillForm = emptySkillForm();
         nextSkillForm.taskTypes = ["screening"];
         const nextEditorData = emptyScreeningSkillForm();
@@ -12213,6 +12809,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 }
                 toast.success(recruitmentToast.created(recruitmentToastEntities.skill));
             }
+            reconcileSkillSettingsAfterMutation();
             setSkillAutoBindCategory(null);
             setSkillAutoBindDestination("positionForm");
             setSkillGeneratedDraftUnsaved(false);
@@ -12390,6 +12987,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 }
                 toast.success(recruitmentToast.created(recruitmentToastEntities.skill));
             }
+            reconcileSkillSettingsAfterMutation();
             setSkillAutoBindCategory(null);
             setSkillAutoBindDestination("positionForm");
             setSkillGeneratedDraftUnsaved(false);
@@ -12421,8 +13019,14 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         try {
             await recruitmentApi(`/skills/${skillId}`, {method: "DELETE"});
             setSkillDeleteTarget(null);
+            const existedOnCurrentPage = skillSettingsRows.some((item) => item.id === skillId);
+            setAllSkills((current) => current.filter((item) => item.id !== skillId));
+            setSkillSettingsRows((current) => current.filter((item) => item.id !== skillId));
+            if (existedOnCurrentPage) {
+                setSkillSettingsTotal((total) => Math.max(0, total - 1));
+            }
             toast.success(recruitmentToast.deleted(recruitmentToastEntities.skill));
-            await loadSkills();
+            void loadSkillSettingsPage({pageIndex: skillSettingsPageIndex, silent: true}).catch(() => undefined);
         } catch (error) {
             toast.error(recruitmentToast.deleteFailed(recruitmentToastEntities.skill, formatActionError(error)));
         } finally {
@@ -12432,9 +13036,10 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
 
     async function toggleSkill(skillId: number, enabled: boolean) {
         try {
-            await recruitmentApi(`/skills/${skillId}/toggle${buildQuery({enabled})}`, {method: "POST"});
+            const updatedSkill = await recruitmentApi<RecruitmentSkill>(`/skills/${skillId}/toggle${buildQuery({enabled})}`, {method: "POST"});
+            upsertSkillInLocalState(updatedSkill);
+            reconcileSkillSettingsAfterMutation();
             toast.success(enabled ? recruitmentToast.skillEnabled : recruitmentToast.skillDisabled);
-            await loadSkills();
         } catch (error) {
             toast.error(recruitmentToast.saveFailed(recruitmentToastEntities.skill, formatActionError(error)));
         }
@@ -14943,14 +15548,26 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     function renderSkillsPage() {
         return (
             <SkillSettingsPage
-                skillsLoading={skillsLoading}
-                skills={skills}
+                skillsLoading={skillSettingsLoading}
+                skills={skillSettingsRows}
+                skillDetailLoadingId={skillDetailLoadingId}
+                query={skillSettingsQueryInput}
+                taskFilter={skillSettingsTaskFilter}
+                total={skillSettingsTotal}
+                pageIndex={skillSettingsPageIndex}
+                pageSize={SETTINGS_LIST_PAGE_SIZE}
                 canManageSkill={canManageSkill}
                 openSkillEditor={openSkillEditor}
                 openSkillEditorByTaskKind={openSkillEditorByTaskKind}
                 openSkillEditorWithAI={openSkillEditorWithAI}
                 toggleSkill={toggleSkill}
                 setSkillDeleteTarget={setSkillDeleteTarget}
+                onQueryChange={setSkillSettingsQueryInput}
+                onTaskFilterChange={(taskFilter) => {
+                    setSkillSettingsPageIndex(0);
+                    setSkillSettingsTaskFilter(taskFilter);
+                }}
+                onPageChange={setSkillSettingsPageIndex}
             />
         );
     }
@@ -14978,18 +15595,28 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             <MailSettingsPage
                 mailSenderConfigs={mailSenderConfigs}
                 mailRecipients={mailRecipients}
-                resumeMailDispatches={resumeMailDispatches}
+                resumeMailDispatches={mailDispatchSettingsRows}
                 mailAutoPushGlobalConfig={mailAutoPushGlobalConfig}
                 mailSettingsLoading={mailSettingsLoading}
+                mailSendersLoading={mailSendersLoading}
+                mailRecipientsLoading={mailRecipientsLoading}
+                mailDispatchesLoading={mailDispatchesLoading}
+                mailAutoConfigLoading={mailAutoConfigLoading}
                 mailAutoPushConfigSaving={mailAutoPushConfigSaving}
                 mailRecipientMap={mailRecipientMap}
                 mailSenderMap={mailSenderMap}
                 candidateMap={candidateMap}
                 positionMap={positionMap}
                 mailDispatchActionKey={mailDispatchActionKey}
+                mailDispatchDetailLoadingId={mailDispatchDetailLoadingId}
+                resumeMailDispatchTotal={resumeMailDispatchTotal}
+                resumeMailDispatchPageIndex={resumeMailDispatchPageIndex}
+                resumeMailDispatchPageSize={SETTINGS_LIST_PAGE_SIZE}
                 selectedCandidateIds={selectedCandidateIds}
                 selectedCandidateId={selectedCandidateId}
-                canManageMailConfig={canManageMailConfig}
+                canViewMail={canViewMail}
+                canManageMailSenders={canManageMailSenders}
+                canManageMailRecipients={canManageMailRecipients}
                 canSendMail={canSendMail}
                 openMailSenderEditor={openMailSenderEditor}
                 openMailRecipientEditor={openMailRecipientEditor}
@@ -15001,6 +15628,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 setMailAutoPushGlobalConfig={setMailAutoPushGlobalConfig}
                 saveMailAutoPushGlobalConfig={saveMailAutoPushGlobalConfig}
                 refreshMailSettingsWithFeedback={refreshMailSettingsWithFeedback}
+                onResumeMailDispatchPageChange={setResumeMailDispatchPageIndex}
             />
         );
     }

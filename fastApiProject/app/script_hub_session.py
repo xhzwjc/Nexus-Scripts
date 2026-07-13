@@ -17,6 +17,7 @@ DEFAULT_SESSION_REFRESH_CACHE_MAX_ENTRIES = 512
 
 _session_refresh_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
 _session_refresh_cache_lock = threading.RLock()
+_session_refresh_singleflight_locks = tuple(threading.Lock() for _ in range(64))
 
 
 def invalidate_script_hub_session_refresh_cache(user_code: Optional[str] = None) -> None:
@@ -112,6 +113,10 @@ def _get_session_refresh_cache_key(session: Dict[str, Any]) -> str:
     return f"{user_code}:{permission_version}:{access_key_version}:{issued_at}:{expires_at}"
 
 
+def _get_session_refresh_singleflight_lock(cache_key: str) -> threading.Lock:
+    return _session_refresh_singleflight_locks[hash(cache_key) % len(_session_refresh_singleflight_locks)]
+
+
 def _get_cached_versioned_session(cache_key: str, now: float) -> Optional[Dict[str, Any]]:
     if _get_session_refresh_cache_ttl_ms() <= 0:
         return None
@@ -169,6 +174,12 @@ def create_script_hub_session(user: Dict[str, Any]) -> Dict[str, Any]:
     payload_segment = _base64url_encode(json.dumps(payload, ensure_ascii=False).encode("utf-8"))
     signature = _sign(payload_segment)
     token = f"{payload_segment}.{signature}"
+    if "permissionVersion" in payload or "accessKeyVersion" in payload:
+        _set_cached_versioned_session(
+            _get_session_refresh_cache_key(payload),
+            user,
+            time.monotonic(),
+        )
     return {
         "token": token,
         "user": {
@@ -247,23 +258,29 @@ def _refresh_versioned_session(session: Dict[str, Any]) -> Dict[str, Any]:
     if cached_session is not None:
         return cached_session
 
-    from .database import SessionLocal
-    from .services.script_hub_auth_service import get_session_user_by_code
+    with _get_session_refresh_singleflight_lock(cache_key):
+        now = time.monotonic()
+        cached_session = _get_cached_versioned_session(cache_key, now)
+        if cached_session is not None:
+            return cached_session
 
-    db = SessionLocal()
-    try:
-        user = get_session_user_by_code(db, user_code)
-        if not user:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found or inactive")
-        validate_script_hub_session_access_key_version(session, user)
-        _set_cached_versioned_session(cache_key, user, now)
-        return user
-    finally:
-        db.close()
+        from .database import SessionLocal
+        from .services.script_hub_auth_service import get_session_user_by_code
+
+        db = SessionLocal()
+        try:
+            user = get_session_user_by_code(db, user_code)
+            if not user:
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found or inactive")
+            validate_script_hub_session_access_key_version(session, user)
+            _set_cached_versioned_session(cache_key, user, now)
+            return user
+        finally:
+            db.close()
 
 
 def require_script_hub_permission(permission: Optional[str] = None) -> Callable[[Request], Dict[str, Any]]:
-    async def dependency(request: Request) -> Dict[str, Any]:
+    def dependency(request: Request) -> Dict[str, Any]:
         token = get_script_hub_token_from_request(request)
         if not token:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
@@ -285,7 +302,7 @@ def require_script_hub_permission(permission: Optional[str] = None) -> Callable[
 def require_script_hub_any_permission(permissions: Sequence[str]) -> Callable[[Request], Dict[str, Any]]:
     required = tuple(permission for permission in permissions if permission)
 
-    async def dependency(request: Request) -> Dict[str, Any]:
+    def dependency(request: Request) -> Dict[str, Any]:
         token = get_script_hub_token_from_request(request)
         if not token:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")

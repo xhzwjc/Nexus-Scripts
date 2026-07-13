@@ -29,12 +29,13 @@ from ..permission_governance import (
     PermissionContext,
     ROOT_ORG_CODE,
     SHARE_POLICY_PRIVATE,
+    SHARE_POLICY_PUBLIC_IN_GROUP,
     SHARE_POLICY_SHARED_COPYABLE,
+    SHARE_POLICY_SHARED_READONLY,
     build_permission_context,
     normalize_org_code,
     normalize_org_code_list,
     normalize_share_policy,
-    resource_is_visible_to_context,
 )
 from ..recruitment_models import (
     RecruitmentAITaskLog,
@@ -5379,6 +5380,7 @@ class RecruitmentService:
         self.ai_gateway = RecruitmentAIGateway(db)
         self.permission_context: Optional[PermissionContext] = None
         self._session_token: Optional[str] = None
+        self._active_org_paths: Optional[Dict[str, str]] = None
 
     def set_permission_context(self, session: Optional[Dict[str, Any]]) -> "RecruitmentService":
         self.permission_context = build_permission_context(self.db, session)
@@ -5901,16 +5903,42 @@ class RecruitmentService:
             return self.permission_context.primary_org_code
         return ROOT_ORG_CODE
 
+    def _get_active_org_paths(self) -> Dict[str, str]:
+        if self._active_org_paths is None:
+            self._active_org_paths = {
+                normalize_org_code(org_code): str(path or "").rstrip("/")
+                for org_code, path in self.db.query(
+                    ScriptHubOrganization.org_code,
+                    ScriptHubOrganization.path,
+                ).filter(ScriptHubOrganization.is_active.is_(True)).all()
+            }
+        return self._active_org_paths
+
     def _can_access_org_resource(self, row: Any) -> bool:
         if not self.permission_context:
             return True
-        return resource_is_visible_to_context(
-            self.db,
-            self.permission_context,
-            resource_org_code=getattr(row, "org_code", ROOT_ORG_CODE),
-            share_policy=getattr(row, "share_policy", "PRIVATE"),
-            allow_sub_org_use=getattr(row, "allow_sub_org_use", False),
-            scope_level=getattr(row, "scope_level", None),
+        context = self.permission_context
+        resource_org_code = normalize_org_code(getattr(row, "org_code", ROOT_ORG_CODE))
+        share_policy = normalize_share_policy(getattr(row, "share_policy", SHARE_POLICY_PRIVATE))
+        if str(getattr(row, "scope_level", None) or "").strip().upper() == "GLOBAL":
+            return True
+        if context.has_all_orgs:
+            return True
+        visible_org_codes = set(context.visible_org_codes or ())
+        if resource_org_code in visible_org_codes:
+            return True
+        if share_policy == SHARE_POLICY_PUBLIC_IN_GROUP:
+            return True
+        if not bool(getattr(row, "allow_sub_org_use", False)) or share_policy == SHARE_POLICY_PRIVATE:
+            return False
+        resource_path = self._get_active_org_paths().get(resource_org_code, "")
+        if not resource_path:
+            return False
+        descendant_prefix = f"{resource_path}/"
+        return any(
+            visible_path == resource_path or visible_path.startswith(descendant_prefix)
+            for visible_org_code in visible_org_codes
+            if (visible_path := self._get_active_org_paths().get(normalize_org_code(visible_org_code), ""))
         )
 
     def _resolve_business_org_scope_codes(self, org_code: Optional[str] = None) -> Optional[List[str]]:
@@ -8919,6 +8947,7 @@ class RecruitmentService:
         row: RecruitmentSkill,
         *,
         _preloaded_bound_position_titles: Optional[Dict[int, Optional[str]]] = None,
+        summary: bool = False,
     ) -> Dict[str, Any]:
         meta = _extract_skill_runtime_meta(row)
         stored_task_types = json_loads_safe(getattr(row, "task_types_json", None), None)
@@ -8935,7 +8964,13 @@ class RecruitmentService:
                     .first()
                 )
                 bound_position_title = bound_position.title if bound_position else None
-        return {"id": row.id, "skill_code": row.skill_code, "org_code": normalize_org_code(getattr(row, "org_code", None)), "scope_level": getattr(row, "scope_level", None) or "ORG", "share_policy": normalize_share_policy(getattr(row, "share_policy", None)), "allow_sub_org_use": bool(getattr(row, "allow_sub_org_use", False)), "allow_copy": bool(getattr(row, "allow_copy", False)), "is_system_base": bool(getattr(row, "is_system_base", False)), "name": row.name, "description": row.description, "skill_group": row.skill_group or meta.get("group"), "version": row.version or meta.get("version"), "task_types": task_types, "content": row.content, "tags": json_loads_safe(row.tags_json, []), "bound_position_id": bound_position_id, "bound_position_title": bound_position_title, "sort_order": row.sort_order, "is_enabled": bool(row.is_enabled), "created_by": row.created_by, "updated_by": row.updated_by, "created_at": isoformat_or_none(row.created_at), "updated_at": isoformat_or_none(row.updated_at)}
+        payload = {"id": row.id, "skill_code": row.skill_code, "org_code": normalize_org_code(getattr(row, "org_code", None)), "scope_level": getattr(row, "scope_level", None) or "ORG", "share_policy": normalize_share_policy(getattr(row, "share_policy", None)), "allow_sub_org_use": bool(getattr(row, "allow_sub_org_use", False)), "allow_copy": bool(getattr(row, "allow_copy", False)), "is_system_base": bool(getattr(row, "is_system_base", False)), "name": row.name, "description": row.description, "skill_group": row.skill_group or meta.get("group"), "version": row.version or meta.get("version"), "task_types": task_types, "tags": json_loads_safe(row.tags_json, []), "bound_position_id": bound_position_id, "bound_position_title": bound_position_title, "sort_order": row.sort_order, "is_enabled": bool(row.is_enabled), "created_by": row.created_by, "updated_by": row.updated_by, "created_at": isoformat_or_none(row.created_at), "updated_at": isoformat_or_none(row.updated_at)}
+        if summary:
+            payload["dimension_count"] = len(extract_screening_dimension_rules([{"name": row.name, "description": row.description, "content": row.content}])) if "screening" in task_types else 0
+            payload["content_preview"] = str(row.content or "")[:150]
+        else:
+            payload["content"] = row.content
+        return payload
 
     def _serialize_skill_snapshot(self, skill: Any, fallback_index: int = 0) -> Dict[str, Any]:
         if isinstance(skill, dict):
@@ -9796,9 +9831,240 @@ class RecruitmentService:
         candidate_page = self.list_candidates(position_id=row.id, limit=20, offset=0, compact=True)
         return {"position": self._serialize_position(row), "current_jd_version": self._serialize_jd_version(current_jd) if current_jd else None, "jd_versions": [self._serialize_jd_version(item) for item in jd_versions], "jd_generation": jd_generation, "publish_tasks": [self._serialize_publish_task(item) for item in publish_tasks], "candidates": candidate_page.get("items", [])}
 
-    def list_skills(self) -> List[Dict[str, Any]]:
-        rows = self.db.query(RecruitmentSkill).filter(RecruitmentSkill.deleted.is_(False)).order_by(RecruitmentSkill.sort_order.asc(), RecruitmentSkill.created_at.desc(), RecruitmentSkill.id.desc()).all()
-        return [self._serialize_skill(row) for row in rows if self._can_access_org_resource(row)]
+    def list_skills(
+        self,
+        *,
+        query: Optional[str] = None,
+        task_type: Optional[str] = None,
+        org_codes: Optional[Sequence[str]] = None,
+        limit: int = 0,
+        offset: int = 0,
+        summary: bool = False,
+    ) -> Any:
+        normalized_query = str(query or "").strip().lower()
+        normalized_task_type = str(task_type or "").strip()
+        normalized_org_codes = normalize_org_code_list(org_codes or [])
+        requested_limit = max(0, int(limit or 0))
+        safe_offset = max(0, int(offset or 0))
+        is_legacy_full_list = not (
+            summary
+            or normalized_query
+            or normalized_task_type
+            or normalized_org_codes
+            or requested_limit
+            or safe_offset
+        )
+
+        if is_legacy_full_list:
+            rows = (
+                self.db.query(RecruitmentSkill)
+                .filter(RecruitmentSkill.deleted.is_(False))
+                .order_by(
+                    RecruitmentSkill.sort_order.asc(),
+                    RecruitmentSkill.created_at.desc(),
+                    RecruitmentSkill.id.desc(),
+                )
+                .all()
+            )
+            visible_rows = [row for row in rows if self._can_access_org_resource(row)]
+            bound_position_ids = {
+                int(row.bound_position_id)
+                for row in visible_rows
+                if getattr(row, "bound_position_id", None)
+            }
+            bound_position_titles = {
+                int(position_id): title
+                for position_id, title in (
+                    self.db.query(RecruitmentPosition.id, RecruitmentPosition.title)
+                    .filter(
+                        RecruitmentPosition.id.in_(bound_position_ids),
+                        RecruitmentPosition.deleted.is_(False),
+                    )
+                    .all()
+                    if bound_position_ids else []
+                )
+            }
+            return [
+                self._serialize_skill(
+                    row,
+                    _preloaded_bound_position_titles=bound_position_titles,
+                )
+                for row in visible_rows
+            ]
+
+        safe_limit = requested_limit or 50
+        builder = self.db.query(RecruitmentSkill).filter(RecruitmentSkill.deleted.is_(False))
+        organization_paths: Dict[str, str] = {}
+
+        if self.permission_context and not self.permission_context.has_all_orgs:
+            visible_org_codes = {
+                normalize_org_code(org_code)
+                for org_code in (self.permission_context.visible_org_codes or ())
+            }
+            organization_paths = self._get_active_org_paths()
+            visible_paths = {
+                organization_paths.get(org_code, "")
+                for org_code in visible_org_codes
+                if organization_paths.get(org_code, "")
+            }
+            ancestor_org_codes = {
+                org_code
+                for org_code, org_path in organization_paths.items()
+                if org_path and any(
+                    visible_path == org_path or visible_path.startswith(f"{org_path}/")
+                    for visible_path in visible_paths
+                )
+            }
+            builder = builder.filter(or_(
+                func.upper(func.coalesce(RecruitmentSkill.scope_level, "")) == "GLOBAL",
+                func.upper(func.coalesce(RecruitmentSkill.share_policy, "")) == SHARE_POLICY_PUBLIC_IN_GROUP,
+                RecruitmentSkill.org_code.in_(visible_org_codes),
+                and_(
+                    RecruitmentSkill.allow_sub_org_use.is_(True),
+                    func.upper(func.coalesce(RecruitmentSkill.share_policy, "")).in_([
+                        SHARE_POLICY_SHARED_READONLY,
+                        SHARE_POLICY_SHARED_COPYABLE,
+                    ]),
+                    RecruitmentSkill.org_code.in_(ancestor_org_codes),
+                ),
+            ))
+
+        if normalized_org_codes:
+            if not organization_paths:
+                organization_paths = self._get_active_org_paths()
+            target_paths = {
+                organization_paths.get(org_code, "")
+                for org_code in normalized_org_codes
+                if organization_paths.get(org_code, "")
+            }
+            ancestor_org_codes = {
+                org_code
+                for org_code, org_path in organization_paths.items()
+                if org_path and any(
+                    target_path == org_path or target_path.startswith(f"{org_path}/")
+                    for target_path in target_paths
+                )
+            }
+            builder = builder.filter(or_(
+                RecruitmentSkill.org_code.in_(normalized_org_codes),
+                func.upper(func.coalesce(RecruitmentSkill.scope_level, "")) == "GLOBAL",
+                func.upper(func.coalesce(RecruitmentSkill.share_policy, "")) == SHARE_POLICY_PUBLIC_IN_GROUP,
+                and_(
+                    RecruitmentSkill.allow_sub_org_use.is_(True),
+                    RecruitmentSkill.org_code.in_(ancestor_org_codes),
+                ),
+            ))
+
+        if normalized_query:
+            escaped_query = (
+                normalized_query
+                .replace("\\", "\\\\")
+                .replace("%", "\\%")
+                .replace("_", "\\_")
+            )
+            search_pattern = f"%{escaped_query}%"
+            builder = builder.outerjoin(
+                RecruitmentPosition,
+                and_(
+                    RecruitmentPosition.id == RecruitmentSkill.bound_position_id,
+                    RecruitmentPosition.deleted.is_(False),
+                ),
+            ).filter(or_(
+                func.lower(func.coalesce(RecruitmentSkill.name, "")).like(search_pattern, escape="\\"),
+                func.lower(func.coalesce(RecruitmentSkill.description, "")).like(search_pattern, escape="\\"),
+                func.lower(func.coalesce(RecruitmentSkill.tags_json, "")).like(search_pattern, escape="\\"),
+                func.lower(func.coalesce(RecruitmentPosition.title, "")).like(search_pattern, escape="\\"),
+            ))
+
+        ordered = builder.order_by(
+            RecruitmentSkill.updated_at.desc(),
+            RecruitmentSkill.created_at.desc(),
+            RecruitmentSkill.sort_order.asc(),
+            RecruitmentSkill.id.desc(),
+        )
+        if normalized_task_type:
+            legacy_content = case(
+                (
+                    or_(
+                        RecruitmentSkill.task_types_json.is_(None),
+                        func.trim(RecruitmentSkill.task_types_json).in_(["", "[]", "null"]),
+                    ),
+                    RecruitmentSkill.content,
+                ),
+                else_=None,
+            ).label("legacy_content")
+            candidates = ordered.with_entities(
+                RecruitmentSkill.id,
+                RecruitmentSkill.skill_code,
+                RecruitmentSkill.name,
+                RecruitmentSkill.tags_json,
+                RecruitmentSkill.task_types_json,
+                RecruitmentSkill.skill_group,
+                RecruitmentSkill.version,
+                legacy_content,
+            ).all()
+            matching_ids = []
+            for candidate in candidates:
+                stored_task_types = json_loads_safe(candidate.task_types_json, [])
+                runtime_meta = _extract_skill_runtime_meta({
+                    "id": candidate.id,
+                    "skill_code": candidate.skill_code,
+                    "name": candidate.name,
+                    "tags": json_loads_safe(candidate.tags_json, []),
+                    "task_types": stored_task_types if isinstance(stored_task_types, list) else [],
+                    "skill_group": candidate.skill_group,
+                    "version": candidate.version,
+                    "content": candidate.legacy_content or "",
+                })
+                if normalized_task_type in (runtime_meta.get("tasks") or []):
+                    matching_ids.append(int(candidate.id))
+            total = len(matching_ids)
+            page_ids = matching_ids[safe_offset:safe_offset + safe_limit]
+            page_rows_by_id = {
+                int(row.id): row
+                for row in self.db.query(RecruitmentSkill)
+                .filter(RecruitmentSkill.id.in_(page_ids))
+                .all()
+            } if page_ids else {}
+            visible_rows = [page_rows_by_id[skill_id] for skill_id in page_ids if skill_id in page_rows_by_id]
+        else:
+            total = int(
+                builder.order_by(None)
+                .with_entities(func.count(RecruitmentSkill.id))
+                .scalar()
+                or 0
+            )
+            visible_rows = ordered.offset(safe_offset).limit(safe_limit).all()
+
+        bound_position_ids = {
+            int(row.bound_position_id)
+            for row in visible_rows
+            if getattr(row, "bound_position_id", None)
+        }
+        bound_position_titles = {
+            int(position_id): title
+            for position_id, title in (
+                self.db.query(RecruitmentPosition.id, RecruitmentPosition.title)
+                .filter(
+                    RecruitmentPosition.id.in_(bound_position_ids),
+                    RecruitmentPosition.deleted.is_(False),
+                )
+                .all()
+                if bound_position_ids else []
+            )
+        }
+        items = [
+            self._serialize_skill(
+                row,
+                _preloaded_bound_position_titles=bound_position_titles,
+                summary=summary,
+            )
+            for row in visible_rows
+        ]
+        return {"items": items, "total": int(total or 0), "limit": safe_limit, "offset": safe_offset}
+
+    def get_skill_detail(self, skill_id: int) -> Dict[str, Any]:
+        return self._serialize_skill(self._get_skill(skill_id))
 
     def create_skill(self, payload: Dict[str, Any], actor_id: str) -> Dict[str, Any]:
         meta = _extract_skill_runtime_meta(payload)
@@ -20892,9 +21158,22 @@ class RecruitmentService:
             trigger_rule_payload=trigger_rule_payload,
         )
 
-    def _serialize_mail_dispatch(self, row: RecruitmentResumeMailDispatch) -> Dict[str, Any]:
-        sender = self.db.query(RecruitmentMailSenderConfig).filter(RecruitmentMailSenderConfig.id == row.sender_config_id).first() if row.sender_config_id else None
-        return {
+    def _serialize_mail_dispatch(
+        self,
+        row: RecruitmentResumeMailDispatch,
+        *,
+        _preloaded_senders: Optional[Dict[int, RecruitmentMailSenderConfig]] = None,
+        _preloaded_candidate_names: Optional[Dict[int, str]] = None,
+        _preloaded_position_titles: Optional[Dict[int, str]] = None,
+        summary: bool = False,
+    ) -> Dict[str, Any]:
+        sender = None
+        if row.sender_config_id:
+            if _preloaded_senders is not None:
+                sender = _preloaded_senders.get(int(row.sender_config_id))
+            else:
+                sender = self.db.query(RecruitmentMailSenderConfig).filter(RecruitmentMailSenderConfig.id == row.sender_config_id).first()
+        payload = {
             "id": row.id,
             "org_code": normalize_org_code(getattr(row, "org_code", None)),
             "sender_config_id": row.sender_config_id,
@@ -20909,8 +21188,6 @@ class RecruitmentService:
             "bcc_recipient_ids": json_loads_safe(row.bcc_recipient_ids_json, []),
             "bcc_recipient_emails": json_loads_safe(row.bcc_recipient_emails_json, []),
             "subject": row.subject,
-            "body_text": row.body_text,
-            "body_html": row.body_html,
             "attachment_count": row.attachment_count,
             "status": row.status,
             "error_message": row.error_message,
@@ -20918,11 +21195,25 @@ class RecruitmentService:
             "trigger_type": row.trigger_type,
             "candidate_status": row.candidate_status,
             "dedup_key": row.dedup_key,
-            "trigger_rule": json_loads_safe(row.trigger_rule_json, {}),
             "sent_at": isoformat_or_none(row.sent_at),
             "created_at": isoformat_or_none(row.created_at),
             "updated_at": isoformat_or_none(row.updated_at),
         }
+        if not summary:
+            payload["body_text"] = row.body_text
+            payload["body_html"] = row.body_html
+            payload["trigger_rule"] = json_loads_safe(row.trigger_rule_json, {})
+        else:
+            candidate_ids = payload["candidate_ids"]
+            payload["candidate_names"] = [
+                (_preloaded_candidate_names or {}).get(int(candidate_id), "")
+                for candidate_id in candidate_ids
+            ]
+            payload["position_title"] = (
+                (_preloaded_position_titles or {}).get(int(row.position_id), "")
+                if row.position_id else ""
+            )
+        return payload
 
     def _build_sender_runtime(self, row: RecruitmentMailSenderConfig) -> RecruitmentMailSenderRuntime:
         password = decrypt_secret(row.password_ciphertext or "")
@@ -20930,10 +21221,125 @@ class RecruitmentService:
             raise ValueError(f"发件人配置「{row.name}」（ID={row.id}）未设置密码，无法发送邮件")
         return RecruitmentMailSenderRuntime(from_email=row.from_email, from_name=row.from_name, smtp_host=row.smtp_host, smtp_port=row.smtp_port, username=row.username, password=password, use_ssl=bool(row.use_ssl), use_starttls=bool(row.use_starttls))
 
-    def list_resume_mail_dispatches(self) -> List[Dict[str, Any]]:
+    def list_resume_mail_dispatches(
+        self,
+        *,
+        org_codes: Optional[Sequence[str]] = None,
+        limit: int = 0,
+        offset: int = 0,
+        summary: bool = False,
+    ) -> Any:
         builder = self._apply_business_org_filter(self.db.query(RecruitmentResumeMailDispatch), RecruitmentResumeMailDispatch)
-        rows = builder.order_by(RecruitmentResumeMailDispatch.created_at.desc(), RecruitmentResumeMailDispatch.id.desc()).all()
-        return [self._serialize_mail_dispatch(row) for row in rows]
+        normalized_org_codes = normalize_org_code_list(org_codes or [])
+        if normalized_org_codes:
+            builder = builder.filter(RecruitmentResumeMailDispatch.org_code.in_(normalized_org_codes))
+        safe_offset = max(0, int(offset or 0))
+        requested_limit = max(0, int(limit or 0))
+        is_paged_request = bool(summary or safe_offset or requested_limit)
+        safe_limit = requested_limit or (50 if is_paged_request else 0)
+        total = (
+            int(
+                builder.with_entities(func.count(RecruitmentResumeMailDispatch.id))
+                .scalar()
+                or 0
+            )
+            if is_paged_request else None
+        )
+        ordered = builder.order_by(RecruitmentResumeMailDispatch.created_at.desc(), RecruitmentResumeMailDispatch.id.desc())
+        if summary:
+            ordered = ordered.options(load_only(
+                RecruitmentResumeMailDispatch.id,
+                RecruitmentResumeMailDispatch.org_code,
+                RecruitmentResumeMailDispatch.sender_config_id,
+                RecruitmentResumeMailDispatch.position_id,
+                RecruitmentResumeMailDispatch.screening_score_id,
+                RecruitmentResumeMailDispatch.candidate_ids_json,
+                RecruitmentResumeMailDispatch.recipient_ids_json,
+                RecruitmentResumeMailDispatch.recipient_emails_json,
+                RecruitmentResumeMailDispatch.cc_recipient_ids_json,
+                RecruitmentResumeMailDispatch.cc_recipient_emails_json,
+                RecruitmentResumeMailDispatch.bcc_recipient_ids_json,
+                RecruitmentResumeMailDispatch.bcc_recipient_emails_json,
+                RecruitmentResumeMailDispatch.subject,
+                RecruitmentResumeMailDispatch.attachment_count,
+                RecruitmentResumeMailDispatch.status,
+                RecruitmentResumeMailDispatch.error_message,
+                RecruitmentResumeMailDispatch.send_mode,
+                RecruitmentResumeMailDispatch.trigger_type,
+                RecruitmentResumeMailDispatch.candidate_status,
+                RecruitmentResumeMailDispatch.dedup_key,
+                RecruitmentResumeMailDispatch.sent_at,
+                RecruitmentResumeMailDispatch.created_at,
+                RecruitmentResumeMailDispatch.updated_at,
+            ))
+        if safe_offset:
+            ordered = ordered.offset(safe_offset)
+        if safe_limit:
+            ordered = ordered.limit(safe_limit)
+        rows = ordered.all()
+        sender_ids = {int(row.sender_config_id) for row in rows if row.sender_config_id}
+        candidate_ids = {
+            int(candidate_id)
+            for row in rows
+            for candidate_id in json_loads_safe(row.candidate_ids_json, [])
+            if str(candidate_id).isdigit()
+        }
+        position_ids = {int(row.position_id) for row in rows if row.position_id}
+        senders = {
+            int(sender.id): sender
+            for sender in (
+                self.db.query(RecruitmentMailSenderConfig)
+                .filter(RecruitmentMailSenderConfig.id.in_(sender_ids))
+                .all()
+                if sender_ids else []
+            )
+        }
+        candidate_names = {
+            int(candidate_id): str(name or "")
+            for candidate_id, name in (
+                self.db.query(RecruitmentCandidate.id, RecruitmentCandidate.name)
+                .filter(
+                    RecruitmentCandidate.id.in_(candidate_ids),
+                    RecruitmentCandidate.deleted.is_(False),
+                )
+                .all()
+                if summary and candidate_ids else []
+            )
+        }
+        position_titles = {
+            int(position_id): str(title or "")
+            for position_id, title in (
+                self.db.query(RecruitmentPosition.id, RecruitmentPosition.title)
+                .filter(
+                    RecruitmentPosition.id.in_(position_ids),
+                    RecruitmentPosition.deleted.is_(False),
+                )
+                .all()
+                if summary and position_ids else []
+            )
+        }
+        items = [
+            self._serialize_mail_dispatch(
+                row,
+                _preloaded_senders=senders,
+                _preloaded_candidate_names=candidate_names,
+                _preloaded_position_titles=position_titles,
+                summary=summary,
+            )
+            for row in rows
+        ]
+        if is_paged_request:
+            return {"items": items, "total": int(total or 0), "limit": safe_limit, "offset": safe_offset}
+        return items
+
+    def get_resume_mail_dispatch(self, dispatch_id: int) -> Dict[str, Any]:
+        row = self._apply_business_org_filter(
+            self.db.query(RecruitmentResumeMailDispatch),
+            RecruitmentResumeMailDispatch,
+        ).filter(RecruitmentResumeMailDispatch.id == dispatch_id).first()
+        if not row:
+            raise ValueError(f"邮件发送记录 ID={dispatch_id} 不存在")
+        return self._serialize_mail_dispatch(row)
 
     def send_resume_mail_dispatch(self, payload: Dict[str, Any], actor_id: str) -> Dict[str, Any]:
         sender_row = self._resolve_mail_sender_row(payload.get("sender_config_id"))

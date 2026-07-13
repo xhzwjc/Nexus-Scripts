@@ -55,6 +55,7 @@ export async function proxyAdminRbacRequest(
     init: RequestInit = {},
 ) {
     const backendUrl = getBackendBaseUrl();
+    const startedAt = performance.now();
 
     try {
         const response = await fetch(`${backendUrl}${path}`, {
@@ -67,15 +68,26 @@ export async function proxyAdminRbacRequest(
             signal: init.signal || AbortSignal.timeout(15000),
         });
 
-        const payload = await response.json().catch(() => null);
-        if (!response.ok) {
-            return NextResponse.json(
-                { error: extractErrorMessage(payload, 'RBAC backend request failed') },
-                { status: response.status },
-            );
+        if (response.ok) {
+            const responseHeaders = new Headers();
+            for (const headerName of ['cache-control', 'content-length', 'content-type', 'etag']) {
+                const value = response.headers.get(headerName);
+                if (value) {
+                    responseHeaders.set(headerName, value);
+                }
+            }
+            responseHeaders.set('Server-Timing', `rbac-upstream;dur=${(performance.now() - startedAt).toFixed(1)}`);
+            return new NextResponse(response.body, {
+                status: response.status,
+                headers: responseHeaders,
+            });
         }
 
-        return NextResponse.json(payload);
+        const payload = await response.json().catch(() => null);
+        return NextResponse.json(
+            { error: extractErrorMessage(payload, 'RBAC backend request failed') },
+            { status: response.status },
+        );
     } catch (error) {
         console.error('Failed to proxy RBAC admin request', { path, error });
         return NextResponse.json(

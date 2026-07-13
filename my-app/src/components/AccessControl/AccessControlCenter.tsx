@@ -1,15 +1,14 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useState } from 'react';
 import dynamic from 'next/dynamic';
 import { Copy, Loader2, RefreshCw, ShieldCheck, X } from 'lucide-react';
 import { toast } from '@/lib/toast';
-import { authenticatedFetch } from '@/lib/auth';
 import { useI18n } from '@/lib/i18n';
 import { Button } from '@/components/ui/button';
-import type { AccessControlView, ScriptHubRbacOverview } from '@/lib/types';
+import type { AccessControlView } from '@/lib/types';
 import { AccessControlTabs } from './AccessControlTabs';
-import { mapAccessControlApiError } from './utils';
+import { invalidateRbacCache } from './accessControlQuery';
 
 function AccessControlViewLoading() {
     return (
@@ -43,34 +42,8 @@ const AccessControlAuditPage = dynamic(
 export function AccessControlCenter() {
     const { t } = useI18n();
     const [activeView, setActiveView] = useState<AccessControlView>('users');
-    const [overview, setOverview] = useState<ScriptHubRbacOverview | null>(null);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
+    const [refreshToken, setRefreshToken] = useState(0);
     const [lastGeneratedKey, setLastGeneratedKey] = useState<{ userCode: string; accessKey: string } | null>(null);
-
-    const loadOverview = useCallback(async () => {
-        setLoading(true);
-        setError(null);
-        try {
-            const response = await authenticatedFetch('/api/admin/rbac/overview', {
-                cache: 'no-store',
-            });
-            const payload = await response.json().catch(() => ({ error: t.accessControl.loadFailed })) as ScriptHubRbacOverview & { error?: string };
-            if (!response.ok || payload.error) {
-                throw new Error(payload.error || t.accessControl.loadFailed);
-            }
-            setOverview(payload);
-        } catch (loadError) {
-            const message = mapAccessControlApiError(loadError instanceof Error ? loadError.message : t.accessControl.loadFailed, t.accessControl);
-            setError(message);
-        } finally {
-            setLoading(false);
-        }
-    }, [t.accessControl]);
-
-    useEffect(() => {
-        void loadOverview();
-    }, [loadOverview]);
 
     const handleCopyKey = async (value: string) => {
         try {
@@ -81,45 +54,38 @@ export function AccessControlCenter() {
         }
     };
 
+    const handleRefresh = () => {
+        invalidateRbacCache();
+        setRefreshToken((current) => current + 1);
+    };
+
     const renderActiveView = () => {
         switch (activeView) {
             case 'overview':
-                return <AccessControlOverviewPage overview={overview} labels={t.accessControl} />;
+                return <AccessControlOverviewPage labels={t.accessControl} refreshToken={refreshToken} />;
             case 'users':
                 return (
                     <AccessControlUsersPage
-                        overview={overview}
-                        loading={loading}
-                        error={error}
-                        onReload={loadOverview}
+                        refreshToken={refreshToken}
                         onGeneratedKey={setLastGeneratedKey}
                     />
                 );
             case 'organizations':
                 return (
                     <AccessControlOrganizationsPage
-                        overview={overview}
-                        loading={loading}
-                        error={error}
-                        onReload={loadOverview}
+                        refreshToken={refreshToken}
                     />
                 );
             case 'roles':
                 return (
                     <AccessControlRolesPage
-                        overview={overview}
-                        loading={loading}
-                        error={error}
-                        onReload={loadOverview}
+                        refreshToken={refreshToken}
                     />
                 );
             case 'audit':
                 return (
                     <AccessControlAuditPage
-                        overview={overview}
-                        loading={loading}
-                        error={error}
-                        onReload={loadOverview}
+                        refreshToken={refreshToken}
                     />
                 );
             default:
@@ -148,10 +114,9 @@ export function AccessControlCenter() {
                                 title={t.accessControl.refresh}
                                 aria-label={t.accessControl.refresh}
                                 className="h-9 rounded-[6px] border-[#E6E7EB] bg-white px-4 text-[12px] font-normal text-[#33353D] shadow-none hover:border-[#1E3BFA] hover:bg-[#F7F8FA] hover:text-[#0F23D9] dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300"
-                                onClick={() => void loadOverview()}
-                                disabled={loading}
+                                onClick={handleRefresh}
                             >
-                                {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                                <RefreshCw className="h-3.5 w-3.5" />
                                 {t.accessControl.refresh}
                             </Button>
                         </div>

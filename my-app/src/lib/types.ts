@@ -108,6 +108,7 @@ export interface ScriptHubOrganizationDefinition {
     sort_order: number;
     is_active: boolean;
     is_deleted?: boolean;
+    primary_user_count?: number;
 }
 
 export interface ScriptHubManagedUser {

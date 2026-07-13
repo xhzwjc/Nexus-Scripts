@@ -1,6 +1,7 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import dynamic from 'next/dynamic';
 import { KeyRound, Loader2, Plus, Search, SlidersHorizontal, Trash2 } from 'lucide-react';
 import { toast } from '@/lib/toast';
 import { authenticatedFetch, clearScriptHubSession, getStoredScriptHubSession, validateStoredScriptHubSession } from '@/lib/auth';
@@ -24,19 +25,18 @@ import {
     SelectValue,
 } from '@/components/ui/select';
 import type {
-    AccessControlUserViewModel,
     AuthorizationBoundary,
     DataScope,
     ScriptHubManagedUser,
     ScriptHubOrganizationDefinition,
     ScriptHubPermissionDefinition,
-    ScriptHubRbacOverview,
     ScriptHubRoleDefinition,
 } from '@/lib/types';
 import { DATA_SCOPE_OPTIONS } from './constants';
-import type { DeleteMutationResponse, RotateKeyErrors, UserFormErrors, UserMutationResponse } from './types';
-import { UserForm } from './UserForm';
+import type { DeleteMutationResponse, RbacCatalogResponse, RbacUsersResponse, RotateKeyErrors, UserFormErrors, UserMutationResponse } from './types';
 import { UserTable } from './UserTable';
+import { invalidateRbacCache, useDebouncedValue, useRbacQuery } from './accessControlQuery';
+import { normalizeRbacPageSize } from './accessControlPaging';
 import {
     boundaryToApiPayload,
     buildUserViewModels,
@@ -61,10 +61,7 @@ import {
 } from './utils';
 
 interface AccessControlUsersPageProps {
-    overview: ScriptHubRbacOverview | null;
-    loading: boolean;
-    error: string | null;
-    onReload: () => Promise<void>;
+    refreshToken: number;
     onGeneratedKey: (payload: { userCode: string; accessKey: string } | null) => void;
 }
 
@@ -75,44 +72,21 @@ const EMPTY_ROLES: ScriptHubRoleDefinition[] = [];
 const EMPTY_PERMISSIONS: ScriptHubPermissionDefinition[] = [];
 const EMPTY_ORGANIZATIONS: ScriptHubOrganizationDefinition[] = [];
 const EMPTY_USERS: ScriptHubManagedUser[] = [];
+const USER_PAGE_SIZE_OPTIONS = [25, 50, 100];
 
-function filterUserViewModels(
-    users: AccessControlUserViewModel[],
-    filters: {
-        query: string;
-        dataScope: 'all' | DataScope;
-        status: StatusFilter;
-        config: ConfigFilter;
-        role: string;
+const UserForm = dynamic(
+    () => import('./UserForm').then((module) => module.UserForm),
+    {
+        loading: () => (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20">
+                <Loader2 className="h-5 w-5 animate-spin text-white" />
+            </div>
+        ),
     },
-) {
-    const query = filters.query.trim().toLowerCase();
-    return users.filter((user) => {
-        const haystack = [
-            user.userCode,
-            user.displayName,
-            user.primaryOrgCode,
-            user.primaryOrgName,
-            user.dataScope,
-            ...user.roleNames,
-            ...user.customOrgCodes,
-        ].join(' ').toLowerCase();
-
-        return (
-            (!query || haystack.includes(query)) &&
-            (filters.dataScope === 'all' || user.dataScope === filters.dataScope) &&
-            (filters.status === 'all' || (filters.status === 'active' ? user.isActive : !user.isActive)) &&
-            (filters.config === 'all' || user.configPermissionState === filters.config) &&
-            (!filters.role || user.roleCodes.includes(filters.role))
-        );
-    });
-}
+);
 
 export function AccessControlUsersPage({
-    overview,
-    loading,
-    error,
-    onReload,
+    refreshToken,
     onGeneratedKey,
 }: AccessControlUsersPageProps) {
     const { t } = useI18n();
@@ -122,6 +96,8 @@ export function AccessControlUsersPage({
     const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
     const [configFilter, setConfigFilter] = useState<ConfigFilter>('all');
     const [roleFilter, setRoleFilter] = useState('');
+    const [page, setPage] = useState(1);
+    const [pageSize, setPageSize] = useState(50);
     const [saving, setSaving] = useState(false);
     const [createOpen, setCreateOpen] = useState(false);
     const [editUser, setEditUser] = useState<ScriptHubManagedUser | null>(null);
@@ -135,11 +111,43 @@ export function AccessControlUsersPage({
     const [rotateErrors, setRotateErrors] = useState<RotateKeyErrors>({});
     const [rotateDialogError, setRotateDialogError] = useState<string | null>(null);
     const [deleteDialogError, setDeleteDialogError] = useState<string | null>(null);
+    const editDetailRequestIdRef = useRef(0);
+    const editDetailAbortControllerRef = useRef<AbortController | null>(null);
+    const editFormRevisionRef = useRef(0);
 
-    const roles = overview?.catalog.roles ?? EMPTY_ROLES;
-    const permissions = overview?.catalog.permissions ?? EMPTY_PERMISSIONS;
-    const organizations = overview?.catalog.organizations ?? EMPTY_ORGANIZATIONS;
-    const users = overview?.users ?? EMPTY_USERS;
+    const debouncedQuery = useDebouncedValue(query, 300);
+    const requestPath = useMemo(() => {
+        const params = new URLSearchParams({
+            page: String(page),
+            page_size: String(pageSize),
+        });
+        if (debouncedQuery.trim()) params.set('search', debouncedQuery.trim());
+        if (roleFilter) params.set('role_code', roleFilter);
+        if (dataScopeFilter !== 'all') params.set('data_scope', dataScopeFilter);
+        if (statusFilter !== 'all') params.set('is_active', statusFilter === 'active' ? 'true' : 'false');
+        if (configFilter !== 'all') params.set('config_state', configFilter);
+        return `/api/admin/rbac/users?${params.toString()}`;
+    }, [configFilter, dataScopeFilter, debouncedQuery, page, pageSize, roleFilter, statusFilter]);
+    const catalogQuery = useRbacQuery<RbacCatalogResponse>('/api/admin/rbac/catalog', labels.loadFailed, refreshToken);
+    const usersQuery = useRbacQuery<RbacUsersResponse>(requestPath, labels.loadFailed, refreshToken);
+    const roles = catalogQuery.data?.roles ?? EMPTY_ROLES;
+    const permissions = catalogQuery.data?.permissions ?? EMPTY_PERMISSIONS;
+    const organizations = catalogQuery.data?.organizations ?? EMPTY_ORGANIZATIONS;
+    const users = usersQuery.data?.items ?? EMPTY_USERS;
+    const totalUsers = usersQuery.data?.total ?? 0;
+    const totalPages = Math.max(1, Math.ceil(totalUsers / pageSize));
+    const loading = catalogQuery.loading || usersQuery.loading;
+    const error = catalogQuery.error || usersQuery.error;
+
+    useEffect(() => {
+        if (page > totalPages) {
+            setPage(totalPages);
+        }
+    }, [page, totalPages]);
+
+    useEffect(() => {
+        return () => editDetailAbortControllerRef.current?.abort();
+    }, []);
 
     const roleMap = useMemo(() => createRoleMap(roles), [roles]);
     const permissionMap = useMemo(() => createPermissionMap(permissions), [permissions]);
@@ -150,32 +158,13 @@ export function AccessControlUsersPage({
         () => buildUserViewModels(users, roleMap, organizationMap),
         [organizationMap, roleMap, users],
     );
-    const filteredViewModels = useMemo(
-        () => filterUserViewModels(userViewModels, {
-            query,
-            dataScope: dataScopeFilter,
-            status: statusFilter,
-            config: configFilter,
-            role: roleFilter,
-        }),
-        [configFilter, dataScopeFilter, query, roleFilter, statusFilter, userViewModels],
-    );
-    const filteredUsers = useMemo(() => {
-        const allowedCodes = new Set(filteredViewModels.map((user) => user.userCode));
-        return users.filter((user) => allowedCodes.has(user.user_code));
-    }, [filteredViewModels, users]);
+    const filteredViewModels = userViewModels;
+    const filteredUsers = users;
 
     // 当前登录用户是否拥有用户管理权限（rbac-manage 或超管）
-    const canManageUsers = useMemo(() => {
-        const session = getStoredScriptHubSession();
-        const currentUserId = session?.user.id;
-        if (!currentUserId || !users.length) return false;
-        const currentUser = users.find((u) => u.user_code === currentUserId);
-        const hasRbacManage = Boolean(session?.user.permissions?.['rbac-manage']);
-        return (currentUser?.is_super_admin ?? false) || hasRbacManage;
-    }, [users]);
-
-    const currentUserId = useMemo(() => getStoredScriptHubSession()?.user.id, []);
+    const currentSession = getStoredScriptHubSession();
+    const canManageUsers = Boolean(currentSession?.user.isSuperAdmin || currentSession?.user.permissions?.['rbac-manage']);
+    const currentUserId = currentSession?.user.id;
 
     // 当前用户的授权边界（用于过滤表单可选项）
     const actorBoundary: AuthorizationBoundary | null = useMemo(() => {
@@ -222,7 +211,20 @@ export function AccessControlUsersPage({
     const mergedErrors = useMemo(() => ({ ...serverErrors, ...formErrors }), [formErrors, serverErrors]);
     const isFormValid = Object.keys(formErrors).length === 0;
 
+    const reloadUserSlice = () => {
+        invalidateRbacCache('/api/admin/rbac/users');
+        invalidateRbacCache('/api/admin/rbac/catalog');
+        invalidateRbacCache('/api/admin/rbac/summary');
+        invalidateRbacCache('/api/admin/rbac/audit-logs');
+        usersQuery.reload();
+        catalogQuery.reload();
+    };
+
     const closeDialogs = () => {
+        editDetailRequestIdRef.current += 1;
+        editDetailAbortControllerRef.current?.abort();
+        editDetailAbortControllerRef.current = null;
+        editFormRevisionRef.current += 1;
         setCreateOpen(false);
         setEditUser(null);
         setRotateUser(null);
@@ -263,6 +265,37 @@ export function AccessControlUsersPage({
         setServerErrors({});
         setDialogError(null);
         setEditUser(user);
+        editFormRevisionRef.current += 1;
+        const formRevision = editFormRevisionRef.current;
+        const requestId = editDetailRequestIdRef.current + 1;
+        editDetailRequestIdRef.current = requestId;
+        editDetailAbortControllerRef.current?.abort();
+        const controller = new AbortController();
+        editDetailAbortControllerRef.current = controller;
+        void authenticatedFetch(`/api/admin/rbac/users/${encodeURIComponent(user.user_code)}`, {
+            cache: 'no-store',
+            signal: controller.signal,
+        }).then(async (response) => {
+            if (!response.ok) {
+                return null;
+            }
+            return response.json() as Promise<ScriptHubManagedUser>;
+        }).then((detail) => {
+            if (
+                controller.signal.aborted
+                || editDetailRequestIdRef.current !== requestId
+                || editFormRevisionRef.current !== formRevision
+            ) {
+                return;
+            }
+            const resolvedUser = detail || user;
+            setEditUser(resolvedUser);
+            setForm(mapUserToForm(resolvedUser));
+        }).catch(() => undefined).finally(() => {
+            if (editDetailAbortControllerRef.current === controller) {
+                editDetailAbortControllerRef.current = null;
+            }
+        });
     };
 
     const upsertUser = async (mode: 'create' | 'edit') => {
@@ -321,7 +354,7 @@ export function AccessControlUsersPage({
                 window.location.reload();
                 return;
             }
-            await onReload();
+            reloadUserSlice();
         } catch (saveError) {
             const message = saveError instanceof Error ? saveError.message : labels.saveFailed;
             const mapped = mapUserMutationError(message, labels);
@@ -361,7 +394,12 @@ export function AccessControlUsersPage({
             onGeneratedKey({ userCode: payload.user.user_code, accessKey: payload.generated_access_key });
             toast.success(labels.keyRotated);
             closeDialogs();
-            await onReload();
+            invalidateRbacCache('/api/admin/rbac/users');
+            invalidateRbacCache('/api/admin/rbac/audit-logs');
+            usersQuery.setData((current) => current ? {
+                ...current,
+                items: current.items.map((user) => user.user_code === payload.user.user_code ? payload.user : user),
+            } : current);
         } catch (rotateError) {
             const message = rotateError instanceof Error ? rotateError.message : labels.saveFailed;
             const mapped = mapRotateKeyError(message, labels);
@@ -403,7 +441,7 @@ export function AccessControlUsersPage({
                 return;
             }
 
-            await onReload();
+            reloadUserSlice();
         } catch (deleteError) {
             const message = deleteError instanceof Error ? deleteError.message : labels.deleteFailed;
             setDeleteDialogError(mapDeleteUserError(message, labels));
@@ -434,10 +472,16 @@ export function AccessControlUsersPage({
                                 className="h-[34px] rounded-[6px] border-[#E6E7EB] bg-white pl-9 text-[12px] shadow-none placeholder:text-[#B0B2B8] focus-visible:border-[#1E3BFA] focus-visible:ring-0 dark:border-slate-700 dark:bg-slate-950"
                                 placeholder={labels.searchPlaceholder}
                                 value={query}
-                                onChange={(event) => setQuery(event.target.value)}
+                                onChange={(event) => {
+                                    setQuery(event.target.value);
+                                    setPage(1);
+                                }}
                             />
                         </div>
-                        <Select value={roleFilter || 'all'} onValueChange={(value) => setRoleFilter(value === 'all' ? '' : value)}>
+                        <Select value={roleFilter || 'all'} onValueChange={(value) => {
+                            setRoleFilter(value === 'all' ? '' : value);
+                            setPage(1);
+                        }}>
                             <SelectTrigger className="h-[34px] w-[140px] rounded-[6px] border-[#E6E7EB] bg-white text-[12px] shadow-none focus:ring-0 dark:border-slate-700 dark:bg-slate-950">
                                 <SelectValue />
                             </SelectTrigger>
@@ -448,7 +492,10 @@ export function AccessControlUsersPage({
                                 ))}
                             </SelectContent>
                         </Select>
-                        <Select value={dataScopeFilter} onValueChange={(value) => setDataScopeFilter(value as 'all' | DataScope)}>
+                        <Select value={dataScopeFilter} onValueChange={(value) => {
+                            setDataScopeFilter(value as 'all' | DataScope);
+                            setPage(1);
+                        }}>
                             <SelectTrigger className="h-[34px] w-[155px] rounded-[6px] border-[#E6E7EB] bg-white text-[12px] shadow-none focus:ring-0 dark:border-slate-700 dark:bg-slate-950">
                                 <SelectValue />
                             </SelectTrigger>
@@ -459,7 +506,10 @@ export function AccessControlUsersPage({
                                 ))}
                             </SelectContent>
                         </Select>
-                        <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as StatusFilter)}>
+                        <Select value={statusFilter} onValueChange={(value) => {
+                            setStatusFilter(value as StatusFilter);
+                            setPage(1);
+                        }}>
                             <SelectTrigger className="h-[34px] w-[130px] rounded-[6px] border-[#E6E7EB] bg-white text-[12px] shadow-none focus:ring-0 dark:border-slate-700 dark:bg-slate-950">
                                 <SelectValue />
                             </SelectTrigger>
@@ -469,7 +519,10 @@ export function AccessControlUsersPage({
                                 <SelectItem value="inactive">{labels.inactive}</SelectItem>
                             </SelectContent>
                         </Select>
-                        <Select value={configFilter} onValueChange={(value) => setConfigFilter(value as ConfigFilter)}>
+                        <Select value={configFilter} onValueChange={(value) => {
+                            setConfigFilter(value as ConfigFilter);
+                            setPage(1);
+                        }}>
                             <SelectTrigger className="h-[34px] w-[160px] rounded-[6px] border-[#E6E7EB] bg-white text-[12px] shadow-none focus:ring-0 dark:border-slate-700 dark:bg-slate-950">
                                 <SelectValue />
                             </SelectTrigger>
@@ -480,12 +533,27 @@ export function AccessControlUsersPage({
                                 <SelectItem value="none">{labels.configPermissionNone}</SelectItem>
                             </SelectContent>
                         </Select>
+                        <Select value={String(pageSize)} onValueChange={(value) => {
+                            const nextPageSize = normalizeRbacPageSize(Number(value));
+                            setPageSize(USER_PAGE_SIZE_OPTIONS.includes(nextPageSize) ? nextPageSize : 50);
+                            setPage(1);
+                        }}>
+                            <SelectTrigger className="h-[34px] w-[92px] rounded-[6px] border-[#E6E7EB] bg-white text-[12px] shadow-none focus:ring-0 dark:border-slate-700 dark:bg-slate-950">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {USER_PAGE_SIZE_OPTIONS.map((option) => (
+                                    <SelectItem key={option} value={String(option)}>{option}</SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
                         <Button variant="ghost" className="h-[34px] rounded-[6px] px-2.5 text-[12px] font-normal text-[#86888F] shadow-none hover:bg-[#F7F8FA] hover:text-[#0F23D9] dark:text-slate-400" onClick={() => {
                             setQuery('');
                             setRoleFilter('');
                             setDataScopeFilter('all');
                             setStatusFilter('all');
                             setConfigFilter('all');
+                            setPage(1);
                         }}>
                             <SlidersHorizontal className="h-3.5 w-3.5" />
                             {labels.resetFilters}
@@ -501,7 +569,7 @@ export function AccessControlUsersPage({
                 ) : error ? (
                     <div className="flex min-h-[360px] flex-col items-center justify-center gap-3 px-6 text-center">
                         <p className="max-w-md text-[12px] leading-5 text-[#F53F3F]">{error}</p>
-                        <Button variant="outline" className="h-8 rounded-[6px] border-[#E6E7EB] bg-white px-3 text-[12px] font-normal text-[#0F23D9] shadow-none" onClick={() => void onReload()}>{labels.refresh}</Button>
+                        <Button variant="outline" className="h-8 rounded-[6px] border-[#E6E7EB] bg-white px-3 text-[12px] font-normal text-[#0F23D9] shadow-none" onClick={reloadUserSlice}>{labels.refresh}</Button>
                     </div>
                 ) : filteredViewModels.length === 0 ? (
                     <div className="flex min-h-[360px] flex-col items-center justify-center gap-3 px-6 text-center text-[12px] text-[#86888F]">
@@ -512,29 +580,36 @@ export function AccessControlUsersPage({
                         </Button>
                     </div>
                 ) : (
-                    <UserTable
-                        users={filteredUsers}
-                        viewModels={filteredViewModels}
-                        permissionMap={permissionMap}
-                        labels={labels}
-                        canManageUsers={canManageUsers}
-                        currentUserId={currentUserId}
-                        onEdit={openEditDialog}
-                        onRotateKey={(user) => {
-                            setRotateDialogError(null);
-                            setRotateErrors({});
-                            setCustomRotateKey('');
-                            setRotateUser(user);
-                        }}
-                        onDelete={(user) => {
-                            setDeleteDialogError(null);
-                            setDeleteUser(user);
-                        }}
-                    />
+                    <>
+                        <UserTable
+                            users={filteredUsers}
+                            viewModels={filteredViewModels}
+                            permissionMap={permissionMap}
+                            labels={labels}
+                            canManageUsers={canManageUsers}
+                            currentUserId={currentUserId}
+                            onEdit={openEditDialog}
+                            onRotateKey={(user) => {
+                                setRotateDialogError(null);
+                                setRotateErrors({});
+                                setCustomRotateKey('');
+                                setRotateUser(user);
+                            }}
+                            onDelete={(user) => {
+                                setDeleteDialogError(null);
+                                setDeleteUser(user);
+                            }}
+                        />
+                        <div className="mt-3 flex items-center justify-end gap-3 text-[12px] text-[#86888F]">
+                            <span>{page} / {totalPages} · {totalUsers}</span>
+                            <Button variant="outline" className="h-8 rounded-[6px] px-3 text-[12px]" disabled={page <= 1 || usersQuery.loading} onClick={() => setPage((current) => Math.max(1, current - 1))}>{t.common.prev}</Button>
+                            <Button variant="outline" className="h-8 rounded-[6px] px-3 text-[12px]" disabled={page >= totalPages || usersQuery.loading} onClick={() => setPage((current) => Math.min(totalPages, current + 1))}>{t.common.next}</Button>
+                        </div>
+                    </>
                 )}
             </div>
 
-            <UserForm
+            {(createOpen || editUser) && <UserForm
                 open={createOpen || !!editUser}
                 mode={createOpen ? 'create' : 'edit'}
                 form={form}
@@ -553,11 +628,14 @@ export function AccessControlUsersPage({
                 errors={mergedErrors}
                 dialogError={dialogError}
                 saving={saving}
-                onChange={setForm}
+                onChange={(nextForm) => {
+                    editFormRevisionRef.current += 1;
+                    setForm(nextForm);
+                }}
                 onFieldChange={clearFieldError}
                 onCancel={closeDialogs}
                 onSubmit={() => void upsertUser(createOpen ? 'create' : 'edit')}
-            />
+            />}
 
             <Dialog open={!!deleteUser} onOpenChange={(open) => { if (!open) closeDialogs(); }}>
                 <DialogContent className="gap-0 overflow-hidden rounded-[8px] border-0 bg-white p-0 shadow-[0_8px_24px_rgba(14,17,20,0.16)] sm:max-w-[440px] dark:bg-slate-950">

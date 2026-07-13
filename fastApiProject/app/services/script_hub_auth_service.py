@@ -89,8 +89,14 @@ def load_user_permission_overrides(db: Session, user_id: int) -> List[Tuple[str,
     return [(permission_key, bool(is_granted)) for permission_key, is_granted in rows]
 
 
-def build_permission_map(db: Session, user: ScriptHubUser) -> Dict[str, bool]:
-    roles = load_roles_for_user(db, user.id)
+def build_permission_map(
+    db: Session,
+    user: ScriptHubUser,
+    *,
+    preloaded_roles: Optional[List[ScriptHubRole]] = None,
+    preloaded_overrides: Optional[List[Tuple[str, bool]]] = None,
+) -> Dict[str, bool]:
+    roles = preloaded_roles if preloaded_roles is not None else load_roles_for_user(db, user.id)
     role_codes = {role.role_code for role in roles}
     granted: Dict[str, bool] = {}
     if user.is_super_admin or "admin" in role_codes:
@@ -105,7 +111,8 @@ def build_permission_map(db: Session, user: ScriptHubUser) -> Dict[str, bool]:
         )
         granted.update({permission_key: True for permission_key, in rows})
 
-    for permission_key, is_granted in load_user_permission_overrides(db, user.id):
+    overrides = preloaded_overrides if preloaded_overrides is not None else load_user_permission_overrides(db, user.id)
+    for permission_key, is_granted in overrides:
         if is_granted:
             granted[permission_key] = True
         else:
@@ -150,7 +157,7 @@ def serialize_user_session(db: Session, user: ScriptHubUser) -> Dict[str, Any]:
         "role": primary_role,
         "roles": role_codes,
         "name": user.display_name,
-        "permissions": build_permission_map(db, user),
+        "permissions": build_permission_map(db, user, preloaded_roles=roles),
         "isSuperAdmin": bool(user.is_super_admin),
         "primaryOrgCode": user.primary_org_code or "group",
         "dataScope": session_data_scope,
