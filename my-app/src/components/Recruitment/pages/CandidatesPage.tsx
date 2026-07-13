@@ -5309,7 +5309,7 @@ export function CandidatesPage({
                                     </div>
                                     <div className="shrink-0 border-t border-[#F2F3F5] px-0 py-3">
                                         <div className="flex flex-wrap items-center justify-between gap-2 text-[12px] leading-5 text-[#86888F]">
-                                            <span>
+                                            <span className="pl-4">
                                                 {tr.candidatePageRange(candidatePageStart, candidatePageEnd, candidateTotal)}
                                             </span>
                                             <div className="flex flex-wrap items-center gap-1.5">

@@ -259,13 +259,13 @@ button.dashboard-user-menu-row {
     width: 100%;
     height: 40px;
     align-items: center;
-    gap: 13px;
+    gap: 12px;
     margin: 2px 0;
-    padding: 0 16px;
+    padding: 0 14px;
     border: 0;
     border-radius: 8px;
     background: transparent;
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 400;
     letter-spacing: -0.15px;
     color: #33383d;
@@ -311,7 +311,7 @@ button.dashboard-user-menu-row {
 
 .sidebar-nav-subitem {
     height: 36px;
-    font-size: 13px;
+    font-size: 12px;
 }
 
 .sidebar-nav-item.disabled {
