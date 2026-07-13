@@ -2990,7 +2990,6 @@ function MultiSelect({ options, selected, onChange, placeholder, selectedLabel }
 }
 
 function CandidateFilterBar({
-    candidateFilterSummary,
     candidateQuery,
     setCandidateQuery,
     candidatePositionFilter,
@@ -3004,10 +3003,10 @@ function CandidateFilterBar({
     candidateTimeFilter,
     setCandidateTimeFilter,
     sourceOptions,
-    expanded,
-    onToggle,
+    positions,
+    statusSelectionLabel,
+    statusSelectionIsPipelinePreset,
 }: {
-    candidateFilterSummary: string;
     candidateQuery: string;
     setCandidateQuery: (value: string) => void;
     candidatePositionFilter: string[];
@@ -3021,23 +3020,18 @@ function CandidateFilterBar({
     candidateTimeFilter: string;
     setCandidateTimeFilter: React.Dispatch<React.SetStateAction<string>>;
     sourceOptions: string[];
-    expanded: boolean;
-    onToggle: () => void;
+    positions: PositionSummary[];
+    statusSelectionLabel: string;
+    statusSelectionIsPipelinePreset: boolean;
 }) {
     const {language} = useI18n();
     const tr = React.useMemo(() => getCandidatesLocale(language), [language]);
     const isZh = language !== "en-US";
-    const summaryChips = React.useMemo(() => (
-        candidateFilterSummary
-            .split("·")
-            .map((item) => item.trim())
-            .filter(Boolean)
-    ), [candidateFilterSummary]);
 
     const hasActiveFilters = React.useMemo(() => (
         candidateQuery.trim().length > 0
         || candidatePositionFilter.length > 0
-        || candidateStatusFilter.length > 0
+        || (candidateStatusFilter.length > 0 && !statusSelectionIsPipelinePreset)
         || candidateMatchFilter !== "all"
         || candidateSourceFilter.length > 0
         || candidateTimeFilter !== "all"
@@ -3048,12 +3042,91 @@ function CandidateFilterBar({
         candidateSourceFilter,
         candidateStatusFilter,
         candidateTimeFilter,
+        statusSelectionIsPipelinePreset,
+    ]);
+
+    const activeFilterChips = React.useMemo(() => {
+        const chips: Array<{key: string; label: string; onRemove: () => void}> = [];
+        if (candidatePositionFilter.length > 0) {
+            const positionNames = candidatePositionFilter.map((positionId) => (
+                positions.find((position) => String(position.id) === positionId)?.title || positionId
+            ));
+            chips.push({
+                key: "position",
+                label: `${tr.position}：${positionNames.join("、")}`,
+                onRemove: () => setCandidatePositionFilter([]),
+            });
+        }
+        if (candidateStatusFilter.length > 0 && !statusSelectionIsPipelinePreset) {
+            const statusNames = candidateStatusFilter.map((status) => candidateStatusLabels[status] || status);
+            chips.push({
+                key: "status",
+                label: `${isZh ? "子状态" : "Sub-status"}：${statusNames.join("、")}`,
+                onRemove: () => setCandidateStatusFilter([]),
+            });
+        }
+        if (candidateMatchFilter !== "all") {
+            const matchLabel = ({
+                "80+": tr.above80,
+                "60+": tr.above60,
+                "40+": tr.above40,
+            } as Record<string, string>)[candidateMatchFilter] || candidateMatchFilter;
+            chips.push({
+                key: "match",
+                label: `${tr.matchPercent}：${matchLabel}`,
+                onRemove: () => setCandidateMatchFilter("all"),
+            });
+        }
+        if (candidateSourceFilter.length > 0) {
+            chips.push({
+                key: "source",
+                label: `${tr.source}：${candidateSourceFilter.join("、")}`,
+                onRemove: () => setCandidateSourceFilter([]),
+            });
+        }
+        if (candidateTimeFilter !== "all") {
+            const timeLabel = ({
+                today: tr.today,
+                "7d": tr.last7Days,
+                "30d": tr.last30Days,
+            } as Record<string, string>)[candidateTimeFilter] || candidateTimeFilter;
+            chips.push({
+                key: "time",
+                label: `${tr.timeFilter}：${timeLabel}`,
+                onRemove: () => setCandidateTimeFilter("all"),
+            });
+        }
+        if (candidateQuery.trim()) {
+            chips.push({
+                key: "keyword",
+                label: `${tr.keywordChipPrefix}${candidateQuery.trim()}`,
+                onRemove: () => setCandidateQuery(""),
+            });
+        }
+        return chips;
+    }, [
+        candidateMatchFilter,
+        candidatePositionFilter,
+        candidateQuery,
+        candidateSourceFilter,
+        candidateStatusFilter,
+        candidateTimeFilter,
+        isZh,
+        positions,
+        setCandidateMatchFilter,
+        setCandidatePositionFilter,
+        setCandidateQuery,
+        setCandidateSourceFilter,
+        setCandidateStatusFilter,
+        setCandidateTimeFilter,
+        statusSelectionIsPipelinePreset,
+        tr,
     ]);
 
     const resetFilters = React.useCallback(() => {
         setCandidateQuery("");
         setCandidatePositionFilter([]);
-        setCandidateStatusFilter([]);
+        if (!statusSelectionIsPipelinePreset) setCandidateStatusFilter([]);
         setCandidateMatchFilter("all");
         setCandidateSourceFilter([]);
         setCandidateTimeFilter("all");
@@ -3064,6 +3137,7 @@ function CandidateFilterBar({
         setCandidateSourceFilter,
         setCandidateStatusFilter,
         setCandidateTimeFilter,
+        statusSelectionIsPipelinePreset,
     ]);
 
     const filterSelectClassName = "h-8 min-w-[94px] rounded-[4px] border-transparent bg-white px-2 py-1 pr-7 text-[12px] text-[#33353D] shadow-none hover:border-[#E6E7EB] hover:bg-[#F8F8F9] focus-visible:border-[#1E3BFA] focus-visible:ring-1 focus-visible:ring-[#1E3BFA]";
@@ -3077,7 +3151,7 @@ function CandidateFilterBar({
                         selected={candidateStatusFilter}
                         onChange={setCandidateStatusFilter}
                         placeholder={isZh ? "状态" : "Status"}
-                        selectedLabel={tr.selectedLabel}
+                        selectedLabel={() => statusSelectionLabel}
                     />
                     <NativeSelect value={candidateMatchFilter} onChange={(event) => setCandidateMatchFilter(event.target.value)} className={cn(filterSelectClassName, "w-[108px]")}>
                         <option value="all">{isZh ? "匹配度" : "Match"}</option>
@@ -3098,9 +3172,6 @@ function CandidateFilterBar({
                         <option value="7d">{tr.last7Days}</option>
                         <option value="30d">{tr.last30Days}</option>
                     </NativeSelect>
-                    <button type="button" onClick={onToggle} className="h-8 px-2 text-[12px] text-[#0F23D9] hover:text-[#1E3BFA]">
-                        {expanded ? (isZh ? "收起筛选" : "Less") : (isZh ? "高级筛选" : "Advanced")}
-                    </button>
                     <button type="button" onClick={resetFilters} disabled={!hasActiveFilters} className="h-8 px-2 text-[12px] text-[#0F23D9] hover:text-[#1E3BFA] disabled:text-[#B0B2B8]">
                         {isZh ? "重置" : "Reset"}
                     </button>
@@ -3112,13 +3183,21 @@ function CandidateFilterBar({
                     inputClassName="h-8 w-[340px] rounded-[4px] border-[#E6E7EB] bg-white text-[12px] shadow-none placeholder:text-[#B0B2B8] focus-visible:border-[#1E3BFA] focus-visible:ring-1 focus-visible:ring-[#1E3BFA]"
                 />
             </div>
-            {expanded && hasActiveFilters ? (
+            {activeFilterChips.length > 0 ? (
                 <div className="mt-2 flex min-w-0 flex-wrap items-center gap-2 border-t border-[#F2F3F5] pt-2">
-                    {hasActiveFilters ? summaryChips.map((chip) => (
-                        <span key={chip} className="inline-flex max-w-[220px] items-center rounded-[4px] bg-[#F7F8FA] px-2 py-1 text-[11px] text-[#5E5F66]">
-                            <span className="truncate">{chip}</span>
-                        </span>
-                    )) : null}
+                    {activeFilterChips.map((chip) => (
+                        <button
+                            key={chip.key}
+                            type="button"
+                            onClick={chip.onRemove}
+                            aria-label={isZh ? `移除筛选：${chip.label}` : `Remove filter: ${chip.label}`}
+                            title={isZh ? "点击移除此筛选" : "Click to remove this filter"}
+                            className="inline-flex h-7 max-w-[260px] items-center gap-1.5 rounded-[4px] bg-[#F7F8FA] px-2 text-[11px] text-[#5E5F66] transition hover:bg-[#F2F3F5] hover:text-[#0F23D9]"
+                        >
+                            <span className="truncate">{chip.label}</span>
+                            <X className="h-3 w-3 shrink-0 text-[#B0B2B8]"/>
+                        </button>
+                    ))}
                 </div>
             ) : null}
         </div>
@@ -3129,7 +3208,6 @@ type CandidatesPageProps = {
     pageActive: boolean;
     permissions: CandidatePagePermissions;
     panelClass?: string;
-    candidateFilterSummary: string;
     candidateViewMode: CandidateViewMode;
     candidateQuery: string;
     setCandidateQuery: (value: string) => void;
@@ -3286,7 +3364,6 @@ export function CandidatesPage({
     pageActive,
     permissions,
     panelClass = defaultPanelClass,
-    candidateFilterSummary,
     candidateViewMode,
     candidateQuery,
     setCandidateQuery,
@@ -3438,7 +3515,6 @@ export function CandidatesPage({
     const [candidateListViewportEl, setCandidateListViewportEl] = React.useState<HTMLDivElement | null>(null);
     const [candidateBoardViewportEl, setCandidateBoardViewportEl] = React.useState<HTMLDivElement | null>(null);
     const [candidateListCompactMode, setCandidateListCompactMode] = React.useState(false);
-    const [candidateFilterBarExpanded, setCandidateFilterBarExpanded] = React.useState(false);
     const [candidatePositionScopeWidth, setCandidatePositionScopeWidth] = React.useState(CANDIDATE_POSITION_SCOPE_DEFAULT_WIDTH);
     const [candidateAiOutputDialogOpen, setCandidateAiOutputDialogOpen] = React.useState(false);
     const [exportDialogOpen, setExportDialogOpen] = React.useState(false);
@@ -3858,6 +3934,25 @@ export function CandidatesPage({
             };
         });
     }, [activePositionTotal, candidatePipelineStatusCounts, candidatePipelineTotal, candidateStatusFilter, isZh]);
+    const candidateStatusSelectionLabel = React.useMemo(() => {
+        const activeChild = candidatePipelineStages
+            .flatMap((stage) => stage.children || [])
+            .find((child) => child.active);
+        if (activeChild) return activeChild.label;
+
+        const activeStage = candidatePipelineStages.find((stage) => stage.allActive && stage.key !== "all");
+        if (activeStage?.children?.length) {
+            return isZh ? "全部子状态" : "All sub-statuses";
+        }
+        if (activeStage) return activeStage.label;
+        return isZh ? `子状态 ${candidateStatusFilter.length}` : `${candidateStatusFilter.length} sub-statuses`;
+    }, [candidatePipelineStages, candidateStatusFilter.length, isZh]);
+    const candidateStatusSelectionIsPipelinePreset = React.useMemo(() => (
+        candidateStatusFilter.length === 0
+        || candidatePipelineStages.some((stage) => (
+            stage.allActive || Boolean(stage.children?.some((child) => child.active))
+        ))
+    ), [candidatePipelineStages, candidateStatusFilter.length]);
     const selectCandidatePipelineStage = React.useCallback((stage: CandidatePipelineStageSummary) => {
         setCandidateStatusFilter(stage.resolvedStatusValues);
     }, [setCandidateStatusFilter]);
@@ -4901,7 +4996,6 @@ export function CandidatesPage({
                             ) : null}
                         />
                         <CandidateFilterBar
-                            candidateFilterSummary={candidateFilterSummary}
                             candidateQuery={candidateQuery}
                             setCandidateQuery={setCandidateQuery}
                             candidatePositionFilter={candidatePositionFilter}
@@ -4915,8 +5009,9 @@ export function CandidatesPage({
                             candidateTimeFilter={candidateTimeFilter}
                             setCandidateTimeFilter={setCandidateTimeFilter}
                             sourceOptions={sourceOptions}
-                            expanded={candidateFilterBarExpanded}
-                            onToggle={() => setCandidateFilterBarExpanded((current) => !current)}
+                            positions={positions}
+                            statusSelectionLabel={candidateStatusSelectionLabel}
+                            statusSelectionIsPipelinePreset={candidateStatusSelectionIsPipelinePreset}
                         />
                         <div
                             className={cn(

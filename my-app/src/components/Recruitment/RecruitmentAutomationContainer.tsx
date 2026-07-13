@@ -3625,41 +3625,6 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const todayNewResumes = stats.todayNewResumes;
 
     const recentCandidates = scopedDashboard.recent_candidates || [];
-    const candidateFilterSummary = useMemo(() => {
-        const positionLabel = candidatePositionFilter.length === 0
-            ? recruitmentUiText.allPositions
-            : candidatePositionFilter.map(id => positions.find((p) => String(p.id) === id)?.title).filter(Boolean).join(", ") || recruitmentUiText.specifiedPosition;
-        const statusLabel = candidateStatusFilter.length === 0
-            ? recruitmentUiText.allStatuses
-            : candidateStatusFilter.map(s => candidateStatusLabels[s] || s).join(", ");
-        const matchLabel = ({
-            all: recruitmentUiText.allMatchPercent,
-            "80+": recruitmentUiText.above80,
-            "60+": recruitmentUiText.above60,
-            "40+": recruitmentUiText.above40,
-        } as Record<string, string>)[candidateMatchFilter] || candidateMatchFilter;
-        const sourceLabel = candidateSourceFilter.length === 0 ? recruitmentUiText.allSources : candidateSourceFilter.join(", ");
-        const timeLabel = ({
-            all: recruitmentUiText.allTime,
-            today: recruitmentUiText.today,
-            "7d": recruitmentUiText.last7Days,
-            "30d": recruitmentUiText.last30Days,
-        } as Record<string, string>)[candidateTimeFilter] || candidateTimeFilter;
-        const keywordLabel = candidateQuery.trim()
-            ? `${recruitmentUiText.keywordPrefix}: ${candidateQuery.trim()}`
-            : recruitmentUiText.noKeyword;
-        return [positionLabel, statusLabel, matchLabel, sourceLabel, timeLabel, keywordLabel].join(" · ");
-    }, [
-        candidateMatchFilter,
-        candidatePositionFilter,
-        candidateQuery,
-        candidateSourceFilter,
-        candidateStatusFilter,
-        candidateTimeFilter,
-        language,
-        positions,
-        recruitmentUiText,
-    ]);
     const auditFilterSummary = useMemo(() => {
         const taskTypeLabel = logTaskTypeFilter === "all"
             ? recruitmentUiText.allTaskTypes
@@ -15213,7 +15178,6 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                     viewTalentPool: canViewTalentPool,
                 }}
                 panelClass={panelClass}
-                candidateFilterSummary={candidateFilterSummary}
                 candidateViewMode={candidateViewMode}
                 candidateQuery={candidateQuery}
                 setCandidateQuery={setCandidateQueryWithTransition}
