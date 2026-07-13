@@ -225,7 +225,7 @@ export function PositionsListPage({
                         <Input
                             value={query}
                             onChange={(event) => onQueryChange(event.target.value)}
-                            placeholder={isZh ? "搜索岗位名称、编码、部门或地点" : "Search title, code, department, or location"}
+                            placeholder={isZh ? "搜索岗位名称、部门或地点" : "Search title, department, or location"}
                             className="h-8 rounded-[4px] border-[#E6E7EB] pl-9 text-[12px] shadow-none focus-visible:border-[#1E3BFA] focus-visible:ring-[#1E3BFA]/10"
                         />
                     </div>
@@ -236,18 +236,16 @@ export function PositionsListPage({
                 {loading && !positions.length ? (
                     <div className="flex h-56 items-center justify-center gap-2 text-[13px] text-[#86888F]"><Loader2 className="h-4 w-4 animate-spin"/>{isZh ? "正在加载岗位" : "Loading positions"}</div>
                 ) : displayedPositions.length ? (
-                    <table className="w-full min-w-[1440px] border-collapse text-left text-[12px]">
+                    <table className="w-full min-w-[1180px] border-collapse text-left text-[12px]">
                         <thead className="sticky top-0 z-10 bg-white text-[#86888F] dark:bg-slate-950 dark:text-slate-400">
                             <tr className="h-10 border-b border-[#F2F3F5] dark:border-slate-800">
-                                <th className="w-[250px] px-2 font-normal">{isZh ? "岗位名称 / 编码" : "Position / Code"}</th>
+                                <th className="w-[150px] px-2 font-normal">{isZh ? "岗位名称" : "Position"}</th>
                                 {showOrganizationColumn ? <th className="w-[150px] px-2 font-normal">{isZh ? "组织" : "Organization"}</th> : null}
                                 <th className="w-[120px] px-2 font-normal">{isZh ? "部门" : "Department"}</th>
                                 <th className="w-[100px] px-2 font-normal">{isZh ? "地点" : "Location"}</th>
                                 <th className="w-[112px] px-2 font-normal">{isZh ? "用工类型" : "Employment"}</th>
                                 <th className="w-[130px] px-2 font-normal">{isZh ? "薪资范围" : "Salary"}</th>
-                                <th className="w-[84px] px-2 font-normal">{isZh ? "招聘人数" : "Headcount"}</th>
                                 <th className="w-[88px] px-2 font-normal">{isZh ? "候选人数" : "Candidates"}</th>
-                                <th className="w-[78px] px-2 font-normal">{isZh ? "JD 版本" : "JD Version"}</th>
                                 <th className="w-[98px] px-2 font-normal">{isZh ? "自动初筛" : "Auto Screen"}</th>
                                 <th className="w-[96px] px-2 font-normal">{isZh ? "状态" : "Status"}</th>
                                 <th className="w-[142px] px-2 font-normal">{isZh ? "更新时间" : "Updated"}</th>
@@ -257,9 +255,9 @@ export function PositionsListPage({
                         <tbody>
                             {displayedPositions.map((position) => (
                                 <tr key={position.id} className="h-[46px] border-b border-[#F2F3F5] text-[#0F1014] transition hover:bg-[#F8F8F9] dark:border-slate-800 dark:text-slate-200 dark:hover:bg-slate-900">
-                                    <td className="max-w-[250px] px-2">
-                                        <button type="button" className="block max-w-full truncate font-medium text-[#0F23D9] hover:text-[#1E3BFA]" onClick={() => onOpenPosition(position.id)} title={`${position.title}（${position.position_code}）`}>
-                                            {position.title}（{position.position_code}）
+                                    <td className="max-w-[150px] px-2">
+                                        <button type="button" className="block max-w-full truncate font-medium text-[#0F23D9] hover:text-[#1E3BFA]" onClick={() => onOpenPosition(position.id)} title={position.title}>
+                                            {position.title}
                                         </button>
                                     </td>
                                     {showOrganizationColumn ? <td className="max-w-[150px] truncate px-2" title={getOrganizationLabel(position.org_code)}>{getOrganizationLabel(position.org_code)}</td> : null}
@@ -267,13 +265,11 @@ export function PositionsListPage({
                                     <td className="max-w-[100px] truncate px-2" title={position.location || "-"}>{position.location || "-"}</td>
                                     <td className="max-w-[112px] truncate px-2" title={position.employment_type || "-"}>{position.employment_type || "-"}</td>
                                     <td className="whitespace-nowrap px-2">{position.salary_range || "-"}</td>
-                                    <td className="px-2 tabular-nums">{position.headcount}</td>
                                     <td className="px-2 tabular-nums">
                                         <button type="button" className="inline-flex items-center gap-1 text-[#0F23D9] hover:text-[#1E3BFA]" onClick={() => onViewCandidates(position.id)}>
                                             <Users className="h-3.5 w-3.5"/>{position.candidate_count}
                                         </button>
                                     </td>
-                                    <td className="px-2 tabular-nums">{position.jd_version_count}</td>
                                     <td className="px-2">
                                         <span className={cn(
                                             "inline-flex h-[22px] items-center rounded-[4px] px-2 text-[11px]",
