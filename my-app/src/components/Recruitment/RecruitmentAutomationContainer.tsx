@@ -13845,8 +13845,8 @@ export default function RecruitmentAutomationContainer({
         const maxSalaryOptions = getBossSalaryMaxKOptions(positionForm.salaryMinK);
 
         return (
-            <div className="flex h-full min-h-0 flex-col bg-white dark:bg-slate-950">
-                <div className="flex h-14 shrink-0 items-center justify-between border-b border-[#F2F3F5] px-5 dark:border-slate-800 md:px-8">
+            <div className="flex h-full min-h-0 flex-col bg-[#FBFBFC] dark:bg-slate-950">
+                <div className="flex h-14 shrink-0 items-center border-b border-[#F2F3F5] bg-white px-5 dark:border-slate-800 dark:bg-slate-950 md:px-8">
                     <div className="flex min-w-0 items-center gap-3">
                         <button
                             type="button"
@@ -13865,37 +13865,16 @@ export default function RecruitmentAutomationContainer({
                             <p className="truncate text-[11px] text-[#86888F]">{recruitmentUiText.positionBasicsDialogHint}</p>
                         </div>
                     </div>
-                    <button
-                        type="button"
-                        className="flex h-8 w-8 items-center justify-center rounded-[6px] text-[#86888F] transition hover:bg-[#F7F8FA] hover:text-[#33353D] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1E3BFA]/25 dark:hover:bg-slate-900"
-                        onClick={requestClosePositionFormPage}
-                        aria-label={isZh ? "关闭" : "Close"}
-                    >
-                        <X className="h-4 w-4"/>
-                    </button>
                 </div>
-                <ScrollArea className="min-h-0 flex-1">
-                    <div className="mx-auto grid w-full max-w-[1120px] gap-6 px-5 pb-10 pt-5 md:px-8 lg:grid-cols-[minmax(0,1fr)_180px]">
-                        <div className="w-full max-w-[860px] space-y-5">
-                            <div className="hidden">
-                                <button
-                                    type="button"
-                                    aria-label={positionDialogMode === "edit"
-                                        ? (isZh ? "返回当前岗位" : "Return to current position")
-                                        : (isZh ? "返回岗位列表" : "Return to position list")}
-                                    className="flex h-9 w-9 items-center justify-center rounded-[6px] border border-transparent bg-white text-[#86888F] transition hover:border-[#E6E7EB] hover:bg-[#F7F8FA] hover:text-[#1E3BFA] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1E3BFA]/20 dark:bg-slate-950 dark:text-slate-400 dark:hover:border-slate-700 dark:hover:bg-slate-900 dark:hover:text-slate-100"
-                                    onClick={requestClosePositionFormPage}
-                                >
-                                    <X className="h-[18px] w-[18px]"/>
-                                </button>
-                            </div>
+                <ScrollArea className="min-h-0 flex-1 bg-[#FBFBFC] dark:bg-slate-950">
+                    <div className="mx-auto grid w-full max-w-[1080px] items-start gap-6 px-5 pb-10 pt-[22px] md:px-8 lg:grid-cols-[minmax(0,1fr)_200px]">
+                        <div className="min-w-0 space-y-4">
                             <RecruitmentFormSection
                                 id="position-form-basic"
                                 index={1}
                                 title={isZh ? "职位基本信息" : "Basic Position Info"}
-                                description={isZh ? "职位名称与职位类型将用于 AI 岗位匹配和简历初筛，请准确填写" : "Job name and job type drive AI position matching and resume screening, so keep them accurate."}
                             >
-                                <div className="space-y-[24px]">
+                                <div className="space-y-[18px]">
                                     {positionDialogMode === "create" && showOrganizationFields && organizationSelectOptions.length > 1 ? (
                                         <RecruitmentFieldRow
                                             label={recruitmentUiText.targetOrganization}
@@ -13916,26 +13895,28 @@ export default function RecruitmentAutomationContainer({
                                         </RecruitmentFieldRow>
                                     ) : null}
 
-                                    <RecruitmentFieldRow label={isZh ? "公司" : "Company"}>
-                                        <div className="flex h-[34px] max-w-[500px] items-center text-[14px] leading-[20px] text-[#303846] dark:text-slate-200">
-                                        {getOrganizationLabel(positionForm.orgCode || activeCreateOrgCode)}
-                                        </div>
-                                    </RecruitmentFieldRow>
+                                    <div className="grid gap-[18px] md:grid-cols-2 md:gap-x-5">
+                                        <RecruitmentFieldRow label={isZh ? "公司" : "Company"}>
+                                            <div className="flex h-9 items-center text-[12px] leading-[20px] text-[#86888F] dark:text-slate-300">
+                                                {getOrganizationLabel(positionForm.orgCode || activeCreateOrgCode)}
+                                            </div>
+                                        </RecruitmentFieldRow>
 
-                                    <RecruitmentFieldRow label={isZh ? "部门" : "Department"}>
-                                        <Input
-                                            className={cn(recruitmentFormInputClass, recruitmentFormControlClass)}
-                                            value={positionForm.department}
-                                            maxLength={80}
-                                            onChange={(event) => updatePositionFormField("department", event.target.value.slice(0, 80))}
-                                            placeholder={isZh ? "请输入部门" : "Enter department"}
-                                        />
-                                    </RecruitmentFieldRow>
+                                        <RecruitmentFieldRow label={isZh ? "部门" : "Department"}>
+                                            <Input
+                                                className={recruitmentFormInputClass}
+                                                value={positionForm.department}
+                                                maxLength={80}
+                                                onChange={(event) => updatePositionFormField("department", event.target.value.slice(0, 80))}
+                                                placeholder={isZh ? "请输入部门" : "Enter department"}
+                                            />
+                                        </RecruitmentFieldRow>
+                                    </div>
 
                                     <RecruitmentFieldRow label={isZh ? "招聘类型" : "Recruit Type"} error={positionFormErrors.employmentType} required>
                                         <RecruitmentSegmentedGroup
                                             className={cn(recruitmentFormControlClass, "flex-nowrap max-[540px]:flex-wrap")}
-                                            buttonClassName="min-w-[116px] px-[14px] whitespace-nowrap"
+                                            buttonClassName="min-w-[110px] whitespace-nowrap"
                                             value={positionForm.employmentType}
                                             onChange={(value) => updatePositionFormField("employmentType", value)}
                                             options={BOSS_RECRUIT_TYPES.map((value) => ({value, label: value}))}
@@ -13955,14 +13936,14 @@ export default function RecruitmentAutomationContainer({
                                     </RecruitmentFieldRow>
 
                                     <RecruitmentFieldRow label={isZh ? "职位描述" : "Job Description"} error={positionFormErrors.keyRequirements} required>
-                                        <RecruitmentTextareaMeter value={positionForm.keyRequirements} maxLength={5000}>
-                                            <div className="flex flex-wrap items-center gap-2 px-[16px] pt-[10px] text-[12px] leading-[18px] text-[#8793a3]">
+                                        <RecruitmentTextareaMeter value={positionForm.keyRequirements} maxLength={5000} showCounter={false}>
+                                            <div className="flex flex-wrap items-center gap-2 px-[12px] py-[10px] text-[11px] leading-[18px] text-[#8793a3]">
                                                 <span>{isZh ? "可选标题" : "Optional headings"}</span>
                                                 {["岗位职责", "任职要求", "岗位福利"].map((item) => (
                                                     <button
                                                         key={item}
                                                         type="button"
-                                                        className="rounded-[4px] bg-[#F7F8FA] px-3 py-1 text-[#33353D] transition hover:bg-[#1E3BFA]/5 hover:text-[#1E3BFA]"
+                                                        className="rounded-[4px] bg-[#F7F8FA] px-3 py-1 text-[11px] text-[#33353D] transition hover:bg-[#1E3BFA]/5 hover:text-[#1E3BFA]"
                                                         onClick={() => appendJobDescriptionSection(item)}
                                                     >
                                                         {item}
@@ -13970,7 +13951,7 @@ export default function RecruitmentAutomationContainer({
                                                 ))}
                                             </div>
                                             <Textarea
-                                                className={cn(recruitmentFormTextareaClass, "min-h-[156px]")}
+                                                className={cn(recruitmentFormTextareaClass, "h-[150px] min-h-[150px] rounded-none border-t border-[#F2F3F5]")}
                                                 value={positionForm.keyRequirements}
                                                 maxLength={5000}
                                                 onChange={(event) => updatePositionFormField("keyRequirements", event.target.value.slice(0, 5000))}
@@ -13982,7 +13963,7 @@ export default function RecruitmentAutomationContainer({
 
                                     <RecruitmentFieldRow label={isZh ? "职位类型" : "Job Type"} error={positionFormErrors.jobType || positionFormErrors.jobTypePath} required>
                                         <BossJobTypeSelector
-                                            className={recruitmentFormControlClass}
+                                            className="w-full max-w-[320px]"
                                             value={positionForm.jobType}
                                             onSelect={(item) => applyBossJobSelection(item, {syncTitle: false})}
                                             placeholder={isZh ? "选择职位类型" : "Select job type"}
@@ -13996,31 +13977,32 @@ export default function RecruitmentAutomationContainer({
                                 id="position-form-requirements"
                                 index={2}
                                 title={isZh ? "职位要求" : "Position Requirements"}
-                                description={isZh ? "以下条件将用于 AI 初筛评分与人才库匹配，请尽量详细填写" : "These conditions are used for AI screening scores and talent pool matching."}
                             >
-                                <div className="space-y-[24px]">
-                                    <RecruitmentFieldRow label={isZh ? "经验" : "Experience"} error={positionFormErrors.experience} required>
-                                        <NativeSelect
-                                            className={cn(recruitmentFormInputClass, recruitmentFormShortControlClass)}
-                                            value={positionForm.experience}
-                                            onChange={(event) => updatePositionFormField("experience", event.target.value)}
-                                        >
-                                            {BOSS_EXPERIENCE_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
-                                        </NativeSelect>
-                                    </RecruitmentFieldRow>
+                                <div className="space-y-[18px]">
+                                    <div className="grid gap-[18px] md:grid-cols-2 md:gap-x-5">
+                                        <RecruitmentFieldRow label={isZh ? "经验" : "Experience"} error={positionFormErrors.experience} required>
+                                            <NativeSelect
+                                                className={recruitmentFormInputClass}
+                                                value={positionForm.experience}
+                                                onChange={(event) => updatePositionFormField("experience", event.target.value)}
+                                            >
+                                                {BOSS_EXPERIENCE_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
+                                            </NativeSelect>
+                                        </RecruitmentFieldRow>
 
-                                    <RecruitmentFieldRow label={isZh ? "学历" : "Education"} error={positionFormErrors.education} required>
-                                        <NativeSelect
-                                            className={cn(recruitmentFormInputClass, recruitmentFormShortControlClass)}
-                                            value={positionForm.education}
-                                            onChange={(event) => updatePositionFormField("education", event.target.value)}
-                                        >
-                                            {BOSS_EDUCATION_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
-                                        </NativeSelect>
-                                    </RecruitmentFieldRow>
+                                        <RecruitmentFieldRow label={isZh ? "学历" : "Education"} error={positionFormErrors.education} required>
+                                            <NativeSelect
+                                                className={recruitmentFormInputClass}
+                                                value={positionForm.education}
+                                                onChange={(event) => updatePositionFormField("education", event.target.value)}
+                                            >
+                                                {BOSS_EDUCATION_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
+                                            </NativeSelect>
+                                        </RecruitmentFieldRow>
+                                    </div>
 
                                     <RecruitmentFieldRow label={isZh ? "薪资范围" : "Salary"} error={positionFormErrors.salaryMinK || positionFormErrors.salaryMaxK || positionFormErrors.salaryMonths} required>
-                                        <div className="flex flex-wrap items-center gap-[18px]">
+                                        <div className="flex flex-wrap items-center gap-3">
                                             <NativeSelect
                                                 className={cn(
                                                     recruitmentFormInputClass,
@@ -14033,6 +14015,7 @@ export default function RecruitmentAutomationContainer({
                                                 <option value="" disabled hidden>{isZh ? "最低月薪" : "Minimum"}</option>
                                                 {BOSS_SALARY_K_OPTIONS.map((value) => <option className="text-[#303846]" key={value} value={value}>{value}k</option>)}
                                             </NativeSelect>
+                                            <span className="text-[#86888F]">-</span>
                                             <NativeSelect
                                                 className={cn(
                                                     recruitmentFormInputClass,
@@ -14066,40 +14049,42 @@ export default function RecruitmentAutomationContainer({
                                         />
                                     </RecruitmentFieldRow>
 
-                                    <RecruitmentFieldRow label={isZh ? "工作地址" : "Work Address"} error={positionFormErrors.location} required>
-                                        <Input
-                                            className={cn(recruitmentFormInputClass, recruitmentFormControlClass)}
-                                            value={positionForm.location}
-                                            maxLength={120}
-                                            onChange={(event) => updatePositionFormField("location", event.target.value.slice(0, 120))}
-                                            placeholder={isZh ? "请输入工作地址" : "Enter work address"}
-                                        />
-                                        <p className="mt-[6px] text-[12px] leading-[18px] text-[#8b98a8] dark:text-slate-500">{isZh ? "请填写真实办公地址，将用于面试安排与候选人沟通。" : "Enter the real office address; it is used for interview scheduling and candidate communication."}</p>
-                                    </RecruitmentFieldRow>
+                                    <div className="grid gap-[18px] md:grid-cols-[minmax(0,1fr)_160px] md:gap-x-5">
+                                        <RecruitmentFieldRow label={isZh ? "工作地址" : "Work Address"} error={positionFormErrors.location} required>
+                                            <Input
+                                                className={recruitmentFormInputClass}
+                                                value={positionForm.location}
+                                                maxLength={120}
+                                                onChange={(event) => updatePositionFormField("location", event.target.value.slice(0, 120))}
+                                                placeholder={isZh ? "请输入工作地址" : "Enter work address"}
+                                            />
+                                            <p className="mt-[6px] text-[11px] leading-[18px] text-[#86888F] dark:text-slate-500">{isZh ? "请填写真实办公地址，将用于面试安排与候选人沟通。" : "Enter the real office address; it is used for interview scheduling and candidate communication."}</p>
+                                        </RecruitmentFieldRow>
 
-                                    <RecruitmentFieldRow label={isZh ? "招聘人数" : "Headcount"} error={positionFormErrors.headcount} required>
-                                        <Input
-                                            ref={positionHeadcountInputRef}
-                                            className={cn(recruitmentFormInputClass, recruitmentFormShortControlClass)}
-                                            type="text"
-                                            inputMode="numeric"
-                                            value={positionForm.headcount}
-                                            onChange={(event) => updatePositionFormField("headcount", event.target.value.replace(/[^\d]/g, "").slice(0, 3))}
-                                            placeholder="1 - 999"
-                                        />
-                                    </RecruitmentFieldRow>
+                                        <RecruitmentFieldRow label={isZh ? "招聘人数" : "Headcount"} error={positionFormErrors.headcount} required>
+                                            <Input
+                                                ref={positionHeadcountInputRef}
+                                                className={recruitmentFormInputClass}
+                                                type="text"
+                                                inputMode="numeric"
+                                                value={positionForm.headcount}
+                                                onChange={(event) => updatePositionFormField("headcount", event.target.value.replace(/[^\d]/g, "").slice(0, 3))}
+                                                placeholder="1 - 999"
+                                            />
+                                        </RecruitmentFieldRow>
+                                    </div>
 
                                     <RecruitmentFieldRow label={isZh ? "补充信息" : "Supplement"}>
-                                        <div className="grid gap-[14px]">
+                                        <div className="grid max-w-[520px] gap-[10px]">
                                             <Textarea
-                                                className={cn(recruitmentFormTextareaClass, "min-h-[88px] max-w-[500px] rounded-[4px] border border-[#E6E7EB] bg-white")}
+                                                className={cn(recruitmentFormTextareaClass, "min-h-[70px] rounded-[6px] border border-[#E6E7EB] bg-white")}
                                                 value={positionForm.bonusPoints}
                                                 maxLength={2000}
                                                 onChange={(event) => updatePositionFormField("bonusPoints", event.target.value.slice(0, 2000))}
                                                 placeholder={isZh ? "加分项、行业背景、软性偏好等" : "Bonus points, industry background, soft preferences"}
                                             />
                                             <Textarea
-                                                className={cn(recruitmentFormTextareaClass, "min-h-[88px] max-w-[500px] rounded-[4px] border border-[#E6E7EB] bg-white")}
+                                                className={cn(recruitmentFormTextareaClass, "min-h-[70px] rounded-[6px] border border-[#E6E7EB] bg-white")}
                                                 value={positionForm.summary}
                                                 maxLength={4000}
                                                 onChange={(event) => updatePositionFormField("summary", event.target.value.slice(0, 4000))}
@@ -14114,7 +14099,6 @@ export default function RecruitmentAutomationContainer({
                                 id="position-form-screening"
                                 index={3}
                                 title={isZh ? "职位设置" : "Position Settings"}
-                                description={isZh ? "统一配置初筛、评估方案和自动邮件。" : "Configure screening, assessment plans, and mail automation."}
                             >
                                 <RecruitmentFieldRow label={isZh ? "岗位状态" : "Status"}>
                                     <RecruitmentSegmentedGroup
@@ -14126,7 +14110,7 @@ export default function RecruitmentAutomationContainer({
                                 </RecruitmentFieldRow>
 
                                 <RecruitmentFieldRow label={recruitmentUiText.screeningConfig}>
-                                    <div className="space-y-4 rounded-[6px] border border-[#EBEEF5] bg-[#F7F8FA] px-4 py-4 dark:border-slate-700 dark:bg-slate-900/60">
+                                    <div className="space-y-[14px] rounded-[8px] bg-[#F7F8FA] p-4 dark:bg-slate-900/60">
                                         <RecruitmentToggleRow
                                             checked={positionForm.autoScreenOnUpload}
                                             disabled={positionForm.screeningSkillIds.length === 0}
@@ -14139,7 +14123,7 @@ export default function RecruitmentAutomationContainer({
                                             }}
                                         />
                                         {positionForm.screeningSkillIds.length === 0 && (
-                                            <p className="text-xs text-amber-600 dark:text-amber-400">
+                                            <p className="pl-11 text-[11px] leading-[18px] text-[#D48806] dark:text-amber-400">
                                                 {recruitmentUiText.uploadResumeAutoScreenHintNoSkill}
                                             </p>
                                         )}
@@ -14148,7 +14132,7 @@ export default function RecruitmentAutomationContainer({
                                             title={recruitmentUiText.autoAdvanceOnScreeningLabel}
                                             onChange={(checked) => updatePositionFormField("autoAdvanceOnScreening", checked)}
                                         />
-                                        <div className="rounded-[6px] border border-[#E6E7EB] bg-white p-4 dark:border-slate-700 dark:bg-slate-950/60">
+                                        <div className="rounded-[8px] border border-[#EBEEF5] bg-white p-4 dark:border-slate-700 dark:bg-slate-950/60">
                                             <RecruitmentToggleRow
                                                 checked={positionForm.autoMailEnabled}
                                                 title={recruitmentUiText.autoMailPushTitle}
@@ -14170,7 +14154,7 @@ export default function RecruitmentAutomationContainer({
                                             </div>
                                             <div className={cn("mt-4 space-y-4", !positionForm.autoMailEnabled && "pointer-events-none opacity-40")}>
                                                 <div className="space-y-2">
-                                                    <p className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">{recruitmentUiText.positionSpecificRecipients}</p>
+                                                    <p className="text-[12px] font-medium leading-[18px] text-[#33353D] dark:text-slate-300">{recruitmentUiText.positionSpecificRecipients}</p>
                                                     <div className="flex flex-wrap gap-2">
                                                         {enabledMailRecipients.length ? enabledMailRecipients.map((recipient) => (
                                                             <TogglePillButton
@@ -14180,12 +14164,12 @@ export default function RecruitmentAutomationContainer({
                                                             >
                                                                 {recipient.name}
                                                             </TogglePillButton>
-                                                        )) : <p className="text-sm text-slate-500 dark:text-slate-400">{recruitmentUiText.noRecipientsInMailCenter}</p>}
+                                                        )) : <p className="text-[11px] text-[#86888F] dark:text-slate-400">{recruitmentUiText.noRecipientsInMailCenter}</p>}
                                                     </div>
                                                 </div>
                                                 <div className="grid gap-4 xl:grid-cols-2">
                                                     <div className="space-y-2">
-                                                        <p className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">{recruitmentUiText.ccRecipients}</p>
+                                                        <p className="text-[12px] font-medium leading-[18px] text-[#33353D] dark:text-slate-300">{recruitmentUiText.ccRecipients}</p>
                                                         <div className="flex flex-wrap gap-2">
                                                             {enabledMailRecipients.length ? enabledMailRecipients.map((recipient) => (
                                                                 <TogglePillButton
@@ -14195,11 +14179,11 @@ export default function RecruitmentAutomationContainer({
                                                                 >
                                                                     {recipient.name}
                                                                 </TogglePillButton>
-                                                            )) : <p className="text-sm text-slate-500 dark:text-slate-400">{recruitmentUiText.noCCRecipients}</p>}
+                                                            )) : <p className="text-[11px] text-[#86888F] dark:text-slate-400">{recruitmentUiText.noCCRecipients}</p>}
                                                         </div>
                                                     </div>
                                                     <div className="space-y-2">
-                                                        <p className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">{recruitmentUiText.bccRecipients}</p>
+                                                        <p className="text-[12px] font-medium leading-[18px] text-[#33353D] dark:text-slate-300">{recruitmentUiText.bccRecipients}</p>
                                                         <div className="flex flex-wrap gap-2">
                                                             {enabledMailRecipients.length ? enabledMailRecipients.map((recipient) => (
                                                                 <TogglePillButton
@@ -14209,12 +14193,12 @@ export default function RecruitmentAutomationContainer({
                                                                 >
                                                                     {recipient.name}
                                                                 </TogglePillButton>
-                                                            )) : <p className="text-sm text-slate-500 dark:text-slate-400">{recruitmentUiText.noBCCRecipients}</p>}
+                                                            )) : <p className="text-[11px] text-[#86888F] dark:text-slate-400">{recruitmentUiText.noBCCRecipients}</p>}
                                                         </div>
                                                     </div>
                                                 </div>
                                                 <div className="space-y-2">
-                                                    <p className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">{recruitmentUiText.allowedAutoMailStatuses}</p>
+                                                    <p className="text-[12px] font-medium leading-[18px] text-[#33353D] dark:text-slate-300">{recruitmentUiText.allowedAutoMailStatuses}</p>
                                                     <div className="flex flex-wrap gap-2">
                                                         {(metadata?.candidate_statuses || []).map((option) => (
                                                             <TogglePillButton
@@ -14249,9 +14233,9 @@ export default function RecruitmentAutomationContainer({
                                             </div>
                                         </div>
                                         <div className="space-y-3">
-                                            <div className="rounded-[4px] border border-slate-200/80 bg-slate-50/70 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/50">
-                                                <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{recruitmentUiText.skillsAutomation}</p>
-                                                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{recruitmentUiText.autoMailSkillBindingHint}</p>
+                                            <div className="rounded-[8px] bg-[#F7F8FA] px-4 py-[14px] dark:bg-slate-900/50">
+                                                <p className="text-[12px] font-semibold leading-[18px] text-[#0E1114] dark:text-slate-100">{recruitmentUiText.skillsAutomation}</p>
+                                                <p className="mt-1 text-[11px] leading-[18px] text-[#86888F] dark:text-slate-400">{recruitmentUiText.autoMailSkillBindingHint}</p>
                                             </div>
                                             {([
                                                 ["jdSkillIds", positionSkillFieldConfig.jdSkillIds],
@@ -14262,11 +14246,11 @@ export default function RecruitmentAutomationContainer({
                                                 const isExpanded = positionSkillSectionExpanded[formKey];
                                                 const hasSelected = (positionForm[formKey] as number[]).length > 0;
                                                 return (
-                                                    <div key={formKey} className="rounded-[4px] border border-slate-200/80 bg-white px-4 py-4 dark:border-slate-800 dark:bg-slate-950/50">
+                                                    <div key={formKey} className="rounded-[8px] border border-[#EBEEF5] bg-white px-4 py-[14px] dark:border-slate-800 dark:bg-slate-950/50">
                                                         <div className="flex flex-wrap items-start justify-between gap-3">
                                                             <div className="space-y-1">
-                                                                <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{config.label}</p>
-                                                                <p className="text-xs text-slate-500 dark:text-slate-400">
+                                                                <p className="text-[12px] font-medium leading-[18px] text-[#0E1114] dark:text-slate-100">{config.label}</p>
+                                                                <p className="text-[11px] leading-[18px] text-[#86888F] dark:text-slate-400">
                                                                     {hasSelected
                                                                         ? `${config.selectedPrefix}${selectedPositionSkillText[formKey]}`
                                                                         : (isZh ? "当前未绑定，系统将自动使用该类型的内置通用基座。" : "No plan selected. The system will fall back to the built-in base for this task.")}
@@ -14336,14 +14320,14 @@ export default function RecruitmentAutomationContainer({
                                 <Button
                                     type="button"
                                     variant="outline"
-                                    className="h-[34px] min-w-[80px] rounded-[6px] border-[#E6E7EB] bg-white text-[13px] font-normal text-[#33353D] shadow-none hover:border-[#1E3BFA]/40 hover:bg-[#F7F8FA] dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-900"
+                                    className="h-[34px] min-w-[80px] rounded-[6px] border-[#E6E7EB] bg-white text-[12px] font-normal text-[#33353D] shadow-none hover:border-[#1E3BFA]/40 hover:bg-[#F7F8FA] dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-900"
                                     onClick={requestClosePositionFormPage}
                                 >
                                     {recruitmentUiText.cancelButton}
                                 </Button>
                                 <Button
                                     type="button"
-                                    className="h-[34px] min-w-[86px] rounded-[6px] bg-[#1E3BFA] px-6 text-[13px] font-medium text-white shadow-none hover:bg-[#0F23D9]"
+                                    className="h-[34px] min-w-[86px] rounded-[6px] bg-[#1E3BFA] px-6 text-[12px] font-medium text-white shadow-none hover:bg-[#0F23D9]"
                                     disabled={positionSubmitting}
                                     onClick={() => void submitPosition()}
                                 >
@@ -14361,6 +14345,7 @@ export default function RecruitmentAutomationContainer({
                         </div>
                         <div className="hidden lg:block">
                             <RecruitmentFormAnchorRail
+                                title={isZh ? "快速跳转" : "Quick navigation"}
                                 items={[
                                     {href: "#position-form-basic", label: isZh ? "职位信息" : "Basic Info"},
                                     {href: "#position-form-requirements", label: isZh ? "职位要求" : "Requirements"},

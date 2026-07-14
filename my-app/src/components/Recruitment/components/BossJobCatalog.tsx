@@ -591,7 +591,7 @@ export function BossJobNameCascader({
                 }}
                 onFocus={() => setOpen(true)}
                 placeholder={placeholder}
-                className={cn("h-[34px] rounded-[4px] border-[#D6D8DD] px-[12px] text-[14px] font-normal leading-[20px] text-[#33353D] shadow-none placeholder:text-[#B0B2B8] focus-visible:border-[#1E3BFA] focus-visible:ring-2 focus-visible:ring-[#1E3BFA]/15", error && "border-[#F53F3F] focus-visible:border-[#F53F3F] focus-visible:ring-[#F53F3F]/15")}
+                className={cn("h-9 rounded-[6px] border-[#E6E7EB] px-[12px] text-[12px] font-normal leading-[20px] text-[#0E1114] shadow-none placeholder:text-[#B0B2B8] focus-visible:border-[#1E3BFA] focus-visible:ring-2 focus-visible:ring-[#1E3BFA]/15 md:text-[12px]", error && "border-[#F53F3F] focus-visible:border-[#F53F3F] focus-visible:ring-[#F53F3F]/15")}
             />
             {open ? <BossJobDropdown query={value} onSelect={handleSelect}/> : null}
         </div>
@@ -624,7 +624,7 @@ export function BossJobTypeSelector({
             <button
                 type="button"
                 className={cn(
-                    "flex h-[34px] w-full items-center justify-between gap-2 rounded-[4px] border border-[#D6D8DD] bg-white px-[12px] text-left text-[14px] leading-[20px] text-[#33353D] transition hover:border-[#1E3BFA] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1E3BFA]/15",
+                    "flex h-9 w-full items-center justify-between gap-2 rounded-[6px] border border-[#E6E7EB] bg-white px-[12px] text-left text-[12px] leading-[20px] text-[#0E1114] transition hover:border-[#1E3BFA] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1E3BFA]/15",
                     !value && "text-[#c2cad4]",
                     error && "border-[#ef4444] focus-visible:ring-[#ef4444]/15",
                 )}
