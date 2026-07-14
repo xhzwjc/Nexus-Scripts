@@ -1166,6 +1166,7 @@ function getPollingDelay(
 
 interface RecruitmentAutomationContainerProps {
     onBack: () => void;
+    hasExternalBackTarget?: boolean;
     initialPage?: RecruitmentPage;
     orgScopeSelection: RecruitmentOrgScopeSelection | null;
     onOrgScopeSelectionChange: (selection: RecruitmentOrgScopeSelection) => void;
@@ -1872,6 +1873,7 @@ const PositionCandidatesView = React.memo(function PositionCandidatesView(props:
 
 export default function RecruitmentAutomationContainer({
     onBack,
+    hasExternalBackTarget = false,
     initialPage,
     orgScopeSelection,
     onOrgScopeSelectionChange,
@@ -2404,6 +2406,7 @@ export default function RecruitmentAutomationContainer({
     const visitedKeepAlivePagesRef = useRef<Set<RecruitmentPage>>(new Set([initialPage || "workspace"]));
     visitedKeepAlivePagesRef.current.add(activePage);
     const recruitmentPageHistoryRef = useRef<RecruitmentPage[]>([initialPage || "workspace"]);
+    const canGoBack = hasExternalBackTarget || recruitmentPageHistoryRef.current.length > 1;
     const lastInitialPageRef = useRef<RecruitmentPage | null>(null);
     const taskSSEPageActive = (
         activePage === "workspace"
@@ -13832,7 +13835,7 @@ export default function RecruitmentAutomationContainer({
                 canManageCandidate={canManageCandidate}
                 canViewAudit={canViewLog}
                 canViewAssistant={canViewRecruitmentAssistant}
-                onBack={handleSmartBack}
+                onBack={canGoBack ? handleSmartBack : undefined}
                 onOpenAssistant={() => openAssistantMode("drawer")}
                 setActivePage={setActivePage}
                 setCandidateQuery={setCandidateQueryWithTransition}
@@ -15693,10 +15696,12 @@ export default function RecruitmentAutomationContainer({
                 className="shrink-0 border-b border-[var(--tr-border)] bg-white dark:border-slate-800 dark:bg-slate-950">
                 <div className="flex min-h-[62px] flex-wrap items-center justify-between gap-2 px-5 py-3 2xl:px-6">
                     <div className="flex min-w-0 items-center gap-2.5">
-                        <Button variant="outline" size="sm" onClick={handleSmartBack} className="h-8 rounded-[4px] border-[#E6E7EB] bg-white px-3 text-[13px] text-[#33353D] shadow-none hover:border-[#1E3BFA] hover:bg-[#F7F8FA] hover:text-[#1E3BFA]">
-                            <ArrowLeft className="h-3.5 w-3.5"/>
-                            {recruitmentUiText.back}
-                        </Button>
+                        {canGoBack ? (
+                            <Button variant="outline" size="sm" onClick={handleSmartBack} className="h-8 rounded-[4px] border-[#E6E7EB] bg-white px-3 text-[13px] text-[#33353D] shadow-none hover:border-[#1E3BFA] hover:bg-[#F7F8FA] hover:text-[#1E3BFA]">
+                                <ArrowLeft className="h-3.5 w-3.5"/>
+                                {recruitmentUiText.back}
+                            </Button>
+                        ) : null}
                         <div className="flex min-w-0 items-center gap-2">
                             <h1 className="shrink-0 text-[20px] font-semibold leading-7 tracking-normal text-[#0E1114] dark:text-slate-50">
                                 {pageMeta[activePage].title}

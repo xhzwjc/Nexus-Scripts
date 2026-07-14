@@ -181,8 +181,9 @@ function AppContent() {
         selectedSystem: string;
         selectedScript: string;
     };
+    const [recruitmentSourceSnapshot, setRecruitmentSourceSnapshot] = useState<AppViewSnapshot | null>(null);
     const previousViewSnapshotRef = useRef<AppViewSnapshot | null>(null);
-    const recruitmentSourceSnapshotRef = useRef<AppViewSnapshot | null>(null);
+    const suppressNextRecruitmentSourceCaptureRef = useRef(false);
 
     useEffect(() => {
         if (typeof window === 'undefined' || !('serviceWorker' in navigator)) {
@@ -295,8 +296,9 @@ function AppContent() {
             setShowSearchResults(false);
             setHealthCheckState(undefined);
             setRecruitmentOrgScopeSnapshot(null);
+            setRecruitmentSourceSnapshot(null);
             previousViewSnapshotRef.current = null;
-            recruitmentSourceSnapshotRef.current = null;
+            suppressNextRecruitmentSourceCaptureRef.current = false;
         },
     });
     const currentRecruitmentUserId = String(currentUser?.id || '').trim();
@@ -349,6 +351,10 @@ function AppContent() {
     // 根据用户角色配置决定初始页面（登录后/刷新后仅执行一次）
     useEffect(() => {
         if (!currentUser || landingPageApplied) return;
+        if (initialMenuTarget.view === 'ai-recruitment' && currentView !== 'ai-recruitment') {
+            suppressNextRecruitmentSourceCaptureRef.current = true;
+            setRecruitmentSourceSnapshot(null);
+        }
         setLandingPageApplied(true);
         setSelectedSystem(initialMenuTarget.selectedSystem || '');
         setSelectedScript('');
@@ -356,7 +362,7 @@ function AppContent() {
             setRecruitmentInitialPage(initialMenuTarget.recruitmentPage);
         }
         setCurrentView(initialMenuTarget.view);
-    }, [currentUser, initialMenuTarget, landingPageApplied]);
+    }, [currentUser, currentView, initialMenuTarget, landingPageApplied]);
 
     useEffect(() => {
         const currentSnapshot: AppViewSnapshot = {
@@ -365,18 +371,22 @@ function AppContent() {
             selectedScript,
         };
         const previousSnapshot = previousViewSnapshotRef.current;
-        if (
-            currentView === 'ai-recruitment'
-            && previousSnapshot
-            && previousSnapshot.view !== 'ai-recruitment'
-        ) {
-            recruitmentSourceSnapshotRef.current = previousSnapshot;
+        if (currentView === 'ai-recruitment' && previousSnapshot?.view !== 'ai-recruitment') {
+            if (suppressNextRecruitmentSourceCaptureRef.current) {
+                suppressNextRecruitmentSourceCaptureRef.current = false;
+                setRecruitmentSourceSnapshot(null);
+            } else {
+                setRecruitmentSourceSnapshot(previousSnapshot ?? null);
+            }
+        } else if (currentView !== 'ai-recruitment' && previousSnapshot?.view === 'ai-recruitment') {
+            setRecruitmentSourceSnapshot(null);
         }
         previousViewSnapshotRef.current = currentSnapshot;
     }, [currentView, selectedScript, selectedSystem]);
 
     function handleRecruitmentBack() {
-        const sourceSnapshot = recruitmentSourceSnapshotRef.current;
+        const sourceSnapshot = recruitmentSourceSnapshot;
+        setRecruitmentSourceSnapshot(null);
         if (sourceSnapshot && sourceSnapshot.view !== 'ai-recruitment') {
             restoreAppView(sourceSnapshot);
             return;
@@ -699,6 +709,7 @@ function AppContent() {
                             <div className="h-full p-0">
                                 <RecruitmentAutomationContainer
                                     onBack={handleRecruitmentBack}
+                                    hasExternalBackTarget={Boolean(recruitmentSourceSnapshot)}
                                     initialPage={recruitmentInitialPage as RecruitmentPage}
                                     orgScopeSelection={recruitmentOrgScopeSelection}
                                     onOrgScopeSelectionChange={handleRecruitmentOrgScopeSelectionChange}

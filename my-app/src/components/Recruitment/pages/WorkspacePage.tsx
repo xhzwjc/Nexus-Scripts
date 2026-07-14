@@ -69,7 +69,7 @@ type WorkspacePageProps = {
     canManageCandidate?: boolean;
     canViewAudit?: boolean;
     canViewAssistant?: boolean;
-    onBack: () => void;
+    onBack?: () => void;
     onOpenAssistant?: () => void;
     setActivePage: (page: RecruitmentPage) => void;
     setCandidateQuery: (query: string) => void;
@@ -367,15 +367,17 @@ export function WorkspacePage({
         <div className="min-h-full bg-white px-5 pb-12 pt-6 text-[#0E1114] dark:bg-slate-950 dark:text-slate-100 md:px-8">
             <div className="mb-5 flex flex-wrap items-center justify-between gap-4">
                 <div className="flex min-w-0 items-center gap-3 sm:gap-4">
-                    <button
-                        type="button"
-                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[6px] border border-[#E6E7EB] text-[#86888F] transition hover:border-[#1E3BFA] hover:bg-[#1E3BFA]/5 hover:text-[#1E3BFA] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1E3BFA]/25 dark:border-slate-700"
-                        onClick={onBack}
-                        aria-label={tr.back}
-                        title={tr.back}
-                    >
-                        <ArrowLeft className="h-[17px] w-[17px]" strokeWidth={1.8}/>
-                    </button>
+                    {onBack ? (
+                        <button
+                            type="button"
+                            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[6px] border border-[#E6E7EB] text-[#86888F] transition hover:border-[#1E3BFA] hover:bg-[#1E3BFA]/5 hover:text-[#1E3BFA] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1E3BFA]/25 dark:border-slate-700"
+                            onClick={onBack}
+                            aria-label={tr.back}
+                            title={tr.back}
+                        >
+                            <ArrowLeft className="h-[17px] w-[17px]" strokeWidth={1.8}/>
+                        </button>
+                    ) : null}
                     <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-[#1E3BFA] text-[16px] font-medium text-white">
                         {resolveAvatarLabel(displayName)}
                     </div>
