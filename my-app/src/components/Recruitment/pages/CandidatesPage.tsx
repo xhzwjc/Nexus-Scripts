@@ -807,6 +807,13 @@ const CANDIDATE_DETAIL_TAG_CLASS = "h-6 rounded-[3px] border-[#E6E7EB] bg-[#F7F8
 const CANDIDATE_DETAIL_STATUS_TAG_CLASS = "h-6 rounded-[3px] border px-2 text-[12px] font-medium shadow-none";
 const CANDIDATE_PAGINATION_BUTTON_CLASS = "h-7 rounded-[4px] border-[#E6E7EB] bg-white text-[12px] leading-4 text-[#33353D] shadow-none hover:border-[#1E3BFA] hover:bg-[#F7F8FA] hover:text-[#1E3BFA] disabled:border-[#E6E7EB] disabled:bg-[#F7F8FA] disabled:text-[#B0B2B8]";
 const CANDIDATE_PAGINATION_ACTIVE_CLASS = "h-7 min-w-7 rounded-[4px] border-[#1E3BFA] bg-[#1E3BFA] px-1.5 text-[12px] leading-4 text-white shadow-none hover:border-[#0F23D9] hover:bg-[#0F23D9] hover:text-white";
+const CANDIDATE_DETAIL_PORTAL_TARGET_SELECTOR = [
+    '[data-slot="dialog-content"]',
+    '[data-slot="dialog-overlay"]',
+    '[data-slot="popover-content"]',
+    '[data-slot="select-content"]',
+    '[data-radix-popper-content-wrapper]',
+].join(",");
 const SCORE_SUGGESTED_STATUS_VALUES = new Set(["screening_passed", "talent_pool", "screening_rejected"]);
 const SMOOTH_VERTICAL_SCROLLBAR_CLASS = "[scrollbar-gutter:stable] [scrollbar-width:thin] [scrollbar-color:rgba(148,163,184,0.82)_transparent] [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-[#D6D8DD] dark:[scrollbar-color:rgba(71,85,105,0.9)_transparent] dark:[&::-webkit-scrollbar-thumb]:bg-[#33353D]";
 const POSITION_SCOPE_SCROLLBAR_CLASS = "[scrollbar-width:thin] [scrollbar-color:transparent_transparent] hover:[scrollbar-color:rgba(134,136,143,0.52)_transparent] [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-transparent hover:[&::-webkit-scrollbar-thumb]:bg-[#B0B2B8]/70 dark:hover:[scrollbar-color:rgba(134,136,143,0.62)_transparent] dark:hover:[&::-webkit-scrollbar-thumb]:bg-[#86888F]/70";
@@ -2811,7 +2818,7 @@ function CandidateAiOutputDialog({
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent aria-describedby={undefined} className="flex h-[min(88vh,900px)] max-h-[88vh] flex-col overflow-hidden rounded-[8px] border-[#EBEEF5] bg-white p-0 shadow-[0_8px_24px_rgba(14,17,20,0.16)] sm:max-w-[900px]">
+            <DialogContent aria-describedby={undefined} className="z-[70] flex h-[min(88vh,900px)] max-h-[88vh] flex-col overflow-hidden rounded-[8px] border-[#EBEEF5] bg-white p-0 shadow-[0_8px_24px_rgba(14,17,20,0.16)] sm:max-w-[900px]">
                 <DialogHeader className="border-b border-[#F2F3F5] px-6 pb-3.5 pt-[18px]">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                         <div className="min-w-0">
@@ -3501,6 +3508,15 @@ export function CandidatesPage({
     const [candidateListCompactMode, setCandidateListCompactMode] = React.useState(false);
     const [candidatePositionScopeWidth, setCandidatePositionScopeWidth] = React.useState(CANDIDATE_POSITION_SCOPE_DEFAULT_WIDTH);
     const [candidateAiOutputDialogOpen, setCandidateAiOutputDialogOpen] = React.useState(false);
+    const candidateAiOutputDialogOpenRef = React.useRef(false);
+    const openCandidateAiOutputDialog = React.useCallback(() => {
+        candidateAiOutputDialogOpenRef.current = true;
+        setCandidateAiOutputDialogOpen(true);
+    }, []);
+    const handleCandidateAiOutputDialogOpenChange = React.useCallback((open: boolean) => {
+        candidateAiOutputDialogOpenRef.current = open;
+        setCandidateAiOutputDialogOpen(open);
+    }, []);
     const [exportDialogOpen, setExportDialogOpen] = React.useState(false);
     const [exportIncludeResumes, setExportIncludeResumes] = React.useState(true);
     const [exportFieldKeys, setExportFieldKeys] = React.useState<string[]>(defaultExportFieldKeys);
@@ -3989,6 +4005,13 @@ export function CandidatesPage({
     const [candidateDetailMainScrolled, setCandidateDetailMainScrolled] = React.useState(false);
     const [potentialReasonExpanded, setPotentialReasonExpanded] = React.useState(false);
     const [departmentReviewDialogOpen, setDepartmentReviewDialogOpen] = React.useState(false);
+    const [departmentReviewTarget, setDepartmentReviewTarget] = React.useState<{
+        id: number;
+        name: string;
+        positionTitle: string;
+        orgCode: string | null;
+        replaceExisting: boolean;
+    } | null>(null);
     const [departmentReviewSubmitting, setDepartmentReviewSubmitting] = React.useState(false);
     const [departmentReviewReviewerOptions, setDepartmentReviewReviewerOptions] = React.useState<DepartmentReviewReviewerOption[]>([]);
     const [departmentReviewReviewerLoading, setDepartmentReviewReviewerLoading] = React.useState(false);
@@ -4089,7 +4112,7 @@ export function CandidatesPage({
     const loadDepartmentReviewers = React.useCallback(async () => {
         const params = new URLSearchParams();
         params.set("limit", "200");
-        const orgCode = candidateDetail?.candidate.org_code;
+        const orgCode = departmentReviewTarget?.orgCode || candidateDetail?.candidate.org_code;
         if (orgCode) {
             params.set("org_code", orgCode);
         }
@@ -4103,7 +4126,7 @@ export function CandidatesPage({
         } finally {
             setDepartmentReviewReviewerLoading(false);
         }
-    }, [candidateDetail?.candidate.org_code]);
+    }, [candidateDetail?.candidate.org_code, departmentReviewTarget?.orgCode]);
     const loadInterviewers = React.useCallback(async () => {
         const params = new URLSearchParams();
         params.set("limit", "200");
@@ -4123,13 +4146,25 @@ export function CandidatesPage({
         }
     }, [candidateDetail?.candidate.org_code]);
     const openDepartmentReviewDialog = React.useCallback(() => {
+        const candidate = candidateDetail?.candidate;
+        if (!candidate?.id) {
+            toast.error(isZh ? "候选人详情已失效，请重新打开后再提交评审" : "Candidate details are unavailable. Reopen the candidate before submitting a review.");
+            return;
+        }
+        setDepartmentReviewTarget({
+            id: candidate.id,
+            name: candidate.name || (isZh ? "当前候选人" : "Current candidate"),
+            positionTitle: candidate.position_title || candidate.screened_position_title || "",
+            orgCode: candidate.org_code || null,
+            replaceExisting: Boolean(activeDepartmentReviewBatch),
+        });
         setSelectedDepartmentReviewers(activeDepartmentReviewerCodes);
         setDepartmentReviewReviewerQuery("");
         setDepartmentReviewReviewerPickerOpen(false);
         setDepartmentReviewMessage("");
         setDepartmentReviewVisibleSections(["original_resume", "standard_resume", "screening_result"]);
         setDepartmentReviewDialogOpen(true);
-    }, [activeDepartmentReviewerCodes]);
+    }, [activeDepartmentReviewBatch, activeDepartmentReviewerCodes, candidateDetail?.candidate, isZh]);
     React.useEffect(() => {
         if (!departmentReviewDialogOpen) {
             return;
@@ -4316,7 +4351,16 @@ export function CandidatesPage({
         openInterviewScheduleForm,
     ]);
     const submitDepartmentReview = React.useCallback(async () => {
-        if (!candidateDetail?.candidate.id || !createDepartmentReview || departmentReviewSubmitting) {
+        if (departmentReviewSubmitting) {
+            return;
+        }
+        if (!createDepartmentReview) {
+            toast.error(isZh ? "当前账号没有提交部门评审的权限" : "You do not have permission to submit department reviews.");
+            return;
+        }
+        const candidateId = departmentReviewTarget?.id || candidateDetail?.candidate.id;
+        if (!candidateId) {
+            toast.error(isZh ? "候选人信息已失效，请关闭弹窗后重新打开候选人" : "Candidate information is unavailable. Close this dialog and reopen the candidate.");
             return;
         }
         const reviewers = selectedDepartmentReviewers.map((userCode) => {
@@ -4333,11 +4377,11 @@ export function CandidatesPage({
         setDepartmentReviewSubmitting(true);
         try {
             await createDepartmentReview({
-                candidate_id: candidateDetail.candidate.id,
+                candidate_id: candidateId,
                 reviewers,
                 visible_sections: departmentReviewVisibleSections,
                 message: departmentReviewMessage.trim() || undefined,
-                replace_existing: Boolean(activeDepartmentReviewBatch),
+                replace_existing: departmentReviewTarget?.replaceExisting ?? Boolean(activeDepartmentReviewBatch),
             });
             setDepartmentReviewDialogOpen(false);
             openCandidateDetailPanel("review");
@@ -4352,6 +4396,7 @@ export function CandidatesPage({
         createDepartmentReview,
         departmentReviewMessage,
         departmentReviewSubmitting,
+        departmentReviewTarget,
         departmentReviewVisibleSections,
         departmentReviewerByCode,
         isZh,
@@ -4468,6 +4513,7 @@ export function CandidatesPage({
         setSelectedResumeFileId(null);
         setCandidateResumeMoreOpen(false);
         setCandidateHeaderMoreOpen(false);
+        candidateAiOutputDialogOpenRef.current = false;
         setCandidateAiOutputDialogOpen(false);
         setCandidateDetailMainScrolled(false);
         setCandidateDetailSideRailTab("note");
@@ -5412,7 +5458,7 @@ export function CandidatesPage({
                     modal={false}
                     open={pageActive && selectedCandidateId !== null}
                     onOpenChange={(open) => {
-                        if (!open) {
+                        if (!open && !candidateAiOutputDialogOpenRef.current) {
                             setSelectedCandidateId(null);
                         }
                     }}
@@ -5420,6 +5466,13 @@ export function CandidatesPage({
                     <DialogContent
                         aria-describedby={undefined}
                         onEscapeKeyDown={(event) => event.preventDefault()}
+                        onFocusOutside={(event) => event.preventDefault()}
+                        onPointerDownOutside={(event) => {
+                            const target = event.target;
+                            if (target instanceof Element && target.closest(CANDIDATE_DETAIL_PORTAL_TARGET_SELECTOR)) {
+                                event.preventDefault();
+                            }
+                        }}
                         className="candidate-detail-drawer left-auto right-0 top-0 h-screen max-h-screen translate-x-0 translate-y-0 gap-0 overflow-hidden rounded-none border-0 border-l border-[#EBEEF5] bg-white p-0 text-[#0E1114] shadow-[-8px_0_24px_rgba(14,17,20,0.12)] sm:rounded-none"
                         style={{
                             width: "min(840px, 100vw)",
@@ -6870,7 +6923,7 @@ export function CandidatesPage({
                                                                 {candidateAiModelLabel ? <span>{tr.modelLabel}：{candidateAiModelLabel}</span> : null}
                                                                 {candidateAiGeneratedAt ? <span>· {formatLongDateTime(candidateAiGeneratedAt)}</span> : null}
                                                                 {candidateAiOutputAvailable ? (
-                                                                    <button type="button" className="text-[#1E3BFA] hover:text-[#0F23D9]" onClick={() => setCandidateAiOutputDialogOpen(true)}>
+                                                                    <button type="button" className="text-[#1E3BFA] hover:text-[#0F23D9]" onClick={openCandidateAiOutputDialog}>
                                                                         {tr.viewFullAiOutput}
                                                                     </button>
                                                                 ) : null}
@@ -7966,10 +8019,10 @@ export function CandidatesPage({
                     <div className={candidateDialogBodyClassName}>
                         <div className="rounded-[6px] bg-[#F7F8FA] px-4 py-3">
                             <p className="text-[13px] font-medium text-[#0E1114]">
-                                {candidateDetail?.candidate.name || (isZh ? "当前候选人" : "Current candidate")}
+                                {departmentReviewTarget?.name || candidateDetail?.candidate.name || (isZh ? "当前候选人" : "Current candidate")}
                             </p>
                             <p className="mt-1 text-[11px] text-[#86888F]">
-                                {candidateDetail?.candidate.position_title || candidateDetail?.candidate.screened_position_title || (isZh ? "未分配岗位" : "Unassigned")}
+                                {departmentReviewTarget?.positionTitle || candidateDetail?.candidate.position_title || candidateDetail?.candidate.screened_position_title || (isZh ? "未分配岗位" : "Unassigned")}
                             </p>
                         </div>
                         <div className="space-y-1.5">
@@ -8115,7 +8168,7 @@ export function CandidatesPage({
             </Dialog>
             <CandidateAiOutputDialog
                 open={candidateAiOutputDialogOpen}
-                onOpenChange={setCandidateAiOutputDialogOpen}
+                onOpenChange={handleCandidateAiOutputDialogOpenChange}
                 markdown={candidateAiOutputPayload.markdown}
                 raw={candidateAiOutputPayload.raw}
                 modelLabel={candidateAiModelLabel}
