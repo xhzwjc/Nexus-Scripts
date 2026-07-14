@@ -2905,7 +2905,7 @@ export function InterviewWorkbenchPage({
                                                     type="button"
                                                     onClick={() => setScheduleDatePickerOpen((open) => !open)}
                                                     className={cn(
-                                                        "flex h-[34px] min-w-0 items-center justify-between rounded border bg-white px-3 text-left text-xs outline-none transition hover:border-[#1E3BFA]",
+                                                        "flex h-[34px] w-full min-w-0 items-center justify-between gap-3 rounded border bg-white px-3 text-left text-xs outline-none transition hover:border-[#1E3BFA]",
                                                         scheduleDatePart ? "border-[#E6E7EB] text-[#0E1114]" : "border-[#E6E7EB] text-[#B0B2B8]",
                                                         scheduleFormErrors.scheduled_date && scheduleRequiredErrorClass,
                                                     )}
