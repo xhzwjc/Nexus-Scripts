@@ -5422,8 +5422,8 @@ export function CandidatesPage({
                         onEscapeKeyDown={(event) => event.preventDefault()}
                         className="candidate-detail-drawer left-auto right-0 top-0 h-screen max-h-screen translate-x-0 translate-y-0 gap-0 overflow-hidden rounded-none border-0 border-l border-[#EBEEF5] bg-white p-0 text-[#0E1114] shadow-[-8px_0_24px_rgba(14,17,20,0.12)] sm:rounded-none"
                         style={{
-                            width: "min(760px, 100vw)",
-                            maxWidth: "min(760px, 100vw)",
+                            width: "min(840px, 100vw)",
+                            maxWidth: "min(840px, 100vw)",
                         }}
                         showCloseButton={false}
                     >
