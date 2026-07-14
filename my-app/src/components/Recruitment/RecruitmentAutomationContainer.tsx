@@ -2540,7 +2540,6 @@ export default function RecruitmentAutomationContainer({
     const [metadata, setMetadata] = useState<RecruitmentMetadata | null>(null);
     const [organizationCatalog, setOrganizationCatalog] = useState<ScriptHubOrganizationDefinition[]>([]);
     const [allPositions, setAllPositions] = useState<PositionSummary[]>([]);
-    const [positions, setPositions] = useState<PositionSummary[]>([]);
     const [positionDetail, setPositionDetail] = useState<PositionDetail | null>(null);
     const [allCandidates, setAllCandidates] = useState<CandidateSummary[]>([]);
     const [candidates, setCandidates] = useState<CandidateSummary[]>([]);
@@ -2718,6 +2717,7 @@ export default function RecruitmentAutomationContainer({
     const candidateMenuSuppressStaleDetailRef = useRef(false);
 
     const [positionsLoading, setPositionsLoading] = useState(false);
+    const [positionListRequiresRefresh, setPositionListRequiresRefresh] = useState(false);
     const [positionDetailLoading, setPositionDetailLoading] = useState(false);
     const [candidatesLoading, setCandidatesLoading] = useState(false);
     const [candidatesInitialLoaded, setCandidatesInitialLoaded] = useState(false);
@@ -3018,6 +3018,10 @@ export default function RecruitmentAutomationContainer({
         selfOnly: isSelfDataScope(sessionUser?.dataScope),
         actorUserCode: sessionUser?.id || null,
     }), [sessionUser?.dataScope, sessionUser?.id]);
+    const positions = useMemo(
+        () => filterBusinessRowsByOrgCodes(allPositions, activeBusinessOrgCodes, businessRowFilterOptions),
+        [activeBusinessOrgCodes, allPositions, businessRowFilterOptions],
+    );
     const organizationSelectOptions = useMemo(
         () => activeBusinessOrgCodes.map((orgCode) => {
             const organization = organizationMap.get(orgCode);
@@ -3659,7 +3663,6 @@ export default function RecruitmentAutomationContainer({
     ]);
 
     useEffect(() => {
-        setPositions(filterBusinessRowsByOrgCodes(allPositions, activeBusinessOrgCodes, businessRowFilterOptions));
         setCandidates(filterBusinessRowsByOrgCodes(allCandidates, activeBusinessOrgCodes, businessRowFilterOptions));
         setTalentPoolCandidates(filterBusinessRowsByOrgCodes(allTalentPoolCandidates, activeBusinessOrgCodes, businessRowFilterOptions));
         setSkills(filterResourceRowsByOrgCodes(allSkills, activeBusinessOrgCodes, organizationMap));
@@ -3676,7 +3679,6 @@ export default function RecruitmentAutomationContainer({
         allLlmConfigs,
         allMailRecipients,
         allMailSenderConfigs,
-        allPositions,
         allResumeMailDispatches,
         allSkills,
         businessRowFilterOptions,
@@ -3758,7 +3760,7 @@ export default function RecruitmentAutomationContainer({
             if (current && visiblePositions.some((position) => position.id === current)) {
                 return current;
             }
-            return visiblePositions[0]?.id || null;
+            return null;
         });
     }, [positionDetailViewOpen, visiblePositions]);
 
@@ -4359,6 +4361,7 @@ export default function RecruitmentAutomationContainer({
                 );
                 if (!cancelled && positionsLoadRequestIdRef.current === requestId) {
                     setAllPositions(data);
+                    setPositionListRequiresRefresh(false);
                     positionsLoadedOnceRef.current = true;
                 }
             } catch (error) {
@@ -6232,6 +6235,7 @@ export default function RecruitmentAutomationContainer({
                 return data;
             }
             setAllPositions(data);
+            setPositionListRequiresRefresh(false);
             positionsLoadedOnceRef.current = true;
             return data;
         } catch (error) {
@@ -7404,9 +7408,17 @@ export default function RecruitmentAutomationContainer({
         void refreshCandidatePipelineStats();
     }, [activePage, candidatePositionFilter, selectedDepartmentScope, selectedOrgScope]);
 
-    async function refreshCoreData(options?: { includeMailSettings?: boolean; silent?: boolean; departmentScope?: string; orgScope?: string }) {
+    async function refreshCoreData(options?: {
+        includeMailSettings?: boolean;
+        includePositions?: boolean;
+        silent?: boolean;
+        departmentScope?: string;
+        orgScope?: string;
+    }) {
         // 清除缓存，确保获取最新数据
-        invalidatePositionsCache();
+        if (options?.includePositions !== false) {
+            invalidatePositionsCache();
+        }
         invalidateCandidatesCache();
         invalidateLogsCache();
 
@@ -7435,7 +7447,6 @@ export default function RecruitmentAutomationContainer({
         })();
 
         const tasks: Promise<unknown>[] = [
-            loadPositions(),
             candidatesPromise,
             logsPromise,
             // 并行刷新漏斗/来源统计
@@ -7468,6 +7479,9 @@ export default function RecruitmentAutomationContainer({
                 setSourceStatsData(s);
             })(),
         ];
+        if (options?.includePositions !== false) {
+            tasks.unshift(loadPositions());
+        }
         if (options?.includeMailSettings) {
             tasks.push(loadMailSettings());
         }
@@ -9712,14 +9726,13 @@ export default function RecruitmentAutomationContainer({
             interview_skill_ids: positionForm.interviewSkillIds,
         };
 
+        let targetPositionId = selectedPositionId;
         try {
-            let targetPositionId = selectedPositionId;
             if (positionDialogMode === "create") {
                 const created = await recruitmentApi<PositionSummary>("/positions", {
                     method: "POST",
                     body: JSON.stringify(payload),
                 });
-                setSelectedPositionId(created.id);
                 targetPositionId = created.id;
                 toast.success(recruitmentToast.created(recruitmentToastEntities.position));
             } else if (selectedPositionId) {
@@ -9729,17 +9742,35 @@ export default function RecruitmentAutomationContainer({
                 });
                 toast.success(recruitmentToast.updated(recruitmentToastEntities.position));
             }
-            setPositionDialogOpen(false);
-            await refreshCoreData();
-            if (targetPositionId) {
-                await loadPositionDetail(targetPositionId);
-                setPositionDetailViewOpen(true);
-            }
-            navigateToRecruitmentPage("positions");
         } catch (error) {
             setPositionFormSubmitError(recruitmentToast.saveFailed(recruitmentToastEntities.position, error instanceof Error ? error.message : recruitmentToast.unknownError));
+            setPositionSubmitting(false);
+            return;
+        }
+
+        // 保存后的目标始终是列表。阻断旧快照，强制使用 mutation 完成后的新请求。
+        invalidatePositionsCache();
+        requestInflightRef.current.delete(`positions:${recruitmentDataCacheKey}`);
+        if (targetPositionId) {
+            requestInflightRef.current.delete(`position-detail:${targetPositionId}`);
+        }
+        positionDetailLoadRequestIdRef.current += 1;
+        selectedPositionIdRef.current = null;
+        setSelectedPositionId(null);
+        setPositionDetail(null);
+        setPositionDetailLoading(false);
+        setPositionDetailViewOpen(false);
+        setPositionListRequiresRefresh(true);
+        setPositionDialogOpen(false);
+        navigateToRecruitmentPage("positions");
+
+        try {
+            await loadPositions({force: true});
+        } catch {
+            // loadPositions 已展示错误；继续阻断旧列表，等待用户重试刷新。
         } finally {
             setPositionSubmitting(false);
+            void refreshCoreData({includePositions: false, silent: true});
         }
     }
 
@@ -14387,6 +14418,7 @@ export default function RecruitmentAutomationContainer({
                     positions={positions}
                     visiblePositions={visiblePositions}
                     loading={positionsLoading}
+                    blockStaleData={positionListRequiresRefresh}
                     query={positionQuery}
                     statusFilter={positionStatusFilter}
                     statusLabels={positionStatusLabels}
@@ -14400,13 +14432,22 @@ export default function RecruitmentAutomationContainer({
                     onCreate={openCreatePosition}
                     onUpload={() => openResumeUploadDialog(null)}
                     onRefresh={async () => {
-                        await loadPositions({force: true});
-                        toast.success(recruitmentToast.refreshed(recruitmentToastEntities.positions));
+                        try {
+                            await loadPositions({force: true});
+                            toast.success(recruitmentToast.refreshed(recruitmentToastEntities.positions));
+                        } catch {
+                            // loadPositions 已展示错误，保留当前阻断状态等待再次重试。
+                        }
                     }}
                     onOpenPosition={(positionId) => {
-                        if (positionDetail?.position.id !== positionId) {
+                        const needsDetail = positionDetail?.position.id !== positionId;
+                        if (needsDetail) {
                             setPositionDetail(null);
                             setPositionDetailLoading(true);
+                        }
+                        // 同一 ID 上次加载失败时 selectedPositionId 不会变化，需要显式重试。
+                        if (needsDetail && selectedPositionId === positionId) {
+                            void loadPositionDetail(positionId);
                         }
                         setSelectedPositionId(positionId);
                         setPositionDetailViewOpen(true);

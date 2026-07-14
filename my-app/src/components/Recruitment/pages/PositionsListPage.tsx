@@ -26,6 +26,7 @@ type PositionsListPageProps = {
     positions: PositionSummary[];
     visiblePositions: PositionSummary[];
     loading: boolean;
+    blockStaleData?: boolean;
     query: string;
     statusFilter: string;
     statusLabels: Record<string, string>;
@@ -64,6 +65,7 @@ export function PositionsListPage({
     positions,
     visiblePositions,
     loading,
+    blockStaleData = false,
     query,
     statusFilter,
     statusLabels,
@@ -86,32 +88,35 @@ export function PositionsListPage({
     const [departmentFilter, setDepartmentFilter] = React.useState("all");
     const [employmentFilter, setEmploymentFilter] = React.useState("all");
     const [creatorFilter, setCreatorFilter] = React.useState("all");
+    const dataBlocked = loading || blockStaleData;
+    const availablePositions = dataBlocked ? [] : positions;
+    const availableVisiblePositions = dataBlocked ? [] : visiblePositions;
 
     const departments = React.useMemo(
-        () => Array.from(new Set(positions.map((item) => String(item.department || "").trim()).filter(Boolean))).sort(),
-        [positions],
+        () => Array.from(new Set(availablePositions.map((item) => String(item.department || "").trim()).filter(Boolean))).sort(),
+        [availablePositions],
     );
     const employmentTypes = React.useMemo(
-        () => Array.from(new Set(positions.map((item) => String(item.employment_type || "").trim()).filter(Boolean))).sort(),
-        [positions],
+        () => Array.from(new Set(availablePositions.map((item) => String(item.employment_type || "").trim()).filter(Boolean))).sort(),
+        [availablePositions],
     );
     const creators = React.useMemo(
-        () => Array.from(new Set(positions.map((item) => String(item.created_by || "").trim()).filter(Boolean))).sort(),
-        [positions],
+        () => Array.from(new Set(availablePositions.map((item) => String(item.created_by || "").trim()).filter(Boolean))).sort(),
+        [availablePositions],
     );
     const displayedPositions = React.useMemo(
-        () => visiblePositions.filter((position) => (
+        () => availableVisiblePositions.filter((position) => (
             (departmentFilter === "all" || position.department === departmentFilter)
             && (employmentFilter === "all" || position.employment_type === employmentFilter)
             && (creatorFilter === "all" || position.created_by === creatorFilter)
         )),
-        [creatorFilter, departmentFilter, employmentFilter, visiblePositions],
+        [availableVisiblePositions, creatorFilter, departmentFilter, employmentFilter],
     );
 
     const stats = {
-        recruiting: positions.filter((item) => item.status === "recruiting").length,
-        paused: positions.filter((item) => item.status === "paused").length,
-        all: positions.length,
+        recruiting: availablePositions.filter((item) => item.status === "recruiting").length,
+        paused: availablePositions.filter((item) => item.status === "paused").length,
+        all: availablePositions.length,
     };
     const hasSecondaryFilters = departmentFilter !== "all" || employmentFilter !== "all" || creatorFilter !== "all";
     const selectClass = "h-8 rounded-[4px] border border-[#E6E7EB] bg-white px-3 text-[12px] text-[#33353D] outline-none transition hover:border-[#1E3BFA]/50 focus:border-[#1E3BFA] focus:ring-2 focus:ring-[#1E3BFA]/10 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200";
@@ -188,7 +193,7 @@ export function PositionsListPage({
                                 <span className="flex items-center gap-2 text-[12px] text-[#33353D] dark:text-slate-300">
                                     <span className={cn("h-3 w-[3px] rounded-full", active ? "bg-[#1E3BFA]" : "bg-[#B0B2B8]")}/>{item.label}
                                 </span>
-                                <span className="mt-1.5 block text-[28px] font-semibold leading-8 tabular-nums">{item.value}</span>
+                                <span className="mt-1.5 block text-[28px] font-semibold leading-8 tabular-nums">{dataBlocked ? "—" : item.value}</span>
                             </button>
                         );
                     })}
@@ -233,8 +238,12 @@ export function PositionsListPage({
             </div>
 
             <div className="min-h-0 flex-1 overflow-auto border-t border-[#F2F3F5] px-5 pb-6 md:px-8">
-                {loading && !positions.length ? (
+                {loading ? (
                     <div className="flex h-56 items-center justify-center gap-2 text-[13px] text-[#86888F]"><Loader2 className="h-4 w-4 animate-spin"/>{isZh ? "正在加载岗位" : "Loading positions"}</div>
+                ) : blockStaleData ? (
+                    <div className="flex h-56 items-center justify-center text-center text-[13px] text-[#86888F]">
+                        {isZh ? "岗位已保存，但最新列表加载失败，请点击刷新重试" : "The position was saved, but the latest list could not be loaded. Refresh to try again."}
+                    </div>
                 ) : displayedPositions.length ? (
                     <table className="w-full min-w-[1180px] border-collapse text-left text-[12px]">
                         <thead className="sticky top-0 z-10 bg-white text-[#86888F] dark:bg-slate-950 dark:text-slate-400">
@@ -292,10 +301,12 @@ export function PositionsListPage({
                 ) : (
                     <div className="py-16"><EmptyState title={isZh ? "暂无符合条件的岗位" : "No matching positions"} description={isZh ? "调整筛选条件，或新建一条招聘需求。" : "Adjust the filters or create a hiring request."}/></div>
                 )}
-                <div className="flex items-center justify-between border-t border-[#F2F3F5] py-4 text-[12px] text-[#86888F] dark:border-slate-800">
-                    <span>{isZh ? `共 ${displayedPositions.length} 个岗位` : `${displayedPositions.length} positions`}</span>
-                    <span>{isZh ? "已显示当前筛选下的全部岗位" : "Showing all positions for the current filters"}</span>
-                </div>
+                {!dataBlocked ? (
+                    <div className="flex items-center justify-between border-t border-[#F2F3F5] py-4 text-[12px] text-[#86888F] dark:border-slate-800">
+                        <span>{isZh ? `共 ${displayedPositions.length} 个岗位` : `${displayedPositions.length} positions`}</span>
+                        <span>{isZh ? "已显示当前筛选下的全部岗位" : "Showing all positions for the current filters"}</span>
+                    </div>
+                ) : null}
             </div>
         </div>
     );
