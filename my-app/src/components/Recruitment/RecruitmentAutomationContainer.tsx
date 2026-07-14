@@ -8819,9 +8819,9 @@ export default function RecruitmentAutomationContainer({
         const actionPending = talentPoolDetailAction !== null || talentPoolDetailAssigning;
 
         return (
-            <div className="flex h-full min-h-0 flex-col bg-white font-[Inter,'PingFang_SC','Microsoft_YaHei',sans-serif] text-[#0E1114]">
+            <div className="flex h-full min-h-0 min-w-0 w-full max-w-full flex-col overflow-hidden bg-white font-[Inter,'PingFang_SC','Microsoft_YaHei',sans-serif] text-[#0E1114]">
                 <div className="flex shrink-0 items-start justify-between border-b border-[#F2F3F5] px-7 py-5">
-                    <div className="flex min-w-0 items-center gap-3.5">
+                    <div className="flex min-w-0 flex-1 items-center gap-3.5">
                         <span className="flex h-[46px] w-[46px] shrink-0 items-center justify-center rounded-full text-[15px] font-medium text-white" style={{backgroundColor: avatarColor}}>
                             {String(c.name || "?").trim().slice(0, 1)}
                         </span>
@@ -8838,15 +8838,15 @@ export default function RecruitmentAutomationContainer({
                     </button>
                 </div>
 
-                <div className="flex min-h-0 flex-1 flex-col gap-[22px] overflow-y-auto px-7 py-6">
-                    <section className="flex flex-col gap-2.5 rounded-[10px] bg-[#F7F8FA] px-[18px] py-4">
+                <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-[22px] overflow-x-hidden overflow-y-auto px-7 py-6">
+                    <section className="flex min-w-0 flex-col gap-2.5 rounded-[10px] bg-[#F7F8FA] px-[18px] py-4">
                         <h3 className="flex items-center gap-1.5 text-[13px] font-semibold text-[#0E1114]">
                             <Sparkles className="h-3.5 w-3.5 text-[#1E3BFA]"/>
                             {isZh ? "AI 识别结果" : "AI Recognition"}
                         </h3>
-                        <p className="text-[12px] leading-[1.7] text-[#33353D]">{aiSummary}</p>
+                        <p className="min-w-0 [overflow-wrap:anywhere] text-[12px] leading-[1.7] text-[#33353D]">{aiSummary}</p>
                         {c.ai_potential_position ? (
-                            <p className="text-[12px] leading-[1.7] text-[#33353D]">
+                            <p className="min-w-0 [overflow-wrap:anywhere] text-[12px] leading-[1.7] text-[#33353D]">
                                 <span className="font-medium text-[#0A9C71]">{isZh ? "转岗潜力" : "Potential move"}：{c.ai_potential_position}</span>
                                 {c.ai_potential_reason ? ` · ${c.ai_potential_reason}` : ""}
                             </p>
@@ -8860,11 +8860,11 @@ export default function RecruitmentAutomationContainer({
 
                     <section className="flex flex-col gap-3">
                         <h3 className="text-[14px] font-semibold text-[#0E1114]">{isZh ? "基本信息" : "Basic Information"}</h3>
-                        <div className="grid grid-cols-2 gap-x-4 gap-y-2.5 text-[12px]">
+                        <div className="grid min-w-0 grid-cols-2 gap-x-4 gap-y-2.5 text-[12px]">
                             {basicFields.map((field) => (
                                 <div key={field.label} className="flex min-w-0 gap-2.5">
                                     <span className="w-16 shrink-0 text-[#B0B2B8]">{field.label}</span>
-                                    <span className="min-w-0 break-words text-[#0F1014]">{field.value || "—"}</span>
+                                    <span className="min-w-0 [overflow-wrap:anywhere] text-[#0F1014]">{field.value || "—"}</span>
                                 </div>
                             ))}
                         </div>
@@ -8880,7 +8880,7 @@ export default function RecruitmentAutomationContainer({
                             ) : null}
                         </div>
                         <div className="rounded-[10px] border border-[#EBEEF5] p-4 text-[12px] leading-[1.9] text-[#33353D]">
-                            <p className="whitespace-pre-wrap break-words">{resumeSummary}</p>
+                            <p className="min-w-0 whitespace-pre-wrap [overflow-wrap:anywhere]">{resumeSummary}</p>
                             {currentResume ? (
                                 <div className="mt-3 flex items-center gap-2 border-t border-[#F2F3F5] pt-3 text-[11px] text-[#86888F]">
                                     <FileText className="h-3.5 w-3.5 shrink-0 text-[#F53F3F]"/>
@@ -8947,9 +8947,8 @@ export default function RecruitmentAutomationContainer({
                     ) : null}
                 </div>
 
-                <div className="flex h-[68px] shrink-0 items-center gap-3 border-t border-[#F2F3F5] px-7">
-                    <span className="text-[12px] text-[#86888F]">{displayStatus === "matching" ? (isZh ? "AI 正在识别岗位，结果会实时更新" : "AI matching is in progress and updates in real time") : (isZh ? "分配岗位后候选人将进入对应岗位的招聘流程" : "After assignment, this talent enters the position recruitment flow")}</span>
-                    <div className="flex-1"/>
+                <div className="flex h-[68px] min-w-0 shrink-0 items-center gap-3 border-t border-[#F2F3F5] px-7">
+                    <span className="min-w-0 flex-1 truncate text-[12px] text-[#86888F]">{displayStatus === "matching" ? (isZh ? "AI 正在识别岗位，结果会实时更新" : "AI matching is in progress and updates in real time") : (isZh ? "分配岗位后候选人将进入对应岗位的招聘流程" : "After assignment, this talent enters the position recruitment flow")}</span>
                     {canManageCandidate && displayStatus === "matching" ? (
                         <button type="button" className="inline-flex h-9 shrink-0 items-center rounded-[6px] border border-[rgba(245,63,63,0.32)] px-[18px] text-[13px] text-[#F53F3F] hover:bg-[rgba(245,63,63,0.05)] disabled:cursor-not-allowed disabled:opacity-50" onClick={() => void runTalentPoolDetailCancelMatch()} disabled={actionPending}>
                             {talentPoolDetailAction === "cancel-match" ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin"/> : <Square className="mr-1.5 h-3.5 w-3.5"/>}
@@ -15856,7 +15855,7 @@ export default function RecruitmentAutomationContainer({
                     }
                 }}
             >
-                <DialogContent showCloseButton={false} className="left-auto right-0 top-0 h-dvh max-h-none w-[min(720px,100vw)] max-w-none translate-x-0 translate-y-0 gap-0 overflow-hidden rounded-none border-y-0 border-r-0 border-l border-[#EBEEF5] bg-white p-0 shadow-[-8px_0_24px_rgba(14,17,20,0.12)] sm:max-w-none">
+                <DialogContent showCloseButton={false} className="left-auto right-0 top-0 h-dvh max-h-none min-w-0 w-[min(720px,100vw)] max-w-none translate-x-0 translate-y-0 gap-0 overflow-hidden rounded-none border-y-0 border-r-0 border-l border-[#EBEEF5] bg-white p-0 shadow-[-8px_0_24px_rgba(14,17,20,0.12)] sm:max-w-none">
                     <DialogHeader className="sr-only">
                         <DialogTitle>{isZh ? "人才详情" : "Talent Details"}</DialogTitle>
                         <DialogDescription>{isZh ? "查看人才库候选人的完整资料" : "View the complete talent pool candidate profile"}</DialogDescription>
