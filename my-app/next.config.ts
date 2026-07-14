@@ -1,4 +1,58 @@
 import type { NextConfig } from "next";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
+type BuildInfo = {
+  version: string;
+  buildId: string;
+  buildNumber: string;
+  commitSha: string;
+  builtAt: string;
+};
+
+function readJson(path: string): Record<string, unknown> {
+  return JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+}
+
+function readString(value: unknown, fallback = ""): string {
+  return typeof value === "string" && value.trim() ? value.trim() : fallback;
+}
+
+function loadBuildInfo(): BuildInfo {
+  const packageJson = readJson(join(process.cwd(), "package.json"));
+  const packageVersion = readString(packageJson.version, "0.1.0");
+
+  if (process.env.NODE_ENV !== "production") {
+    return {
+      version: packageVersion,
+      buildId: "dev",
+      buildNumber: "dev",
+      commitSha: "",
+      builtAt: "",
+    };
+  }
+
+  try {
+    const payload = readJson(join(process.cwd(), "public", "build-info.json"));
+    return {
+      version: readString(payload.version, packageVersion),
+      buildId: readString(payload.buildId, "build-unknown"),
+      buildNumber: readString(payload.buildNumber, "unknown"),
+      commitSha: readString(payload.commitSha),
+      builtAt: readString(payload.builtAt),
+    };
+  } catch {
+    return {
+      version: packageVersion,
+      buildId: "build-unknown",
+      buildNumber: "unknown",
+      commitSha: "",
+      builtAt: "",
+    };
+  }
+}
+
+const buildInfo = loadBuildInfo();
 
 const nextConfig: NextConfig = {
   eslint: {
@@ -6,6 +60,14 @@ const nextConfig: NextConfig = {
   },
   output: "standalone",
   compress: true, // 明确启用 Gzip 压缩
+  env: {
+    NEXT_PUBLIC_APP_VERSION: buildInfo.version,
+    NEXT_PUBLIC_BUILD_ID: buildInfo.buildId,
+    NEXT_PUBLIC_BUILD_NUMBER: buildInfo.buildNumber,
+    NEXT_PUBLIC_BUILD_COMMIT: buildInfo.commitSha,
+    NEXT_PUBLIC_BUILD_TIME: buildInfo.builtAt,
+  },
+  generateBuildId: async () => buildInfo.buildId,
 
   // 性能优化：优化包导入
   serverExternalPackages: ['pdf-parse'],

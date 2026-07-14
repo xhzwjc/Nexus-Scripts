@@ -51,6 +51,36 @@ final result: passed
 
 ---
 
+# System Update Notice Design QA
+
+- source visual truth: `AI Recruitment Redesign Project/系统更新 UpdateNotice.dc.html`
+- implementation: `my-app/src/components/VersionUpdateModal.tsx` and `my-app/src/components/SystemUpdateGuard.tsx`
+- target state: desktop, light theme, full-screen update dialog plus the post-defer reminder
+- implementation screenshot: unavailable; the in-app browser runtime failed before capture with `TypeError: Cannot redefine property: process`
+
+## Findings
+
+- [P1] Rendered implementation evidence is unavailable.
+  - The reference markup was inspected completely and its explicit measurements were implemented, but the required browser connection could not initialize.
+  - Full-screen coverage, rendered typography and animation timing therefore cannot be truthfully signed off from a combined screenshot comparison.
+
+## Implemented Fidelity Surfaces
+
+- Full-viewport portal overlay with `rgba(15,20,35,0.28)`, `6px` blur and a stacking level above the complete application shell.
+- `440px` dialog, `20px` radius, `48px 44px 36px` spacing, prototype shadow, `56px` update icon and the exact `11px / 13px / 14px / 21px` hierarchy.
+- Prototype actions and states: refresh loading, defer, persistent lower-right reminder and direct refresh.
+- Real build metadata replaces prototype sample versions; the layout displays semantic release versions and distinguishes builds within the same release.
+
+## Logic Verification
+
+- Update detection now runs globally instead of depending on AI Recruitment permissions or task SSE connectivity.
+- The no-cache version endpoint, one-minute visible-tab checks, focus/online checks, throttling, cross-tab notification and per-build defer state are implemented.
+- `npm run typecheck`, targeted ESLint, Python compile, `npm run build`, build-ID consistency validation and `git diff --check` passed.
+
+final result: blocked
+
+---
+
 # Position Detail Design QA
 
 - source visual truth path: `AI Recruitment Redesign Project/screenshots/pos-detail.png` and `AI Recruitment Redesign Project/岗位管理 Positions.dc.html`

@@ -1,58 +1,122 @@
 "use client";
 
-import { RefreshCw, ShieldCheck } from "lucide-react";
+import { createPortal } from "react-dom";
+import * as DialogPrimitive from "@radix-ui/react-dialog";
+import { ArrowRight, RefreshCw } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
+import {
+  formatSystemVersionPair,
+  type SystemBuildInfo,
+} from "@/lib/system-version";
 
 type VersionUpdateModalProps = {
-  visible: boolean;
+  open: boolean;
+  reminderVisible: boolean;
+  refreshing: boolean;
+  currentBuild: SystemBuildInfo;
+  latestBuild: SystemBuildInfo;
+  onRefresh: () => void;
+  onLater: () => void;
 };
 
-export function VersionUpdateModal({ visible }: VersionUpdateModalProps) {
-  if (!visible) {
-    return null;
-  }
+export function VersionUpdateModal({
+  open,
+  reminderVisible,
+  refreshing,
+  currentBuild,
+  latestBuild,
+  onRefresh,
+  onLater,
+}: VersionUpdateModalProps) {
+  const versionPair = formatSystemVersionPair(currentBuild, latestBuild);
+  const reminder = reminderVisible && typeof document !== "undefined"
+    ? createPortal(
+        <div
+          className="fixed bottom-7 right-7 z-[2147483001] flex max-w-[calc(100vw-32px)] items-center gap-3 rounded-[10px] bg-[#0E1114] py-3 pl-3.5 pr-4 text-white shadow-[0_12px_32px_rgba(14,17,20,0.28)] max-sm:bottom-4 max-sm:right-4"
+          role="status"
+          aria-live="polite"
+        >
+          <RefreshCw className="h-[18px] w-[18px] shrink-0 text-[#2E9CFF]" strokeWidth={2} />
+          <span className="min-w-0 truncate text-[13px] font-normal text-white">
+            新版本 {versionPair.latest} 可用
+          </span>
+          <button
+            type="button"
+            className="h-7 shrink-0 rounded-[6px] border-0 bg-[#1E3BFA] px-3 text-[12px] font-semibold text-white transition-colors hover:bg-[#1733D8] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
+            onClick={onRefresh}
+          >
+            立即刷新
+          </button>
+        </div>,
+        document.body,
+      )
+    : null;
 
   return (
-    <div
-      className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950/55 px-4 backdrop-blur-md"
-      role="alertdialog"
-      aria-modal="true"
-      aria-labelledby="version-update-title"
-      aria-describedby="version-update-description"
-    >
-      <div className="w-full max-w-md overflow-hidden rounded-[2rem] border border-white/70 bg-white/95 shadow-[0_32px_90px_-35px_rgba(15,23,42,0.65)] dark:border-slate-800/80 dark:bg-slate-950/95">
-        <div className="relative overflow-hidden px-7 pb-6 pt-7">
-          <div className="pointer-events-none absolute -right-16 -top-20 h-48 w-48 rounded-full bg-sky-300/35 blur-3xl dark:bg-sky-500/20" />
-          <div className="pointer-events-none absolute -bottom-24 -left-20 h-52 w-52 rounded-full bg-emerald-200/45 blur-3xl dark:bg-emerald-500/15" />
-          <div className="relative space-y-5">
-            <div className="flex items-center gap-3">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-900 text-white shadow-lg shadow-slate-900/20 dark:bg-slate-100 dark:text-slate-950">
-                <ShieldCheck className="h-5 w-5" />
-              </div>
-              <div>
-                <h2 id="version-update-title" className="text-xl font-semibold tracking-tight text-slate-950 dark:text-slate-50">
-                  系统已更新
-                </h2>
-                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">刷新后即可使用最新版本</p>
-              </div>
+    <>
+      <DialogPrimitive.Root open={open}>
+        <DialogPrimitive.Portal>
+          <DialogPrimitive.Overlay className="fixed inset-0 z-[2147483000] bg-[rgba(15,20,35,0.28)] backdrop-blur-[6px] data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=closed]:animate-out data-[state=closed]:fade-out-0" />
+          <DialogPrimitive.Content
+            className="fixed left-1/2 top-1/2 z-[2147483001] w-[calc(100%-32px)] max-w-[440px] -translate-x-1/2 -translate-y-1/2 rounded-[20px] border-0 bg-white px-11 pb-9 pt-12 text-[#0E1114] shadow-[0_1px_0_rgba(255,255,255,0.6)_inset,0_32px_80px_-12px_rgba(14,17,20,0.28),0_8px_24px_-8px_rgba(14,17,20,0.12)] outline-none data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 max-sm:px-7 max-sm:pb-7 max-sm:pt-9"
+            role="alertdialog"
+            aria-describedby="system-update-description"
+            onEscapeKeyDown={(event) => {
+              event.preventDefault();
+              if (!refreshing) {
+                onLater();
+              }
+            }}
+            onPointerDownOutside={(event) => event.preventDefault()}
+          >
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-[#F4F6FF]">
+              <RefreshCw className="h-[26px] w-[26px] text-[#1E3BFA]" strokeWidth={1.8} />
             </div>
-            <div id="version-update-description" className="space-y-3 text-base leading-7 text-slate-600 dark:text-slate-300">
-              <p>新版本已发布，为避免数据异常，请刷新后继续使用！</p>
-              <p className="rounded-2xl border border-slate-200/80 bg-slate-50/90 px-4 py-3 text-sm text-slate-500 dark:border-slate-800 dark:bg-slate-900/80 dark:text-slate-400">
-                当前进行中的后台任务不会中断，结果仍会保存。
-              </p>
-            </div>
-            <Button
-              className="h-12 w-full rounded-2xl bg-slate-900 text-base text-white shadow-lg shadow-slate-900/20 hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-950 dark:hover:bg-slate-200"
-              onClick={() => window.location.reload()}
+
+            <p className="mt-6 text-center text-[11px] font-semibold tracking-[1.4px] text-[#B0B2B8]">
+              NEW VERSION
+            </p>
+            <DialogPrimitive.Title className="mt-2.5 text-center text-[21px] font-semibold tracking-[-0.3px] text-[#0E1114]">
+              已有新版本可用
+            </DialogPrimitive.Title>
+            <DialogPrimitive.Description
+              id="system-update-description"
+              className="mt-3 text-pretty text-center text-[14px] font-normal leading-[1.7] text-[#86888F]"
             >
-              <RefreshCw className="h-4 w-4" />
-              立即刷新
-            </Button>
-          </div>
-        </div>
-      </div>
-    </div>
+              刷新即可载入最新版本。刷新前请确认已保存当前页面的编辑内容。
+            </DialogPrimitive.Description>
+
+            <div className="mt-[22px] flex items-center justify-center gap-2.5 tabular-nums">
+              <span className="text-[13px] font-normal text-[#B0B2B8]">{versionPair.current}</span>
+              <ArrowRight className="h-[15px] w-[15px] shrink-0 text-[#D5D7DD]" strokeWidth={2} />
+              <span className="text-[13px] font-semibold text-[#1E3BFA]">{versionPair.latest}</span>
+            </div>
+
+            <div className="mt-8 flex flex-col gap-2.5">
+              <button
+                type="button"
+                className="flex h-[46px] w-full items-center justify-center gap-2 rounded-xl border-0 bg-[#1E3BFA] text-[14px] font-semibold text-white transition-colors hover:bg-[#1733D8] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1E3BFA]/30 disabled:cursor-wait disabled:opacity-80"
+                onClick={onRefresh}
+                disabled={refreshing}
+              >
+                {refreshing && (
+                  <RefreshCw className="h-4 w-4 animate-spin text-white" strokeWidth={2.4} />
+                )}
+                <span>{refreshing ? "正在更新…" : "刷新以更新"}</span>
+              </button>
+              <button
+                type="button"
+                className="h-[42px] w-full rounded-xl border-0 bg-transparent text-[14px] font-medium text-[#86888F] transition-colors hover:bg-[#F7F8FA] hover:text-[#33353D] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1E3BFA]/20 disabled:cursor-not-allowed disabled:opacity-50"
+                onClick={onLater}
+                disabled={refreshing}
+              >
+                稍后提醒
+              </button>
+            </div>
+          </DialogPrimitive.Content>
+        </DialogPrimitive.Portal>
+      </DialogPrimitive.Root>
+      {reminder}
+    </>
   );
 }

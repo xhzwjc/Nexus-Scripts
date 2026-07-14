@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { SystemUpdateGuard } from "@/components/SystemUpdateGuard";
 import "./globals.css";
 import "../App.css";
 import "../components/AgentChat/AgentChat.css";
@@ -27,6 +28,7 @@ export default function RootLayout({
           </head>
           <body className="antialiased" suppressHydrationWarning>
             {children}
+            <SystemUpdateGuard />
           </body>
         </html>
     );

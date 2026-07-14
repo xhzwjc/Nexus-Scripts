@@ -1,7 +1,6 @@
 import asyncio
 import json
 import logging
-import os
 import queue
 import shutil
 import threading
@@ -235,11 +234,10 @@ async def stream_task_events(
             db.close()
 
     subscription_id, q = TaskEventBus.subscribe(token)
-    build_version = os.environ.get("BUILD_VERSION", "dev")
 
     async def event_generator():
         try:
-            hello_payload = json.dumps({"type": "hello", "version": build_version}, ensure_ascii=False)
+            hello_payload = json.dumps({"type": "hello"}, ensure_ascii=False)
             yield f"data: {hello_payload}\n\n"
             while True:
                 if await request.is_disconnected():

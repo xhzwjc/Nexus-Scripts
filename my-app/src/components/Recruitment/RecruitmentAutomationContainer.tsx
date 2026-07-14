@@ -94,7 +94,6 @@ import {cn} from "@/lib/utils";
 import {Badge} from "@/components/ui/badge";
 import {Tooltip, TooltipContent, TooltipTrigger} from "@/components/ui/tooltip";
 import {Button} from "@/components/ui/button";
-import {VersionUpdateModal} from "@/components/VersionUpdateModal";
 import {
     Dialog,
     DialogContent,
@@ -2530,12 +2529,10 @@ export default function RecruitmentAutomationContainer({
     const positionCandidatesLoadRequestIdRef = useRef(0);
     const [auditFiltersCollapsed, setAuditFiltersCollapsed] = useState(false);
     const [bootstrapping, setBootstrapping] = useState(true);
-    const [versionOutdated, setVersionOutdated] = useState(false);
     const [pageVisible, setPageVisible] = useState(() => (
         typeof document === "undefined" ? true : document.visibilityState === "visible"
     ));
     const pageVisibleRef = useRef(pageVisible);
-    const versionMismatchShownRef = useRef(false);
 
     const [metadata, setMetadata] = useState<RecruitmentMetadata | null>(null);
     const [organizationCatalog, setOrganizationCatalog] = useState<ScriptHubOrganizationDefinition[]>([]);
@@ -5507,13 +5504,6 @@ export default function RecruitmentAutomationContainer({
             onBatchSummary: () => {
                 void refreshActiveCandidateList({ silent: true }).catch(() => {});
                 scheduleCandidateStatsRefresh();
-            },
-            onVersionMismatch: () => {
-                if (versionMismatchShownRef.current) {
-                    return;
-                }
-                versionMismatchShownRef.current = true;
-                setVersionOutdated(true);
             },
             // onTaskProgress 移除：审计日志不在初筛过程中实时更新
         },
@@ -17241,7 +17231,6 @@ export default function RecruitmentAutomationContainer({
                 </DialogContent>
             </Dialog>
 
-            <VersionUpdateModal visible={versionOutdated} />
         </div>
     );
 }

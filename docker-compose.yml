@@ -22,6 +22,9 @@ services:
       dockerfile: ./my-app/Dockerfile
       args:
         BUILD_VERSION: ${BUILD_VERSION:-}
+        APP_VERSION: ${APP_VERSION:-}
+        BUILD_NUMBER: ${BUILD_NUMBER:-}
+        GIT_COMMIT: ${GIT_COMMIT:-}
     image: project-root-frontend:v1.0.0
     restart: always
     extra_hosts:
