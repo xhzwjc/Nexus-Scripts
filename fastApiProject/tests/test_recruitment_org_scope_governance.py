@@ -1,9 +1,12 @@
 import asyncio
+from datetime import datetime, timedelta
 
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
+
+import migrations.repair_candidate_org_consistency as candidate_org_repair
 
 from app.database import Base
 from app.permission_governance import (
@@ -25,13 +28,23 @@ from app.recruitment_models import (
     RecruitmentCandidate,
     RecruitmentCandidateScore,
     RecruitmentCandidateStatusHistory,
+    RecruitmentFollowUp,
+    RecruitmentInterviewAvailabilitySlot,
     RecruitmentInterviewQuestion,
+    RecruitmentInterviewResult,
+    RecruitmentInterviewSchedule,
     RecruitmentLLMConfig,
     RecruitmentMailRecipient,
     RecruitmentMailSenderConfig,
     RecruitmentPosition,
+    RecruitmentOffer,
     RecruitmentResumeFile,
     RecruitmentResumeParseResult,
+)
+from migrations.repair_candidate_org_consistency import (
+    audit_candidate_org_consistency,
+    main as repair_candidate_org_main,
+    repair_candidate_org_consistency,
 )
 from app.services.recruitment_service import RecruitmentService
 from app.services.script_hub_admin_service import create_rbac_user, update_organization
@@ -47,6 +60,29 @@ def _build_test_db():
     testing_session_local = sessionmaker(autocommit=False, autoflush=False, bind=engine)
     Base.metadata.create_all(bind=engine)
     return testing_session_local()
+
+
+class _TrackedSession:
+    def __init__(self, session):
+        self._session = session
+        self.commit_calls = 0
+        self.flush_calls = 0
+        self.rollback_calls = 0
+
+    def __getattr__(self, name):
+        return getattr(self._session, name)
+
+    def commit(self):
+        self.commit_calls += 1
+        return self._session.commit()
+
+    def flush(self):
+        self.flush_calls += 1
+        return self._session.flush()
+
+    def rollback(self):
+        self.rollback_calls += 1
+        return self._session.rollback()
 
 
 def _seed_catalog(db):
@@ -771,6 +807,795 @@ def test_candidate_reassignment_is_validated_and_does_not_leak_cross_org_positio
         assert {item.org_code for item in db.query(RecruitmentInterviewQuestion).filter(RecruitmentInterviewQuestion.candidate_id == candidates["chunmiao-rd"].id)} == {"chunmiao-fin"}
     finally:
         db.close()
+
+
+def test_candidate_reassignment_moves_terminal_candidate_owned_records_to_target_org():
+    db = _build_test_db()
+    try:
+        _seed_org_tree(db)
+        _seed_catalog(db)
+        positions, candidates = _seed_recruitment_dataset(db)
+        candidate = candidates["chunmiao-rd"]
+        old_position_id = positions["chunmiao-rd"]["id"]
+        scheduled_at = datetime.now().replace(microsecond=0) - timedelta(days=1)
+
+        completed_schedule = RecruitmentInterviewSchedule(
+            candidate_id=candidate.id,
+            position_id=old_position_id,
+            org_code="chunmiao-rd",
+            subject="研发岗初试",
+            round_name="初试",
+            round_index=1,
+            interviewer_user_code="rd-interviewer",
+            interviewer_name="研发面试官",
+            scheduled_at=scheduled_at,
+            duration_minutes=60,
+            status="completed",
+            result_status="passed",
+            result_submitted_at=scheduled_at + timedelta(hours=1),
+            created_by="rd-user",
+            updated_by="rd-user",
+        )
+        cancelled_schedule = RecruitmentInterviewSchedule(
+            candidate_id=candidate.id,
+            position_id=old_position_id,
+            org_code="chunmiao-rd",
+            subject="研发岗复试",
+            round_name="复试",
+            round_index=2,
+            interviewer_user_code="rd-interviewer",
+            interviewer_name="研发面试官",
+            scheduled_at=scheduled_at + timedelta(days=1),
+            duration_minutes=60,
+            status="cancelled",
+            created_by="rd-user",
+            updated_by="rd-user",
+        )
+        availability = RecruitmentInterviewAvailabilitySlot(
+            interviewer_user_code="rd-interviewer",
+            interviewer_name="研发面试官",
+            org_code="chunmiao-rd",
+            start_at=scheduled_at + timedelta(days=2),
+            end_at=scheduled_at + timedelta(days=2, hours=1),
+            status="available",
+            created_by="rd-interviewer",
+            updated_by="rd-interviewer",
+        )
+        db.add_all([completed_schedule, cancelled_schedule, availability])
+        db.flush()
+        db.add_all([
+            RecruitmentInterviewResult(
+                candidate_id=candidate.id,
+                position_id=old_position_id,
+                org_code="chunmiao-rd",
+                interviewer_name="研发面试官",
+                round_name="初试",
+                final_recommendation="passed",
+                created_by="rd-interviewer",
+            ),
+            RecruitmentFollowUp(
+                candidate_id=candidate.id,
+                org_code="chunmiao-rd",
+                content="研发岗面试已通过",
+                follow_up_type="note",
+                created_by="rd-user",
+            ),
+            RecruitmentOffer(
+                candidate_id=candidate.id,
+                position_id=old_position_id,
+                org_code="chunmiao-rd",
+                offer_title="研发工程师 Offer",
+                status="draft",
+                created_by="rd-user",
+                updated_by="rd-user",
+            ),
+        ])
+        db.commit()
+
+        moved = _service(
+            db,
+            _session("chunmiao-leader", "chunmiao", DATA_SCOPE_ORG_AND_CHILDREN),
+        ).update_candidate(
+            candidate.id,
+            {"position_id": positions["chunmiao-fin"]["id"]},
+            "chunmiao-leader",
+        )
+
+        assert moved["org_code"] == "chunmiao-fin"
+        assert {
+            row.org_code
+            for row in db.query(RecruitmentInterviewSchedule).filter_by(candidate_id=candidate.id)
+        } == {"chunmiao-fin"}
+        assert {
+            row.org_code
+            for row in db.query(RecruitmentInterviewResult).filter_by(candidate_id=candidate.id)
+        } == {"chunmiao-fin"}
+        assert {
+            row.org_code
+            for row in db.query(RecruitmentFollowUp).filter_by(candidate_id=candidate.id)
+        } == {"chunmiao-fin"}
+        assert {
+            row.org_code
+            for row in db.query(RecruitmentOffer).filter_by(candidate_id=candidate.id)
+        } == {"chunmiao-fin"}
+        assert db.get(RecruitmentInterviewAvailabilitySlot, availability.id).org_code == "chunmiao-rd"
+        assert db.get(RecruitmentInterviewSchedule, completed_schedule.id).position_id == old_position_id
+        assert db.query(RecruitmentInterviewResult).filter_by(candidate_id=candidate.id).one().position_id == old_position_id
+        assert db.query(RecruitmentOffer).filter_by(candidate_id=candidate.id).one().position_id == old_position_id
+
+        rd_tasks = _service(
+            db,
+            _session("rd-manager", "chunmiao-rd", DATA_SCOPE_ORG_ONLY),
+        ).list_interview_tasks(status="completed")
+        assert rd_tasks["items"] == []
+        assert rd_tasks["counts"]["completed"] == 0
+
+        fin_tasks = _service(
+            db,
+            _session("fin-manager", "chunmiao-fin", DATA_SCOPE_ORG_ONLY),
+        ).list_interview_tasks(status="completed")
+        assert fin_tasks["total"] == 1
+        assert fin_tasks["items"][0]["candidate"]["id"] == candidate.id
+        assert fin_tasks["items"][0]["position"] is None
+    finally:
+        db.close()
+
+
+def test_candidate_cross_org_reassignment_rejects_active_interviews_without_partial_updates():
+    db = _build_test_db()
+    try:
+        _seed_org_tree(db)
+        _seed_catalog(db)
+        positions, candidates = _seed_recruitment_dataset(db)
+        candidate = candidates["chunmiao-rd"]
+        start_at = datetime.now().replace(microsecond=0) + timedelta(days=1)
+        availability = RecruitmentInterviewAvailabilitySlot(
+            interviewer_user_code="rd-interviewer",
+            interviewer_name="研发面试官",
+            org_code="chunmiao-rd",
+            start_at=start_at,
+            end_at=start_at + timedelta(hours=1),
+            status="booked",
+            created_by="rd-interviewer",
+            updated_by="rd-interviewer",
+        )
+        db.add(availability)
+        db.flush()
+        schedule = RecruitmentInterviewSchedule(
+            candidate_id=candidate.id,
+            position_id=positions["chunmiao-rd"]["id"],
+            org_code="chunmiao-rd",
+            subject="研发岗初试",
+            round_name="初试",
+            round_index=1,
+            interviewer_user_code="rd-interviewer",
+            interviewer_name="研发面试官",
+            scheduled_at=start_at,
+            duration_minutes=60,
+            availability_slot_id=availability.id,
+            status="scheduled",
+            created_by="rd-user",
+            updated_by="rd-user",
+        )
+        db.add(schedule)
+        db.flush()
+        availability.schedule_id = schedule.id
+        db.commit()
+
+        service = _service(
+            db,
+            _session("chunmiao-leader", "chunmiao", DATA_SCOPE_ORG_AND_CHILDREN),
+        )
+        blocked_position_ids = [
+            positions["chunmiao-rd-other"]["id"],
+            positions["chunmiao-fin"]["id"],
+            None,
+        ]
+        for blocked_position_id in blocked_position_ids:
+            with pytest.raises(ValueError, match="先取消后再调整岗位"):
+                service.update_candidate(
+                    candidate.id,
+                    {"position_id": blocked_position_id},
+                    "chunmiao-leader",
+                )
+
+        db.expire_all()
+        unchanged_candidate = db.get(RecruitmentCandidate, candidate.id)
+        unchanged_schedule = db.get(RecruitmentInterviewSchedule, schedule.id)
+        unchanged_slot = db.get(RecruitmentInterviewAvailabilitySlot, availability.id)
+        assert unchanged_candidate.org_code == "chunmiao-rd"
+        assert unchanged_candidate.position_id == positions["chunmiao-rd"]["id"]
+        assert unchanged_schedule.org_code == "chunmiao-rd"
+        assert unchanged_schedule.status == "scheduled"
+        assert unchanged_slot.org_code == "chunmiao-rd"
+        assert unchanged_slot.status == "booked"
+        assert unchanged_slot.schedule_id == schedule.id
+
+        service.update_interview_schedule(schedule.id, {"status": "cancelled"}, "chunmiao-leader")
+        moved = service.update_candidate(
+            candidate.id,
+            {"position_id": positions["chunmiao-fin"]["id"]},
+            "chunmiao-leader",
+        )
+        db.expire_all()
+        assert moved["org_code"] == "chunmiao-fin"
+        assert db.get(RecruitmentInterviewSchedule, schedule.id).org_code == "chunmiao-fin"
+        assert db.get(RecruitmentInterviewSchedule, schedule.id).status == "cancelled"
+        assert db.get(RecruitmentInterviewAvailabilitySlot, availability.id).org_code == "chunmiao-rd"
+        assert db.get(RecruitmentInterviewAvailabilitySlot, availability.id).status == "available"
+        assert db.get(RecruitmentInterviewAvailabilitySlot, availability.id).schedule_id is None
+    finally:
+        db.close()
+
+
+def test_self_scope_interviewer_can_view_assigned_schedule_created_by_hr():
+    db = _build_test_db()
+    try:
+        _seed_org_tree(db)
+        _seed_catalog(db)
+        positions, candidates = _seed_recruitment_dataset(db)
+        candidate = candidates["chunmiao-fin"]
+        schedule = RecruitmentInterviewSchedule(
+            candidate_id=candidate.id,
+            position_id=positions["chunmiao-fin"]["id"],
+            org_code="chunmiao-fin",
+            subject="财务岗初试",
+            round_name="初试",
+            round_index=1,
+            interviewer_user_code="fin-interviewer",
+            interviewer_name="财务面试官",
+            scheduled_at=datetime.now().replace(microsecond=0) + timedelta(days=1),
+            duration_minutes=60,
+            status="scheduled",
+            created_by="fin-user",
+            updated_by="fin-user",
+        )
+        db.add(schedule)
+        db.commit()
+
+        interviewer = _service(
+            db,
+            _session("fin-interviewer", "chunmiao-fin", DATA_SCOPE_SELF),
+        )
+        rows = interviewer.list_interview_schedules(
+            candidate.id,
+            actor_id="fin-interviewer",
+            schedule_id=schedule.id,
+        )
+
+        assert [row["id"] for row in rows] == [schedule.id]
+    finally:
+        db.close()
+
+
+def test_active_interview_writes_reject_position_mismatch_but_allow_cancellation():
+    db = _build_test_db()
+    try:
+        _seed_org_tree(db)
+        _seed_catalog(db)
+        positions, candidates = _seed_recruitment_dataset(db)
+        candidate = candidates["chunmiao-fin"]
+        schedule = RecruitmentInterviewSchedule(
+            candidate_id=candidate.id,
+            position_id=positions["chunmiao-rd"]["id"],
+            org_code="chunmiao-rd",
+            subject="历史错绑面试",
+            round_name="初试",
+            round_index=1,
+            interviewer_user_code="fin-interviewer",
+            interviewer_name="财务面试官",
+            scheduled_at=datetime.now().replace(microsecond=0) + timedelta(days=1),
+            duration_minutes=60,
+            status="scheduled",
+            created_by="rd-user",
+            updated_by="rd-user",
+        )
+        db.add(schedule)
+        db.commit()
+
+        fin_manager = _service(
+            db,
+            _session("fin-manager", "chunmiao-fin", DATA_SCOPE_ORG_ONLY),
+        )
+        with pytest.raises(ValueError, match="岗位与候选人当前岗位不一致"):
+            fin_manager.create_interview_schedule(
+                {
+                    "candidate_id": candidate.id,
+                    "position_id": positions["chunmiao-rd"]["id"],
+                },
+                "fin-manager",
+            )
+        with pytest.raises(ValueError, match="岗位与候选人当前岗位不一致"):
+            fin_manager.update_interview_schedule(
+                schedule.id,
+                {"notes": "不应继续处理错绑任务"},
+                "fin-manager",
+            )
+        db.rollback()
+
+        interviewer = _service(
+            db,
+            _session("fin-interviewer", "chunmiao-fin", DATA_SCOPE_SELF),
+        )
+        with pytest.raises(ValueError, match="岗位与候选人当前岗位不一致"):
+            interviewer.submit_interview_schedule_result(
+                schedule.id,
+                {"result_status": "passed"},
+                "fin-interviewer",
+            )
+        db.rollback()
+
+        cancelled = fin_manager.update_interview_schedule(
+            schedule.id,
+            {"status": "cancelled"},
+            "fin-manager",
+        )
+        assert cancelled["status"] == "cancelled"
+        assert cancelled["org_code"] == "chunmiao-fin"
+    finally:
+        db.close()
+
+
+def test_submit_interview_result_refreshes_schedule_after_candidate_lock(monkeypatch):
+    db = _build_test_db()
+    try:
+        _seed_org_tree(db)
+        _seed_catalog(db)
+        positions, candidates = _seed_recruitment_dataset(db)
+        candidate = candidates["chunmiao-fin"]
+        schedule = RecruitmentInterviewSchedule(
+            candidate_id=candidate.id,
+            position_id=positions["chunmiao-fin"]["id"],
+            org_code="chunmiao-fin",
+            subject="并发取消面试",
+            round_name="初试",
+            round_index=1,
+            interviewer_user_code="fin-interviewer",
+            interviewer_name="财务面试官",
+            scheduled_at=datetime.now().replace(microsecond=0) + timedelta(days=1),
+            duration_minutes=60,
+            status="scheduled",
+            created_by="fin-user",
+            updated_by="fin-user",
+        )
+        db.add(schedule)
+        db.commit()
+
+        interviewer = _service(
+            db,
+            _session("fin-interviewer", "chunmiao-fin", DATA_SCOPE_SELF),
+        )
+        original_get_candidate = interviewer._get_candidate
+
+        def cancel_before_candidate_lock(candidate_id, **kwargs):
+            db.query(RecruitmentInterviewSchedule).filter(
+                RecruitmentInterviewSchedule.id == schedule.id,
+            ).update(
+                {RecruitmentInterviewSchedule.status: "cancelled"},
+                synchronize_session=False,
+            )
+            return original_get_candidate(candidate_id, **kwargs)
+
+        monkeypatch.setattr(interviewer, "_get_candidate", cancel_before_candidate_lock)
+
+        with pytest.raises(ValueError, match="已结束或已取消"):
+            interviewer.submit_interview_schedule_result(
+                schedule.id,
+                {"result_status": "passed"},
+                "fin-interviewer",
+            )
+
+        assert schedule.status == "cancelled"
+        assert db.query(RecruitmentInterviewResult).filter_by(candidate_id=candidate.id).count() == 0
+    finally:
+        db.rollback()
+        db.close()
+
+
+def test_interview_queue_and_actions_use_candidate_scope_when_schedule_org_is_stale():
+    db = _build_test_db()
+    try:
+        _seed_org_tree(db)
+        _seed_catalog(db)
+        positions, candidates = _seed_recruitment_dataset(db)
+        candidate = candidates["chunmiao-fin"]
+        now = datetime.now().replace(microsecond=0)
+        active_schedule = RecruitmentInterviewSchedule(
+            candidate_id=candidate.id,
+            position_id=positions["chunmiao-rd"]["id"],
+            org_code="chunmiao-rd",
+            subject="脏数据面试",
+            round_name="初试",
+            round_index=1,
+            interviewer_user_code="rd-interviewer",
+            interviewer_name="研发面试官",
+            scheduled_at=now,
+            duration_minutes=60,
+            status="scheduled",
+            created_by="rd-manager",
+            updated_by="rd-manager",
+        )
+        completed_schedule = RecruitmentInterviewSchedule(
+            candidate_id=candidate.id,
+            position_id=positions["chunmiao-rd"]["id"],
+            org_code="chunmiao-rd",
+            subject="脏数据历史面试",
+            round_name="初试",
+            round_index=1,
+            interviewer_user_code="rd-interviewer",
+            interviewer_name="研发面试官",
+            scheduled_at=now - timedelta(days=1),
+            duration_minutes=60,
+            status="completed",
+            result_status="passed",
+            created_by="rd-manager",
+            updated_by="rd-manager",
+        )
+        stale_follow_up = RecruitmentFollowUp(
+            candidate_id=candidate.id,
+            org_code="chunmiao-rd",
+            content="旧组织跟进",
+            follow_up_type="note",
+            created_by="rd-manager",
+        )
+        stale_offer = RecruitmentOffer(
+            candidate_id=candidate.id,
+            position_id=positions["chunmiao-rd"]["id"],
+            org_code="chunmiao-rd",
+            offer_title="旧组织 Offer",
+            status="draft",
+            created_by="rd-manager",
+            updated_by="rd-manager",
+        )
+        db.add_all([active_schedule, completed_schedule, stale_follow_up, stale_offer])
+        db.commit()
+
+        rd_manager = _service(db, _session("rd-manager", "chunmiao-rd", DATA_SCOPE_ORG_ONLY))
+        assert rd_manager.list_interview_tasks(status="todo")["total"] == 0
+        assert rd_manager.list_interview_tasks(status="today")["counts"]["today"] == 0
+        assert rd_manager.list_interview_tasks(status="completed")["counts"]["completed"] == 0
+        assert rd_manager.list_my_interview_tasks("rd-interviewer", status="todo")["total"] == 0
+        with pytest.raises(ValueError, match="无权访问"):
+            rd_manager.update_interview_schedule(active_schedule.id, {"notes": "越界修改"}, "rd-manager")
+        with pytest.raises(ValueError, match="无权访问"):
+            rd_manager.submit_interview_schedule_result(
+                active_schedule.id,
+                {"result_status": "passed", "result_comment": "越界提交"},
+                "rd-interviewer",
+            )
+        with pytest.raises(ValueError, match="无权访问"):
+            rd_manager.delete_follow_up(stale_follow_up.id, "rd-manager")
+        with pytest.raises(ValueError, match="无权访问"):
+            rd_manager.update_offer(stale_offer.id, {"notes": "越界修改"}, "rd-manager")
+
+        fin_manager = _service(db, _session("fin-manager", "chunmiao-fin", DATA_SCOPE_ORG_ONLY))
+        fin_todo = fin_manager.list_interview_tasks(status="todo")
+        assert fin_todo["total"] == 1
+        assert fin_todo["counts"]["today"] == 1
+        assert fin_todo["items"][0]["candidate"]["id"] == candidate.id
+        assert fin_todo["items"][0]["position"] is None
+        assert fin_manager.list_interview_tasks(status="completed")["counts"]["completed"] == 1
+        assert fin_manager.update_offer(stale_offer.id, {"notes": "财务组织接管"}, "fin-manager")["org_code"] == "chunmiao-fin"
+        fin_manager.delete_follow_up(stale_follow_up.id, "fin-manager")
+        assert db.get(RecruitmentFollowUp, stale_follow_up.id) is None
+    finally:
+        db.close()
+
+
+def test_candidate_org_repair_is_idempotent_and_preserves_orphans_and_history():
+    db = _build_test_db()
+    try:
+        _seed_org_tree(db)
+        _seed_catalog(db)
+        positions, candidates = _seed_recruitment_dataset(db)
+        candidate = candidates["chunmiao-fin"]
+        now = datetime.now().replace(microsecond=0)
+        schedule = RecruitmentInterviewSchedule(
+            candidate_id=candidate.id,
+            position_id=positions["chunmiao-rd"]["id"],
+            org_code="chunmiao-rd",
+            subject="待修复面试",
+            round_name="初试",
+            round_index=1,
+            interviewer_user_code="rd-interviewer",
+            scheduled_at=now,
+            duration_minutes=60,
+            status="completed",
+            created_by="rd-manager",
+            updated_by="rd-manager",
+        )
+        orphan_follow_up = RecruitmentFollowUp(
+            candidate_id=999999,
+            org_code="chunmiao-rd",
+            content="孤儿记录",
+            follow_up_type="note",
+            created_by="rd-manager",
+        )
+        interview_result = RecruitmentInterviewResult(
+            candidate_id=candidate.id,
+            position_id=positions["chunmiao-rd"]["id"],
+            org_code="chunmiao-rd",
+            interviewer_name="研发面试官",
+            round_name="初试",
+            final_recommendation="passed",
+            created_by="rd-interviewer",
+        )
+        offer = RecruitmentOffer(
+            candidate_id=candidate.id,
+            position_id=positions["chunmiao-rd"]["id"],
+            org_code="chunmiao-rd",
+            offer_title="待修复 Offer",
+            status="draft",
+            created_by="rd-manager",
+            updated_by="rd-manager",
+        )
+        db.add_all([
+            schedule,
+            interview_result,
+            RecruitmentFollowUp(
+                candidate_id=candidate.id,
+                org_code="chunmiao-rd",
+                content="待修复跟进",
+                follow_up_type="note",
+                created_by="rd-manager",
+            ),
+            offer,
+            orphan_follow_up,
+        ])
+        db.commit()
+
+        before = audit_candidate_org_consistency(db)
+        assert before["tables"]["interview_schedules"]["mismatches"] == 1
+        assert before["tables"]["interview_results"]["mismatches"] == 1
+        assert before["tables"]["follow_ups"] == {"mismatches": 1, "orphans": 1}
+        assert before["tables"]["offers"]["mismatches"] == 1
+        assert before["active_schedule_position_mismatches"] == 0
+        assert before["invalid_candidate_org_codes"] == 0
+
+        assert repair_candidate_org_consistency(db) == {
+            "interview_schedules": 1,
+            "interview_results": 1,
+            "follow_ups": 1,
+            "offers": 1,
+        }
+        db.commit()
+        after = audit_candidate_org_consistency(db)
+        assert all(item["mismatches"] == 0 for item in after["tables"].values())
+        assert after["tables"]["follow_ups"]["orphans"] == 1
+        assert after["active_schedule_position_mismatches"] == 0
+        assert db.get(RecruitmentInterviewSchedule, schedule.id).position_id == positions["chunmiao-rd"]["id"]
+        assert db.get(RecruitmentInterviewResult, interview_result.id).position_id == positions["chunmiao-rd"]["id"]
+        assert db.get(RecruitmentOffer, offer.id).position_id == positions["chunmiao-rd"]["id"]
+        assert db.get(RecruitmentFollowUp, orphan_follow_up.id).org_code == "chunmiao-rd"
+        assert repair_candidate_org_consistency(db) == {
+            "interview_schedules": 0,
+            "interview_results": 0,
+            "follow_ups": 0,
+            "offers": 0,
+        }
+    finally:
+        db.close()
+
+
+def test_candidate_org_repair_uses_exact_python_comparison_for_case_differences():
+    db = _build_test_db()
+    try:
+        candidate = _add_candidate(
+            db,
+            org_code="Case-Org",
+            position_id=101,
+            name="大小写候选人",
+            created_by="tester",
+        )
+        follow_up = RecruitmentFollowUp(
+            candidate_id=candidate.id,
+            org_code="case-org",
+            content="大小写不一致",
+            follow_up_type="note",
+            created_by="tester",
+        )
+        db.add(follow_up)
+        db.commit()
+
+        before = audit_candidate_org_consistency(db)
+        assert before["invalid_candidate_org_codes"] == 0
+        assert before["tables"]["follow_ups"]["mismatches"] == 1
+
+        assert repair_candidate_org_consistency(db)["follow_ups"] == 1
+        db.flush()
+        assert follow_up.org_code == "Case-Org"
+        assert audit_candidate_org_consistency(db)["tables"]["follow_ups"]["mismatches"] == 0
+        assert repair_candidate_org_consistency(db)["follow_ups"] == 0
+    finally:
+        db.rollback()
+        db.close()
+
+
+def test_candidate_org_repair_apply_rejects_blank_candidate_org_code():
+    db = _build_test_db()
+    engine = db.get_bind()
+    candidate = _add_candidate(
+        db,
+        org_code="   ",
+        position_id=101,
+        name="空组织候选人",
+        created_by="tester",
+    )
+    follow_up = RecruitmentFollowUp(
+        candidate_id=candidate.id,
+        org_code="chunmiao-rd",
+        content="不应被修复",
+        follow_up_type="note",
+        created_by="tester",
+    )
+    db.add(follow_up)
+    db.commit()
+    follow_up_id = follow_up.id
+    tracked = _TrackedSession(db)
+
+    report = audit_candidate_org_consistency(db)
+    assert report["invalid_candidate_org_codes"] == 1
+    with pytest.raises(RuntimeError, match="blank or non-canonical org_code"):
+        repair_candidate_org_main(
+            argv=["--apply"],
+            session_factory=lambda: tracked,
+        )
+
+    assert tracked.commit_calls == 0
+    assert tracked.flush_calls == 0
+    assert tracked.rollback_calls == 1
+    verify_db = sessionmaker(autocommit=False, autoflush=False, bind=engine)()
+    try:
+        assert verify_db.get(RecruitmentFollowUp, follow_up_id).org_code == "chunmiao-rd"
+    finally:
+        verify_db.close()
+
+
+def test_candidate_org_audit_counts_null_safe_active_position_mismatches():
+    db = _build_test_db()
+    engine = db.get_bind()
+    candidate_with_position = _add_candidate(
+        db,
+        org_code="chunmiao-rd",
+        position_id=101,
+        name="候选人岗位非空",
+        created_by="tester",
+    )
+    candidate_without_position = _add_candidate(
+        db,
+        org_code="chunmiao-rd",
+        position_id=None,
+        name="候选人岗位为空",
+        created_by="tester",
+    )
+    schedule_without_position = RecruitmentInterviewSchedule(
+        candidate_id=candidate_with_position.id,
+        position_id=None,
+        org_code="chunmiao-rd",
+        round_name="初试",
+        status="scheduled",
+        created_by="tester",
+        updated_by="tester",
+    )
+    schedule_with_position = RecruitmentInterviewSchedule(
+        candidate_id=candidate_without_position.id,
+        position_id=202,
+        org_code="chunmiao-rd",
+        round_name="初试",
+        status="confirmed",
+        created_by="tester",
+        updated_by="tester",
+    )
+    db.add_all([schedule_without_position, schedule_with_position])
+    db.commit()
+    schedule_without_position_id = schedule_without_position.id
+    schedule_with_position_id = schedule_with_position.id
+
+    report = audit_candidate_org_consistency(db)
+    assert report["active_schedule_position_mismatches"] == 2
+    with pytest.raises(RuntimeError, match="active interview schedules"):
+        repair_candidate_org_consistency(db)
+
+    tracked = _TrackedSession(db)
+    with pytest.raises(RuntimeError, match="active interview schedules"):
+        repair_candidate_org_main(
+            argv=["--apply"],
+            session_factory=lambda: tracked,
+        )
+
+    assert tracked.commit_calls == 0
+    assert tracked.flush_calls == 0
+    assert tracked.rollback_calls == 1
+    verify_db = sessionmaker(autocommit=False, autoflush=False, bind=engine)()
+    try:
+        assert verify_db.get(RecruitmentInterviewSchedule, schedule_without_position_id).position_id is None
+        assert verify_db.get(RecruitmentInterviewSchedule, schedule_with_position_id).position_id == 202
+    finally:
+        verify_db.close()
+
+
+def test_candidate_org_repair_main_dry_run_does_not_flush_or_commit():
+    db = _build_test_db()
+    engine = db.get_bind()
+    candidate = _add_candidate(
+        db,
+        org_code="chunmiao-fin",
+        position_id=101,
+        name="Dry Run 候选人",
+        created_by="tester",
+    )
+    follow_up = RecruitmentFollowUp(
+        candidate_id=candidate.id,
+        org_code="chunmiao-rd",
+        content="Dry run 保持不变",
+        follow_up_type="note",
+        created_by="tester",
+    )
+    db.add(follow_up)
+    db.commit()
+    follow_up_id = follow_up.id
+    tracked = _TrackedSession(db)
+
+    repair_candidate_org_main(argv=[], session_factory=lambda: tracked)
+
+    assert tracked.commit_calls == 0
+    assert tracked.flush_calls == 0
+    assert tracked.rollback_calls == 0
+    verify_db = sessionmaker(autocommit=False, autoflush=False, bind=engine)()
+    try:
+        assert verify_db.get(RecruitmentFollowUp, follow_up_id).org_code == "chunmiao-rd"
+    finally:
+        verify_db.close()
+
+
+def test_candidate_org_repair_main_rolls_back_when_postcheck_fails(monkeypatch):
+    db = _build_test_db()
+    engine = db.get_bind()
+    candidate = _add_candidate(
+        db,
+        org_code="chunmiao-fin",
+        position_id=101,
+        name="回滚候选人",
+        created_by="tester",
+    )
+    follow_up = RecruitmentFollowUp(
+        candidate_id=candidate.id,
+        org_code="chunmiao-rd",
+        content="失败后回滚",
+        follow_up_type="note",
+        created_by="tester",
+    )
+    db.add(follow_up)
+    db.commit()
+    follow_up_id = follow_up.id
+    tracked = _TrackedSession(db)
+    real_audit = candidate_org_repair.audit_candidate_org_consistency
+    audit_call_count = 0
+
+    def fail_postcheck(session):
+        nonlocal audit_call_count
+        audit_call_count += 1
+        report = real_audit(session)
+        if audit_call_count == 2:
+            report["tables"]["follow_ups"]["mismatches"] = 1
+        return report
+
+    monkeypatch.setattr(candidate_org_repair, "audit_candidate_org_consistency", fail_postcheck)
+
+    with pytest.raises(RuntimeError, match="repair incomplete"):
+        candidate_org_repair.main(
+            argv=["--apply"],
+            session_factory=lambda: tracked,
+        )
+
+    assert tracked.flush_calls == 1
+    assert tracked.commit_calls == 0
+    assert tracked.rollback_calls == 1
+    verify_db = sessionmaker(autocommit=False, autoflush=False, bind=engine)()
+    try:
+        assert verify_db.get(RecruitmentFollowUp, follow_up_id).org_code == "chunmiao-rd"
+    finally:
+        verify_db.close()
 
 
 def test_recruitment_config_resources_share_down_without_allowing_child_admin_to_rewrite_parent_policy():
