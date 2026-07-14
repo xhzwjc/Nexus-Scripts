@@ -51,6 +51,49 @@ final result: passed
 
 ---
 
+# Position Detail Design QA
+
+- source visual truth path: `AI Recruitment Redesign Project/screenshots/pos-detail.png` and `AI Recruitment Redesign Project/岗位管理 Positions.dc.html`
+- implementation screenshot path: unavailable; the in-app browser runtime failed before page capture with `TypeError: Cannot redefine property: process`
+- viewport: source `924 × 540`; implementation viewport unavailable
+- state: position detail, light theme; `岗位信息`、`候选人`、`JD 工作区`、`版本与发布` four tab states in scope
+- full-view comparison evidence: source visual opened successfully; implementation capture unavailable, so no valid combined comparison was produced
+- focused region comparison evidence: not performed because the rendered implementation artifact could not be captured
+
+## Findings
+
+- [P1] Rendered implementation evidence is unavailable
+  - Location: position detail page, full view and header/content regions.
+  - Evidence: the source screenshot and prototype markup were opened, but the local page could not be connected through the required browser runtime.
+  - Impact: typography, responsive wrapping, spacing, and token fidelity cannot be truthfully signed off from code inspection alone.
+  - Fix: capture the local position-detail page at the matching state and viewport, compose it with the source screenshot, then run the visual comparison loop.
+
+## Required fidelity surfaces
+
+- Fonts and typography: implemented from the prototype's explicit `11px / 12px / 13px / 18px` values; rendered verification remains blocked.
+- Spacing and layout rhythm: implemented from the prototype's `32px` page inset, `20px` column gap, `340px` side rail, `10px` card radius, and card padding; rendered verification remains blocked.
+- Colors and visual tokens: implemented with `#1E3BFA`, `#FBFBFC`, `#EBEEF5`, `#F2F3F5`, `#0E1114`, `#33353D`, and semantic status colors; rendered verification remains blocked.
+- Image quality and asset fidelity: this screen has no raster imagery; standard actions use the existing Lucide icon system.
+- Copy and content: fields and actions remain sourced from the current position data and existing business handlers.
+
+## Comparison history
+
+1. Source screenshot and prototype markup were inspected and mapped to the existing position detail fields and actions.
+2. The header, action row, tab order, default tab, information cards, candidate table and expansion, current JD panel, version history, publishing status, and publishing history were rebuilt from the prototype values.
+3. The JD configuration, unsaved-draft confirmation, assessment-plan configuration, resume upload, and publishing dialogs were aligned to the same typography, spacing, control-height, radius, and color tokens while retaining current handlers and fields.
+4. Code checks passed: `npm run typecheck`, `npm run build`, and `git diff --check`.
+5. Post-fix browser capture and combined visual comparison remain unavailable because the required browser runtime could not initialize.
+
+## Implementation checklist
+
+- Capture the implementation at the same position-detail state.
+- Compare full view plus header and information-card focused regions.
+- Fix any remaining P0/P1/P2 drift before changing `final result` to `passed`.
+
+final result: blocked
+
+---
+
 # Permission Center - User Management Design QA
 
 - source visual truth: `AI Recruitment Redesign Project/DESIGN-NOTES.md`, `AI Recruitment Redesign Project/design_handoff_ai_recruitment/README.md`, and `/tmp/nexus-permission-design-qa/settings-reference.png`

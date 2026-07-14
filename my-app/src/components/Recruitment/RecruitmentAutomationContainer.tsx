@@ -1,6 +1,6 @@
 "use client";
 
-import React, {useCallback, useDeferredValue, useEffect, useMemo, useRef, startTransition, useState} from "react";
+import React, {useCallback, useDeferredValue, useEffect, useMemo, useRef, useState} from "react";
 import nextDynamic from "next/dynamic";
 import {
     ArrowLeft,
@@ -16,10 +16,9 @@ import {
     FilePlus2,
     FileText,
     Loader2,
-    NotebookText,
+    Pencil,
     Plus,
     RefreshCw,
-    Rocket,
     RotateCcw,
     Save,
     Send,
@@ -28,7 +27,6 @@ import {
     Square,
     Trash2,
     Upload,
-    Users,
     Wand2,
     X,
 } from "lucide-react";
@@ -98,13 +96,6 @@ import {Tooltip, TooltipContent, TooltipTrigger} from "@/components/ui/tooltip";
 import {Button} from "@/components/ui/button";
 import {VersionUpdateModal} from "@/components/VersionUpdateModal";
 import {
-    Card,
-    CardContent,
-    CardDescription,
-    CardHeader,
-    CardTitle,
-} from "@/components/ui/card";
-import {
     Dialog,
     DialogContent,
     DialogDescription,
@@ -167,7 +158,6 @@ import {
     formatDateTime,
     generateSkillContent,
     parseSkillContent,
-    formatLongDateTime,
     formatPercent,
     formatSkillNames,
     inferMailSenderPreset,
@@ -176,7 +166,6 @@ import {
     isToday,
     labelForCandidateStatus,
     labelForJDGenerationStatus,
-    labelForMemorySource,
     labelForPositionStatus,
     labelForProvider,
     labelForTaskExecutionStatus,
@@ -198,11 +187,9 @@ import {
 import {
     EmptyState,
     Field,
-    InfoTile,
     LoadingCard,
     LoadingPanel,
     NativeSelect,
-    SearchField,
 } from "./components/SharedComponents";
 import {
     BOSS_EDUCATION_OPTIONS,
@@ -266,8 +253,8 @@ const settingsDialogFooterClass = "h-16 shrink-0 items-center gap-3 border-t bor
 const settingsSecondaryButtonClass = "h-[34px] rounded-[6px] border-[#E6E7EB] bg-white px-[18px] text-[13px] font-normal text-[#33353D] shadow-none hover:border-[#1E3BFA] hover:bg-[#F7F8FA] hover:text-[#0F23D9] focus-visible:outline-none focus-visible:ring-0 dark:border-[#E6E7EB] dark:bg-white dark:text-[#33353D]";
 const settingsPrimaryButtonClass = "h-[34px] rounded-[6px] bg-[#1E3BFA] px-[18px] text-[13px] font-normal text-white shadow-none hover:bg-[#0F23D9] focus-visible:outline-none focus-visible:ring-0 dark:bg-[#1E3BFA] dark:text-white dark:hover:bg-[#0F23D9]";
 const settingsDangerButtonClass = "h-[34px] rounded-[6px] bg-[#F53F3F] px-[18px] text-[13px] font-normal text-white shadow-none hover:bg-[#D9363E] focus-visible:outline-none focus-visible:ring-0 dark:bg-[#F53F3F] dark:text-white dark:hover:bg-[#D9363E]";
-const settingsInputClass = "h-[34px] rounded-[4px] border-[#E6E7EB] bg-white px-3 text-[12px] text-[#0E1114] shadow-none placeholder:text-[#B0B2B8] focus-visible:border-[#1E3BFA] focus-visible:ring-2 focus-visible:ring-[#1E3BFA]/15 dark:border-[#E6E7EB] dark:bg-white dark:text-[#0E1114] dark:placeholder:text-[#B0B2B8]";
-const settingsTextareaClass = "rounded-[4px] border-[#E6E7EB] bg-white px-3 py-2.5 text-[12px] leading-5 text-[#0E1114] shadow-none placeholder:text-[#B0B2B8] focus-visible:border-[#1E3BFA] focus-visible:ring-2 focus-visible:ring-[#1E3BFA]/15 dark:border-[#E6E7EB] dark:bg-white dark:text-[#0E1114] dark:placeholder:text-[#B0B2B8]";
+const settingsInputClass = "h-[34px] rounded-[4px] border-[#E6E7EB] bg-white px-3 text-[12px] text-[#0E1114] shadow-none placeholder:text-[#B0B2B8] focus-visible:border-[#1E3BFA] focus-visible:ring-2 focus-visible:ring-[#1E3BFA]/15 md:text-[12px] dark:border-[#E6E7EB] dark:bg-white dark:text-[#0E1114] dark:placeholder:text-[#B0B2B8]";
+const settingsTextareaClass = "rounded-[4px] border-[#E6E7EB] bg-white px-3 py-2.5 text-[12px] leading-5 text-[#0E1114] shadow-none placeholder:text-[#B0B2B8] focus-visible:border-[#1E3BFA] focus-visible:ring-2 focus-visible:ring-[#1E3BFA]/15 md:text-[12px] dark:border-[#E6E7EB] dark:bg-white dark:text-[#0E1114] dark:placeholder:text-[#B0B2B8]";
 
 function SettingsDeleteDialog({
     open,
@@ -342,6 +329,35 @@ function TogglePillButton({active, onClick, children}: {
         >
             {children}
         </button>
+    );
+}
+
+function PositionDetailSection({
+    title,
+    children,
+    className,
+}: {
+    title: React.ReactNode;
+    children: React.ReactNode;
+    className?: string;
+}) {
+    return (
+        <section className={cn("rounded-[10px] border border-[#EBEEF5] bg-white px-5 py-[18px] dark:border-slate-800 dark:bg-slate-950", className)}>
+            <div className="mb-[14px] flex items-center gap-2">
+                <span aria-hidden="true" className="h-[13px] w-[3px] shrink-0 rounded-sm bg-[#1E3BFA]"/>
+                <h2 className="text-[13px] font-semibold leading-[20px] text-[#0E1114] dark:text-slate-100">{title}</h2>
+            </div>
+            {children}
+        </section>
+    );
+}
+
+function PositionDetailBasicItem({label, value}: {label: React.ReactNode; value: React.ReactNode}) {
+    return (
+        <div className="flex min-w-0 flex-col gap-[5px]">
+            <span className="text-[11px] leading-[17px] text-[#86888F] dark:text-slate-400">{label}</span>
+            <span className="break-words text-[13px] leading-[20px] text-[#0E1114] [overflow-wrap:anywhere] dark:text-slate-100">{value}</span>
+        </div>
     );
 }
 
@@ -1165,7 +1181,7 @@ type OrganizationCatalogLoadResult = {
 
 // ---- 岗位内嵌候选人列表：行组件（模块级，稳定引用） ----
 const POSITION_CANDIDATE_PAGE_SIZE = 10;
-const POSITION_CANDIDATE_GRID_COLUMNS = "28px minmax(82px,0.95fr) minmax(96px,1.05fr) minmax(58px,0.56fr) minmax(58px,0.56fr) minmax(96px,0.86fr) minmax(86px,0.72fr) minmax(84px,0.72fr) minmax(76px,0.66fr) minmax(78px,0.66fr) 44px";
+const POSITION_CANDIDATE_GRID_COLUMNS = "40px minmax(110px,1.2fr) minmax(120px,1.1fr) minmax(120px,1.2fr) 62px minmax(120px,1.1fr) 118px 96px 84px 92px 40px";
 
 function compactText(value: unknown) {
     return String(value ?? "").trim();
@@ -1341,7 +1357,7 @@ const JDStreamingPreview = React.memo(function JDStreamingPreview({
             {content ? (
                 <div
                     ref={contentRef}
-                    className="mt-3 max-h-[220px] overflow-y-auto whitespace-pre-wrap rounded-[6px] border border-[#EBEEF5] bg-white px-3 py-2.5 text-sm leading-7 text-[#33353D] dark:bg-slate-900/70 dark:text-slate-200"
+                    className="mt-3 max-h-[260px] overflow-y-auto whitespace-pre-wrap rounded-[6px] border border-[#EBEEF5] bg-white px-3 py-2.5 text-[12px] leading-[1.9] text-[#33353D] dark:bg-slate-900/70 dark:text-slate-200"
                     onScroll={handleScroll}
                 >
                     {content}
@@ -1377,6 +1393,13 @@ const PositionCandidateRow = React.memo(function PositionCandidateRow({
     const matchPercentText = matchPercentValue === null
         ? (isZh ? "待分析" : "Pending")
         : formatPercent(matchPercentValue);
+    const matchColor = matchPercentValue === null
+        ? "#B0B2B8"
+        : matchPercentValue >= 80
+            ? "#0A9C71"
+            : matchPercentValue >= 60
+                ? "#1E3BFA"
+                : "#D48806";
     const aiReason = compactText(candidate.ai_match_reason) || compactText(candidate.note_summary);
     const potentialPosition = compactText(candidate.ai_potential_position);
     const potentialReason = compactText(candidate.ai_potential_reason);
@@ -1399,16 +1422,16 @@ const PositionCandidateRow = React.memo(function PositionCandidateRow({
     return (
         <div
             className={cn(
-                "border-b border-[var(--tr-border-soft)] bg-white transition-colors dark:border-slate-800/80 dark:bg-slate-950/70",
+                "min-w-[1080px] border-b border-[#F2F3F5] bg-white transition-colors dark:border-slate-800/80 dark:bg-slate-950/70",
                 isDetailSelected ? "shadow-[inset_3px_0_0_#1E3BFA]" : "",
-                isExpanded ? "bg-[#F7F8FA] dark:bg-slate-950" : "hover:bg-[#F8F8F9] dark:hover:bg-slate-900/75"
+                isExpanded ? "bg-[#F7F8FC] dark:bg-slate-950" : "hover:bg-[#F7F8FC] dark:hover:bg-slate-900/75"
             )}
         >
             <div
                 role="button"
                 tabIndex={0}
                 aria-expanded={isExpanded}
-                className="grid min-h-[48px] w-full cursor-pointer items-center gap-3 px-4 py-2 text-left text-[12px] text-[#33353D] outline-none transition-colors focus-visible:bg-[#1E3BFA]/5 dark:text-slate-200 dark:focus-visible:bg-slate-900"
+                className="grid min-h-[56px] w-full cursor-pointer items-center px-5 py-2 text-left text-[13px] text-[#0E1114] outline-none transition-colors focus-visible:bg-[#1E3BFA]/5 dark:text-slate-200 dark:focus-visible:bg-slate-900"
                 style={{ gridTemplateColumns: POSITION_CANDIDATE_GRID_COLUMNS }}
                 onClick={() => onToggleExpand(candidate.id)}
                 onKeyDown={(e) => {
@@ -1418,51 +1441,55 @@ const PositionCandidateRow = React.memo(function PositionCandidateRow({
                     }
                 }}
             >
-                <div className="min-w-0 text-slate-500 dark:text-slate-400">
-                    <span className="block min-w-0 text-[12px] font-medium">{rowIndex}</span>
+                <div className="min-w-0 text-[#B0B2B8] dark:text-slate-400">
+                    <span className="block min-w-0 text-[13px] tabular-nums">{rowIndex}</span>
                 </div>
 
                 <div className="min-w-0">
-                    <p className="truncate text-[13px] font-semibold leading-5 text-slate-950 dark:text-slate-50">{candidateName}</p>
+                    <p className="truncate text-[13px] font-semibold leading-5 text-[#0E1114] dark:text-slate-50">{candidateName}</p>
                 </div>
 
                 <div className="min-w-0">
-                    <p className="truncate font-medium text-slate-700 dark:text-slate-200">{ageText}</p>
-                    <p className="truncate text-[11px] leading-4 text-slate-400 dark:text-slate-500">{contactText}</p>
+                    <p className="truncate text-[13px] leading-5 text-[#33353D] dark:text-slate-200">{ageText}</p>
+                    <p className="truncate text-[11px] leading-4 text-[#B0B2B8] dark:text-slate-500">{contactText}</p>
                 </div>
 
-                <span className="truncate font-medium text-slate-700 dark:text-slate-200">{educationText}</span>
-                <span className="truncate font-medium text-slate-700 dark:text-slate-200">{yearsText}</span>
-                <span className="truncate font-medium text-slate-700 dark:text-slate-200">{intentText}</span>
+                <span className="truncate pr-2 text-[12px] text-[#33353D] dark:text-slate-200">{educationText}</span>
+                <span className="truncate text-[12px] text-[#33353D] dark:text-slate-200">{yearsText}</span>
+                <span className="truncate pr-2 text-[12px] text-[#33353D] dark:text-slate-200">{intentText}</span>
 
-                <div className="min-w-0">
-                    <p className="text-[13px] font-semibold leading-4 text-[#1E3BFA] dark:text-blue-300">{matchPercentText}</p>
-                    <div className="mt-1 h-1.5 w-full max-w-[70px] overflow-hidden rounded-full bg-blue-100 dark:bg-slate-800">
-                        <div className="h-full rounded-full bg-[#1E3BFA]" style={{ width: `${matchPercentValue ?? 0}%` }}/>
+                <div className="min-w-0 pr-3">
+                    <p className="text-[12px] font-semibold leading-4 tabular-nums" style={{color: matchColor}}>{matchPercentText}</p>
+                    <div className="mt-1 h-1 w-full overflow-hidden rounded-[2px] bg-[#EBEEF5] dark:bg-slate-800">
+                        <div className="h-full rounded-[2px]" style={{ width: `${matchPercentValue ?? 0}%`, backgroundColor: matchColor }}/>
                     </div>
                 </div>
 
                 <div className="min-w-0">
-                    <Badge className={cn("w-fit rounded-full border px-2 py-0 text-[11px] font-medium", statusBadgeClass("candidate", displayStatus))}>
+                    <Badge className={cn("h-[22px] w-fit rounded-full border px-[9px] py-0 text-[11px] font-normal", statusBadgeClass("candidate", displayStatus))}>
                         {labelForCandidateStatus(displayStatus)}
                     </Badge>
                 </div>
 
-                <span className="truncate font-medium text-slate-700 dark:text-slate-200">{sourceText}</span>
-                <span className="truncate font-medium text-slate-700 dark:text-slate-200">{updatedText}</span>
+                <span className="truncate text-[12px] text-[#33353D] dark:text-slate-200">{sourceText}</span>
+                <span className="truncate text-[12px] text-[#86888F] dark:text-slate-300">{updatedText}</span>
 
                 <div className="flex justify-end">
                     <Tooltip>
                         <TooltipTrigger asChild>
                             <button
                                 type="button"
-                                className="flex h-7 w-7 items-center justify-center rounded-md border border-[var(--tr-border)] bg-white text-[var(--tr-ink-muted)] transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300 dark:hover:border-slate-700 dark:hover:bg-slate-900"
+                                className={cn(
+                                    "flex h-7 w-7 items-center justify-center rounded-[4px] text-[#B0B2B8] transition hover:bg-[#1E3BFA]/5 hover:text-[#1E3BFA] dark:text-slate-400 dark:hover:bg-slate-900",
+                                    isExpanded && "text-[#1E3BFA]",
+                                )}
+                                aria-label={isZh ? "查看候选人详情" : "View candidate details"}
                                 onClick={(e) => {
                                     e.stopPropagation();
                                     onViewDetails(candidate.id);
                                 }}
                             >
-                                <Eye className="h-3.5 w-3.5"/>
+                                <Eye className="h-4 w-4"/>
                             </button>
                         </TooltipTrigger>
                         <TooltipContent side="top"><p>{isZh ? "查看详情" : "View details"}</p></TooltipContent>
@@ -1472,64 +1499,76 @@ const PositionCandidateRow = React.memo(function PositionCandidateRow({
 
             {isExpanded ? (
                 <div
-                    className="mx-4 mb-3 grid gap-4 rounded-[6px] border border-[#EBEEF5] bg-[#F7F8FA] px-4 py-4 text-[12px] text-[#33353D] shadow-none dark:border-slate-800 dark:bg-slate-950/80 dark:text-slate-200 lg:grid-cols-[minmax(0,0.88fr)_minmax(320px,1.12fr)]"
-                    onClick={(e) => e.stopPropagation()}
+                    className="grid gap-x-12 bg-[#F7F8FC] pb-5 pl-[60px] pr-5 pt-1.5 text-[13px] text-[#0E1114] dark:bg-slate-950/80 dark:text-slate-200 lg:grid-cols-2"
+                    onClick={(event) => event.stopPropagation()}
                 >
-                    <div className="min-w-0 space-y-3">
-                        <div className="grid grid-cols-[76px_minmax(0,1fr)] gap-x-3 gap-y-2">
-                            <span className="font-semibold text-slate-600 dark:text-slate-300">{isZh ? "联系电话：" : "Contact:"}</span>
-                            <span className="min-w-0 truncate text-slate-800 dark:text-slate-100">{contactText}</span>
-                            <span className="font-semibold text-slate-600 dark:text-slate-300">{isZh ? "应聘岗位：" : "Applied:"}</span>
-                            <span className="min-w-0 truncate text-slate-800 dark:text-slate-100">{appliedPosition}</span>
-                            <span className="font-semibold text-slate-600 dark:text-slate-300">{isZh ? "教育经历：" : "Education:"}</span>
-                            <span className="min-w-0 whitespace-normal break-words leading-5 text-slate-800 dark:text-slate-100">{educationText}</span>
-                            <span className="font-semibold text-slate-600 dark:text-slate-300">{isZh ? "简历状态：" : "Resume:"}</span>
-                            <span className="min-w-0 truncate text-slate-800 dark:text-slate-100">{resumeState}</span>
+                    <div className="flex min-w-0 flex-col gap-3">
+                        <div className="flex min-w-0 gap-[14px]">
+                            <span className="w-[72px] shrink-0 text-[12px] text-[#86888F] dark:text-slate-400">{isZh ? "联系电话" : "Contact"}</span>
+                            <span className="min-w-0 break-words">{contactText}</span>
                         </div>
-
-                        <div className="grid grid-cols-[76px_minmax(0,1fr)] gap-x-3">
-                            <span className="font-semibold text-slate-600 dark:text-slate-300">{isZh ? "工作经历：" : "Work:"}</span>
-                            <div className="min-w-0 space-y-1.5">
-                                {workLines.length > 0 ? workLines.map((line) => (
-                                    <p key={line} className="truncate text-slate-800 dark:text-slate-100">· {line}</p>
+                        <div className="flex min-w-0 gap-[14px]">
+                            <span className="w-[72px] shrink-0 text-[12px] text-[#86888F] dark:text-slate-400">{isZh ? "应聘岗位" : "Applied"}</span>
+                            <span className="min-w-0 break-words">{appliedPosition}</span>
+                        </div>
+                        <div className="flex min-w-0 gap-[14px]">
+                            <span className="w-[72px] shrink-0 text-[12px] text-[#86888F] dark:text-slate-400">{isZh ? "教育经历" : "Education"}</span>
+                            <span className="min-w-0 break-words">{educationText}</span>
+                        </div>
+                        <div className="flex min-w-0 gap-[14px]">
+                            <span className="w-[72px] shrink-0 text-[12px] text-[#86888F] dark:text-slate-400">{isZh ? "简历状态" : "Resume"}</span>
+                            <span className="min-w-0 break-words">{resumeState}</span>
+                        </div>
+                        <div className="flex min-w-0 gap-[14px]">
+                            <span className="w-[72px] shrink-0 text-[12px] text-[#86888F] dark:text-slate-400">{isZh ? "工作经历" : "Work"}</span>
+                            <div className="min-w-0 space-y-1">
+                                {workLines.length ? workLines.map((line) => (
+                                    <p key={line} className="break-words">· {line}</p>
                                 )) : (
-                                    <p className="text-slate-500 dark:text-slate-400">{isZh ? "工作经历待解析" : "Work history pending"}</p>
+                                    <p className="text-[#86888F] dark:text-slate-400">{isZh ? "工作经历待解析" : "Work history pending"}</p>
                                 )}
-                                <p className="truncate text-slate-500 dark:text-slate-400">· {isZh ? "工作年限" : "Experience"}：{yearsText}</p>
+                                <p className="break-words">· {isZh ? "工作年限" : "Experience"}：{yearsText}</p>
                             </div>
                         </div>
-
-                        <div className="grid grid-cols-[76px_minmax(0,1fr)] gap-x-3">
-                            <span className="font-semibold text-slate-600 dark:text-slate-300">{isZh ? "标签：" : "Tags:"}</span>
-                            <div className="flex min-w-0 flex-wrap gap-2">
-                                {tags.length > 0 ? tags.map((tag) => (
-                                    <Badge key={tag} variant="outline" className="h-6 rounded-md border-slate-200 bg-white px-2 text-[11px] font-medium text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
-                                        {tag}
-                                    </Badge>
-                                )) : (
-                                    <span className="text-slate-500 dark:text-slate-400">{isZh ? "暂无标签" : "No tags"}</span>
-                                )}
-                            </div>
+                        <div className="flex min-w-0 gap-[14px]">
+                            <span className="w-[72px] shrink-0 text-[12px] text-[#86888F] dark:text-slate-400">{isZh ? "标签" : "Tags"}</span>
+                            <span className="min-w-0 break-words">{tags.length ? tags.join("、") : (isZh ? "暂无标签" : "No tags")}</span>
                         </div>
                     </div>
 
-                    <div className="min-w-0 border-t border-slate-200 pt-3 dark:border-slate-800 lg:border-l lg:border-t-0 lg:pl-4 lg:pt-0">
-                        <div className="grid grid-cols-[82px_minmax(0,1fr)] gap-x-3 gap-y-3">
-                            <span className="font-semibold text-slate-600 dark:text-slate-300">{isZh ? "推荐岗位：" : "Recommend:"}</span>
-                            <span className="min-w-0 truncate font-semibold text-slate-900 dark:text-slate-50">{aiRecommendedPosition || (isZh ? "暂无 AI 推荐岗位" : "No AI recommendation")}</span>
-                            <span className="font-semibold text-slate-600 dark:text-slate-300">{isZh ? "转岗方向：" : "Potential:"}</span>
-                            <span className="min-w-0 truncate text-slate-800 dark:text-slate-100">{potentialPosition || (isZh ? "暂无明确转岗建议" : "No clear role")}</span>
-                            <span className="font-semibold text-slate-600 dark:text-slate-300">{isZh ? "匹配说明：" : "Reason:"}</span>
-                            <div className="min-w-0 space-y-2 leading-6 text-slate-700 dark:text-slate-200">
-                                <p>{aiReason || (isZh ? "暂无 AI 推荐说明，建议进入详情查看简历解析结果。" : "No AI reason yet. View detail for parsed resume.")}</p>
-                                {potentialReason ? <p>{potentialReason}</p> : null}
+                    <div className="mt-3 flex min-w-0 flex-col gap-3 lg:mt-0">
+                        <div className="flex min-w-0 gap-[14px]">
+                            <span className="w-[72px] shrink-0 text-[12px] text-[#86888F] dark:text-slate-400">{isZh ? "推荐岗位" : "Recommend"}</span>
+                            <span className="min-w-0 break-words font-medium">{aiRecommendedPosition || (isZh ? "暂无 AI 推荐岗位" : "No AI recommendation")}</span>
+                        </div>
+                        <div className="flex min-w-0 gap-[14px]">
+                            <span className="w-[72px] shrink-0 text-[12px] text-[#86888F] dark:text-slate-400">{isZh ? "转岗方向" : "Potential"}</span>
+                            <span className="min-w-0 break-words">{potentialPosition || (isZh ? "暂无明确转岗建议" : "No clear role")}</span>
+                        </div>
+                        <div className="flex min-w-0 gap-[14px]">
+                            <span className="w-[72px] shrink-0 text-[12px] text-[#86888F] dark:text-slate-400">{isZh ? "匹配说明" : "Reason"}</span>
+                            <div className="min-w-0 space-y-2 text-[#33353D] dark:text-slate-300">
+                                <p className="break-words leading-[1.75]">{aiReason || (isZh ? "暂无 AI 推荐说明，建议进入详情查看简历解析结果。" : "No AI reason yet. View detail for parsed resume.")}</p>
+                                {potentialReason ? <p className="break-words leading-[1.75]">{potentialReason}</p> : null}
                             </div>
-                            <span className="font-semibold text-slate-600 dark:text-slate-300">{isZh ? "业务筛选：" : "Stage:"}</span>
-                            <span className="min-w-0 truncate text-slate-800 dark:text-slate-100">{labelForCandidateStatus(displayStatus)}</span>
-                            <span className="font-semibold text-slate-600 dark:text-slate-300">{isZh ? "初筛岗位：" : "Screened:"}</span>
-                            <span className="min-w-0 truncate text-slate-800 dark:text-slate-100">{screenedPosition}</span>
-                            <span className="font-semibold text-slate-600 dark:text-slate-300">{isZh ? "来源详情：" : "Source:"}</span>
-                            <span className="min-w-0 truncate text-slate-800 dark:text-slate-100">{sourceDetail || sourceText}</span>
+                        </div>
+                        <div className="flex min-w-0 gap-[14px]">
+                            <span className="w-[72px] shrink-0 text-[12px] text-[#86888F] dark:text-slate-400">{isZh ? "业务筛选" : "Stage"}</span>
+                            <span className="min-w-0 break-words">{labelForCandidateStatus(displayStatus)}</span>
+                        </div>
+                        <div className="flex min-w-0 gap-[14px]">
+                            <span className="w-[72px] shrink-0 text-[12px] text-[#86888F] dark:text-slate-400">{isZh ? "初筛岗位" : "Screened"}</span>
+                            <span className="min-w-0 break-words">{screenedPosition}</span>
+                        </div>
+                        <div className="flex min-w-0 gap-[14px]">
+                            <span className="w-[72px] shrink-0 text-[12px] text-[#86888F] dark:text-slate-400">{isZh ? "来源详情" : "Source"}</span>
+                            {sourceDetail && /^https?:\/\//i.test(sourceDetail) ? (
+                                <a className="min-w-0 break-all text-[#1E3BFA] hover:text-[#0F23D9] hover:underline" href={sourceDetail} target="_blank" rel="noreferrer">
+                                    {sourceDetail}
+                                </a>
+                            ) : (
+                                <span className="min-w-0 break-words">{sourceDetail || sourceText}</span>
+                            )}
                         </div>
                     </div>
                 </div>
@@ -1614,14 +1653,14 @@ const PositionCandidateSearchInput = React.memo(function PositionCandidateSearch
     }, [onChange]);
 
     return (
-        <div className="relative min-w-0 max-w-[300px] flex-1">
+        <div className="relative w-[280px] max-w-full shrink-0">
             <Input
-                className="h-8 min-w-[120px] rounded-[4px] border-[#E6E7EB] pl-8 text-xs shadow-none focus-visible:border-[#1E3BFA] focus-visible:ring-[#1E3BFA]/10"
+                className="h-[34px] min-w-[120px] rounded-[6px] border-[#E6E7EB] pl-[34px] pr-3 text-[13px] shadow-none placeholder:text-[#B0B2B8] focus-visible:border-[#1E3BFA] focus-visible:ring-[#1E3BFA]/10 md:text-[13px]"
                 placeholder={placeholder}
                 value={localValue}
                 onChange={handleChange}
             />
-            <svg className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#B0B2B8]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <circle cx="11" cy="11" r="8" strokeWidth="2"/>
                 <path d="m21 21-4.35-4.35" strokeWidth="2" strokeLinecap="round"/>
             </svg>
@@ -1733,18 +1772,18 @@ const PositionCandidatesView = React.memo(function PositionCandidatesView(props:
     }, [expandedCandidateId, positionFilteredSortedCandidates]);
 
     return (
-        <div className="relative flex h-full min-h-0 overflow-hidden rounded-[8px] border border-[#EBEEF5] bg-white shadow-none dark:border-slate-800 dark:bg-slate-950/85">
+        <div className="relative flex h-full min-h-0 overflow-hidden rounded-[10px] border border-[#EBEEF5] bg-white shadow-none dark:border-slate-800 dark:bg-slate-950/85">
         {/* 左侧列表：永远100%宽度 */}
-        <div className="flex w-full min-w-0 flex-col">
+        <div className="flex w-full min-w-0 flex-col overflow-x-auto">
             {/* 工具栏 */}
-            <div className="flex flex-wrap items-center gap-2 border-b border-[#F2F3F5] px-4 py-3 dark:border-slate-800">
+            <div className="flex flex-nowrap items-center gap-[14px] border-b border-[#F2F3F5] px-5 py-[14px] dark:border-slate-800">
                 <PositionCandidateSearchInput
                     initialValue={initialSearchValue}
                     onChange={onSearchChange}
                     placeholder={recruitmentUiText.positionCandidatesSearch}
                 />
                 <Select value={positionCandidateStatusFilter} onValueChange={onStatusFilterChange}>
-                    <SelectTrigger className="h-8 w-fit rounded-[4px] border-[#E6E7EB] text-xs shadow-none focus:ring-[#1E3BFA]/10">
+                    <SelectTrigger className="h-[34px] w-fit rounded-[6px] border-[#E6E7EB] px-3 text-[13px] shadow-none focus:ring-[#1E3BFA]/10 [&>span]:pr-1">
                         <SelectValue placeholder={isZh ? "筛选状态" : "Filter status"} />
                     </SelectTrigger>
                     <SelectContent>
@@ -1757,7 +1796,7 @@ const PositionCandidatesView = React.memo(function PositionCandidatesView(props:
                 </Select>
                 <div className="ml-auto flex items-center gap-2">
                     {positionCandidatesTotal > 0 && (
-                        <span className="shrink-0 text-[11px] text-slate-400">
+                        <span className="shrink-0 text-[12px] text-[#86888F] dark:text-slate-400">
                             {positionCandidateStatusFilter !== "__all__"
                                 ? `${positionFilteredSortedCandidates.length}/${positionCandidatesTotal}${isZh ? "人" : " shown"}`
                                 : `${positionCandidatesTotal}${isZh ? "人" : " total"}`}
@@ -1766,7 +1805,7 @@ const PositionCandidatesView = React.memo(function PositionCandidatesView(props:
                     <Button
                         size="sm"
                         variant="outline"
-                        className="h-8 shrink-0 rounded-[6px] border-[#1E3BFA] px-2.5 text-xs text-[#1E3BFA] shadow-none hover:bg-[#1E3BFA]/5 hover:text-[#1E3BFA]"
+                        className="h-[34px] shrink-0 rounded-[6px] border-[#E6E7EB] px-[14px] text-[12px] font-normal text-[#33353D] shadow-none hover:border-[#1E3BFA] hover:bg-[#1E3BFA]/5 hover:text-[#1E3BFA]"
                         onClick={onViewAllCandidates}
                     >
                         {recruitmentUiText.viewInCandidatePage}
@@ -1774,7 +1813,7 @@ const PositionCandidatesView = React.memo(function PositionCandidatesView(props:
                 </div>
             </div>
             {/* 列头 */}
-            <div className="grid items-center gap-3 border-b border-[#F2F3F5] bg-white px-4 text-[12px] font-normal text-[#86888F] shadow-none dark:border-slate-700/80 dark:bg-slate-900/95 dark:text-slate-300" style={{ height: 40, gridTemplateColumns: POSITION_CANDIDATE_GRID_COLUMNS }}>
+            <div className="grid min-w-[1080px] items-center border-b border-[#F2F3F5] bg-[#FBFBFC] px-5 text-[12px] font-normal text-[#86888F] shadow-none dark:border-slate-700/80 dark:bg-slate-900/95 dark:text-slate-300" style={{ height: 42, gridTemplateColumns: POSITION_CANDIDATE_GRID_COLUMNS }}>
                 <span>#</span>
                 <span>{isZh ? "候选人" : "Candidate"}</span>
                 <span>{isZh ? "基本信息" : "Profile"}</span>
@@ -1785,7 +1824,7 @@ const PositionCandidatesView = React.memo(function PositionCandidatesView(props:
                 <span>{isZh ? "流程状态" : "Stage"}</span>
                 <span>{isZh ? "来源" : "Source"}</span>
                 <span>{isZh ? "最近投递" : "Recent"}</span>
-                <span className="text-right">{isZh ? "操作" : "Actions"}</span>
+                <span/>
             </div>
             {/* 候选人列表 */}
             <div className="min-h-0 flex-1 overflow-y-auto">
@@ -2471,7 +2510,7 @@ export default function RecruitmentAutomationContainer({
     const [assistantOpen, setAssistantOpen] = useState(false);
     const [positionListCollapsed, setPositionListCollapsed] = useState(false);
     const [positionDetailViewOpen, setPositionDetailViewOpen] = useState(false);
-    const [positionWorkspaceView, setPositionWorkspaceView] = useState<"jd" | "config" | "candidates" | "versions">("candidates");
+    const [positionWorkspaceView, setPositionWorkspaceView] = useState<"jd" | "config" | "candidates" | "versions">("config");
     // 岗位内嵌候选人列表状态
     const [positionCandidateSearch, setPositionCandidateSearch] = useState("");
     const [positionCandidateStatusFilter, setPositionCandidateStatusFilter] = useState<string>("__all__");
@@ -2622,7 +2661,6 @@ export default function RecruitmentAutomationContainer({
     const [positionQuery, setPositionQuery] = useState("");
     const [positionStatusFilter, setPositionStatusFilter] = useState("all");
     const deferredPositionQuery = useDeferredValue(positionQuery);
-    const [bossJsonCopyError, setBossJsonCopyError] = useState<string | null>(null);
 
     const [candidateQuery, setCandidateQuery] = useState("");
     const [candidateStatusFilter, setCandidateStatusFilter] = useState<string[]>([]);
@@ -3944,11 +3982,7 @@ export default function RecruitmentAutomationContainer({
     }, [selectedPositionId]);
 
     useEffect(() => {
-        setBossJsonCopyError(null);
-    }, [selectedPositionId]);
-
-    useEffect(() => {
-        setPositionWorkspaceView("candidates");
+        setPositionWorkspaceView("config");
         setPositionCardActionMenuOpen(false);
         defaultTabSetForPositionRef.current = null;
         setPositionCandidateSearch("");
@@ -6234,7 +6268,7 @@ export default function RecruitmentAutomationContainer({
             // 智能默认 Tab：仅首次加载时设置，后续刷新不重置
             if (defaultTabSetForPositionRef.current !== positionId) {
                 defaultTabSetForPositionRef.current = positionId;
-                setPositionWorkspaceView("candidates");
+                setPositionWorkspaceView("config");
             }
             return data;
         } catch (error) {
@@ -8446,25 +8480,21 @@ export default function RecruitmentAutomationContainer({
         const currentPosition = positionDetail?.position || (selectedPositionId ? positionMap.get(selectedPositionId) : null);
         if (!currentPosition) {
             const message = "无法复制：未选择岗位";
-            setBossJsonCopyError(message);
             toast.error(message);
             return;
         }
 
         const result = buildBossJsonCopyPayload([currentPosition]);
         if (!result.ok) {
-            setBossJsonCopyError(result.message);
             toast.error(result.message);
             return;
         }
 
         try {
             await writeTextToClipboard(JSON.stringify(result.payload, null, 2));
-            setBossJsonCopyError(null);
             toast.success("BOSS 岗位 JSON 已复制");
         } catch (error) {
             const message = recruitmentToast.copyFailed(error instanceof Error ? error.message : recruitmentToast.unknownError);
-            setBossJsonCopyError(message);
             toast.error(message);
         }
     }
@@ -10361,7 +10391,7 @@ export default function RecruitmentAutomationContainer({
             {value: "skip", label: isZh ? "跳过重复简历" : "Skip Duplicates"},
             {value: "overwrite", label: isZh ? "覆盖已有记录" : "Overwrite Existing"},
         ];
-        const uploadInputClass = "h-[34px] rounded-[4px] border-[#E6E7EB] bg-white px-3 text-[12px] text-[#0F1014] shadow-none placeholder:text-[#B0B2B8] focus-visible:border-[#1E3BFA] focus-visible:ring-2 focus-visible:ring-[#1E3BFA]/15 dark:border-[#E6E7EB] dark:bg-white dark:text-[#0F1014] dark:placeholder:text-[#B0B2B8]";
+        const uploadInputClass = "h-[34px] rounded-[4px] border-[#E6E7EB] bg-white px-3 text-[12px] text-[#0F1014] shadow-none placeholder:text-[#B0B2B8] focus-visible:border-[#1E3BFA] focus-visible:ring-2 focus-visible:ring-[#1E3BFA]/15 md:text-[12px] dark:border-[#E6E7EB] dark:bg-white dark:text-[#0F1014] dark:placeholder:text-[#B0B2B8]";
         const optionButtonClass = "h-[26px] rounded-[4px] border px-2.5 text-[12px] font-normal shadow-none transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1E3BFA]/15 disabled:cursor-not-allowed disabled:opacity-50";
         const formatUploadFileSize = (size: number) => {
             if (size >= 1024 * 1024) {
@@ -14626,11 +14656,11 @@ export default function RecruitmentAutomationContainer({
                     </Button>
                 </div>
 
-                <div className="relative min-h-0 flex-1 overflow-hidden px-5 pb-5 pt-4 md:px-8">
+                <div className="relative min-h-0 flex-1 overflow-hidden">
                     {positionDetailLoading ? <LoadingPanel label={isZh ? "正在加载招聘需求详情" : "Loading hiring request details"}/> : positionDetail?.position.id === selectedPositionId ? (
-                        <div className="flex h-full min-h-0 flex-col gap-3 2xl:gap-5">
-                            <div className="shrink-0 border-b border-[#F2F3F5] bg-white dark:border-slate-800 dark:bg-slate-950">
-                                <div className="flex flex-wrap items-start justify-between gap-4 pb-3">
+                        <div className="flex h-full min-h-0 flex-col">
+                            <div className="shrink-0 border-b border-[#F2F3F5] bg-white px-5 pt-[18px] dark:border-slate-800 dark:bg-slate-950 md:px-8">
+                                <div className="flex flex-wrap items-start justify-between gap-4 pb-[14px]">
                                     <div className="flex min-w-0 items-start gap-3">
                                         <button
                                             type="button"
@@ -14641,40 +14671,40 @@ export default function RecruitmentAutomationContainer({
                                             <ArrowLeft className="h-4 w-4"/>
                                         </button>
                                         <div className="min-w-0">
-                                            <div className="flex flex-wrap items-center gap-2">
+                                            <div className="flex flex-wrap items-center gap-[10px]">
                                                 <h1 className="truncate text-[18px] font-semibold leading-6 text-[#0E1114] dark:text-slate-50">{positionDetail.position.title}</h1>
-                                                <Badge className={cn("rounded-[4px] border px-2 py-0.5 text-[11px]", statusBadgeClass("position", positionDetail.position.status))}>{labelForPositionStatus(positionDetail.position.status)}</Badge>
-                                                <span className="text-[11px] text-[#86888F]">{positionDetail.position.position_code}</span>
+                                                <Badge className={cn("h-[22px] rounded-[4px] border px-[9px] py-0 text-[12px] font-normal", statusBadgeClass("position", positionDetail.position.status))}>{labelForPositionStatus(positionDetail.position.status)}</Badge>
+                                                <span className="text-[12px] text-[#86888F]">{positionDetail.position.position_code}</span>
                                             </div>
-                                            <p className="mt-1 truncate text-[12px] text-[#86888F]">
+                                            <p className="mt-[5px] truncate text-[12px] leading-[18px] text-[#86888F]">
                                                 {[positionDetail.position.department, positionDetail.position.location, positionDetail.position.employment_type, getOrganizationLabel(positionDetail.position.org_code)].filter(Boolean).join(" · ")}
                                             </p>
                                         </div>
                                     </div>
-                                    <div className="flex flex-wrap items-center gap-2">
+                                    <div className="flex shrink-0 flex-nowrap items-center justify-end gap-[10px]">
                                         {canManageCandidate ? (
-                                            <Button variant="outline" className="h-8 rounded-[6px] border-[#E6E7EB] px-3 text-[12px] shadow-none hover:border-[#1E3BFA] hover:bg-[#1E3BFA]/5 hover:text-[#1E3BFA]" onClick={() => openResumeUploadDialog(positionDetail.position.id)}>
-                                                <Upload className="h-3.5 w-3.5"/>{isZh ? "上传简历" : "Upload"}
+                                            <Button variant="outline" className="h-8 rounded-[6px] border-[#E6E7EB] px-[13px] text-[12px] font-normal shadow-none hover:border-[#1E3BFA] hover:bg-[#1E3BFA]/5 hover:text-[#1E3BFA]" onClick={() => openResumeUploadDialog(positionDetail.position.id)}>
+                                                {isZh ? "上传简历" : "Upload"}
                                             </Button>
                                         ) : null}
-                                        <Button variant="outline" className="h-8 rounded-[6px] border-[#1E3BFA] px-3 text-[12px] text-[#1E3BFA] shadow-none hover:bg-[#1E3BFA]/5 hover:text-[#1E3BFA]" onClick={openPositionJDConfigDialog}>
-                                            <Wand2 className="h-3.5 w-3.5"/>{isZh ? "JD 配置" : "JD Config"}
+                                        <Button variant="outline" className="h-8 rounded-[6px] border-[#1E3BFA] px-[13px] text-[12px] font-normal text-[#1E3BFA] shadow-none hover:bg-[#1E3BFA]/5 hover:text-[#1E3BFA]" onClick={openPositionJDConfigDialog}>
+                                            {isZh ? "JD 配置" : "JD Config"}
                                         </Button>
-                                        <Button variant="outline" className="h-8 rounded-[6px] border-[#E6E7EB] px-3 text-[12px] shadow-none hover:border-[#1E3BFA] hover:bg-[#1E3BFA]/5 hover:text-[#1E3BFA]" onClick={openPositionAssessmentDialog}>
-                                            <ClipboardCheck className="h-3.5 w-3.5"/>{isZh ? "评估方案" : "Assessment"}
+                                        <Button variant="outline" className="h-8 rounded-[6px] border-[#E6E7EB] px-[13px] text-[12px] font-normal shadow-none hover:border-[#1E3BFA] hover:bg-[#1E3BFA]/5 hover:text-[#1E3BFA]" onClick={openPositionAssessmentDialog}>
+                                            {isZh ? "评估方案" : "Assessment"}
                                         </Button>
-                                        <Button className="h-8 rounded-[6px] bg-[#1E3BFA] px-3 text-[12px] text-white shadow-none hover:bg-[#0F23D9]" onClick={() => openEditPosition()}>
-                                            <FilePlus2 className="h-3.5 w-3.5"/>{isZh ? "编辑岗位" : "Edit"}
+                                        <Button className="h-8 gap-1.5 rounded-[6px] bg-[#1E3BFA] px-[15px] text-[12px] font-normal text-white shadow-none hover:bg-[#0F23D9]" onClick={() => openEditPosition()}>
+                                            <Pencil className="h-[13px] w-[13px]"/>{isZh ? "编辑岗位" : "Edit"}
                                         </Button>
-                                        <Button variant="ghost" className="h-8 rounded-[6px] px-2 text-[12px] text-[#F53F3F] hover:bg-[#F53F3F]/5 hover:text-[#F53F3F]" onClick={() => setPositionDeleteConfirmOpen(true)} disabled={positionDeleting}>
-                                            <Trash2 className="h-3.5 w-3.5"/>{isZh ? "删除" : "Delete"}
+                                        <Button variant="ghost" className="h-8 rounded-[6px] px-[10px] text-[12px] font-normal text-[#F53F3F] hover:bg-[#F53F3F]/5 hover:text-[#F53F3F]" onClick={() => setPositionDeleteConfirmOpen(true)} disabled={positionDeleting}>
+                                            {isZh ? "删除" : "Delete"}
                                         </Button>
                                     </div>
                                 </div>
-                                <div className="flex items-center gap-7 overflow-x-auto">
+                                <div className="flex items-center gap-[30px] overflow-x-auto">
                                     {([
-                                        ["candidates", isZh ? "候选人" : "Candidates"],
                                         ["config", isZh ? "岗位信息" : "Position Info"],
+                                        ["candidates", isZh ? "候选人" : "Candidates"],
                                         ["jd", isZh ? "JD 工作区" : "JD Workspace"],
                                         ["versions", isZh ? "版本与发布" : "Versions & Publishing"],
                                     ] as const).map(([value, label]) => (
@@ -14682,7 +14712,7 @@ export default function RecruitmentAutomationContainer({
                                             key={value}
                                             type="button"
                                             className={cn(
-                                                "relative h-9 shrink-0 px-0.5 text-[13px] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1E3BFA]/25",
+                                                "relative shrink-0 px-0.5 py-[9px] text-[13px] leading-[18px] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1E3BFA]/25",
                                                 positionWorkspaceView === value ? "font-semibold text-[#0E1114] dark:text-slate-100" : "text-[#86888F] hover:text-[#33353D] dark:hover:text-slate-200",
                                             )}
                                             onClick={() => {
@@ -14702,284 +14732,38 @@ export default function RecruitmentAutomationContainer({
                                     ))}
                                 </div>
                             </div>
-                            <div className="grid min-h-0 grid-cols-1 gap-4 2xl:gap-6 xl:flex-1">
+                            <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-hidden bg-[#FBFBFC] px-5 pb-11 pt-5 dark:bg-slate-900/30 md:px-8 2xl:gap-6">
                                 <div className="min-h-0 space-y-4 overflow-y-auto xl:pr-2 xl:[scrollbar-gutter:stable] 2xl:space-y-6 [scrollbar-width:auto] [scrollbar-color:rgba(148,163,184,0.9)_transparent] [&::-webkit-scrollbar]:h-3 [&::-webkit-scrollbar]:w-3 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:border-2 [&::-webkit-scrollbar-thumb]:border-transparent [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-thumb]:bg-clip-content hover:[&::-webkit-scrollbar-thumb]:bg-slate-400 dark:[scrollbar-color:rgba(71,85,105,0.95)_transparent] dark:[&::-webkit-scrollbar-thumb]:bg-slate-700 dark:hover:[&::-webkit-scrollbar-thumb]:bg-slate-600">
                                     {positionWorkspaceView === "jd" ? (
-                                        <div className="flex min-h-0 flex-1 flex-col gap-3 2xl:gap-4">
-
-                                            {/* ① 顶部状态条 */}
-                                            <div className="flex flex-wrap items-center justify-between gap-3 rounded-[8px] bg-[#F7F8FA] px-4 py-2.5 dark:bg-slate-900/60">
-                                                <div className="flex flex-wrap items-center gap-2.5">
-                                                    <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                                                        {positionDetail.position.title}
+                                        <div className="max-w-[820px] overflow-hidden rounded-[10px] border border-[#EBEEF5] bg-white dark:border-slate-800 dark:bg-slate-950">
+                                            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#F2F3F5] px-5 py-[14px] dark:border-slate-800">
+                                                <div className="flex items-center gap-[10px]">
+                                                    <span className="text-[13px] font-semibold leading-5 text-[#0E1114] dark:text-slate-100">
+                                                        {isZh ? "当前 JD" : "Current JD"}
                                                     </span>
-                                                    <Badge className={cn("rounded-full border text-[10px]", statusBadgeClass("task", currentJDGenerationStatus === "syncing" ? "running" : currentJDGenerationStatus))}>
-                                                        {labelForJDGenerationStatus(currentJDGenerationStatus)}
-                                                    </Badge>
-                                                    <Badge variant="outline" className="rounded-full text-[10px]">
-                                                        {currentJDVersion ? `V${currentJDVersion.version_no} 生效中` : (isZh ? "未生成" : "Not generated")}
-                                                    </Badge>
+                                                    <span className="inline-flex h-[22px] items-center rounded-full bg-[#0CC991]/10 px-[9px] text-[11px] leading-[18px] text-[#0A9C71] dark:bg-emerald-500/15 dark:text-emerald-300">
+                                                        {currentJDVersion
+                                                            ? `V${currentJDVersion.version_no} ${isZh ? "生效中" : "Active"}`
+                                                            : (isZh ? "未生成" : "Not generated")}
+                                                    </span>
                                                 </div>
-                                                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-500 dark:text-slate-400">
-                                                    <span>{isZh ? `需求人数 ${positionDetail.position.headcount}` : `Headcount ${positionDetail.position.headcount}`}</span>
-                                                    <span>{isZh ? `JD 版本 ${positionDetail.jd_versions.length}` : `JD Versions ${positionDetail.jd_versions.length}`}</span>
-                                                    <span>{isZh ? `候选人 ${positionDetail.position.candidate_count}` : `Candidates ${positionDetail.position.candidate_count}`}</span>
-                                                    <span>{isZh ? `最近更新 ${formatDateTime(positionDetail.position.updated_at)}` : `Updated ${formatDateTime(positionDetail.position.updated_at)}`}</span>
-                                                    <div className="flex items-center gap-2">
-                                                        <Button
-                                                            size="sm"
-                                                            variant="outline"
-                                                            className="h-7 rounded-[6px] px-2.5 text-xs"
-                                                            onClick={() => {
-                                                                setCandidatePositionFilter([String(positionDetail.position.id)]);
-                                                                navigateToRecruitmentPage("candidates");
-                                                            }}
-                                                        >
-                                                            <Users className="mr-1 h-3.5 w-3.5"/>
-                                                            {isZh ? "候选人" : "Candidates"}
-                                                        </Button>
-                                                        <Button
-                                                            size="sm"
-                                                            variant="outline"
-                                                            className="h-7 rounded-[6px] px-2.5 text-xs"
-                                                            onClick={() => {
-                                                                if (positionDetail.candidates[0]) {
-                                                                    setSelectedCandidateId(positionDetail.candidates[0].id);
-                                                                    navigateToRecruitmentPage("candidates");
-                                                                } else {
-                                                                    toast.error(recruitmentToast.noCandidatesForInterview);
-                                                                }
-                                                            }}
-                                                        >
-                                                            <NotebookText className="mr-1 h-3.5 w-3.5"/>
-                                                            {isZh ? "面试题" : "Interview Q"}
-                                                        </Button>
-                                                        <Button
-                                                            size="sm"
-                                                            variant="outline"
-                                                            className="h-7 rounded-[6px] px-2.5 text-xs"
-                                                            onClick={() => void copyBossJsonForCurrentPosition()}
-                                                        >
-                                                            <ClipboardCheck className="mr-1 h-3.5 w-3.5"/>
-                                                            {isZh ? "复制 BOSS 职位数据" : "Copy BOSS Data"}
-                                                        </Button>
-                                                    </div>
-                                                </div>
+                                                <Button
+                                                    type="button"
+                                                    variant="outline"
+                                                    className="h-[30px] rounded-[6px] border-[#1E3BFA] px-[13px] text-[12px] font-normal text-[#1E3BFA] shadow-none hover:bg-[#1E3BFA]/5 hover:text-[#1E3BFA]"
+                                                    onClick={openPositionJDConfigDialog}
+                                                >
+                                                    {isZh ? "打开 JD 配置" : "Open JD Config"}
+                                                </Button>
                                             </div>
-                                            {bossJsonCopyError ? (
-                                                <div className="rounded-[6px] border border-[#F53F3F]/20 bg-[#F53F3F]/5 px-3 py-2 text-xs leading-5 text-[#F53F3F] dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-200" role="alert">
-                                                    {bossJsonCopyError}
-                                                </div>
-                                            ) : null}
-
-                                            {/* ② AI 生成区 */}
-                                            <div className="rounded-[8px] border border-[#EBEEF5] bg-white shadow-none dark:border-slate-800 dark:bg-slate-950/60">
-                                                        {/* 区块标题行 */}
-                                                        <div className="flex items-center justify-between border-b border-slate-100 px-4 py-2.5 dark:border-slate-800/80">
-                                                            <span className="flex items-center gap-1.5 text-xs font-medium text-slate-600 dark:text-slate-400">
-                                                                <Sparkles className="h-3.5 w-3.5"/>
-                                                                {isZh ? "AI 生成 JD" : "AI Generate JD"}
-                                                            </span>
-                                                            <span className="text-[11px] text-slate-400 dark:text-slate-500">
-                                                                {isZh ? "可填写个性化要求，也可直接点击生成" : "Optionally add requirements, or generate directly"}
-                                                            </span>
-                                                        </div>
-                                                        <div className="space-y-3 px-4 py-3">
-                                                            <Textarea
-                                                                value={jdExtraPrompt}
-                                                                onChange={(event) => setJdExtraPrompt(event.target.value)}
-                                                                rows={2}
-                                                                placeholder={isZh
-                                                                    ? "补充本次生成要求（选填），例如：强调 IoT 场景、自动化测试、设备联调经验等"
-                                                                    : "Add generation-specific requirements (optional)"}
-                                                                className="text-xs resize-none"
-                                                            />
-                                                            {/* 错误提示 */}
-                                                            {latestJDGenerationError ? (
-                                                                <div className="flex items-start gap-2 rounded-[6px] border border-[#F53F3F]/20 bg-[#F53F3F]/5 px-3 py-2.5 text-xs text-[#F53F3F] dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-200">
-                                                                    <span className="shrink-0">⚠</span>
-                                                                    <span>{isZh ? `上次生成失败：${latestJDGenerationError}` : `Last generation failed: ${latestJDGenerationError}`}</span>
-                                                                </div>
-                                                            ) : null}
-                                                            {/* 操作行 */}
-                                                            <div className="flex items-center justify-between gap-3">
-                                                                <span className="text-[11px] text-slate-400 dark:text-slate-500">
-                                                                    {positionDetail.jd_generation?.model_name || positionDetail.jd_generation?.model_provider
-                                                                        ? (isZh ? `模型：${positionDetail.jd_generation?.model_name || positionDetail.jd_generation?.model_provider}` : `Model: ${positionDetail.jd_generation?.model_name || positionDetail.jd_generation?.model_provider}`)
-                                                                        : ""}
-                                                                    {positionDetail.jd_generation?.last_generated_at
-                                                                        ? (isZh ? `　上次生成：${formatDateTime(positionDetail.jd_generation.last_generated_at)}` : `　Last: ${formatDateTime(positionDetail.jd_generation.last_generated_at)}`)
-                                                                        : ""}
-                                                                </span>
-                                                                <div className="flex shrink-0 gap-2">
-                                                                    {isJDGenerating ? (
-                                                                        <Button variant="outline" size="sm" onClick={() => void stopJDGeneration()} className="rounded-[6px] text-xs">
-                                                                            <Square className="mr-1 h-3.5 w-3.5"/>
-                                                                            {isZh ? "停止生成" : "Stop"}
-                                                                        </Button>
-                                                                    ) : (
-                                                                        <>
-                                                                            {currentJDVersion && (
-                                                                                <Button variant="outline" size="sm" onClick={() => void generateJD()} className="rounded-[6px] text-xs">
-                                                                                    <RefreshCw className="mr-1 h-3.5 w-3.5"/>
-                                                                                    {isZh ? "重新生成" : "Regenerate"}
-                                                                                </Button>
-                                                                            )}
-                                                                            <Button size="sm" onClick={() => void generateJD()} className="rounded-[6px] bg-[#1E3BFA] text-xs text-white hover:bg-[#0F23D9]">
-                                                                                <Wand2 className="mr-1 h-3.5 w-3.5"/>
-                                                                                {isZh ? "AI 生成 JD" : "Generate JD"}
-                                                                            </Button>
-                                                                        </>
-                                                                    )}
-                                                                </div>
-                                                            </div>
-                                                            {/* 生成进度区（生成中时展示） */}
-                                                            {isJDGenerating ? (
-                                                                <JDStreamingPreview
-                                                                    content={jdStreamingContent}
-                                                                    jdGenerationStatus={jdGenerationStatus}
-                                                                    isZh={isZh}
-                                                                />
-                                                            ) : null}
-                                                        </div>
-                                                    </div>
-
-                                                    {/* ④ JD 内容区 */}
-                                                    <div className="flex flex-col rounded-[8px] border border-[#EBEEF5] bg-white shadow-none dark:border-slate-800 dark:bg-slate-950/60">
-                                                        {/* 视图切换 + 复制按钮 */}
-                                                        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-2.5 dark:border-slate-800/80">
-                                                            <div className="flex gap-1.5">
-                                                                <Button
-                                                                    variant={jdViewMode === "publish" ? "default" : "outline"}
-                                                                    size="sm"
-                                                                    className={cn("h-7 rounded-[6px] px-3 text-xs", jdViewMode === "publish" && "bg-[#1E3BFA] text-white hover:bg-[#0F23D9]")}
-                                                                    onClick={() => setJdViewMode("publish")}
-                                                                >
-                                                                    {isZh ? "可发布版" : "Publish Copy"}
-                                                                </Button>
-                                                                <Button
-                                                                    variant={jdViewMode === "markdown" ? "default" : "outline"}
-                                                                    size="sm"
-                                                                    className={cn("h-7 rounded-[6px] px-3 text-xs", jdViewMode === "markdown" && "bg-[#1E3BFA] text-white hover:bg-[#0F23D9]")}
-                                                                    onClick={() => setJdViewMode("markdown")}
-                                                                >
-                                                                    {isZh ? "编辑源文本" : "Edit Source"}
-                                                                </Button>
-                                                                <Button
-                                                                    variant={jdViewMode === "preview" ? "default" : "outline"}
-                                                                    size="sm"
-                                                                    className={cn("h-7 rounded-[6px] px-3 text-xs", jdViewMode === "preview" && "bg-[#1E3BFA] text-white hover:bg-[#0F23D9]")}
-                                                                    onClick={() => setJdViewMode("preview")}
-                                                                >
-                                                                    {isZh ? "排版预览" : "Preview"}
-                                                                </Button>
-                                                            </div>
-                                                            {jdViewMode === "publish" && (
-                                                                <Button
-                                                                    variant="outline"
-                                                                    size="sm"
-                                                                    className="h-7 rounded-[6px] px-3 text-xs"
-                                                                    onClick={() => void copyPublishJDText()}
-                                                                    disabled={!currentPublishText.trim()}
-                                                                >
-                                                                    <ClipboardCheck className="mr-1 h-3.5 w-3.5"/>
-                                                                    {isZh ? "复制发布文案" : "Copy Publish Copy"}
-                                                                </Button>
-                                                            )}
-                                                        </div>
-
-                                                        {/* 内容区 */}
-                                                        {jdViewMode === "publish" ? (
-                                                            <div className="min-h-[300px] whitespace-pre-wrap px-5 py-4 text-sm leading-7 text-slate-700 dark:text-slate-200">
-                                                                {currentPublishText || (
-                                                                    <span className="text-slate-400 dark:text-slate-500">
-                                                                        {isZh
-                                                                            ? '暂无可发布的 JD 文案，点击"AI 生成 JD"后将在此展示。'
-                                                                            : 'No publish-ready JD yet. Click "Generate JD" and it will appear here.'}
-                                                                    </span>
-                                                                )}
-                                                            </div>
-                                                        ) : null}
-
-                                                        {jdViewMode === "markdown" ? (
-                                                            <div className="px-4 py-3">
-                                                                <Textarea
-                                                                    value={jdDraft.jdMarkdown}
-                                                                    onChange={(event) => setJdDraft((current) => ({
-                                                                        ...current,
-                                                                        jdMarkdown: event.target.value,
-                                                                    }))}
-                                                                    rows={18}
-                                                                    className="font-mono text-xs"
-                                                                />
-                                                                <p className="mt-1.5 text-[11px] text-slate-400 dark:text-slate-500">
-                                                                    {isZh ? "编辑完成后点击下方「保存新版本」即可更新" : "Edit and click 'Save New Version' below to update"}
-                                                                </p>
-                                                            </div>
-                                                        ) : null}
-
-                                                        {jdViewMode === "preview" ? (
-                                                            <div
-                                                                className="min-h-[300px] px-5 py-4 text-sm leading-7 text-slate-700 dark:text-slate-200"
-                                                                dangerouslySetInnerHTML={{__html: currentPreviewHtml}}
-                                                            />
-                                                        ) : null}
-
-                                                        {/* 底部操作栏 */}
-                                                        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/60 px-4 py-2.5 dark:border-slate-800/80 dark:bg-slate-900/30">
-                                                            <div className="flex flex-wrap items-center gap-3">
-                                                                <label className="flex cursor-pointer items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300">
-                                                                    <input
-                                                                        type="checkbox"
-                                                                        checked={jdDraft.autoActivate}
-                                                                        onChange={(event) => setJdDraft((current) => ({
-                                                                            ...current,
-                                                                            autoActivate: event.target.checked,
-                                                                        }))}
-                                                                    />
-                                                                    {isZh ? "保存后设为生效版本" : "Set as Active After Saving"}
-                                                                </label>
-                                                                <div className="flex items-center gap-1.5">
-                                                                    <span className="text-xs text-slate-400 dark:text-slate-500">{isZh ? "版本标题" : "Title"}</span>
-                                                                    <input
-                                                                        type="text"
-                                                                        value={jdDraft.title}
-                                                                        onChange={(event) => setJdDraft((current) => ({
-                                                                            ...current,
-                                                                            title: event.target.value,
-                                                                        }))}
-                                                                        className="h-7 w-40 rounded-[6px] border border-[#D6D8DD] bg-white px-2 text-xs text-[#33353D] outline-none focus:border-[#1E3BFA] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
-                                                                    />
-                                                                </div>
-                                                                <div className="flex items-center gap-1.5">
-                                                                    <span className="text-xs text-slate-400 dark:text-slate-500">{isZh ? "备注" : "Notes"}</span>
-                                                                    <input
-                                                                        type="text"
-                                                                        value={jdDraft.notes}
-                                                                        onChange={(event) => setJdDraft((current) => ({
-                                                                            ...current,
-                                                                            notes: event.target.value,
-                                                                        }))}
-                                                                        placeholder={isZh ? "选填" : "Optional"}
-                                                                        className="h-7 w-36 rounded-[6px] border border-[#D6D8DD] bg-white px-2 text-xs text-[#33353D] outline-none focus:border-[#1E3BFA] placeholder:text-[#B0B2B8] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:placeholder:text-slate-600"
-                                                                    />
-                                                                </div>
-                                                            </div>
-                                                            <Button
-                                                                onClick={() => void saveJDVersion()}
-                                                                disabled={jdVersionSaving}
-                                                                size="sm"
-                                                                className="rounded-[6px] bg-[#1E3BFA] text-xs text-white hover:bg-[#0F23D9]"
-                                                            >
-                                                                <Save className="mr-1 h-3.5 w-3.5"/>
-                                                                {jdVersionSaving
-                                                                    ? (isZh ? "保存中…" : "Saving…")
-                                                                    : (isZh ? "保存新版本" : "Save New Version")}
-                                                            </Button>
-                                                        </div>
-                                                    </div>
-
+                                            <div className="min-h-[220px] whitespace-pre-wrap break-words px-6 py-[22px] text-[13px] leading-[2] text-[#33353D] [overflow-wrap:anywhere] dark:text-slate-300">
+                                                {currentPublishText?.trim()
+                                                    || currentJDVersion?.jd_markdown?.trim()
+                                                    || (isZh
+                                                        ? "当前岗位还没有生效的 JD，点击“打开 JD 配置”生成并保存版本。"
+                                                        : "This position does not have an active JD yet. Open JD Config to generate and save one.")}
                                             </div>
+                                        </div>
                                     ) : positionWorkspaceView === "candidates" && positionDetail ? (() => {
                                         return (
                                             <PositionCandidatesView
@@ -15006,174 +14790,321 @@ export default function RecruitmentAutomationContainer({
                                                 onLoadMore={() => { if (selectedPositionId) void loadMorePositionCandidates(selectedPositionId); }}
                                             />
                                         );
-                                    })() : positionWorkspaceView === "config" ? (
-                                        <Card className={cn(panelClass, "rounded-[8px] border-[#EBEEF5] shadow-none")}>
-                                            <CardHeader className="space-y-3">
-                                                <div className="flex flex-wrap items-start justify-between gap-3">
-                                                    <div>
-                                                        <CardTitle className="text-xl">{isZh ? "招聘需求与职位信息" : "Hiring Request & Position Info"}</CardTitle>
-                                                        <CardDescription>{isZh ? "维护岗位基础信息、评估方案和自动化流程设置。" : "Manage position details, assessment plans, and automation settings."}</CardDescription>
+                                    })() : positionWorkspaceView === "config" ? (() => {
+                                        const position = positionDetail.position;
+                                        const bossFields = resolveBossFieldsFromPosition(position);
+                                        const emptyValue = isZh ? "—" : "—";
+                                        const automationRows = [
+                                            {
+                                                label: isZh ? "上传简历后自动进入初筛" : "Auto-screen resumes after upload",
+                                                enabled: Boolean(position.auto_screen_on_upload),
+                                            },
+                                            {
+                                                label: isZh ? "初筛通过后自动推进候选人状态" : "Auto-advance candidates after screening",
+                                                enabled: position.auto_advance_on_screening !== false,
+                                            },
+                                            {
+                                                label: isZh ? "初筛完成后自动推送邮件" : "Auto-send mail after screening",
+                                                enabled: Boolean(position.auto_mail_enabled),
+                                            },
+                                        ];
+                                        const assessmentRows = [
+                                            {
+                                                label: isZh ? "JD 分析方案" : "JD Analysis Plan",
+                                                ids: position.jd_skill_ids || [],
+                                            },
+                                            {
+                                                label: isZh ? "初筛评估方案" : "Screening Assessment Plan",
+                                                ids: position.screening_skill_ids || [],
+                                            },
+                                            {
+                                                label: isZh ? "面试题评估方案" : "Interview Assessment Plan",
+                                                ids: position.interview_skill_ids || [],
+                                            },
+                                        ];
+
+                                        return (
+                                            <div className="grid max-w-[1180px] items-start gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
+                                                <div className="flex min-w-0 flex-col gap-4">
+                                                    <PositionDetailSection title={isZh ? "基本信息" : "Basic Info"}>
+                                                        <div className="grid gap-x-9 gap-y-4 sm:grid-cols-2">
+                                                            <PositionDetailBasicItem label={isZh ? "公司" : "Company"} value={getOrganizationLabel(position.org_code) || emptyValue}/>
+                                                            <PositionDetailBasicItem label={isZh ? "部门" : "Department"} value={position.department || emptyValue}/>
+                                                            <PositionDetailBasicItem label={isZh ? "招聘类型" : "Recruitment Type"} value={position.employment_type || emptyValue}/>
+                                                            <PositionDetailBasicItem label={isZh ? "职位类型" : "Job Type"} value={bossFields.jobType || emptyValue}/>
+                                                            <PositionDetailBasicItem label={isZh ? "工作地址" : "Work Address"} value={position.location || emptyValue}/>
+                                                            <PositionDetailBasicItem label={isZh ? "招聘人数" : "Headcount"} value={isZh ? `${position.headcount} 人` : String(position.headcount)}/>
+                                                            <PositionDetailBasicItem label={isZh ? "创建时间" : "Created At"} value={formatDateTime(position.created_at)}/>
+                                                        </div>
+                                                    </PositionDetailSection>
+
+                                                    <PositionDetailSection title={isZh ? "职位描述" : "Job Description"}>
+                                                        <div className="whitespace-pre-wrap break-words text-[13px] leading-[1.95] text-[#33353D] [overflow-wrap:anywhere] dark:text-slate-300">
+                                                            {position.key_requirements?.trim() || emptyValue}
+                                                        </div>
+                                                    </PositionDetailSection>
+
+                                                    {position.bonus_points?.trim() || position.summary?.trim() ? (
+                                                        <PositionDetailSection title={isZh ? "补充信息" : "Additional Info"}>
+                                                            <div className="flex flex-col gap-[14px]">
+                                                                <div className="flex min-w-0 flex-col gap-1.5">
+                                                                    <span className="text-[11px] leading-[17px] text-[#86888F] dark:text-slate-400">{isZh ? "加分项" : "Bonus Points"}</span>
+                                                                    <span className="whitespace-pre-wrap break-words text-[13px] leading-[1.85] text-[#33353D] [overflow-wrap:anywhere] dark:text-slate-300">{position.bonus_points?.trim() || emptyValue}</span>
+                                                                </div>
+                                                                <div className="h-px bg-[#F2F3F5] dark:bg-slate-800"/>
+                                                                <div className="flex min-w-0 flex-col gap-1.5">
+                                                                    <span className="text-[11px] leading-[17px] text-[#86888F] dark:text-slate-400">{isZh ? "岗位背景" : "Position Background"}</span>
+                                                                    <span className="whitespace-pre-wrap break-words text-[13px] leading-[1.85] text-[#33353D] [overflow-wrap:anywhere] dark:text-slate-300">{position.summary?.trim() || emptyValue}</span>
+                                                                </div>
+                                                            </div>
+                                                        </PositionDetailSection>
+                                                    ) : null}
+                                                </div>
+
+                                                <div className="flex min-w-0 flex-col gap-4">
+                                                    <PositionDetailSection title={isZh ? "职位要求" : "Position Requirements"}>
+                                                        <div className="flex flex-col gap-[13px]">
+                                                            {[
+                                                                [isZh ? "经验要求" : "Experience", bossFields.experience || emptyValue],
+                                                                [isZh ? "学历要求" : "Education", bossFields.education || emptyValue],
+                                                                [isZh ? "薪资范围" : "Salary", position.salary_range || emptyValue],
+                                                                [isZh ? "职位关键词" : "Keywords", bossFields.tagsText || emptyValue],
+                                                            ].map(([label, value]) => (
+                                                                <div key={label} className="flex items-baseline justify-between gap-3">
+                                                                    <span className="shrink-0 text-[12px] leading-[18px] text-[#86888F] dark:text-slate-400">{label}</span>
+                                                                    <span className="min-w-0 break-words text-right text-[13px] leading-[20px] text-[#0E1114] [overflow-wrap:anywhere] dark:text-slate-100">{value}</span>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    </PositionDetailSection>
+
+                                                    <PositionDetailSection title={isZh ? "初筛与自动化" : "Screening & Automation"}>
+                                                        <div className="flex flex-col gap-3">
+                                                            {automationRows.map((item) => (
+                                                                <div key={item.label} className="flex items-center justify-between gap-3">
+                                                                    <span className="text-[12px] leading-[18px] text-[#33353D] dark:text-slate-300">{item.label}</span>
+                                                                    <span className={cn(
+                                                                        "inline-flex h-[22px] shrink-0 items-center rounded-full px-[9px] text-[11px] leading-[18px]",
+                                                                        item.enabled
+                                                                            ? "bg-[#0CC991]/10 text-[#0A9C71] dark:bg-emerald-500/15 dark:text-emerald-300"
+                                                                            : "bg-[#B0B2B8]/15 text-[#86888F] dark:bg-slate-700/70 dark:text-slate-300",
+                                                                    )}>
+                                                                        {item.enabled ? (isZh ? "已开启" : "Enabled") : (isZh ? "未开启" : "Disabled")}
+                                                                    </span>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    </PositionDetailSection>
+
+                                                    <PositionDetailSection title={isZh ? "评估方案" : "Assessment Plans"}>
+                                                        <div className="flex flex-col gap-3">
+                                                            {assessmentRows.map((item) => {
+                                                                const isBound = item.ids.length > 0;
+                                                                return (
+                                                                    <div key={item.label} className="flex min-w-0 flex-col gap-[5px]">
+                                                                        <div className="flex items-center justify-between gap-[10px]">
+                                                                            <span className="text-[12px] leading-[18px] text-[#86888F] dark:text-slate-400">{item.label}</span>
+                                                                            <span className={cn(
+                                                                                "inline-flex h-5 shrink-0 items-center rounded-full px-2 text-[11px] leading-[16px]",
+                                                                                isBound
+                                                                                    ? "bg-[#0CC991]/10 text-[#0A9C71] dark:bg-emerald-500/15 dark:text-emerald-300"
+                                                                                    : "bg-[#B0B2B8]/15 text-[#86888F] dark:bg-slate-700/70 dark:text-slate-300",
+                                                                            )}>
+                                                                                {isBound ? (isZh ? "已绑定" : "Bound") : (isZh ? "未绑定" : "Unbound")}
+                                                                            </span>
+                                                                        </div>
+                                                                        <span className={cn(
+                                                                            "break-words text-[13px] leading-[20px] [overflow-wrap:anywhere]",
+                                                                            isBound ? "text-[#0E1114] dark:text-slate-100" : "text-[#B0B2B8] dark:text-slate-500",
+                                                                        )}>
+                                                                            {isBound
+                                                                                ? formatSkillNames(item.ids, skillMap, language)
+                                                                                : (isZh ? "未绑定 · 使用内置通用基座" : "Unbound · Using built-in base")}
+                                                                        </span>
+                                                                    </div>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    </PositionDetailSection>
+                                                </div>
+                                            </div>
+                                        );
+                                    })() : positionWorkspaceView === "versions" ? (() => {
+                                        const publishTasks = [...(positionDetail.publish_tasks || [])].sort(
+                                            (left, right) => Date.parse(String(right.created_at || "")) - Date.parse(String(left.created_at || "")),
+                                        );
+                                        const latestPublishTask = publishTasks[0];
+                                        const latestPublishStatus = String(latestPublishTask?.status || "").toLowerCase();
+                                        const publishFailed = ["failed", "error", "cancelled", "canceled"].includes(latestPublishStatus);
+                                        const publishRunning = ["pending", "queued", "running", "processing"].includes(latestPublishStatus);
+                                        const isPublished = Boolean(latestPublishTask?.published_url) && !publishFailed;
+                                        const publishStatusLabel = isPublished
+                                            ? (isZh ? "已发布" : "Published")
+                                            : publishRunning
+                                                ? (isZh ? "发布中" : "Publishing")
+                                                : publishFailed
+                                                    ? (isZh ? "发布失败" : "Failed")
+                                                    : (isZh ? "未发布" : "Unpublished");
+                                        const publishStatusDescription = isPublished
+                                            ? (isZh ? "当前生效版本已发布到招聘平台" : "The active version has been published")
+                                            : publishRunning
+                                                ? (isZh ? "当前发布任务正在执行，请稍后刷新查看结果" : "The publishing task is currently running")
+                                                : publishFailed
+                                                    ? (isZh ? "最近一次发布未成功，可检查记录后重新发布" : "The latest publishing task failed")
+                                                    : (isZh ? "当前生效版本尚未发布到招聘平台" : "The active version has not been published");
+
+                                        return (
+                                            <div className="flex max-w-[820px] flex-col gap-4">
+                                                <div className="flex flex-wrap items-center justify-between gap-4 rounded-[10px] border border-[#EBEEF5] bg-white px-5 py-[18px] dark:border-slate-800 dark:bg-slate-950">
+                                                    <div className="flex min-w-0 flex-col gap-1">
+                                                        <span className="text-[13px] font-semibold leading-5 text-[#0E1114] dark:text-slate-100">
+                                                            {isZh ? "发布状态" : "Publishing Status"}
+                                                        </span>
+                                                        <span className="text-[12px] leading-[18px] text-[#86888F] dark:text-slate-400">
+                                                            {publishStatusDescription}
+                                                        </span>
                                                     </div>
-                                                    <div className="flex flex-wrap gap-2">
-                                                        <Button variant="outline" size="sm" onClick={() => openEditPosition()}>
-                                                            <FilePlus2 className="h-4 w-4"/>
-                                                            {isZh ? "编辑招聘需求" : "Edit Request"}
-                                                        </Button>
-                                                        <Button variant="outline" size="sm" onClick={() => {
-                                                            if (!currentJDVersion?.publish_text?.trim()) {
-                                                                toast.info(isZh ? "请先生成并保存可发布的 JD 文案" : "Generate and save publish-ready JD copy first");
-                                                                return;
-                                                            }
-                                                            setPublishDialogOpen(true);
-                                                        }}>
-                                                            <Rocket className="h-4 w-4"/>
-                                                            {isZh ? "发布预演" : "Publish Preview"}
-                                                        </Button>
-                                                        <Button variant="outline" size="sm" onClick={() => setPositionDeleteConfirmOpen(true)} disabled={positionDeleting}>
-                                                            <Trash2 className="h-4 w-4"/>
-                                                            {positionDeleting ? (isZh ? "删除中..." : "Deleting...") : (isZh ? "删除需求" : "Delete Request")}
+                                                    <div className="flex shrink-0 items-center gap-3">
+                                                        <span className={cn(
+                                                            "inline-flex h-6 items-center rounded-full px-[10px] text-[12px] leading-[18px]",
+                                                            isPublished
+                                                                ? "bg-[#0CC991]/10 text-[#0A9C71] dark:bg-emerald-500/15 dark:text-emerald-300"
+                                                                : publishRunning
+                                                                    ? "bg-[#1E3BFA]/8 text-[#1E3BFA] dark:bg-blue-500/15 dark:text-blue-300"
+                                                                    : publishFailed
+                                                                        ? "bg-[#F53F3F]/8 text-[#F53F3F] dark:bg-rose-500/15 dark:text-rose-300"
+                                                                        : "bg-[#B0B2B8]/15 text-[#86888F] dark:bg-slate-700/70 dark:text-slate-300",
+                                                        )}>
+                                                            {publishStatusLabel}
+                                                        </span>
+                                                        <Button
+                                                            type="button"
+                                                            className="h-8 rounded-[6px] bg-[#1E3BFA] px-[15px] text-[12px] font-normal text-white shadow-none hover:bg-[#0F23D9]"
+                                                            onClick={() => {
+                                                                if (!currentPublishText.trim()) {
+                                                                    toast.info(isZh ? "请先生成并保存可发布的 JD 文案" : "Generate and save publish-ready JD copy first");
+                                                                    return;
+                                                                }
+                                                                setPublishDialogOpen(true);
+                                                            }}
+                                                        >
+                                                            {isZh ? "发布职位" : "Publish Position"}
                                                         </Button>
                                                     </div>
                                                 </div>
-                                            </CardHeader>
-                                            <CardContent className="space-y-5">
-                                                <Field label={isZh ? "招聘需求信息" : "Hiring Request Info"}>
-                                                    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                                                        <InfoTile label={isZh ? "部门" : "Department"} value={positionDetail.position.department || (isZh ? "未设置部门" : "No department")}/>
-                                                        <InfoTile label={recruitmentUiText.organizationField} value={getOrganizationLabel(positionDetail.position.org_code)}/>
-                                                        <InfoTile label={isZh ? "地点 / 用工类型" : "Location / Employment"} value={`${positionDetail.position.location || (isZh ? "未设置地点" : "No location")} · ${positionDetail.position.employment_type || (isZh ? "未设置用工类型" : "No employment type")}`}/>
-                                                        <InfoTile label={isZh ? "薪资 / 需求人数" : "Salary / Required Headcount"} value={`${positionDetail.position.salary_range || (isZh ? "未设置薪资" : "No salary set")} · ${positionDetail.position.headcount} ${isZh ? "人" : ""}`}/>
-                                                        <InfoTile label={isZh ? "标签" : "Tags"} value={joinTags(positionDetail.position.tags) || (isZh ? "未设置" : "Not set")}/>
-                                                        <InfoTile label={isZh ? "关键要求" : "Key Requirements"} value={shortText(positionDetail.position.key_requirements, 120)}/>
-                                                        <InfoTile label={isZh ? "加分项" : "Bonus Points"} value={shortText(positionDetail.position.bonus_points, 120)}/>
-                                                    </div>
-                                                </Field>
 
-                                                <Field label={isZh ? "评估方案与自动化配置" : "Assessment Plans & Automation"}>
-                                                    <div className="grid gap-3 md:grid-cols-2">
-                                                        <InfoTile label={isZh ? "JD 分析方案" : "JD Analysis Plan"} value={(positionDetail.position.jd_skill_ids || []).length ? formatSkillNames(positionDetail.position.jd_skill_ids || [], skillMap, language) : (isZh ? "未选择，自动使用系统通用基座" : "Not selected, using the system base")}/>
-                                                        <InfoTile label={isZh ? "初筛评估方案" : "Screening Assessment Plan"} value={(positionDetail.position.screening_skill_ids || []).length ? formatSkillNames(positionDetail.position.screening_skill_ids || [], skillMap, language) : (isZh ? "未选择，自动使用系统通用基座" : "Not selected, using the system base")}/>
-                                                        <InfoTile label={isZh ? "面试题评估方案" : "Interview Assessment Plan"} value={(positionDetail.position.interview_skill_ids || []).length ? formatSkillNames(positionDetail.position.interview_skill_ids || [], skillMap, language) : (isZh ? "未选择，自动使用系统通用基座" : "Not selected, using the system base")}/>
-                                                        <InfoTile label={isZh ? "自动流程" : "Automation"} value={`${positionDetail.position.auto_screen_on_upload ? (isZh ? "上传自动初筛已开启" : "Auto-screen on upload is on") : (isZh ? "上传自动初筛未开启" : "Auto-screen on upload is off")} · ${positionDetail.position.auto_advance_on_screening === false ? (isZh ? "通过后自动推进关闭" : "Auto-advance after pass is off") : (isZh ? "通过后自动推进开启" : "Auto-advance after pass is on")}`}/>
+                                                <div className="overflow-hidden rounded-[10px] border border-[#EBEEF5] bg-white dark:border-slate-800 dark:bg-slate-950">
+                                                    <div className="border-b border-[#F2F3F5] px-5 py-[14px] dark:border-slate-800">
+                                                        <span className="text-[13px] font-semibold leading-5 text-[#0E1114] dark:text-slate-100">
+                                                            {isZh ? "版本历史" : "Version History"}
+                                                        </span>
                                                     </div>
-                                                </Field>
+                                                    {positionDetail.jd_versions.length ? positionDetail.jd_versions.map((version) => (
+                                                        <div key={version.id} className="flex items-center gap-[14px] border-b border-[#F2F3F5] px-5 py-[14px] last:border-b-0 dark:border-slate-800">
+                                                            <span className={cn(
+                                                                "inline-flex h-[26px] min-w-[38px] shrink-0 items-center justify-center rounded-[6px] border px-2 text-[12px] font-semibold",
+                                                                version.is_active
+                                                                    ? "border-[#1E3BFA] text-[#0E1114] dark:text-slate-100"
+                                                                    : "border-[#EBEEF5] text-[#33353D] dark:border-slate-700 dark:text-slate-300",
+                                                            )}>
+                                                                V{version.version_no}
+                                                            </span>
+                                                            <div className="min-w-0 flex-1">
+                                                                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                                                                    <span className={cn(
+                                                                        "min-w-0 truncate text-[13px] leading-5",
+                                                                        version.is_active ? "text-[#0E1114] dark:text-slate-100" : "text-[#33353D] dark:text-slate-300",
+                                                                    )}>
+                                                                        {version.notes?.trim()
+                                                                            || version.title?.trim()
+                                                                            || (version.is_active
+                                                                                ? (isZh ? "由 AI 生成并人工校订 · 当前对外发布版本" : "AI generated and reviewed · Current public version")
+                                                                                : (isZh ? "历史归档版本，可回滚" : "Archived version, available for rollback"))}
+                                                                    </span>
+                                                                    <span className={cn(
+                                                                        "inline-flex h-[19px] shrink-0 items-center rounded-full px-2 text-[10px] leading-4",
+                                                                        version.is_active
+                                                                            ? "bg-[#0CC991]/10 text-[#0A9C71] dark:bg-emerald-500/15 dark:text-emerald-300"
+                                                                            : "bg-[#B0B2B8]/15 text-[#86888F] dark:bg-slate-700/70 dark:text-slate-300",
+                                                                    )}>
+                                                                        {version.is_active ? (isZh ? "生效中" : "Active") : (isZh ? "历史版本" : "Historical")}
+                                                                    </span>
+                                                                </div>
+                                                                <span className="mt-[3px] block text-[11px] leading-[17px] text-[#86888F] dark:text-slate-400">
+                                                                    {formatDateTime(version.created_at)}
+                                                                </span>
+                                                            </div>
+                                                            {!version.is_active ? (
+                                                                <Button
+                                                                    type="button"
+                                                                    variant="outline"
+                                                                    className="h-[28px] shrink-0 rounded-[6px] border-[#E6E7EB] px-[10px] text-[11px] font-normal text-[#1E3BFA] shadow-none hover:border-[#1E3BFA] hover:bg-[#1E3BFA]/5 hover:text-[#1E3BFA]"
+                                                                    onClick={() => void activateJDVersion(version.id)}
+                                                                    disabled={jdVersionActivating}
+                                                                >
+                                                                    {jdVersionActivating ? (isZh ? "切换中…" : "Switching…") : (isZh ? "设为生效" : "Activate")}
+                                                                </Button>
+                                                            ) : null}
+                                                        </div>
+                                                    )) : (
+                                                        <div className="px-5 py-8 text-center text-[12px] text-[#86888F] dark:text-slate-400">
+                                                            {isZh ? "暂无 JD 版本，请先在 JD 配置中生成并保存。" : "No JD versions yet. Generate and save one in JD Config."}
+                                                        </div>
+                                                    )}
+                                                </div>
 
-	                                                <Field label={isZh ? "职位摘要" : "Position Summary"}>
-                                                    <div className="rounded-[8px] border border-[#EBEEF5] bg-[#F7F8FA] px-4 py-4 text-sm leading-7 text-[#33353D] dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-300">
-                                                        {positionDetail.position.summary || (isZh ? "这个岗位还没有补充摘要，建议先由招聘同事或 AI 完善岗位背景和关键目标。" : "This position does not have a summary yet. It is recommended to add background and key goals with recruiting teammates or AI first.")}
+                                                <div className="overflow-hidden rounded-[10px] border border-[#EBEEF5] bg-white dark:border-slate-800 dark:bg-slate-950">
+                                                    <div className="border-b border-[#F2F3F5] px-5 py-[14px] dark:border-slate-800">
+                                                        <span className="text-[13px] font-semibold leading-5 text-[#0E1114] dark:text-slate-100">
+                                                            {isZh ? "发布记录" : "Publishing History"}
+                                                        </span>
                                                     </div>
-                                                </Field>
-                                            </CardContent>
-                                        </Card>
-                                    ) : null}
+                                                    {publishTasks.length ? publishTasks.map((task) => (
+                                                        <div key={task.id} className="flex items-start gap-[14px] border-b border-[#F2F3F5] px-5 py-[14px] last:border-b-0 dark:border-slate-800">
+                                                            <span className="inline-flex h-[26px] min-w-[46px] shrink-0 items-center justify-center rounded-[6px] border border-[#EBEEF5] px-2 text-[11px] font-medium text-[#33353D] dark:border-slate-700 dark:text-slate-300">
+                                                                {task.target_platform === "boss" ? "BOSS" : task.target_platform === "zhilian" ? (isZh ? "智联" : "Zhilian") : task.target_platform}
+                                                            </span>
+                                                            <div className="min-w-0 flex-1">
+                                                                <div className="flex flex-wrap items-center gap-2">
+                                                                    <span className="text-[13px] leading-5 text-[#0E1114] dark:text-slate-100">
+                                                                        {task.mode === "mock"
+                                                                            ? (isZh ? "发布预演" : "Preview")
+                                                                            : task.mode === "api"
+                                                                                ? (isZh ? "接口发布" : "API Publishing")
+                                                                                : (isZh ? "自动化发布" : "Automated Publishing")}
+                                                                    </span>
+                                                                    <Badge className={cn("h-[20px] rounded-full border px-2 py-0 text-[10px] font-normal", statusBadgeClass("task", task.status))}>
+                                                                        {labelForTaskExecutionStatus(task.status)}
+                                                                    </Badge>
+                                                                </div>
+                                                                <span className="mt-[3px] block text-[11px] leading-[17px] text-[#86888F] dark:text-slate-400">
+                                                                    {formatDateTime(task.created_at)}
+                                                                </span>
+                                                                {task.error_message ? (
+                                                                    <p className="mt-1.5 break-words text-[12px] leading-[18px] text-[#F53F3F]">{task.error_message}</p>
+                                                                ) : null}
+                                                            </div>
+                                                            {task.published_url && task.mode !== "mock" ? (
+                                                                <a
+                                                                    className="shrink-0 text-[12px] leading-5 text-[#1E3BFA] hover:text-[#0F23D9] hover:underline"
+                                                                    href={task.published_url}
+                                                                    target="_blank"
+                                                                    rel="noreferrer"
+                                                                >
+                                                                    {isZh ? "查看职位" : "Open"}
+                                                                </a>
+                                                            ) : null}
+                                                        </div>
+                                                    )) : (
+                                                        <div className="px-5 py-8 text-center text-[12px] text-[#86888F] dark:text-slate-400">
+                                                            {isZh ? "暂无发布记录。" : "No publishing history."}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        );
+                                    })() : null}
                                 </div>
-
-                                {positionWorkspaceView === "versions" ? (
-                                    <div className="min-h-0 space-y-4 overflow-y-auto xl:pr-1 xl:[scrollbar-gutter:stable] 2xl:space-y-6">
-                                        <Card className={cn(panelClass, "rounded-[8px] border-[#EBEEF5] shadow-none")}>
-                                            <CardHeader className="space-y-2">
-                                                <CardTitle className="text-lg">{isZh ? "JD 历史版本" : "JD History"}</CardTitle>
-                                            </CardHeader>
-                                            <CardContent className="space-y-3">
-                                                {positionDetail?.jd_versions.length ? positionDetail?.jd_versions.map((version) => (
-                                                    <div key={version.id} className="rounded-[8px] border border-[#EBEEF5] px-4 py-4 dark:border-slate-800">
-                                                        <div className="flex items-start justify-between gap-3">
-                                                            <div>
-                                                                <p className="font-medium text-slate-900 dark:text-slate-100">{version.title}</p>
-                                                                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                                                                    V{version.version_no} · {formatDateTime(version.created_at)}
-                                                                </p>
-                                                            </div>
-                                                            <Badge className={cn("rounded-full border", version.is_active ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200" : "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300")}>
-                                                                {version.is_active ? (isZh ? "当前生效" : "Active") : (isZh ? "历史版本" : "Historical")}
-                                                            </Badge>
-                                                        </div>
-                                                        <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">
-                                                            {shortText(version.notes || version.jd_markdown, 110) || (isZh ? "未填写版本备注" : "No version notes")}
-                                                        </p>
-                                                        {!version.is_active ? (
-                                                            <Button size="sm" variant="outline" className="mt-3" onClick={() => void activateJDVersion(version.id)} disabled={jdVersionActivating}>
-                                                                {jdVersionActivating ? (isZh ? "切换中..." : "Switching...") : (isZh ? "切换为当前版本" : "Set as Active Version")}
-                                                            </Button>
-                                                        ) : null}
-                                                    </div>
-                                                )) : (
-                                                    <EmptyState title={isZh ? "暂无 JD 版本" : "No JD Versions"} description={isZh ? "点击 AI 生成 JD 或保存新版本后，这里会形成完整版本轨迹。" : "Generate a JD or save a new version to build the version history here."}/>
-                                                )}
-                                            </CardContent>
-                                        </Card>
-
-                                        <Card className={cn(panelClass, "rounded-[8px] border-[#EBEEF5] shadow-none")}>
-                                            <CardHeader className="space-y-2">
-                                                <CardTitle className="text-lg">{isZh ? "关联候选人" : "Linked Candidates"}</CardTitle>
-                                            </CardHeader>
-                                            <CardContent className="space-y-3">
-                                                {positionDetail?.candidates.length ? positionDetail?.candidates.map((candidate) => {
-                                                    const displayStatus = resolveCandidateDisplayStatus(candidate);
-                                                    return (
-                                                        <button
-                                                            key={candidate.id}
-                                                            type="button"
-                                                            className="flex w-full items-start justify-between rounded-[8px] border border-[#EBEEF5] px-4 py-4 text-left transition hover:border-[#D6D8DD] hover:bg-[#F7F8FA] dark:border-slate-800"
-                                                            onClick={() => {
-                                                                candidatePageTargetCandidateIdRef.current = candidate.id;
-                                                                setCandidateDetailReviewContext(null);
-                                                                setSelectedCandidateId(candidate.id);
-                                                                navigateToRecruitmentPage("candidates");
-                                                            }}
-                                                        >
-                                                            <div>
-                                                                <p className="font-medium text-slate-900 dark:text-slate-100">{candidate.name}</p>
-                                                                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                                                                    {isZh ? "匹配度" : "Match"} {formatPercent(candidate.match_percent)} · {candidate.phone || (isZh ? "未填写手机号" : "No phone number")}
-                                                                </p>
-                                                            </div>
-                                                            <Badge className={cn("rounded-full border", statusBadgeClass("candidate", displayStatus))}>
-                                                                {labelForCandidateStatus(displayStatus)}
-                                                            </Badge>
-                                                        </button>
-                                                    );
-                                                }) : (
-                                                    <EmptyState title={recruitmentUiText.noCandidates} description={recruitmentUiText.noCandidatesDesc}/>
-                                                )}
-                                            </CardContent>
-                                        </Card>
-
-                                        <Card className={cn(panelClass, "rounded-[8px] border-[#EBEEF5] shadow-none")}>
-                                            <CardHeader className="space-y-2">
-                                                <CardTitle className="text-lg">{isZh ? "发布预演记录" : "Publish Preview History"}</CardTitle>
-                                            </CardHeader>
-                                            <CardContent className="space-y-3">
-                                                {positionDetail?.publish_tasks.length ? positionDetail?.publish_tasks.map((task) => (
-                                                    <div key={task.id} className="rounded-[8px] border border-[#EBEEF5] px-4 py-4 dark:border-slate-800">
-                                                        <div className="flex items-center justify-between gap-3">
-                                                            <div>
-                                                                <p className="font-medium text-slate-900 dark:text-slate-100">
-                                                                    {task.target_platform === "boss" ? recruitmentUiText.bossDirect : task.target_platform === "zhilian" ? recruitmentUiText.zhilian : task.target_platform}
-                                                                    {" · "}
-                                                                    {task.mode === "mock" ? (isZh ? "发布预演" : "Preview") : task.mode === "api" ? (isZh ? "接口发布" : "API Publishing") : (isZh ? "自动化发布" : "Automated Publishing")}
-                                                                </p>
-                                                                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{formatDateTime(task.created_at)}</p>
-                                                            </div>
-                                                            <Badge className={cn("rounded-full border", statusBadgeClass("task", task.status))}>
-                                                                {labelForTaskExecutionStatus(task.status)}
-                                                            </Badge>
-                                                        </div>
-                                                        {task.published_url && task.mode !== "mock" ? (
-                                                            <a className="mt-3 inline-flex items-center gap-1 text-sm text-[#0F23D9] hover:underline" href={task.published_url} target="_blank" rel="noreferrer">
-                                                                {isZh ? "查看发布链接" : "Open Published Link"}
-                                                                <ExternalLink className="h-4 w-4"/>
-                                                            </a>
-                                                        ) : null}
-                                                        {task.error_message ? <p className="mt-3 text-sm text-rose-600">{task.error_message}</p> : null}
-                                                    </div>
-                                                )) : (
-                                                    <EmptyState title={isZh ? "暂无发布预演" : "No Publish Previews"} description={isZh ? "完成并保存 JD 后，可创建预演记录检查发布内容。" : "Finish and save the JD, then create a preview to review the publishing content."}/>
-                                                )}
-                                            </CardContent>
-                                        </Card>
-                                    </div>
-                                ) : null}
                             </div>
                         </div>
                     ) : (
@@ -16017,93 +15948,109 @@ export default function RecruitmentAutomationContainer({
                 }
                 requestClosePositionJDConfigDialog();
             }}>
-                <DialogContent className="flex h-[min(88vh,900px)] max-h-[88vh] flex-col overflow-hidden rounded-[8px] border-[#EBEEF5] shadow-[0_8px_24px_rgba(14,17,20,0.16)] sm:max-w-[960px]">
-                    <DialogHeader>
-                        <DialogTitle>{isZh ? `JD 配置 · ${positionDetail?.position.title || ""}` : `JD Config · ${positionDetail?.position.title || ""}`}</DialogTitle>
-                        <DialogDescription>
-                            {positionDetailViewOpen
-                                ? (isZh ? "生成、编辑并保存当前岗位 JD，关闭后仍停留在当前岗位。" : "Generate, edit, and save the current JD without leaving this position.")
-                                : (isZh ? "生成、编辑并保存当前岗位 JD，关闭后返回岗位列表。" : "Generate, edit, and save the current JD, then return to the position list.")}
+                <DialogContent className={cn(settingsDialogSurfaceClass, "flex h-[min(88vh,900px)] max-h-[88vh] flex-col sm:max-w-[960px]")}>
+                    <DialogHeader className={settingsDialogHeaderClass}>
+                        <DialogTitle className="text-[16px] font-semibold leading-5 text-[#0E1114]">
+                            {isZh ? `JD 配置 · ${positionDetail?.position.title || ""}` : `JD Config · ${positionDetail?.position.title || ""}`}
+                        </DialogTitle>
+                        <DialogDescription className="text-[12px] leading-5 text-[#86888F]">
+                            {isZh
+                                ? "生成、编辑并保存当前岗位 JD，保存后可直接复制发布文案。"
+                                : "Generate, edit, and save the current JD, then copy the publish-ready text."}
                         </DialogDescription>
                     </DialogHeader>
+
                     <ScrollArea className="min-h-0 flex-1">
                         {positionDetail ? (
-                            <div className="space-y-4 px-1 py-1">
-                                <div className="flex flex-wrap items-center justify-between gap-3 rounded-[8px] bg-[#F7F8FA] px-4 py-3 dark:bg-slate-900/70">
-                                    <div className="flex flex-wrap items-center gap-2.5">
-                                        <span className="text-base font-semibold text-slate-950 dark:text-slate-100">{positionDetail.position.title}</span>
-                                        <Badge className={cn("rounded-full border text-[14px]", statusBadgeClass("task", currentJDGenerationStatus === "syncing" ? "running" : currentJDGenerationStatus))}>
+                            <div className="flex flex-col gap-4 px-6 py-5">
+                                <div className="flex flex-wrap items-center justify-between gap-3 rounded-[8px] bg-[#F7F8FA] px-4 py-[14px] dark:bg-slate-900/70">
+                                    <div className="flex flex-wrap items-center gap-[10px]">
+                                        <span className="text-[14px] font-semibold leading-5 text-[#0E1114] dark:text-slate-100">
+                                            {positionDetail.position.title}
+                                        </span>
+                                        <Badge className={cn("h-[22px] rounded-full border px-2 py-0 text-[12px] font-normal", statusBadgeClass("task", currentJDGenerationStatus === "syncing" ? "running" : currentJDGenerationStatus))}>
                                             {labelForJDGenerationStatus(currentJDGenerationStatus)}
                                         </Badge>
-                                        <Badge variant="outline" className="rounded-full text-[14px]">
+                                        <Badge variant="outline" className="h-[22px] rounded-full border-[#E6E7EB] px-2 py-0 text-[12px] font-normal text-[#33353D]">
                                             {currentJDVersion ? `V${currentJDVersion.version_no} ${isZh ? "生效中" : "Active"}` : (isZh ? "未生成" : "Not generated")}
                                         </Badge>
                                     </div>
-                                    <div className="text-sm text-slate-500 dark:text-slate-400">
+                                    <span className="text-[12px] leading-[18px] text-[#86888F] dark:text-slate-400">
                                         {positionDetail.jd_generation?.last_generated_at
                                             ? (isZh ? `上次生成 ${formatDateTime(positionDetail.jd_generation.last_generated_at)}` : `Last generated ${formatDateTime(positionDetail.jd_generation.last_generated_at)}`)
                                             : (isZh ? "暂无生成记录" : "No generation history")}
-                                    </div>
+                                    </span>
                                 </div>
+
                                 {hasUnsavedJDDraft ? (
-                                    <div className="flex flex-wrap items-center justify-between gap-3 rounded-[8px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
-                                        <span className="flex items-center gap-2">
-                                            <Save className="h-4 w-4"/>
-                                            {isZh ? "这是一份未保存的 AI 生成草稿，关闭前请先保存，或确认放弃本次生成。" : "This AI-generated draft is not saved yet. Save it before closing, or confirm discard."}
-                                        </span>
+                                    <div className="flex flex-wrap items-center justify-between gap-3 rounded-[8px] bg-[rgba(255,171,36,0.08)] px-4 py-3 text-[12px] leading-5 text-[#D48806]">
+                                        <span>{isZh ? "这是一份未保存的 AI 生成草稿，关闭前请先保存，或确认放弃本次生成。" : "This AI-generated draft is unsaved. Save it before closing, or confirm discard."}</span>
                                         <Button
-                                            size="sm"
-                                            className="h-8 rounded-[6px] bg-[#1E3BFA] text-white hover:bg-[#0F23D9]"
+                                            type="button"
+                                            className="h-[30px] rounded-[6px] bg-[#1E3BFA] px-[14px] text-[12px] font-normal text-white shadow-none hover:bg-[#0F23D9]"
                                             onClick={() => void saveJDVersion()}
                                             disabled={jdVersionSaving || isJDGenerating || !jdDraft.jdMarkdown.trim()}
                                         >
-                                            {jdVersionSaving ? (isZh ? "保存中..." : "Saving...") : (isZh ? "立即保存" : "Save now")}
+                                            {jdVersionSaving ? (isZh ? "保存中…" : "Saving…") : (isZh ? "立即保存" : "Save now")}
                                         </Button>
                                     </div>
                                 ) : null}
 
-                                <div className="rounded-[8px] border border-[#EBEEF5] bg-white shadow-none dark:border-slate-800 dark:bg-slate-950/70">
-                                    <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3 dark:border-slate-800/80">
-                                        <span className="flex items-center gap-1.5 text-sm font-semibold text-slate-700 dark:text-slate-200">
-                                            <Sparkles className="h-3.5 w-3.5"/>
+                                <div className="overflow-hidden rounded-[8px] border border-[#EBEEF5] bg-white dark:border-slate-800 dark:bg-slate-950/70">
+                                    <div className="flex items-center justify-between gap-3 border-b border-[#F2F3F5] px-4 py-3 dark:border-slate-800">
+                                        <span className="flex items-center gap-1.5 text-[13px] font-semibold leading-5 text-[#0E1114] dark:text-slate-100">
+                                            <Sparkles className="h-[13px] w-[13px] text-[#1E3BFA]"/>
                                             {isZh ? "AI 生成 JD" : "AI Generate JD"}
                                         </span>
-                                        <span className="text-sm text-slate-400 dark:text-slate-500">
+                                        <span className="text-[12px] leading-[18px] text-[#B0B2B8] dark:text-slate-500">
                                             {positionDetail.jd_generation?.model_name || positionDetail.jd_generation?.model_provider
                                                 ? (isZh ? `模型：${positionDetail.jd_generation?.model_name || positionDetail.jd_generation?.model_provider}` : `Model: ${positionDetail.jd_generation?.model_name || positionDetail.jd_generation?.model_provider}`)
                                                 : ""}
                                         </span>
                                     </div>
-                                    <div className="space-y-3 px-4 py-4">
+                                    <div className="flex flex-col gap-3 px-4 py-[14px]">
                                         <Textarea
                                             value={jdExtraPrompt}
                                             onChange={(event) => setJdExtraPrompt(event.target.value)}
                                             rows={2}
                                             placeholder={isZh ? "补充本次生成要求（选填），例如：强调 IoT 场景、自动化测试、设备联调经验等" : "Add generation-specific requirements (optional)"}
-                                            className="resize-none text-sm"
+                                            className={cn(settingsTextareaClass, "min-h-[52px] resize-none")}
                                         />
                                         {latestJDGenerationError ? (
-                                            <div className="flex items-start gap-2 rounded-[6px] border border-rose-200 bg-rose-50 px-3 py-2.5 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-200">
-                                                <span className="shrink-0">!</span>
-                                                <span>{isZh ? `上次生成失败：${latestJDGenerationError}` : `Last generation failed: ${latestJDGenerationError}`}</span>
+                                            <div className="rounded-[6px] bg-[rgba(245,63,63,0.08)] px-3 py-2 text-[12px] leading-5 text-[#F53F3F]" role="alert">
+                                                {isZh ? `上次生成失败：${latestJDGenerationError}` : `Last generation failed: ${latestJDGenerationError}`}
                                             </div>
                                         ) : null}
-                                        <div className="flex items-center justify-end gap-2">
+                                        <div className="flex items-center justify-end gap-[10px]">
                                             {isJDGenerating ? (
-                                                <Button variant="outline" size="sm" onClick={() => void stopJDGeneration()} className="rounded-[6px] text-sm">
-                                                    <Square className="mr-1 h-3.5 w-3.5"/>
+                                                <Button
+                                                    type="button"
+                                                    variant="outline"
+                                                    className="h-8 rounded-[6px] border-[#E6E7EB] px-[14px] text-[12px] font-normal shadow-none"
+                                                    onClick={() => void stopJDGeneration()}
+                                                >
+                                                    <Square className="h-3 w-3"/>
                                                     {isZh ? "停止生成" : "Stop"}
                                                 </Button>
                                             ) : (
                                                 <>
                                                     {currentJDVersion ? (
-                                                        <Button variant="outline" size="sm" onClick={() => void generateJD()} className="rounded-[6px] text-sm">
-                                                            <RefreshCw className="mr-1 h-3.5 w-3.5"/>
+                                                        <Button
+                                                            type="button"
+                                                            variant="outline"
+                                                            className="h-8 rounded-[6px] border-[#1E3BFA] px-[14px] text-[12px] font-normal text-[#1E3BFA] shadow-none hover:bg-[#1E3BFA]/5 hover:text-[#1E3BFA]"
+                                                            onClick={() => void generateJD()}
+                                                        >
+                                                            <RefreshCw className="h-3 w-3"/>
                                                             {isZh ? "重新生成" : "Regenerate"}
                                                         </Button>
                                                     ) : null}
-                                                    <Button size="sm" onClick={() => void generateJD()} className="rounded-[6px] bg-[#1E3BFA] text-sm text-white hover:bg-[#0F23D9]">
-                                                        <Wand2 className="mr-1 h-3.5 w-3.5"/>
+                                                    <Button
+                                                        type="button"
+                                                        className="h-8 rounded-[6px] bg-[#1E3BFA] px-[14px] text-[12px] font-normal text-white shadow-none hover:bg-[#0F23D9]"
+                                                        onClick={() => void generateJD()}
+                                                    >
+                                                        <Wand2 className="h-3 w-3"/>
                                                         {isZh ? "AI 生成 JD" : "Generate JD"}
                                                     </Button>
                                                 </>
@@ -16119,68 +16066,115 @@ export default function RecruitmentAutomationContainer({
                                     </div>
                                 </div>
 
-                                <div className="rounded-[8px] border border-[#EBEEF5] bg-white shadow-none dark:border-slate-800 dark:bg-slate-950/70">
-                                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-3 dark:border-slate-800/80">
-                                        <div className="flex gap-1.5">
-                                            <Button variant={jdViewMode === "publish" ? "default" : "outline"} size="sm" className={cn("h-8 rounded-[6px] px-3 text-xs", jdViewMode === "publish" && "bg-[#1E3BFA] text-white hover:bg-[#0F23D9]")} onClick={() => setJdViewMode("publish")}>{isZh ? "可发布版" : "Publish Copy"}</Button>
-                                            <Button variant={jdViewMode === "markdown" ? "default" : "outline"} size="sm" className={cn("h-8 rounded-[6px] px-3 text-sm", jdViewMode === "markdown" && "bg-[#1E3BFA] text-white hover:bg-[#0F23D9]")} onClick={() => setJdViewMode("markdown")}>{isZh ? "编辑源文本" : "Edit Source"}</Button>
-                                            <Button variant={jdViewMode === "preview" ? "default" : "outline"} size="sm" className={cn("h-8 rounded-[6px] px-3 text-sm", jdViewMode === "preview" && "bg-[#1E3BFA] text-white hover:bg-[#0F23D9]")} onClick={() => setJdViewMode("preview")}>{isZh ? "排版预览" : "Preview"}</Button>
+                                <div className="overflow-hidden rounded-[8px] border border-[#EBEEF5] bg-white dark:border-slate-800 dark:bg-slate-950/70">
+                                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#F2F3F5] px-4 py-[10px] dark:border-slate-800">
+                                        <div className="flex items-center gap-2">
+                                            {([
+                                                ["publish", isZh ? "可发布版" : "Publish Copy"],
+                                                ["markdown", isZh ? "编辑源文本" : "Edit Source"],
+                                                ["preview", isZh ? "排版预览" : "Preview"],
+                                            ] as const).map(([mode, label]) => (
+                                                <Button
+                                                    key={mode}
+                                                    type="button"
+                                                    variant={jdViewMode === mode ? "default" : "outline"}
+                                                    className={cn(
+                                                        "h-[28px] rounded-[6px] border px-3 text-[12px] font-normal shadow-none",
+                                                        jdViewMode === mode
+                                                            ? "border-[#1E3BFA] bg-[#1E3BFA] text-white hover:bg-[#0F23D9]"
+                                                            : "border-[#E6E7EB] bg-white text-[#33353D] hover:border-[#1E3BFA] hover:bg-[#1E3BFA]/5 hover:text-[#1E3BFA]",
+                                                    )}
+                                                    onClick={() => setJdViewMode(mode)}
+                                                >
+                                                    {label}
+                                                </Button>
+                                            ))}
                                         </div>
                                         {jdViewMode === "publish" ? (
-                                            <Button variant="outline" size="sm" className="h-8 rounded-[6px] px-3 text-sm" onClick={() => void copyPublishJDText()} disabled={!currentPublishText.trim()}>
-                                                <ClipboardCheck className="mr-1 h-3.5 w-3.5"/>
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                                className="h-[28px] rounded-[6px] border-[#E6E7EB] px-3 text-[12px] font-normal shadow-none"
+                                                onClick={() => void copyPublishJDText()}
+                                                disabled={!currentPublishText.trim()}
+                                            >
+                                                <ClipboardCheck className="h-3 w-3"/>
                                                 {isZh ? "复制发布文案" : "Copy Publish Copy"}
                                             </Button>
                                         ) : null}
                                     </div>
+
                                     {jdViewMode === "publish" ? (
-                                        <div className="min-h-[320px] whitespace-pre-wrap px-5 py-4 text-base leading-7 text-slate-700 dark:text-slate-200">
-                                            {currentPublishText || <span className="text-slate-400 dark:text-slate-500">{isZh ? '暂无可发布的 JD 文案，点击"AI 生成 JD"后将在此展示。' : 'No publish-ready JD yet. Click "Generate JD" and it will appear here.'}</span>}
+                                        <div className="min-h-[180px] whitespace-pre-wrap break-words px-5 py-[18px] text-[13px] leading-[1.9] text-[#33353D] [overflow-wrap:anywhere] dark:text-slate-300">
+                                            {currentPublishText || <span className="text-[#86888F] dark:text-slate-500">{isZh ? "暂无可发布的 JD 文案，点击「AI 生成 JD」后将在此展示。" : "No publish-ready JD yet. Generate one to see it here."}</span>}
                                         </div>
                                     ) : null}
                                     {jdViewMode === "markdown" ? (
-                                        <div className="px-4 py-3">
+                                        <div className="bg-[#F7F8FA] px-5 py-[18px] dark:bg-slate-900/40">
                                             <Textarea
                                                 value={jdDraft.jdMarkdown}
                                                 onChange={(event) => setJdDraft((current) => ({...current, jdMarkdown: event.target.value}))}
                                                 rows={18}
-                                                className="font-mono text-sm"
+                                                className={cn(settingsTextareaClass, "font-mono leading-[1.9]")}
                                             />
-                                            <p className="mt-1.5 text-sm text-slate-400 dark:text-slate-500">{isZh ? "编辑完成后点击下方「保存新版本」即可更新" : "Edit and click 'Save New Version' below to update"}</p>
                                         </div>
                                     ) : null}
                                     {jdViewMode === "preview" ? (
-                                        <div className="min-h-[320px] px-5 py-4 text-base leading-7 text-slate-700 dark:text-slate-200" dangerouslySetInnerHTML={{__html: currentPreviewHtml}}/>
+                                        <div className="min-h-[180px] break-words px-5 py-[18px] text-[13px] leading-[2] text-[#33353D] [overflow-wrap:anywhere] dark:text-slate-300" dangerouslySetInnerHTML={{__html: currentPreviewHtml}}/>
                                     ) : null}
-                                    <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/70 px-4 py-3 dark:border-slate-800/80 dark:bg-slate-900/30">
+
+                                    <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#F2F3F5] bg-[#F7F8FA] px-4 py-[10px] dark:border-slate-800 dark:bg-slate-900/30">
+                                        <label className="flex cursor-pointer items-center gap-1.5 text-[12px] text-[#33353D] dark:text-slate-300">
+                                            <input
+                                                type="checkbox"
+                                                checked={jdDraft.autoActivate}
+                                                onChange={(event) => setJdDraft((current) => ({...current, autoActivate: event.target.checked}))}
+                                            />
+                                            {isZh ? "保存后设为生效版本" : "Set as active after saving"}
+                                        </label>
                                         <div className="flex flex-wrap items-center gap-3">
-                                            <label className="flex cursor-pointer items-center gap-1.5 text-sm text-slate-600 dark:text-slate-300">
-                                                <input type="checkbox" checked={jdDraft.autoActivate} onChange={(event) => setJdDraft((current) => ({...current, autoActivate: event.target.checked}))}/>
-                                                {isZh ? "保存后设为生效版本" : "Set as Active After Saving"}
+                                            <label className="flex items-center gap-1.5 text-[12px] text-[#86888F]">
+                                                <span>{isZh ? "版本标题" : "Title"}</span>
+                                                <Input
+                                                    value={jdDraft.title}
+                                                    onChange={(event) => setJdDraft((current) => ({...current, title: event.target.value}))}
+                                                    className={cn(settingsInputClass, "h-[28px] w-40")}
+                                                />
                                             </label>
-                                            <Input value={jdDraft.title} onChange={(event) => setJdDraft((current) => ({...current, title: event.target.value}))} className="h-8 w-44 rounded-[6px] text-sm focus-visible:border-[#1E3BFA] focus-visible:ring-[#1E3BFA]/15" placeholder={isZh ? "版本标题" : "Version title"}/>
-                                            <Input value={jdDraft.notes} onChange={(event) => setJdDraft((current) => ({...current, notes: event.target.value}))} className="h-8 w-40 rounded-[6px] text-sm focus-visible:border-[#1E3BFA] focus-visible:ring-[#1E3BFA]/15" placeholder={isZh ? "备注（选填）" : "Notes (optional)"}/>
+                                            <label className="flex items-center gap-1.5 text-[12px] text-[#86888F]">
+                                                <span>{isZh ? "备注" : "Notes"}</span>
+                                                <Input
+                                                    value={jdDraft.notes}
+                                                    onChange={(event) => setJdDraft((current) => ({...current, notes: event.target.value}))}
+                                                    className={cn(settingsInputClass, "h-[28px] w-36")}
+                                                    placeholder={isZh ? "选填" : "Optional"}
+                                                />
+                                            </label>
                                         </div>
                                     </div>
                                 </div>
                             </div>
                         ) : null}
                     </ScrollArea>
-                    <DialogFooter className="items-center justify-between gap-3 sm:justify-between">
-                        <p className="text-sm text-slate-500 dark:text-slate-400">
-                            {hasUnsavedJDDraft ? (isZh ? "当前草稿尚未保存" : "Current draft is not saved") : ""}
-                        </p>
-                        <div className="flex items-center gap-2">
-                            <Button variant="outline" className="rounded-[6px]" onClick={requestClosePositionJDConfigDialog}>{recruitmentUiText.cancelButton}</Button>
-                            <Button
-                                onClick={() => void saveJDVersion()}
-                                className="rounded-[6px] bg-[#1E3BFA] text-white hover:bg-[#0F23D9]"
-                                disabled={jdVersionSaving || isJDGenerating || !jdDraft.jdMarkdown.trim()}
-                            >
-                                <Save className="mr-1 h-4 w-4"/>
-                                {jdVersionSaving ? (isZh ? "保存中..." : "Saving...") : (isZh ? "保存新版本" : "Save New Version")}
-                            </Button>
-                        </div>
+
+                    <DialogFooter className={cn(settingsDialogFooterClass, "sm:justify-start")}>
+                        <span className="mr-auto text-[12px] leading-5 text-[#86888F]">
+                            {hasUnsavedJDDraft ? (isZh ? "当前草稿尚未保存" : "Current draft is unsaved") : ""}
+                        </span>
+                        <Button variant="outline" className={settingsSecondaryButtonClass} onClick={requestClosePositionJDConfigDialog}>
+                            {isZh ? "关闭" : "Close"}
+                        </Button>
+                        <Button
+                            className={settingsPrimaryButtonClass}
+                            onClick={() => void saveJDVersion()}
+                            disabled={jdVersionSaving || isJDGenerating || !jdDraft.jdMarkdown.trim()}
+                        >
+                            {jdVersionSaving
+                                ? (isZh ? "保存中…" : "Saving…")
+                                : jdDraft.autoActivate
+                                    ? (isZh ? "保存并设为生效版本" : "Save and Activate")
+                                    : (isZh ? "保存新版本" : "Save New Version")}
+                        </Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
@@ -16191,23 +16185,23 @@ export default function RecruitmentAutomationContainer({
                     setJdUnsavedExitIntent(null);
                 }
             }}>
-                <DialogContent className="rounded-[8px] border-[#EBEEF5] shadow-[0_8px_24px_rgba(14,17,20,0.16)] sm:max-w-md">
-                    <DialogHeader>
-                        <DialogTitle>{isZh ? "当前 JD 草稿还没有保存" : "This JD draft has not been saved"}</DialogTitle>
-                        <DialogDescription>
+                <DialogContent className={cn(settingsDialogSurfaceClass, "sm:max-w-[480px]")}>
+                    <DialogHeader className={settingsDialogHeaderClass}>
+                        <DialogTitle className="text-[16px] font-semibold leading-5 text-[#0E1114]">{isZh ? "当前 JD 草稿还没有保存" : "This JD draft has not been saved"}</DialogTitle>
+                        <DialogDescription className="text-[12px] leading-5 text-[#86888F]">
                             {isZh
                                 ? "离开后，当前编辑内容会被放弃，不会写入 JD 版本记录。你可以继续编辑并点击「保存新版本」，也可以确认放弃草稿。"
                                 : "Leaving will discard the current edits without adding a JD version. Keep editing and save a new version, or discard the draft."}
                         </DialogDescription>
                     </DialogHeader>
-                    <DialogFooter>
-                        <Button variant="outline" onClick={() => {
+                    <DialogFooter className={settingsDialogFooterClass}>
+                        <Button variant="outline" className={settingsSecondaryButtonClass} onClick={() => {
                             setJdUnsavedCloseConfirmOpen(false);
                             setJdUnsavedExitIntent(null);
                         }}>
                             {isZh ? "继续编辑" : "Keep Editing"}
                         </Button>
-                        <Button variant="destructive" onClick={discardGeneratedJDDraftAndClose}>
+                        <Button variant="destructive" className={settingsDangerButtonClass} onClick={discardGeneratedJDDraftAndClose}>
                             {isZh ? "放弃草稿并离开" : "Discard and Leave"}
                         </Button>
                     </DialogFooter>
@@ -16220,15 +16214,18 @@ export default function RecruitmentAutomationContainer({
                     setPositionAssessmentSaving(false);
                 }
             }}>
-                <DialogContent className="flex max-h-[88vh] flex-col overflow-hidden rounded-[8px] border-[#EBEEF5] shadow-[0_8px_24px_rgba(14,17,20,0.16)] sm:max-w-[760px]">
-                    <DialogHeader>
-                        <DialogTitle>{isZh ? `评估方案配置 · ${positionDetail?.position.title || ""}` : `Assessment Plans · ${positionDetail?.position.title || ""}`}</DialogTitle>
-                        <DialogDescription>
+                <DialogContent className={cn(settingsDialogSurfaceClass, "flex max-h-[88vh] flex-col sm:max-w-[720px]")}>
+                    <DialogHeader className={settingsDialogHeaderClass}>
+                        <DialogTitle className="text-[16px] font-semibold leading-5 text-[#0E1114]">
+                            {isZh ? "评估方案配置" : "Assessment Plan Configuration"}
+                        </DialogTitle>
+                        <DialogDescription className="text-[12px] leading-5 text-[#86888F]">
                             {isZh ? "只展示当前岗位已绑定或本次新建待绑定的方案，点击确定后才会写入岗位。" : "Only current or newly pending plans are shown. Changes are saved after confirmation."}
                         </DialogDescription>
                     </DialogHeader>
+
                     <ScrollArea className="min-h-0 flex-1">
-                        <div className="space-y-3 px-1 py-1">
+                        <div className="flex flex-col gap-3 px-6 py-5">
                             {([
                                 ["jdSkillIds", positionSkillFieldConfig.jdSkillIds],
                                 ["screeningSkillIds", positionSkillFieldConfig.screeningSkillIds],
@@ -16242,70 +16239,79 @@ export default function RecruitmentAutomationContainer({
                                         ? (positionDetail?.position.screening_skill_ids || [])
                                         : (positionDetail?.position.interview_skill_ids || []);
                                 const isPending = Boolean(selectedSkillId && !boundIds.includes(selectedSkillId));
+
                                 return (
-                                    <div key={`assessment-config-${formKey}`} className="rounded-[8px] border border-[#EBEEF5] bg-white p-4 shadow-none dark:border-slate-800 dark:bg-slate-950/70">
+                                    <div key={`assessment-config-${formKey}`} className="rounded-[8px] border border-[#EBEEF5] bg-white p-4 dark:border-slate-800 dark:bg-slate-950/70">
                                         <div className="flex items-start justify-between gap-3">
-                                            <div>
-                                                <p className="text-base font-semibold text-slate-950 dark:text-slate-100">{config.label}</p>
-                                                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                            <div className="min-w-0">
+                                                <p className="text-[13px] font-semibold leading-5 text-[#0E1114] dark:text-slate-100">{config.label}</p>
+                                                <p className="mt-[3px] text-[11px] leading-[17px] text-[#86888F] dark:text-slate-400">
                                                     {selectedSkill
                                                         ? (isPending ? (isZh ? "本次新增，待确认绑定" : "New this time, pending confirmation") : (isZh ? "当前岗位已绑定" : "Currently bound to this position"))
                                                         : (isZh ? "当前未绑定，系统会使用内置通用基座" : "No plan bound. The system uses its built-in base.")}
                                                 </p>
                                             </div>
                                             {canManageSkill ? (
-                                                <Button type="button" variant="outline" size="sm" className="rounded-[6px]" onClick={() => openSkillEditorForAssessmentConfig(config.taskKind, formKey)}>
-                                                    <Plus className="mr-1 h-4 w-4"/>
+                                                <Button
+                                                    type="button"
+                                                    variant="outline"
+                                                    className="h-[28px] shrink-0 rounded-[6px] border-[#E6E7EB] px-3 text-[12px] font-normal text-[#33353D] shadow-none hover:border-[#1E3BFA] hover:bg-[#1E3BFA]/5 hover:text-[#1E3BFA]"
+                                                    onClick={() => openSkillEditorForAssessmentConfig(config.taskKind, formKey)}
+                                                >
+                                                    <Plus className="h-3 w-3"/>
                                                     {isZh ? "添加" : "Add"}
                                                 </Button>
                                             ) : null}
                                         </div>
-                                        <div className="mt-4 rounded-[6px] border border-[#F2F3F5] bg-[#F7F8FA] px-4 py-3 dark:border-slate-800 dark:bg-slate-900/40">
-                                            {selectedSkill ? (
-                                                <div className="space-y-3">
-                                                    <div className="flex flex-wrap items-start justify-between gap-3">
-                                                        <div className="min-w-0">
-                                                            <p className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">{selectedSkill.name}</p>
-                                                            <p className="mt-1 line-clamp-2 text-sm leading-5 text-slate-500 dark:text-slate-400">
-                                                                {selectedSkill.description || shortText(selectedSkill.content, 120)}
-                                                            </p>
-                                                        </div>
-                                                        {isPending ? (
-                                                            <Badge className="rounded-full border border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
-                                                                {isZh ? "待绑定" : "Pending"}
-                                                            </Badge>
-                                                        ) : (
-                                                            <Badge variant="outline" className="rounded-full">{isZh ? "已绑定" : "Bound"}</Badge>
-                                                        )}
+
+                                        {selectedSkill ? (
+                                            <div className="mt-3 flex flex-col gap-2 rounded-[6px] bg-[#F7F8FA] px-[14px] py-3 dark:bg-slate-900/40">
+                                                <div className="flex items-start justify-between gap-[10px]">
+                                                    <div className="min-w-0">
+                                                        <p className="truncate text-[13px] font-medium leading-5 text-[#0E1114] dark:text-slate-100">{selectedSkill.name}</p>
+                                                        <p className="mt-0.5 line-clamp-2 text-[11px] leading-[17px] text-[#86888F] dark:text-slate-400">
+                                                            {selectedSkill.description || shortText(selectedSkill.content, 120)}
+                                                        </p>
                                                     </div>
-                                                    <details className="group rounded-[6px] border border-[#E6E7EB] bg-white px-3 py-2 dark:border-slate-800 dark:bg-slate-950/50">
-                                                        <summary className="cursor-pointer select-none text-sm font-medium text-slate-600 transition hover:text-slate-900 dark:text-slate-300 dark:hover:text-slate-100">
-                                                            {isZh ? "查看当前方案详情" : "View Current Plan Details"}
-                                                        </summary>
-                                                        <div className="mt-3 max-h-52 overflow-y-auto whitespace-pre-wrap rounded-[6px] bg-slate-50 px-3 py-2 text-sm leading-6 text-slate-600 dark:bg-slate-900/70 dark:text-slate-300">
-                                                            {selectedSkill.content || selectedSkill.description || (isZh ? "暂无方案内容" : "No plan content yet")}
-                                                        </div>
-                                                    </details>
+                                                    <span className={cn(
+                                                        "inline-flex h-[22px] shrink-0 items-center rounded-full border px-2 text-[12px] leading-[18px]",
+                                                        isPending
+                                                            ? "border-[rgba(255,171,36,0.35)] bg-[rgba(255,171,36,0.1)] text-[#D48806]"
+                                                            : "border-[rgba(12,201,145,0.28)] bg-[rgba(12,201,145,0.1)] text-[#0A9C71]",
+                                                    )}>
+                                                        {isPending ? (isZh ? "待绑定" : "Pending") : (isZh ? "已绑定" : "Bound")}
+                                                    </span>
                                                 </div>
-                                            ) : (
-                                                <p className="text-sm text-slate-400 dark:text-slate-500">{isZh ? "暂无当前岗位方案" : "No plan for this position yet"}</p>
-                                            )}
-                                        </div>
+                                                <details className="group">
+                                                    <summary className="cursor-pointer select-none text-[12px] leading-[18px] text-[#33353D] marker:text-[#86888F] hover:text-[#1E3BFA] dark:text-slate-300">
+                                                        {isZh ? "查看当前方案详情" : "View Current Plan Details"}
+                                                    </summary>
+                                                    <div className="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap break-words rounded-[6px] border border-[#EBEEF5] bg-white px-3 py-2.5 text-[12px] leading-[1.8] text-[#33353D] [overflow-wrap:anywhere] dark:border-slate-800 dark:bg-slate-950/60 dark:text-slate-300">
+                                                        {selectedSkill.content || selectedSkill.description || (isZh ? "暂无方案内容" : "No plan content yet")}
+                                                    </div>
+                                                </details>
+                                            </div>
+                                        ) : (
+                                            <div className="mt-3 rounded-[6px] bg-[#F7F8FA] px-[14px] py-3 text-[12px] leading-5 text-[#B0B2B8] dark:bg-slate-900/40 dark:text-slate-500">
+                                                {isZh ? "暂无当前岗位方案，系统会使用该任务的内置通用基座约束" : "No plan for this position; the built-in task base will be used."}
+                                            </div>
+                                        )}
                                     </div>
                                 );
                             })}
                         </div>
                     </ScrollArea>
-                    <DialogFooter className="items-center justify-between gap-3 sm:justify-between">
-                        <p className="text-sm text-slate-500 dark:text-slate-400">
-                            {isZh ? "取消不会保存本次新增或选择的绑定关系。" : "Cancel will not save pending bindings."}
-                        </p>
-                        <div className="flex items-center gap-2">
-                            <Button variant="outline" className="rounded-[6px]" onClick={() => setPositionAssessmentDialogOpen(false)} disabled={positionAssessmentSaving}>{recruitmentUiText.cancelButton}</Button>
-                            <Button className="rounded-[6px] bg-[#1E3BFA] text-white hover:bg-[#0F23D9]" onClick={() => void submitPositionAssessmentBindings()} disabled={positionAssessmentSaving || !selectedPositionId}>
-                                {positionAssessmentSaving ? (isZh ? "绑定中..." : "Binding...") : (isZh ? "确定绑定到岗位" : "Bind to Position")}
-                            </Button>
-                        </div>
+
+                    <DialogFooter className={cn(settingsDialogFooterClass, "sm:justify-start")}>
+                        <span className="mr-auto text-[12px] leading-5 text-[#86888F]">
+                            {isZh ? "取消不会保存本次新增或选择的绑定关系" : "Cancel will not save pending bindings."}
+                        </span>
+                        <Button variant="outline" className={settingsSecondaryButtonClass} onClick={() => setPositionAssessmentDialogOpen(false)} disabled={positionAssessmentSaving}>
+                            {recruitmentUiText.cancelButton}
+                        </Button>
+                        <Button className={settingsPrimaryButtonClass} onClick={() => void submitPositionAssessmentBindings()} disabled={positionAssessmentSaving || !selectedPositionId}>
+                            {positionAssessmentSaving ? (isZh ? "绑定中…" : "Binding…") : (isZh ? "确定绑定到岗位" : "Bind to Position")}
+                        </Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
@@ -16517,28 +16523,29 @@ export default function RecruitmentAutomationContainer({
             />
 
             <Dialog open={publishDialogOpen} onOpenChange={setPublishDialogOpen}>
-                <DialogContent className="rounded-[8px] border-[#EBEEF5] shadow-[0_8px_24px_rgba(14,17,20,0.16)] sm:max-w-[480px]">
-                    <DialogHeader>
-                        <DialogTitle>{recruitmentUiText.createPublishTask}</DialogTitle>
-                        <DialogDescription>{recruitmentUiText.publishTaskDesc}</DialogDescription>
+                <DialogContent className={cn(settingsDialogSurfaceClass, "sm:max-w-[480px]")}>
+                    <DialogHeader className={settingsDialogHeaderClass}>
+                        <DialogTitle className="text-[16px] font-semibold leading-5 text-[#0E1114]">{recruitmentUiText.createPublishTask}</DialogTitle>
+                        <DialogDescription className="text-[12px] leading-5 text-[#86888F]">{recruitmentUiText.publishTaskDesc}</DialogDescription>
                     </DialogHeader>
-                    <div className="grid gap-4">
-                        <Field label={recruitmentUiText.targetPlatform}>
-                            <NativeSelect value={publishPlatform}
-                                          onChange={(event) => setPublishPlatform(event.target.value)}>
+                    <div className="grid gap-4 px-6 py-5">
+                        <Field className="space-y-1.5 [&>p:first-child]:text-[12px] [&>p:first-child]:font-normal [&>p:first-child]:text-[#33353D]" label={recruitmentUiText.targetPlatform}>
+                            <NativeSelect className={settingsInputClass} value={publishPlatform} onChange={(event) => setPublishPlatform(event.target.value)}>
                                 <option value="boss">{recruitmentUiText.bossDirect}</option>
                                 <option value="zhilian">{recruitmentUiText.zhilian}</option>
                             </NativeSelect>
                         </Field>
-                        <Field label={recruitmentUiText.executionMode}>
-                            <div className="rounded-[6px] border border-[#EBEEF5] bg-[#F7F8FA] px-3 py-2 text-sm text-[#33353D]">
+                        <Field className="space-y-1.5 [&>p:first-child]:text-[12px] [&>p:first-child]:font-normal [&>p:first-child]:text-[#33353D]" label={recruitmentUiText.executionMode}>
+                            <div className="rounded-[6px] bg-[#F7F8FA] px-3 py-2.5 text-[12px] leading-5 text-[#33353D]">
                                 {isZh ? "发布预演（不提交到招聘平台）" : "Publishing preview (no platform submission)"}
                             </div>
                         </Field>
                     </div>
-                    <DialogFooter>
-                        <Button variant="outline" className="rounded-[6px]" onClick={() => setPublishDialogOpen(false)}>{recruitmentUiText.cancel}</Button>
-                        <Button className="rounded-[6px] bg-[#1E3BFA] text-white hover:bg-[#0F23D9]" onClick={() => void submitPublishTask()} disabled={publishSubmitting}>{publishSubmitting ? recruitmentUiText.publishing : recruitmentUiText.createTask}</Button>
+                    <DialogFooter className={settingsDialogFooterClass}>
+                        <Button variant="outline" className={settingsSecondaryButtonClass} onClick={() => setPublishDialogOpen(false)}>{recruitmentUiText.cancel}</Button>
+                        <Button className={settingsPrimaryButtonClass} onClick={() => void submitPublishTask()} disabled={publishSubmitting}>
+                            {publishSubmitting ? recruitmentUiText.publishing : recruitmentUiText.createTask}
+                        </Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
