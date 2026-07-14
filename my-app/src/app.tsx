@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Toaster } from 'sonner';
 import { Loader2 } from 'lucide-react';
 
@@ -65,6 +65,7 @@ import { toast } from './lib/toast';
 // 类型和配置导入
 import type { Permission, ViewType } from './lib/types';
 import type { RecruitmentPage } from './components/Recruitment/types';
+import type { RecruitmentOrgScopeSelection } from './components/Recruitment/orgScopeSelection';
 
 import { ThemeProvider } from '@/lib/theme';
 
@@ -72,6 +73,10 @@ type InitialMenuTarget = {
     view: ViewType;
     selectedSystem?: string;
     recruitmentPage?: string;
+};
+
+type RecruitmentOrgScopeSnapshot = RecruitmentOrgScopeSelection & {
+    userId: string;
 };
 
 const FIRST_MENU_CM_PERMISSION_KEYS = [
@@ -154,6 +159,7 @@ function AppContent() {
     const { t, language } = useI18n();
     const [currentView, setCurrentView] = useState<ViewType>('home');
     const [recruitmentInitialPage, setRecruitmentInitialPage] = useState<string>('workspace');
+    const [recruitmentOrgScopeSnapshot, setRecruitmentOrgScopeSnapshot] = useState<RecruitmentOrgScopeSnapshot | null>(null);
     const [landingPageApplied, setLandingPageApplied] = useState(false);
     const [selectedSystem, setSelectedSystem] = useState<string>('');
     const [selectedScript, setSelectedScript] = useState<string>('');
@@ -288,10 +294,37 @@ function AppContent() {
             setHomeSearchQuery('');
             setShowSearchResults(false);
             setHealthCheckState(undefined);
+            setRecruitmentOrgScopeSnapshot(null);
             previousViewSnapshotRef.current = null;
             recruitmentSourceSnapshotRef.current = null;
         },
     });
+    const currentRecruitmentUserId = String(currentUser?.id || '').trim();
+    const recruitmentOrgScopeSelection = useMemo<RecruitmentOrgScopeSelection | null>(() => {
+        if (!currentRecruitmentUserId || recruitmentOrgScopeSnapshot?.userId !== currentRecruitmentUserId) {
+            return null;
+        }
+        return {
+            orgScope: recruitmentOrgScopeSnapshot.orgScope,
+            departmentScope: recruitmentOrgScopeSnapshot.departmentScope,
+        };
+    }, [currentRecruitmentUserId, recruitmentOrgScopeSnapshot]);
+    const handleRecruitmentOrgScopeSelectionChange = useCallback((selection: RecruitmentOrgScopeSelection) => {
+        if (!currentRecruitmentUserId) {
+            setRecruitmentOrgScopeSnapshot(null);
+            return;
+        }
+        setRecruitmentOrgScopeSnapshot((current) => {
+            if (
+                current?.userId === currentRecruitmentUserId
+                && current.orgScope === selection.orgScope
+                && current.departmentScope === selection.departmentScope
+            ) {
+                return current;
+            }
+            return {...selection, userId: currentRecruitmentUserId};
+        });
+    }, [currentRecruitmentUserId]);
     const initialMenuTarget = useMemo(
         () => resolveInitialMenuTarget(currentUser?.landingPage, currentUser?.permissions || {}),
         [currentUser?.landingPage, currentUser?.permissions],
@@ -664,7 +697,12 @@ function AppContent() {
                         )}
                         {currentView === 'ai-recruitment' && (
                             <div className="h-full p-0">
-                                <RecruitmentAutomationContainer onBack={handleRecruitmentBack} initialPage={recruitmentInitialPage as RecruitmentPage} />
+                                <RecruitmentAutomationContainer
+                                    onBack={handleRecruitmentBack}
+                                    initialPage={recruitmentInitialPage as RecruitmentPage}
+                                    orgScopeSelection={recruitmentOrgScopeSelection}
+                                    onOrgScopeSelectionChange={handleRecruitmentOrgScopeSelectionChange}
+                                />
                             </div>
                         )}
                         {currentView === 'access-control' && (

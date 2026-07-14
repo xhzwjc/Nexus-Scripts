@@ -372,6 +372,18 @@ import {
     INTERVIEW_TODO_STATUS_VALUES,
 } from "./workflowStages";
 import {
+    ALL_COMPANY_DEPARTMENTS_VALUE,
+    isOrganizationInScope,
+    isSameRecruitmentOrgScope,
+    normalizeRecruitmentOrgCode,
+    resolveCompanyScopeCodes,
+    resolveDepartmentScopeValues,
+    resolveSelectedCompanyOrgCodes,
+    resolveVisibleOrgCodes,
+    validateRecruitmentOrgScopeSelection,
+    type RecruitmentOrgScopeSelection,
+} from "./orgScopeSelection";
+import {
     navigateToRecruitmentPage,
     recruitmentNavBus,
     resolveRecruitmentNavigationDetail,
@@ -411,7 +423,6 @@ const CANDIDATE_CONSISTENCY_STATS_CONFIDENCE_MS = 30_000;
 const CANDIDATE_LIST_PAGE_SIZE = 15;
 const CANDIDATE_LIST_PAGE_SIZE_OPTIONS = [10, 15, 20, 30];
 const CANDIDATE_LIST_CACHE_STALE_MS = 120_000;
-const ALL_COMPANY_DEPARTMENTS_VALUE = "__all_company_departments__";
 const TERMINAL_SCREENING_TASK_STATUSES = new Set([
     "success",
     "fallback",
@@ -605,11 +616,6 @@ type PositionFormErrors = Partial<Record<
 >>;
 type SkillFormErrors = Partial<Record<"name" | "content" | "sortOrder", string>>;
 type LLMFormErrors = Partial<Record<"configKey" | "taskType" | "provider" | "modelName" | "maxConcurrent" | "maxQps" | "priority" | "extraConfigText", string>>;
-
-function normalizeRecruitmentOrgCode(value?: string | null) {
-    const text = String(value || "").trim();
-    return text || "group";
-}
 
 function buildBossPositionMeta(form: PositionFormState): BossPositionMeta {
     return {
@@ -968,15 +974,6 @@ function getFallbackOrganizationLabel(orgCode?: string | null) {
     return knownLabels[code] || code;
 }
 
-function isCompanyLikeOrganization(organization?: ScriptHubOrganizationDefinition | null) {
-    const type = String(organization?.org_type || "").toLowerCase();
-    return type === "company" || type === "sub_group" || type === "group";
-}
-
-function isDepartmentOrganization(organization?: ScriptHubOrganizationDefinition | null) {
-    return String(organization?.org_type || "").toLowerCase() === "department";
-}
-
 function deduplicateCandidates(candidates: CandidateSummary[]): CandidateSummary[] {
     const seen = new Map<number, CandidateSummary>();
     for (const c of candidates) {
@@ -1035,43 +1032,6 @@ function resolveScrollAreaViewport(node: HTMLDivElement | null): HTMLDivElement 
         return null;
     }
     return (node.querySelector("[data-slot='scroll-area-viewport']") as HTMLDivElement | null) || node;
-}
-
-function getOrganizationDepth(organization?: ScriptHubOrganizationDefinition | null) {
-    return String(organization?.path || organization?.org_code || "")
-        .split("/")
-        .filter(Boolean).length;
-}
-
-function isOrganizationInScope(
-    organizations: Map<string, ScriptHubOrganizationDefinition>,
-    scopeCode: string,
-    orgCode: string,
-) {
-    const normalizedScopeCode = normalizeRecruitmentOrgCode(scopeCode);
-    const normalizedOrgCode = normalizeRecruitmentOrgCode(orgCode);
-    if (normalizedScopeCode === normalizedOrgCode) {
-        return true;
-    }
-    const scope = organizations.get(normalizedScopeCode);
-    const organization = organizations.get(normalizedOrgCode);
-    return Boolean(scope && organization && String(organization.path || "").startsWith(`${scope.path}/`));
-}
-
-function findCompanyScopeCodeForOrg(
-    orgCode: string,
-    organizations: Map<string, ScriptHubOrganizationDefinition>,
-) {
-    let current = organizations.get(normalizeRecruitmentOrgCode(orgCode));
-    const visited = new Set<string>();
-    while (current && !visited.has(current.org_code)) {
-        visited.add(current.org_code);
-        if (isCompanyLikeOrganization(current)) {
-            return current.org_code;
-        }
-        current = current.parent_org_code ? organizations.get(current.parent_org_code) : undefined;
-    }
-    return normalizeRecruitmentOrgCode(orgCode);
 }
 
 function getOrganizationPathLabel(
@@ -1178,20 +1138,6 @@ function filterResourceRowsByOrgCodes<T extends OrgScopedItem>(
     return rows.filter((row) => resourceMatchesAnyOrgCode(row, orgCodes, organizations));
 }
 
-function sortOrganizationCodes(
-    codes: string[],
-    organizations: Map<string, ScriptHubOrganizationDefinition>,
-) {
-    return [...new Set(codes.map(normalizeRecruitmentOrgCode))].sort((left, right) => {
-        const leftOrg = organizations.get(left);
-        const rightOrg = organizations.get(right);
-        const leftOrder = leftOrg?.sort_order ?? 9999;
-        const rightOrder = rightOrg?.sort_order ?? 9999;
-        if (leftOrder !== rightOrder) return leftOrder - rightOrder;
-        return (leftOrg?.path || left).localeCompare(rightOrg?.path || right);
-    });
-}
-
 function getPollingDelay(
     visible: boolean,
     failureCount: number,
@@ -1206,7 +1152,16 @@ function getPollingDelay(
 interface RecruitmentAutomationContainerProps {
     onBack: () => void;
     initialPage?: RecruitmentPage;
+    orgScopeSelection: RecruitmentOrgScopeSelection | null;
+    onOrgScopeSelectionChange: (selection: RecruitmentOrgScopeSelection) => void;
 }
+
+type OrganizationCatalogStatus = "idle" | "loading" | "ready" | "error";
+
+type OrganizationCatalogLoadResult = {
+    authoritative: boolean;
+    data: RecruitmentOrganizationScope;
+};
 
 // ---- 岗位内嵌候选人列表：行组件（模块级，稳定引用） ----
 const POSITION_CANDIDATE_PAGE_SIZE = 10;
@@ -1877,13 +1832,28 @@ const PositionCandidatesView = React.memo(function PositionCandidatesView(props:
     );
 });
 
-export default function RecruitmentAutomationContainer({onBack, initialPage}: RecruitmentAutomationContainerProps) {
+export default function RecruitmentAutomationContainer({
+    onBack,
+    initialPage,
+    orgScopeSelection,
+    onOrgScopeSelectionChange,
+}: RecruitmentAutomationContainerProps) {
     const {language} = useI18n();
     const isZh = language === "zh-CN";
     // Temporary UI toggle: keep the top-right assistant button in code for quick restore later.
     const hideTopRightAssistantEntry = true;
     const sessionUser = useMemo(() => getStoredScriptHubSession()?.user ?? null, []);
     const defaultOrgScope = normalizeRecruitmentOrgCode(sessionUser?.primaryOrgCode);
+    const selectedOrgScope = normalizeRecruitmentOrgCode(orgScopeSelection?.orgScope || defaultOrgScope);
+    const selectedDepartmentScope = String(orgScopeSelection?.departmentScope || "").trim()
+        || ALL_COMPANY_DEPARTMENTS_VALUE;
+    const updateOrgScopeSelection = useCallback((selection: RecruitmentOrgScopeSelection) => {
+        onOrgScopeSelectionChange({
+            orgScope: normalizeRecruitmentOrgCode(selection.orgScope),
+            departmentScope: String(selection.departmentScope || "").trim()
+                || ALL_COMPANY_DEPARTMENTS_VALUE,
+        });
+    }, [onOrgScopeSelectionChange]);
     const recruitmentToast = useMemo(() => getRecruitmentToastLocale(language), [language]);
     const recruitmentToastEntities = recruitmentToast.entities;
     const jdGenerationInFlightRef = useRef(false);
@@ -2646,9 +2616,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     });
     const [authorizedOrgCodes, setAuthorizedOrgCodes] = useState<string[]>([defaultOrgScope]);
     const [hasAllOrgScope, setHasAllOrgScope] = useState(false);
-    const [selectedOrgScope, setSelectedOrgScope] = useState(defaultOrgScope);
-    const [selectedDepartmentScope, setSelectedDepartmentScope] = useState(ALL_COMPANY_DEPARTMENTS_VALUE);
-    const [organizationCatalogLoading, setOrganizationCatalogLoading] = useState(false);
+    const [organizationPrimaryOrgScope, setOrganizationPrimaryOrgScope] = useState(defaultOrgScope);
+    const [organizationCatalogStatus, setOrganizationCatalogStatus] = useState<OrganizationCatalogStatus>("idle");
 
     const [positionQuery, setPositionQuery] = useState("");
     const [positionStatusFilter, setPositionStatusFilter] = useState("all");
@@ -2940,33 +2909,16 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         [organizationCatalog],
     );
     const visibleOrgCodes = useMemo(() => (
-        sortOrganizationCodes(authorizedOrgCodes.length ? authorizedOrgCodes : [defaultOrgScope], organizationMap)
-    ), [authorizedOrgCodes, defaultOrgScope, organizationMap]);
+        resolveVisibleOrgCodes(authorizedOrgCodes, organizationPrimaryOrgScope, organizationMap)
+    ), [authorizedOrgCodes, organizationMap, organizationPrimaryOrgScope]);
+    const companyScopeCodes = useMemo(() => resolveCompanyScopeCodes({
+        defaultOrgScope: organizationPrimaryOrgScope,
+        hasAllOrgScope,
+        organizationCatalog,
+        visibleOrgCodes: authorizedOrgCodes,
+    }), [authorizedOrgCodes, hasAllOrgScope, organizationCatalog, organizationPrimaryOrgScope]);
     const orgScopeOptions = useMemo<OrganizationSelectOption[]>(() => {
-        const companyCodes = new Set<string>();
-
-        if (hasAllOrgScope) {
-            organizationCatalog
-                .filter((organization) => (
-                    organization.is_active !== false
-                    && isCompanyLikeOrganization(organization)
-                ))
-                .forEach((organization) => companyCodes.add(organization.org_code));
-        }
-
-        visibleOrgCodes.forEach((orgCode) => {
-            const organization = organizationMap.get(orgCode);
-            if (hasAllOrgScope && organization && !isCompanyLikeOrganization(organization)) {
-                return;
-            }
-            companyCodes.add(findCompanyScopeCodeForOrg(orgCode, organizationMap));
-        });
-
-        if (!companyCodes.size) {
-            companyCodes.add(findCompanyScopeCodeForOrg(defaultOrgScope, organizationMap));
-        }
-
-        return sortOrganizationCodes([...companyCodes], organizationMap).map((orgCode) => {
+        return companyScopeCodes.map((orgCode) => {
             const organization = organizationMap.get(orgCode);
             return {
                 value: orgCode,
@@ -2975,35 +2927,34 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 organization,
             };
         });
-    }, [defaultOrgScope, hasAllOrgScope, organizationCatalog, organizationMap, visibleOrgCodes]);
-    const selectedCompanyOrgCodes = useMemo(() => {
-        const selectedCompanyCode = normalizeRecruitmentOrgCode(selectedOrgScope);
-        const scopedCodes = visibleOrgCodes.filter((orgCode) => (
-            orgCode === selectedCompanyCode || isOrganizationInScope(organizationMap, selectedCompanyCode, orgCode)
-        ));
-        return scopedCodes.length ? scopedCodes : [selectedCompanyCode];
-    }, [organizationMap, selectedOrgScope, visibleOrgCodes]);
+    }, [companyScopeCodes, organizationMap]);
+    const selectedCompanyOrgCodes = useMemo(() => resolveSelectedCompanyOrgCodes(
+        selectedOrgScope,
+        visibleOrgCodes,
+        organizationMap,
+    ), [organizationMap, selectedOrgScope, visibleOrgCodes]);
+    const departmentScopeValues = useMemo(() => resolveDepartmentScopeValues(
+        selectedOrgScope,
+        visibleOrgCodes,
+        organizationMap,
+    ), [organizationMap, selectedOrgScope, visibleOrgCodes]);
     const departmentScopeOptions = useMemo<OrganizationSelectOption[]>(() => {
-        const departmentCodes = selectedCompanyOrgCodes.filter((orgCode) => isDepartmentOrganization(organizationMap.get(orgCode)));
-        const selectedCompanyIsVisible = selectedCompanyOrgCodes.some((orgCode) => orgCode === normalizeRecruitmentOrgCode(selectedOrgScope));
-        const options: OrganizationSelectOption[] = [];
-        if (departmentCodes.length && (selectedCompanyIsVisible || departmentCodes.length > 1)) {
-            options.push({
+        return departmentScopeValues.map((orgCode) => {
+            if (orgCode === ALL_COMPANY_DEPARTMENTS_VALUE) {
+                return {
                 value: ALL_COMPANY_DEPARTMENTS_VALUE,
                 label: recruitmentUiText.allVisibleDepartments,
-            });
-        }
-        departmentCodes.forEach((orgCode) => {
+                };
+            }
             const organization = organizationMap.get(orgCode);
-            options.push({
+            return {
                 value: orgCode,
                 label: getOrganizationRelativePathLabel(orgCode, selectedOrgScope, organizationMap),
                 description: organization ? getOrganizationPathLabel(orgCode, organizationMap) : undefined,
                 organization,
-            });
+            };
         });
-        return options;
-    }, [organizationMap, recruitmentUiText.allVisibleDepartments, selectedCompanyOrgCodes, selectedOrgScope]);
+    }, [departmentScopeValues, organizationMap, recruitmentUiText.allVisibleDepartments, selectedOrgScope]);
     const activeBusinessOrgCodes = useMemo(() => {
         if (
             selectedDepartmentScope !== ALL_COMPANY_DEPARTMENTS_VALUE
@@ -3046,8 +2997,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         getOrganizationPathLabel(normalizeRecruitmentOrgCode(orgCode), organizationMap)
     ), [organizationMap]);
     const defaultFormOrgCode = useMemo(() => (
-        organizationSelectOptions[0]?.value || activeBusinessOrgCodes[0] || defaultOrgScope
-    ), [activeBusinessOrgCodes, defaultOrgScope, organizationSelectOptions]);
+        organizationSelectOptions[0]?.value || activeBusinessOrgCodes[0] || organizationPrimaryOrgScope
+    ), [activeBusinessOrgCodes, organizationPrimaryOrgScope, organizationSelectOptions]);
     const activeCreateOrgCode = useMemo(() => (
         showOrganizationFields ? defaultFormOrgCode : (activeBusinessOrgCodes[0] || defaultFormOrgCode)
     ), [activeBusinessOrgCodes, defaultFormOrgCode, showOrganizationFields]);
@@ -3636,28 +3587,38 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     }, [language, logStatusFilter, logTaskTypeFilter, recruitmentUiText]);
 
     useEffect(() => {
-        const optionValues = new Set(orgScopeOptions.map((option) => option.value));
-        if (!optionValues.size || optionValues.has(selectedOrgScope)) {
+        if (organizationCatalogStatus !== "ready") {
             return;
         }
-        const defaultCompanyScope = findCompanyScopeCodeForOrg(defaultOrgScope, organizationMap);
-        setSelectedOrgScope(optionValues.has(defaultCompanyScope) ? defaultCompanyScope : orgScopeOptions[0].value);
-    }, [defaultOrgScope, orgScopeOptions, organizationMap, selectedOrgScope]);
-
-    useEffect(() => {
-        const optionValues = new Set(departmentScopeOptions.map((option) => option.value));
-        if (!optionValues.size) {
-            if (selectedDepartmentScope !== ALL_COMPANY_DEPARTMENTS_VALUE) {
-                setSelectedDepartmentScope(ALL_COMPANY_DEPARTMENTS_VALUE);
-            }
+        const currentSelection = {
+            orgScope: selectedOrgScope,
+            departmentScope: selectedDepartmentScope,
+        };
+        const validatedSelection = validateRecruitmentOrgScopeSelection(currentSelection, {
+            defaultOrgScope: organizationPrimaryOrgScope,
+            hasAllOrgScope,
+            organizationCatalog,
+            visibleOrgCodes: authorizedOrgCodes,
+        });
+        if (isSameRecruitmentOrgScope(currentSelection, validatedSelection)) {
             return;
         }
-        if (optionValues.has(selectedDepartmentScope)) {
-            return;
-        }
-        const allDepartmentsOption = departmentScopeOptions.find((option) => option.value === ALL_COMPANY_DEPARTMENTS_VALUE);
-        setSelectedDepartmentScope((allDepartmentsOption || departmentScopeOptions[0]).value);
-    }, [departmentScopeOptions, selectedDepartmentScope]);
+        candidateListRefreshQueryRef.current = {
+            ...candidateListRefreshQueryRef.current,
+            departmentScope: validatedSelection.departmentScope,
+            orgScope: validatedSelection.orgScope,
+        };
+        updateOrgScopeSelection(validatedSelection);
+    }, [
+        authorizedOrgCodes,
+        hasAllOrgScope,
+        organizationCatalog,
+        organizationCatalogStatus,
+        organizationPrimaryOrgScope,
+        selectedDepartmentScope,
+        selectedOrgScope,
+        updateOrgScopeSelection,
+    ]);
 
     useEffect(() => {
         setPositions(filterBusinessRowsByOrgCodes(allPositions, activeBusinessOrgCodes, businessRowFilterOptions));
@@ -3861,7 +3822,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
 
     // 进入人才库页面时加载完整列表；上传后的识别中入口只生效一次。
     useEffect(() => {
-        if (activePage === "talent-pool") {
+        const organizationScopeResolved = organizationCatalogStatus === "ready" || organizationCatalogStatus === "error";
+        if (activePage === "talent-pool" && organizationScopeResolved) {
             const nextStatFilter = talentPoolPreferredStatFilter || DEFAULT_TALENT_POOL_QUERY.statFilter;
             const nextQuery: TalentPoolQueryState = {
                 ...DEFAULT_TALENT_POOL_QUERY,
@@ -3873,10 +3835,15 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             setTalentPoolPageIndex(0);
             talentPoolPageIndexRef.current = 0;
             talentPoolQueryRef.current = nextQuery;
-            loadTalentPoolCandidates({ query: nextQuery });
+            const scope = candidateListRefreshQueryRef.current;
+            loadTalentPoolCandidates({
+                query: nextQuery,
+                departmentScope: scope.departmentScope,
+                orgScope: scope.orgScope,
+            });
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [activePage]);
+    }, [activePage, organizationCatalogStatus]);
 
     useEffect(() => {
         if (activePage !== "talent-pool") {
@@ -4265,12 +4232,49 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
 
             try {
                 // 阶段 1: 关键数据 (阻塞渲染，最高优先级)
-                await Promise.allSettled([
+                const [, organizationCatalogResult] = await Promise.allSettled([
                     loadMetadata(),
                     loadOrganizationCatalog(),
                 ]);
 
                 if (cancelled) return;
+
+                const mountedSelection = {
+                    orgScope: selectedOrgScope,
+                    departmentScope: selectedDepartmentScope,
+                };
+                let bootstrapSelection = mountedSelection;
+                if (
+                    organizationCatalogResult.status === "fulfilled"
+                    && organizationCatalogResult.value.authoritative
+                ) {
+                    const organizationScope = organizationCatalogResult.value.data;
+                    const catalogDefaultOrgScope = normalizeRecruitmentOrgCode(
+                        organizationScope.primary_org_code || defaultOrgScope,
+                    );
+                    const catalogVisibleOrgCodes = organizationScope.visible_org_codes?.length
+                        ? organizationScope.visible_org_codes.map(normalizeRecruitmentOrgCode)
+                        : [catalogDefaultOrgScope];
+                    bootstrapSelection = validateRecruitmentOrgScopeSelection(mountedSelection, {
+                        defaultOrgScope: catalogDefaultOrgScope,
+                        hasAllOrgScope: Boolean(organizationScope.has_all_orgs),
+                        organizationCatalog: organizationScope.organizations || [],
+                        visibleOrgCodes: catalogVisibleOrgCodes,
+                    });
+                    if (!isSameRecruitmentOrgScope(mountedSelection, bootstrapSelection)) {
+                        updateOrgScopeSelection(bootstrapSelection);
+                    }
+                    setOrganizationCatalogStatus("ready");
+                } else {
+                    // 目录瞬时失败时保留本次挂载的选择，不把降级目录当成权威结果写回父级。
+                    // 后续业务请求仍由后端权限范围做最终校验，组织选择器保持禁用直至重新进入模块。
+                    setOrganizationCatalogStatus("error");
+                }
+                candidateListRefreshQueryRef.current = {
+                    ...candidateListRefreshQueryRef.current,
+                    departmentScope: bootstrapSelection.departmentScope,
+                    orgScope: bootstrapSelection.orgScope,
+                };
 
                 if (!shouldBootstrapRecruitmentCore(activePageRef.current, canUseRecruitmentWorkspace)) {
                     criticalLoaded = true;
@@ -4281,7 +4285,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 // 阶段 2: 关键首屏列表尽早开始，避免被统计接口阻塞
                 workspaceDataLoadStartedRef.current = true;
                 void loadPositionsWithCache();
-                void loadCandidatesFirstPage();
+                void loadCandidatesFirstPage(bootstrapSelection);
                 criticalLoaded = true;
                 setBootstrapping(false);
 
@@ -4333,20 +4337,26 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             }
         }
 
-        async function loadCandidatesFirstPage(): Promise<void> {
+        async function loadCandidatesFirstPage(scope: RecruitmentOrgScopeSelection): Promise<void> {
             const requestId = candidatesLoadRequestIdRef.current + 1;
             candidatesLoadRequestIdRef.current = requestId;
             let controller: AbortController | null = null;
             try {
                 // 设置 loading 状态，防止显示空状态
                 setCandidatesLoading(true);
-                const contextKey = buildCandidateListContextKey({ useVisibleFilters: false });
+                const contextKey = buildCandidateListContextKey({
+                    useVisibleFilters: false,
+                    departmentScope: scope.departmentScope,
+                    orgScope: scope.orgScope,
+                });
                 candidateListContextKeyRef.current = contextKey;
                 abortCandidateListRequests();
                 controller = new AbortController();
                 candidateListLoadAbortControllerRef.current = controller;
                 const queryString = buildCandidateListQueryString({
                     useVisibleFilters: false,
+                    departmentScope: scope.departmentScope,
+                    orgScope: scope.orgScope,
                 });
                 const url = `/candidates?${queryString}`;
                 const data = await recruitmentApi<{items: CandidateSummary[]; total: number}>(url, {
@@ -4477,10 +4487,16 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
 
     // 切换到审计中心时，拉取最新日志
     useEffect(() => {
-        if (activePage === "audit") {
-            void loadLogs({ silent: true });
+        const organizationScopeResolved = organizationCatalogStatus === "ready" || organizationCatalogStatus === "error";
+        if (activePage === "audit" && organizationScopeResolved) {
+            const scope = candidateListRefreshQueryRef.current;
+            void loadLogs({
+                silent: true,
+                departmentScope: scope.departmentScope,
+                orgScope: scope.orgScope,
+            });
         }
-    }, [activePage]);
+    }, [activePage, organizationCatalogStatus]);
 
     useEffect(() => {
         if (activePage === "review-workbench") {
@@ -4512,7 +4528,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     }, [skillSettingsQueryInput]);
 
     useEffect(() => {
-        if (activePage !== "settings-skills") {
+        const organizationScopeResolved = organizationCatalogStatus === "ready" || organizationCatalogStatus === "error";
+        if (activePage !== "settings-skills" || !organizationScopeResolved) {
             return undefined;
         }
         const scopeChanged = skillSettingsScopeKeyRef.current !== activeBusinessOrgScopeKey;
@@ -4530,10 +4547,11 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         };
         // 设置请求函数保持最新 state 闭包，并通过 requestId/AbortController 防止旧响应回写。
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [activeBusinessOrgScopeKey, activePage, skillSettingsPageIndex, skillSettingsQuery, skillSettingsTaskFilter]);
+    }, [activeBusinessOrgScopeKey, activePage, organizationCatalogStatus, skillSettingsPageIndex, skillSettingsQuery, skillSettingsTaskFilter]);
 
     useEffect(() => {
-        if (activePage !== "settings-mail") {
+        const organizationScopeResolved = organizationCatalogStatus === "ready" || organizationCatalogStatus === "error";
+        if (activePage !== "settings-mail" || !organizationScopeResolved) {
             return undefined;
         }
         if (!mailDispatchesScopeKeyRef.current) {
@@ -4548,10 +4566,11 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             mailAutoConfigLoadAbortControllerRef.current?.abort();
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [activePage]);
+    }, [activePage, organizationCatalogStatus]);
 
     useEffect(() => {
-        if (activePage !== "settings-mail") {
+        const organizationScopeResolved = organizationCatalogStatus === "ready" || organizationCatalogStatus === "error";
+        if (activePage !== "settings-mail" || !organizationScopeResolved) {
             return;
         }
         const scopeChanged = mailDispatchesScopeKeyRef.current !== activeBusinessOrgScopeKey;
@@ -4568,7 +4587,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         }
         void loadMailDispatches({pageIndex: resumeMailDispatchPageIndex}).catch(() => undefined);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [activeBusinessOrgScopeKey, activePage, resumeMailDispatchPageIndex]);
+    }, [activeBusinessOrgScopeKey, activePage, organizationCatalogStatus, resumeMailDispatchPageIndex]);
 
     useEffect(() => {
         if (activePage !== "settings-models" || (!canViewLLMConfig && !canManageLLMConfig)) {
@@ -6117,8 +6136,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         }
     }
 
-    async function loadOrganizationCatalog() {
-        setOrganizationCatalogLoading(true);
+    async function loadOrganizationCatalog(): Promise<OrganizationCatalogLoadResult> {
+        setOrganizationCatalogStatus("loading");
         try {
             const currentSession = getStoredScriptHubSession();
             const cacheKey = buildOrganizationScopeRequestKey(currentSession);
@@ -6143,8 +6162,9 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                         : [normalizeRecruitmentOrgCode(data.primary_org_code || defaultOrgScope)],
                 );
                 setHasAllOrgScope(Boolean(data.has_all_orgs));
+                setOrganizationPrimaryOrgScope(normalizeRecruitmentOrgCode(data.primary_org_code || defaultOrgScope));
             }
-            return data;
+            return {authoritative: true, data};
         } catch (error) {
             const dataScope = String(sessionUser?.dataScope || "ORG_ONLY").toUpperCase();
             const fallbackOrgCodes = dataScope === "CUSTOM_ORGS" && sessionUser?.customOrgCodes?.length
@@ -6154,16 +6174,18 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 setOrganizationCatalog([]);
                 setAuthorizedOrgCodes(fallbackOrgCodes);
                 setHasAllOrgScope(dataScope === "ALL");
+                setOrganizationPrimaryOrgScope(defaultOrgScope);
             }
             return {
-                primary_org_code: defaultOrgScope,
-                data_scope: dataScope,
-                has_all_orgs: dataScope === "ALL",
-                visible_org_codes: fallbackOrgCodes,
-                organizations: [],
-            } satisfies RecruitmentOrganizationScope;
-        } finally {
-            setOrganizationCatalogLoading(false);
+                authoritative: false,
+                data: {
+                    primary_org_code: defaultOrgScope,
+                    data_scope: dataScope,
+                    has_all_orgs: dataScope === "ALL",
+                    visible_org_codes: fallbackOrgCodes,
+                    organizations: [],
+                } satisfies RecruitmentOrganizationScope,
+            };
         }
     }
 
@@ -15700,8 +15722,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             departmentScope: deptScope,
             orgScope,
         };
-        setSelectedOrgScope(orgScope);
-        setSelectedDepartmentScope(deptScope);
+        updateOrgScopeSelection({orgScope, departmentScope: deptScope});
         setOrgSwitching(true);
         try {
             if (activePage === "workspace") {
@@ -15726,7 +15747,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         } finally {
             setOrgSwitching(false);
         }
-    }, [activePage, refreshCandidateStats]);
+    }, [activePage, refreshCandidateStats, updateOrgScopeSelection]);
 
     function renderWorkspaceOrganizationControl() {
         return (
@@ -15738,7 +15759,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 selectedDepartmentScope={selectedDepartmentScope}
                 onOrgScopeChange={handleOrgScopeChange}
                 allDepartmentsLabel={recruitmentUiText.allVisibleDepartments}
-                disabled={organizationCatalogLoading || orgSwitching}
+                disabled={organizationCatalogStatus !== "ready" || orgSwitching}
             />
         );
     }
@@ -15788,7 +15809,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                             selectedDepartmentScope={selectedDepartmentScope}
                             onOrgScopeChange={handleOrgScopeChange}
                             allDepartmentsLabel={recruitmentUiText.allVisibleDepartments}
-                            disabled={organizationCatalogLoading || orgSwitching}
+                            disabled={organizationCatalogStatus !== "ready" || orgSwitching}
                         />
                         {canManageCandidate && (
                             <Button onClick={() => openResumeUploadDialog(null)} className="h-9 rounded-[6px] bg-[#1E3BFA] px-4 text-[13px] text-white shadow-none hover:bg-[#0F23D9] dark:bg-[#1E3BFA] dark:text-white dark:hover:bg-[#0F23D9]">
