@@ -1277,8 +1277,8 @@ function CandidateRow({
     const actionClass = "whitespace-nowrap text-[12px] text-[#0F23D9] hover:text-[#1E3BFA] disabled:cursor-not-allowed disabled:text-[#B0B2B8]";
     return (
         <div className={cn(
-            "grid min-h-14 min-w-[1020px] items-center border-b border-[#F2F3F5] text-[12px] text-[#0F1014] last:border-b-0 hover:bg-[#F8F8F9]",
-            "[grid-template-columns:40px_minmax(210px,1.2fr)_minmax(250px,1.8fr)_minmax(132px,.8fr)_minmax(138px,.8fr)_minmax(230px,1.12fr)]",
+            "grid min-h-14 w-full min-w-[1020px] items-center border-b border-[#F2F3F5] text-[12px] text-[#0F1014] last:border-b-0 hover:bg-[#F8F8F9]",
+            "[grid-template-columns:40px_minmax(210px,1.35fr)_minmax(250px,2.2fr)_minmax(132px,.9fr)_minmax(138px,.9fr)_230px]",
             selected && "bg-[rgba(30,59,250,0.025)]",
         )}>
             <div className="flex items-center justify-center">
@@ -1317,7 +1317,7 @@ function CandidateRow({
             <div className="min-w-0 truncate pr-4 tabular-nums text-[#86888F]" title={enteredAt ? formatDateTime(enteredAt) : undefined}>
                 {enteredAt ? formatDateTime(enteredAt) : "—"}
             </div>
-            <div className="flex min-w-0 flex-wrap items-center gap-x-3.5 gap-y-1 pr-4">
+            <div className="flex min-w-0 flex-wrap items-center justify-end gap-x-3.5 gap-y-1 pr-4">
                 {onConfirmMatch ? <button type="button" className={actionClass} onClick={onConfirmMatch}>{tr.confirmMatch}</button> : null}
                 {onChangePosition ? <button type="button" className={actionClass} onClick={onChangePosition}>{tr.changePosition}</button> : null}
                 {onReIdentify ? (
