@@ -245,20 +245,35 @@ export function PositionsListPage({
                         {isZh ? "岗位已保存，但最新列表加载失败，请点击刷新重试" : "The position was saved, but the latest list could not be loaded. Refresh to try again."}
                     </div>
                 ) : displayedPositions.length ? (
-                    <table className="w-full min-w-[1180px] border-collapse text-left text-[12px]">
+                    <table className="w-full min-w-[1180px] table-fixed border-collapse text-left text-[12px]">
+                        <colgroup>
+                            <col style={{width: showOrganizationColumn ? "11%" : "13%"}}/>
+                            {showOrganizationColumn ? <col style={{width: "11%"}}/> : null}
+                            <col style={{width: showOrganizationColumn ? "9%" : "10%"}}/>
+                            <col style={{width: showOrganizationColumn ? "7.5%" : "8%"}}/>
+                            <col style={{width: showOrganizationColumn ? "8%" : "9%"}}/>
+                            <col style={{width: showOrganizationColumn ? "9%" : "10%"}}/>
+                            <col style={{width: showOrganizationColumn ? "6%" : "7%"}}/>
+                            <col style={{width: showOrganizationColumn ? "7%" : "8%"}}/>
+                            <col style={{width: showOrganizationColumn ? "7%" : "8%"}}/>
+                            <col style={{width: showOrganizationColumn ? "9%" : "11%"}}/>
+                            <col style={{width: showOrganizationColumn ? "15.5%" : "16%"}}/>
+                        </colgroup>
                         <thead className="sticky top-0 z-10 bg-white text-[#86888F] dark:bg-slate-950 dark:text-slate-400">
                             <tr className="h-10 border-b border-[#F2F3F5] dark:border-slate-800">
-                                <th className="w-[150px] px-2 font-normal">{isZh ? "岗位名称" : "Position"}</th>
-                                {showOrganizationColumn ? <th className="w-[150px] px-2 font-normal">{isZh ? "组织" : "Organization"}</th> : null}
-                                <th className="w-[120px] px-2 font-normal">{isZh ? "部门" : "Department"}</th>
-                                <th className="w-[100px] px-2 font-normal">{isZh ? "地点" : "Location"}</th>
-                                <th className="w-[112px] px-2 font-normal">{isZh ? "用工类型" : "Employment"}</th>
-                                <th className="w-[130px] px-2 font-normal">{isZh ? "薪资范围" : "Salary"}</th>
-                                <th className="w-[88px] px-2 font-normal">{isZh ? "候选人数" : "Candidates"}</th>
-                                <th className="w-[98px] px-2 font-normal">{isZh ? "自动初筛" : "Auto Screen"}</th>
-                                <th className="w-[96px] px-2 font-normal">{isZh ? "状态" : "Status"}</th>
-                                <th className="w-[142px] px-2 font-normal">{isZh ? "更新时间" : "Updated"}</th>
-                                <th className="w-[220px] px-2 font-normal">{isZh ? "操作" : "Actions"}</th>
+                                <th className="px-2 font-normal">{isZh ? "岗位名称" : "Position"}</th>
+                                {showOrganizationColumn ? <th className="px-2 font-normal">{isZh ? "组织" : "Organization"}</th> : null}
+                                <th className="px-2 font-normal">{isZh ? "部门" : "Department"}</th>
+                                <th className="px-2 font-normal">{isZh ? "地点" : "Location"}</th>
+                                <th className="px-2 font-normal">{isZh ? "用工类型" : "Employment"}</th>
+                                <th className="px-2 font-normal">{isZh ? "薪资范围" : "Salary"}</th>
+                                <th className="px-2 font-normal">{isZh ? "候选人数" : "Candidates"}</th>
+                                <th className="px-2 font-normal">{isZh ? "自动初筛" : "Auto Screen"}</th>
+                                <th className="px-2 font-normal">{isZh ? "状态" : "Status"}</th>
+                                <th className="px-2 text-right font-normal">{isZh ? "更新时间" : "Updated"}</th>
+                                <th className="px-2 font-normal">
+                                    <span className="ml-auto block w-[172px] text-left">{isZh ? "操作" : "Actions"}</span>
+                                </th>
                             </tr>
                         </thead>
                         <tbody>
@@ -286,9 +301,9 @@ export function PositionsListPage({
                                         )}>{position.auto_screen_on_upload ? (isZh ? "已开启" : "On") : (isZh ? "未开启" : "Off")}</span>
                                     </td>
                                     <td className="px-2"><PositionStatusText status={position.status}/></td>
-                                    <td className="whitespace-nowrap px-2 text-[#86888F]">{formatDateTime(position.updated_at || position.created_at)}</td>
+                                    <td className="whitespace-nowrap px-2 text-right text-[#86888F]">{formatDateTime(position.updated_at || position.created_at)}</td>
                                     <td className="px-2">
-                                        <div className="flex items-center gap-3 whitespace-nowrap">
+                                        <div className="ml-auto flex w-[172px] items-center justify-between whitespace-nowrap">
                                             <button type="button" className="inline-flex items-center gap-1 text-[#0F23D9] hover:text-[#1E3BFA]" onClick={() => void onOpenJD(position.id)}><Wand2 className="h-3.5 w-3.5"/>{isZh ? "JD 配置" : "JD"}</button>
                                             <button type="button" className="inline-flex items-center gap-1 text-[#0F23D9] hover:text-[#1E3BFA]" onClick={() => void onEdit(position.id)}><Pencil className="h-3.5 w-3.5"/>{isZh ? "编辑" : "Edit"}</button>
                                             <button type="button" className="inline-flex items-center gap-1 text-[#0F23D9] hover:text-[#1E3BFA]" onClick={() => onOpenPosition(position.id)}>{isZh ? "详情" : "Details"}<ArrowRight className="h-3.5 w-3.5"/></button>
