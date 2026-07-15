@@ -68,6 +68,15 @@ type MailSettingsPageProps = {
 const enabledTone = "bg-[rgba(12,201,145,0.1)] text-[#0B9F75]";
 const disabledTone = "bg-[#F2F3F5] text-[#86888F]";
 
+const skippedDispatchReasonLabels: Record<string, {zh: string; en: string}> = {
+    skipped_no_recipient_source: {zh: "未配置自动发送收件人", en: "No automatic delivery recipients are configured"},
+    skipped_global_disabled: {zh: "全局自动发送能力未开启", en: "Global automatic delivery is disabled"},
+    skipped_status_not_allowed: {zh: "候选人当前状态不在自动发送范围内", en: "The candidate status is outside the automatic delivery scope"},
+    skipped_duplicate_blocked: {zh: "已拦截重复发送", en: "Duplicate delivery was blocked"},
+    skipped_no_recipients: {zh: "没有有效收件人", en: "No valid recipients were found"},
+    skipped_no_sender: {zh: "没有可用发件箱", en: "No available sender was found"},
+};
+
 export function MailSettingsPage({
     mailSenderConfigs,
     mailRecipients,
@@ -264,13 +273,40 @@ export function MailSettingsPage({
                                     const isDispatchActing = mailDispatchActionKey === dispatchAction;
                                     const isDispatchDetailLoading = mailDispatchDetailLoadingId === dispatch.id;
                                     const statusSuccess = dispatch.status === "sent";
+                                    const statusFailed = dispatch.status === "failed";
+                                    const statusPending = dispatch.status === "pending";
+                                    const statusSkipped = dispatch.status.startsWith("skipped_");
+                                    const skippedReason = skippedDispatchReasonLabels[dispatch.status];
+                                    const statusLabel = statusSkipped
+                                        ? (isZh ? "已跳过" : "Skipped")
+                                        : labelForResumeMailDispatchStatus(dispatch.status);
+                                    const statusDescription = statusSkipped
+                                        ? (skippedReason?.[isZh ? "zh" : "en"] || labelForResumeMailDispatchStatus(dispatch.status))
+                                        : (dispatch.error_message || statusLabel);
+                                    const statusTone = statusSuccess
+                                        ? enabledTone
+                                        : statusFailed
+                                            ? "bg-[rgba(245,63,63,0.08)] text-[#F53F3F]"
+                                            : statusPending
+                                                ? "bg-[rgba(30,59,250,0.08)] text-[#1E3BFA]"
+                                                : statusSkipped
+                                                    ? "bg-[rgba(255,159,28,0.1)] text-[#D97706]"
+                                                    : disabledTone;
                                     return (
                                         <tr key={dispatch.id} className="h-[62px] text-[12px] text-[#33353D] hover:bg-[#F8F8F9] dark:text-slate-300 dark:hover:bg-slate-900/50">
                                             <td className="px-5"><p className="truncate text-[#0E1114] dark:text-slate-100">{mailSenderMap.get(dispatch.sender_config_id || 0)?.from_email || dispatch.sender_name || (t.common.defaultSender || "Default sender")}</p></td>
                                             <td className="px-4"><p className="truncate font-medium text-[#0F23D9]" title={candidateSummary}>{candidateSummary || (t.common.unrecorded || "-")}</p><p className="mt-0.5 truncate text-[11px] text-[#B0B2B8]">{dispatch.position_id ? dispatch.position_title || positionMap.get(dispatch.position_id)?.title || `${t.common.position || "Position"} #${dispatch.position_id}` : (t.common.noLinkedPosition || "No linked position")}</p></td>
                                             <td className="px-4"><p className="truncate text-[#0E1114] dark:text-slate-100" title={recipientSummary}>{recipientSummary || (t.common.unrecorded || "-")}</p><p className="mt-0.5 truncate text-[11px] text-[#B0B2B8]" title={dispatch.subject || ""}>{shortText(dispatch.subject || (t.common.noCustomSubject || "System default subject"), 100)}</p></td>
                                             <td className="px-4"><p>{dispatch.trigger_type === "screening_completed" ? (t.common.triggerScreeningCompleted || "Trigger: screening completed") : dispatch.send_mode === "automatic" ? (t.common.automatic || "Automatic") : (t.common.manual || "Manual")}</p><p className="mt-0.5 truncate text-[11px] text-[#B0B2B8]">{dispatch.candidate_status ? labelForCandidateStatus(dispatch.candidate_status) : "-"}</p></td>
-                                            <td className="px-4"><span className={cn("inline-flex h-[22px] items-center rounded-[4px] px-2 text-[11px]", statusSuccess ? enabledTone : "bg-[rgba(245,63,63,0.08)] text-[#F53F3F]")}>{labelForResumeMailDispatchStatus(dispatch.status)}</span></td>
+                                            <td className="px-4">
+                                                <span
+                                                    className={cn("inline-flex h-[22px] max-w-full items-center whitespace-nowrap rounded-[4px] px-2 text-[11px]", statusTone)}
+                                                    title={statusDescription}
+                                                    aria-label={`${statusLabel}${isZh ? "：" : ": "}${statusDescription}`}
+                                                >
+                                                    {statusLabel}
+                                                </span>
+                                            </td>
                                             <td className="px-4 text-[#86888F]">{formatLongDateTime(dispatch.sent_at || dispatch.created_at)}</td>
                                             <td className="px-4"><div className="flex items-center gap-3 whitespace-nowrap">{canSendMail && dispatch.status === "failed" ? <button type="button" className="text-[#F53F3F] hover:text-[#D9363E] disabled:opacity-50" onClick={() => void retryResumeMailDispatch(dispatch)} disabled={isDispatchActing || isDispatchDetailLoading}>{isDispatchActing || isDispatchDetailLoading ? t.common.retrying : t.common.retryFailedSend}</button> : null}{canSendMail ? <button type="button" className="text-[#0F23D9] hover:text-[#1E3BFA] disabled:opacity-50" onClick={() => void openResumeMailReplayDialog(dispatch)} disabled={isDispatchDetailLoading}>{isDispatchDetailLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true"/> : (t.common.sendAgain || "Send Again")}</button> : null}</div></td>
                                         </tr>
