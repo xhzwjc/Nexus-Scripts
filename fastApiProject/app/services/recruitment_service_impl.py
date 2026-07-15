@@ -11190,8 +11190,10 @@ class RecruitmentService:
             ).first() if row.position_id else None
         )
         ai_match_snapshot = _preloaded_ai_match_snapshot if _preloaded_ai_match_snapshot is not None else self._resolve_candidate_ai_match_snapshot(row)
+        tags = json_loads_safe(row.tags_json, [])
         return {
             "id": row.id,
+            "candidate_code": row.candidate_code,
             "org_code": normalize_org_code(getattr(row, "org_code", None)),
             "position_id": row.position_id,
             "position_title": position.title if position else None,
@@ -11202,8 +11204,11 @@ class RecruitmentService:
             "current_company": row.current_company,
             "years_of_experience": getattr(row, "years_of_experience", None),
             "education": getattr(row, "education", None),
+            "age": getattr(row, "age", None),
             "city": getattr(row, "city", None),
+            "expected_city": getattr(row, "expected_city", None),
             "source": row.source,
+            "source_detail": row.source_detail,
             "status": row.status,
             "owner_id": row.owner_id,
             "created_by": row.created_by,
@@ -11212,9 +11217,11 @@ class RecruitmentService:
             "updated_at": isoformat_or_none(row.updated_at),
             "ai_match_position_id": ai_match_snapshot.get("ai_match_position_id"),
             "ai_match_position_title": ai_match_snapshot.get("ai_match_position_title"),
+            "ai_match_confidence": ai_match_snapshot.get("ai_match_confidence"),
             "ai_match_reason": ai_match_snapshot.get("ai_match_reason"),
             "ai_potential_position": ai_match_snapshot.get("ai_potential_position"),
             "ai_potential_reason": ai_match_snapshot.get("ai_potential_reason"),
+            "tags": tags[:3] if isinstance(tags, list) else [],
             "talent_pool_reason": getattr(row, "talent_pool_reason", None),
             "talent_pool_source_status": getattr(row, "talent_pool_source_status", None),
             "talent_pool_moved_by": getattr(row, "talent_pool_moved_by", None),

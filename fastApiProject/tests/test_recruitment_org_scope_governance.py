@@ -547,6 +547,11 @@ def test_smart_match_enqueues_visible_positions_without_auto_screen(monkeypatch)
             created_by="self-user",
         )
         candidate.status = "matching"
+        candidate.age = 31
+        candidate.expected_city = "深圳"
+        candidate.source_detail = "人才库列表测试"
+        candidate.tags_json = '["测试开发", "CI/CD"]'
+        candidate.ai_match_confidence = 87.0
         db.add(candidate)
         db.commit()
 
@@ -574,8 +579,15 @@ def test_smart_match_enqueues_visible_positions_without_auto_screen(monkeypatch)
         )
         assert talent_pool_page["total"] == 1
         assert [item["id"] for item in talent_pool_page["items"]] == [candidate.id]
-        assert talent_pool_page["items"][0]["created_by"] == "self-user"
-        assert talent_pool_page["items"][0]["updated_by"] == "self-user"
+        talent_pool_item = talent_pool_page["items"][0]
+        assert talent_pool_item["candidate_code"] == candidate.candidate_code
+        assert talent_pool_item["age"] == 31
+        assert talent_pool_item["expected_city"] == "深圳"
+        assert talent_pool_item["source_detail"] == "人才库列表测试"
+        assert talent_pool_item["tags"] == ["测试开发", "CI/CD"]
+        assert talent_pool_item["ai_match_confidence"] == 87.0
+        assert talent_pool_item["created_by"] == "self-user"
+        assert talent_pool_item["updated_by"] == "self-user"
     finally:
         db.close()
 

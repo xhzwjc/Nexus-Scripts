@@ -2,13 +2,17 @@
 
 import React from "react";
 import {
+    Archive,
     BadgeCheck,
     ChevronDown,
+    Check,
+    CircleX,
     Loader2,
     RefreshCw,
     RotateCcw,
     Search,
     Trash2,
+    TriangleAlert,
     Upload,
     Users,
 } from "lucide-react";
@@ -66,10 +70,6 @@ function getTalentPoolLocale(language = getCurrentLanguage()) {
         sortByTime: isZh ? "入库时间 ↓" : "Talent Pool Time ↓",
         sortByName: isZh ? "姓名 A-Z" : "Name A-Z",
         sortByNameDesc: isZh ? "姓名 Z-A" : "Name Z-A",
-        advancedFilter: isZh ? "高级筛选" : "Advanced Filters",
-        filterSummary: isZh
-            ? "可组合筛选来源、推荐岗位、入库时间，并搜索姓名、手机号、邮箱、公司或岗位。"
-            : "Combine source, recommended-position and date sorting with candidate search.",
         resetFilters: isZh ? "重置筛选" : "Reset Filters",
         selectedCount: (count: number) => isZh ? "已选 " + count + " 人" : count + " selected",
         clearSelection: isZh ? "清空选择" : "Clear Selection",
@@ -81,6 +81,9 @@ function getTalentPoolLocale(language = getCurrentLanguage()) {
         clearStatFilter: isZh ? "再次点击指标恢复全部" : "Click again to show all",
         statFiltering: isZh ? "筛选中" : "Filtering",
         aiRecognized: isZh ? "AI 识别" : "AI Match",
+        aiRecognizedGroupDesc: isZh
+            ? "AI 已识别匹配，可一键分配"
+            : "AI identified a match and can assign the group in one click",
         aiMatchingGroup: isZh ? "AI 匹配中" : "AI Matching",
         aiMatchingHint: isZh
             ? "AI 正在分析简历匹配岗位，请稍候…"
@@ -97,7 +100,19 @@ function getTalentPoolLocale(language = getCurrentLanguage()) {
             : "Already in the talent pool and ready for reassignment.",
         selectAllGroup: isZh ? "全选此分组" : "Select This Group",
         oneClickAssign: isZh ? "一键分配到此岗位" : "Assign to This Position",
+        candidateColumn: isZh ? "候选人" : "Candidate",
+        recognitionColumn: isZh ? "AI 识别状态" : "AI Recognition",
+        tagsAndIntentColumn: isZh ? "标签 / 意向" : "Tags / Intent",
+        enteredAndActionsColumn: isZh ? "入库时间 / 操作" : "Added / Actions",
+        matchedPositionStatus: isZh ? "已匹配岗位" : "Position Matched",
+        matchingPositionStatus: isZh ? "AI 识别中" : "AI Identifying",
+        unmatchedPositionStatus: isZh ? "未匹配到岗位" : "No Position Matched",
+        errorPositionStatus: isZh ? "AI 识别异常" : "AI Recognition Error",
+        reIdentifyingStatus: isZh ? "重新识别中" : "Re-identifying",
+        reIdentifyFailedStatus: isZh ? "重新识别失败" : "Re-identification Failed",
+        archivedStatus: isZh ? "已入库" : "Archived",
         confirmMatch: isZh ? "确认归岗" : "Confirm Position",
+        confirmingMatch: isZh ? "归岗中…" : "Confirming...",
         changePosition: isZh ? "换岗位" : "Change Position",
         manualAssign: isZh ? "手动分配" : "Manual Assign",
         assignPosition: isZh ? "分配岗位" : "Assign Position",
@@ -108,9 +123,6 @@ function getTalentPoolLocale(language = getCurrentLanguage()) {
         aiNoMatch: isZh
             ? "AI 未能匹配到系统现有岗位，请手动分配"
             : "AI could not match an existing position. Please assign manually.",
-        aiStillNoMatch: isZh
-            ? "重新识别后仍未找到匹配岗位"
-            : "Still no match after re-identification",
         aiErrorDesc: isZh ? "AI 识别异常，请重新识别" : "AI error, please re-identify",
         sourceStage: isZh ? "来源阶段" : "Source Stage",
         sourceAiUnmatched: isZh ? "未匹配系统岗位" : "No System Position Match",
@@ -212,6 +224,17 @@ type TalentPoolCandidateGroup = {
     candidates: CandidateSummary[];
     assignPositionId?: number | null;
 };
+type TalentPoolRecognitionKind = "matched" | "matching" | "unmatched" | "error" | "archived";
+type TalentPoolRecognitionState = {
+    kind: TalentPoolRecognitionKind;
+    label: string;
+    spineClass: string;
+    badgeClass: string;
+    loading: boolean;
+};
+
+const TALENT_POOL_ROW_GRID_CLASS = "[grid-template-columns:40px_minmax(220px,1.3fr)_minmax(300px,1.9fr)_minmax(150px,1fr)_minmax(140px,.85fr)_minmax(210px,1fr)]";
+const TALENT_POOL_ROW_MIN_WIDTH_CLASS = "min-w-[1060px]";
 
 const STATUS_LABEL_MAP: Record<string, string> = {
     pending_screening: "待初筛",
@@ -316,6 +339,75 @@ function talentPoolCandidateName(candidate: CandidateSummary) {
     return code ? name + "（" + code + "）" : name;
 }
 
+function resolveTalentPoolRecognitionState(
+    candidate: CandidateSummary,
+    tr: ReturnType<typeof getTalentPoolLocale>,
+    reIdentifying: boolean,
+    reIdentifyFailed: boolean,
+): TalentPoolRecognitionState {
+    if (reIdentifyFailed) {
+        return {
+            kind: "error",
+            label: tr.reIdentifyFailedStatus,
+            spineClass: "bg-[#F53F3F]",
+            badgeClass: "bg-[rgba(245,63,63,0.08)] text-[#F53F3F]",
+            loading: false,
+        };
+    }
+    if (reIdentifying) {
+        return {
+            kind: "matching",
+            label: tr.reIdentifyingStatus,
+            spineClass: "bg-[#2E9CFF]",
+            badgeClass: "bg-[rgba(46,156,255,0.10)] text-[#2E9CFF]",
+            loading: true,
+        };
+    }
+    if (isTalentPoolMatching(candidate)) {
+        return {
+            kind: "matching",
+            label: tr.matchingPositionStatus,
+            spineClass: "bg-[#2E9CFF]",
+            badgeClass: "bg-[rgba(46,156,255,0.10)] text-[#2E9CFF]",
+            loading: true,
+        };
+    }
+    if (isIdentifyErrorCandidate(candidate)) {
+        return {
+            kind: "error",
+            label: tr.errorPositionStatus,
+            spineClass: "bg-[#F53F3F]",
+            badgeClass: "bg-[rgba(245,63,63,0.08)] text-[#F53F3F]",
+            loading: false,
+        };
+    }
+    if (isNoSystemPositionCandidate(candidate)) {
+        return {
+            kind: "unmatched",
+            label: tr.unmatchedPositionStatus,
+            spineClass: "bg-[#FFAB24]",
+            badgeClass: "bg-[rgba(255,171,36,0.12)] text-[#D48806]",
+            loading: false,
+        };
+    }
+    if (candidate.ai_match_position_id && candidate.ai_match_position_title) {
+        return {
+            kind: "matched",
+            label: tr.matchedPositionStatus,
+            spineClass: "bg-[#0CC991]",
+            badgeClass: "bg-[rgba(12,201,145,0.10)] text-[#0A9C71]",
+            loading: false,
+        };
+    }
+    return {
+        kind: "archived",
+        label: tr.archivedStatus,
+        spineClass: "bg-[#D6D8DD]",
+        badgeClass: "bg-[rgba(134,136,143,0.10)] text-[#86888F]",
+        loading: false,
+    };
+}
+
 export function TalentPoolPage({
     candidates,
     positions,
@@ -349,7 +441,6 @@ export function TalentPoolPage({
     const [sortBy, setSortBy] = React.useState<"time" | "name" | "name_desc">("time");
     const [activeStatFilter, setActiveStatFilter] = React.useState<TalentPoolStatFilter>(() => preferredStatFilter || "all");
     const [statFilterPending, setStatFilterPending] = React.useState(false);
-    const [advancedFilterOpen, setAdvancedFilterOpen] = React.useState(false);
     const [selectedIds, setSelectedIds] = React.useState<Set<number>>(new Set());
     const [initialLoadComplete, setInitialLoadComplete] = React.useState(candidates.length > 0);
     const [refreshing, setRefreshing] = React.useState(false);
@@ -361,6 +452,7 @@ export function TalentPoolPage({
     const [singleAssignPositionId, setSingleAssignPositionId] = React.useState("");
     const [singleAssigning, setSingleAssigning] = React.useState(false);
     const [groupAssigningKey, setGroupAssigningKey] = React.useState<string | null>(null);
+    const [confirmingMatchIds, setConfirmingMatchIds] = React.useState<Set<number>>(new Set());
     const [deleteDialogOpen, setDeleteDialogOpen] = React.useState(false);
     const [deleting, setDeleting] = React.useState(false);
     const [reIdentifyConfirmOpen, setReIdentifyConfirmOpen] = React.useState(false);
@@ -369,14 +461,15 @@ export function TalentPoolPage({
     const [reIdentifyConfirmSubmitting, setReIdentifyConfirmSubmitting] = React.useState(false);
     const [reIdentifyingIds, setReIdentifyingIds] = React.useState<Set<number>>(new Set());
     const [reIdentifyFailedIds, setReIdentifyFailedIds] = React.useState<Set<number>>(new Set());
+    const [recentCutoffMs] = React.useState(() => Date.now() - 7 * 24 * 60 * 60 * 1000);
     const statFilterTimerRef = React.useRef<number | null>(null);
     const queryChangeInitializedRef = React.useRef(false);
     const onQueryChangeRef = React.useRef(onQueryChange);
     const hasSeenInitialLoadingRef = React.useRef(false);
     const listScrollRef = React.useRef<HTMLDivElement | null>(null);
     const selectAllVisibleRef = React.useRef<HTMLInputElement | null>(null);
+    const confirmingMatchIdsRef = React.useRef<Set<number>>(new Set());
 
-    const recentCutoffMs = React.useMemo(() => Date.now() - 7 * 24 * 60 * 60 * 1000, [candidates]);
     const localStats = React.useMemo<TalentPoolStats>(() => {
         const matching = candidates.filter(isTalentPoolMatching).length;
         const noSystemPosition = candidates.filter(isNoSystemPositionCandidate).length;
@@ -509,10 +602,7 @@ export function TalentPoolPage({
                     key,
                     badge: tr.aiRecognized,
                     title: candidate.ai_match_position_title,
-                    description: sanitizeCandidateFacingErrorText(candidate.ai_match_reason || "", {
-                        context: "position_match",
-                        language,
-                    }) || tr.aiRecognized,
+                    description: tr.aiRecognizedGroupDesc,
                     tone: "primary" as const,
                     candidates: [],
                     assignPositionId: candidate.ai_match_position_id,
@@ -555,7 +645,7 @@ export function TalentPoolPage({
             });
         }
         return groups;
-    }, [filteredCandidates, language, tr]);
+    }, [filteredCandidates, tr]);
 
     const totalForPagination = total ?? filteredCandidates.length;
     const totalPages = Math.max(1, Math.ceil(Math.max(0, totalForPagination) / Math.max(1, pageSize)));
@@ -576,6 +666,10 @@ export function TalentPoolPage({
     const selectedReidentifyCandidates = React.useMemo(
         () => selectedCandidates.filter(isTalentPoolReidentifyTarget),
         [selectedCandidates],
+    );
+    const batchReIdentifying = React.useMemo(
+        () => selectedReidentifyCandidates.some((candidate) => reIdentifyingIds.has(candidate.id)),
+        [reIdentifyingIds, selectedReidentifyCandidates],
     );
     const selectedVisibleCount = React.useMemo(
         () => filteredCandidates.reduce((count, candidate) => count + (selectedIds.has(candidate.id) ? 1 : 0), 0),
@@ -699,6 +793,20 @@ export function TalentPoolPage({
         }
     }, [groupAssigningKey, onAssignPosition]);
 
+    const handleConfirmMatch = React.useCallback(async (candidateId: number, positionId: number) => {
+        if (confirmingMatchIdsRef.current.has(candidateId)) return;
+        confirmingMatchIdsRef.current.add(candidateId);
+        setConfirmingMatchIds(new Set(confirmingMatchIdsRef.current));
+        try {
+            await onAssignPosition([candidateId], positionId);
+        } catch {
+            // 容器负责展示接口错误；结束 loading 后允许用户重试。
+        } finally {
+            confirmingMatchIdsRef.current.delete(candidateId);
+            setConfirmingMatchIds(new Set(confirmingMatchIdsRef.current));
+        }
+    }, [onAssignPosition]);
+
     const runReIdentify = React.useCallback(async (
         candidateIds: number[],
         options: {single?: boolean; clearSelection?: boolean} = {},
@@ -730,12 +838,13 @@ export function TalentPoolPage({
                 uniqueIds.forEach((candidateId) => next.add(candidateId));
                 return next;
             });
+            throw error;
+        } finally {
             setReIdentifyingIds((current) => {
                 const next = new Set(current);
                 uniqueIds.forEach((candidateId) => next.delete(candidateId));
                 return next;
             });
-            throw error;
         }
     }, [onBatchReIdentify, onReIdentify]);
 
@@ -874,7 +983,27 @@ export function TalentPoolPage({
 
                 <div className="mb-4 flex min-h-8 flex-wrap items-center justify-between gap-x-6 gap-y-3 2xl:flex-nowrap">
                     <div className="flex shrink-0 items-center gap-6">
-                        <ToolbarSelect value={sourceFilter} onChange={setSourceFilter} label={tr.allSources}>
+                        {canManageCandidates && filteredCandidates.length > 0 ? (
+                            <div className={cn("flex items-center gap-3 text-[12px]", selectedIds.size > 0 ? "text-[#33353D]" : "text-[#86888F]")}>
+                                <label className="inline-flex cursor-pointer items-center gap-2 whitespace-nowrap">
+                                    <input
+                                        ref={selectAllVisibleRef}
+                                        type="checkbox"
+                                        checked={allVisibleSelected}
+                                        onChange={() => selectGroup(filteredCandidates.map((candidate) => candidate.id))}
+                                        className="h-3.5 w-3.5 rounded-[3px] border-[#D6D8DD] accent-[#1E3BFA]"
+                                    />
+                                    {tr.selectCurrentPage}
+                                </label>
+                                {selectedIds.size > 0 ? (
+                                    <>
+                                        <span className="whitespace-nowrap text-[#1E3BFA]">{tr.selectedCount(selectedIds.size)}</span>
+                                        <button type="button" className="whitespace-nowrap text-[#86888F] hover:text-[#1E3BFA]" onClick={() => setSelectedIds(new Set())}>{tr.clearSelection}</button>
+                                    </>
+                                ) : null}
+                            </div>
+                        ) : null}
+                        <ToolbarSelect value={sourceFilter} onChange={setSourceFilter} label={tr.allSources} widthClass={language === "en-US" ? "w-[104px]" : "w-[82px]"}>
                             <option value="all">{tr.allSources}</option>
                             <option value="boss_zhipin">{tr.bossZhipin}</option>
                             <option value="liepin">{tr.liepin}</option>
@@ -882,19 +1011,16 @@ export function TalentPoolPage({
                             <option value="headhunter">{tr.headhunter}</option>
                             <option value="other">{tr.otherSource}</option>
                         </ToolbarSelect>
-                        <ToolbarSelect value={tagFilter} onChange={setTagFilter} label={tr.allRecommendedPositions}>
+                        <ToolbarSelect value={tagFilter} onChange={setTagFilter} label={tr.allRecommendedPositions} widthClass={language === "en-US" ? "w-[190px]" : "w-[116px]"}>
                             <option value="all">{tr.allRecommendedPositions}</option>
                             {availableTags.map((tag) => <option key={tag} value={tag}>{tag}</option>)}
                             <option value="__none">{tr.unmatchedGroup}</option>
                         </ToolbarSelect>
-                        <ToolbarSelect value={sortBy} onChange={(value) => setSortBy(value as typeof sortBy)} label={tr.sortByTime}>
+                        <ToolbarSelect value={sortBy} onChange={(value) => setSortBy(value as typeof sortBy)} label={tr.sortByTime} widthClass={language === "en-US" ? "w-[140px]" : "w-[96px]"}>
                             <option value="time">{tr.sortByTime}</option>
                             <option value="name">{tr.sortByName}</option>
                             <option value="name_desc">{tr.sortByNameDesc}</option>
                         </ToolbarSelect>
-                        <button type="button" className="text-[12px] text-[#0F23D9] hover:text-[#1E3BFA]" onClick={() => setAdvancedFilterOpen((open) => !open)}>
-                            {tr.advancedFilter}
-                        </button>
                         {statFilterPending ? (
                             <span className="inline-flex items-center gap-1.5 text-[12px] text-[#86888F]">
                                 <Loader2 className="h-3 w-3 animate-spin text-[#1E3BFA]"/>
@@ -919,7 +1045,15 @@ export function TalentPoolPage({
                         {canManageCandidates ? (
                             <>
                                 <button type="button" disabled={selectedIds.size === 0} className="whitespace-nowrap text-[12px] text-[#0F23D9] hover:text-[#1E3BFA] disabled:cursor-not-allowed disabled:text-[#B0B2B8]" onClick={() => setAssignDialogOpen(true)}>{tr.batchAssign}</button>
-                                <button type="button" disabled={selectedReidentifyCandidates.length === 0} className="whitespace-nowrap text-[12px] text-[#0F23D9] hover:text-[#1E3BFA] disabled:cursor-not-allowed disabled:text-[#B0B2B8]" onClick={() => requestReIdentify(selectedReidentifyCandidates, "batch")}>{tr.batchReIdentify}</button>
+                                <button
+                                    type="button"
+                                    disabled={selectedReidentifyCandidates.length === 0 || batchReIdentifying}
+                                    className="inline-flex items-center whitespace-nowrap text-[12px] text-[#0F23D9] hover:text-[#1E3BFA] disabled:cursor-not-allowed disabled:text-[#B0B2B8]"
+                                    onClick={() => requestReIdentify(selectedReidentifyCandidates, "batch")}
+                                >
+                                    {batchReIdentifying ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin"/> : null}
+                                    {batchReIdentifying ? tr.reIdentifying : tr.batchReIdentify}
+                                </button>
                                 {onDeleteCandidates ? (
                                     <button type="button" disabled={selectedIds.size === 0} className="whitespace-nowrap text-[12px] text-[#F53F3F] hover:text-[#d92d2d] disabled:cursor-not-allowed disabled:text-[#B0B2B8]" onClick={() => setDeleteDialogOpen(true)}>{tr.batchDelete}</button>
                                 ) : null}
@@ -928,62 +1062,36 @@ export function TalentPoolPage({
                     </div>
                 </div>
 
-                {advancedFilterOpen ? (
-                    <div className="mb-4 flex h-10 items-center justify-between rounded-[6px] border border-[#EBEEF5] bg-[#F7F8FA] px-4 text-[12px] text-[#86888F]">
-                        <span>{tr.filterSummary}</span>
-                        <button type="button" className="text-[#0F23D9] hover:text-[#1E3BFA]" onClick={resetFilters}>{tr.resetFilters}</button>
-                    </div>
-                ) : null}
-
-                {canManageCandidates && filteredCandidates.length > 0 ? (
-                    <div className={cn("mb-3 flex h-8 items-center justify-end gap-4 text-[12px]", selectedIds.size > 0 ? "text-[#33353D]" : "text-[#86888F]")}>
-                        <label className="inline-flex cursor-pointer items-center gap-2">
-                            <input
-                                ref={selectAllVisibleRef}
-                                type="checkbox"
-                                checked={allVisibleSelected}
-                                onChange={() => selectGroup(filteredCandidates.map((candidate) => candidate.id))}
-                                className="h-3.5 w-3.5 rounded-[3px] border-[#D6D8DD] accent-[#1E3BFA]"
-                            />
-                            {tr.selectCurrentPage}
-                        </label>
-                        {selectedIds.size > 0 ? (
-                            <>
-                                <span className="text-[#1E3BFA]">{tr.selectedCount(selectedIds.size)}</span>
-                                <button type="button" className="text-[#86888F] hover:text-[#1E3BFA]" onClick={() => setSelectedIds(new Set())}>{tr.clearSelection}</button>
-                            </>
-                        ) : null}
-                    </div>
-                ) : null}
-
-                {showInlineUpdating ? (
-                    <div className="mb-3 flex h-8 items-center gap-2 rounded-[6px] border border-[#E6E7EB] bg-[#F7F8FA] px-3 text-[12px] text-[#86888F]">
-                        <Loader2 className="h-3.5 w-3.5 animate-spin text-[#1E3BFA]"/>
-                        {tr.updatingList}
-                    </div>
-                ) : null}
-
-                {filteredCandidates.length === 0 ? (
-                    <div className="flex min-h-[360px] items-center justify-center rounded-[8px] border border-[#EBEEF5] bg-white text-center">
-                        <div>
-                            <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-[rgba(30,59,250,0.06)] text-[#1E3BFA]">
-                                <Users className="h-5 w-5"/>
+                <div className="relative" aria-busy={showInlineUpdating}>
+                    {showInlineUpdating ? (
+                        <div className="absolute inset-0 z-20 flex items-start justify-center rounded-[10px] bg-white/60 pt-24 backdrop-blur-[1px]">
+                            <span className="inline-flex h-9 items-center gap-2 rounded-full border border-[#E6E7EB] bg-white px-4 text-[12px] text-[#86888F] shadow-sm">
+                                <Loader2 className="h-3.5 w-3.5 animate-spin text-[#1E3BFA]"/>
+                                {tr.updatingList}
                             </span>
-                            <h3 className="mt-3 text-[14px] font-medium text-[#33353D]">{activeStatFilter === "all" ? tr.noCandidates : tr.noFilteredCandidates}</h3>
-                            <p className="mt-1 max-w-[520px] text-[12px] leading-5 text-[#86888F]">{activeStatFilter === "all" ? tr.noCandidatesDesc : tr.noFilteredCandidatesDesc}</p>
-                            {(activeStatFilter !== "all" || sourceFilter !== "all" || tagFilter !== "all" || searchQuery) ? (
-                                <button type="button" className="mt-3 text-[12px] text-[#0F23D9] hover:text-[#1E3BFA]" onClick={resetFilters}>{tr.resetFilters}</button>
-                            ) : null}
                         </div>
-                    </div>
-                ) : (
-                    <div className={cn("space-y-5 transition-opacity", statFilterPending && "opacity-60")}>
+                    ) : null}
+                    {filteredCandidates.length === 0 ? (
+                        <div className="flex min-h-[360px] items-center justify-center rounded-[8px] border border-[#EBEEF5] bg-white text-center">
+                            <div>
+                                <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-[rgba(30,59,250,0.06)] text-[#1E3BFA]">
+                                    <Users className="h-5 w-5"/>
+                                </span>
+                                <h3 className="mt-3 text-[14px] font-medium text-[#33353D]">{activeStatFilter === "all" ? tr.noCandidates : tr.noFilteredCandidates}</h3>
+                                <p className="mt-1 max-w-[520px] text-[12px] leading-5 text-[#86888F]">{activeStatFilter === "all" ? tr.noCandidatesDesc : tr.noFilteredCandidatesDesc}</p>
+                                {(activeStatFilter !== "all" || sourceFilter !== "all" || tagFilter !== "all" || searchQuery) ? (
+                                    <button type="button" className="mt-3 text-[12px] text-[#0F23D9] hover:text-[#1E3BFA]" onClick={resetFilters}>{tr.resetFilters}</button>
+                                ) : null}
+                            </div>
+                        </div>
+                    ) : (
+                    <div className={cn("space-y-[18px] transition-opacity", (statFilterPending || showInlineUpdating) && "opacity-55")}>
                         {candidateGroups.map((group) => {
                             const groupIds = group.candidates.map((candidate) => candidate.id);
                             const groupSelected = groupIds.length > 0 && groupIds.every((candidateId) => selectedIds.has(candidateId));
                             return (
-                                <section key={group.key} className="overflow-x-auto rounded-[8px] border border-[#EBEEF5] bg-white">
-                                    <div className="flex h-[46px] min-w-[1020px] items-center justify-between border-b border-[#F2F3F5] bg-[#F8F8F9] px-5">
+                                <section key={group.key} className="overflow-x-auto rounded-[10px] border border-[#EBEEF5] bg-white">
+                                    <div className={cn("flex h-12 items-center justify-between border-b border-[#F2F3F5] bg-[#F8F9FB] px-[18px]", TALENT_POOL_ROW_MIN_WIDTH_CLASS)}>
                                         <div className="flex min-w-0 items-center gap-2.5">
                                             <GroupBadge tone={group.tone}>{group.badge}</GroupBadge>
                                             <h2 className="shrink-0 text-[14px] font-semibold text-[#0E1114]">{group.title}</h2>
@@ -994,12 +1102,24 @@ export function TalentPoolPage({
                                                 <button type="button" className={cn("text-[12px] hover:text-[#1E3BFA]", groupSelected ? "text-[#1E3BFA]" : "text-[#0F23D9]")} onClick={() => selectGroup(groupIds)}>{tr.selectAllGroup}</button>
                                                 {group.assignPositionId ? (
                                                     <button type="button" disabled={groupAssigningKey !== null} className="inline-flex h-7 items-center gap-1.5 rounded-[6px] border border-[#1E3BFA] px-3 text-[12px] text-[#1E3BFA] hover:bg-[rgba(30,59,250,0.06)] disabled:cursor-not-allowed disabled:opacity-50" onClick={() => void handleGroupAssign(group)}>
-                                                        {groupAssigningKey === group.key ? <Loader2 className="h-3 w-3 animate-spin"/> : null}
+                                                        {groupAssigningKey === group.key ? <Loader2 className="h-3 w-3 animate-spin"/> : <Check className="h-3 w-3"/>}
                                                         {tr.oneClickAssign}
                                                     </button>
                                                 ) : null}
                                             </div>
                                         ) : null}
+                                    </div>
+                                    <div className={cn(
+                                        "grid h-[34px] items-center border-b border-[#F5F6F8] bg-white text-[11px] text-[#B0B2B8]",
+                                        TALENT_POOL_ROW_MIN_WIDTH_CLASS,
+                                        TALENT_POOL_ROW_GRID_CLASS,
+                                    )}>
+                                        <span/>
+                                        <span>{tr.candidateColumn}</span>
+                                        <span>{tr.recognitionColumn}</span>
+                                        <span>{tr.tagsAndIntentColumn}</span>
+                                        <span>{tr.sourceStage}</span>
+                                        <span className="pr-[18px] text-right">{tr.enteredAndActionsColumn}</span>
                                     </div>
                                     <div>
                                         {group.candidates.map((candidate) => {
@@ -1011,13 +1131,14 @@ export function TalentPoolPage({
                                                     key={candidate.id}
                                                     candidate={candidate}
                                                     selected={selectedIds.has(candidate.id)}
+                                                    confirmingMatch={confirmingMatchIds.has(candidate.id)}
                                                     reIdentifying={reIdentifyingIds.has(candidate.id)}
                                                     reIdentifyFailed={reIdentifyFailedIds.has(candidate.id)}
                                                     onToggleSelect={canManageCandidates ? () => toggleSelect(candidate.id) : undefined}
-                                                    onConfirmMatch={canManageCandidates && recognizedPositionId ? () => void onAssignPosition([candidate.id], recognizedPositionId).catch(() => undefined) : undefined}
+                                                    onConfirmMatch={canManageCandidates && recognizedPositionId ? () => void handleConfirmMatch(candidate.id, recognizedPositionId) : undefined}
                                                     onChangePosition={canManageCandidates && recognizedPositionId ? () => openSingleAssign(candidate.id) : undefined}
                                                     onCancelMatch={canManageCandidates && matching && onCancelMatch ? () => void onCancelMatch(candidate.id) : undefined}
-                                                    onReIdentify={canManageCandidates && !matching ? () => requestReIdentify([candidate], "single") : undefined}
+                                                    onReIdentify={canManageCandidates && !matching && !recognizedPositionId ? () => requestReIdentify([candidate], "single") : undefined}
                                                     onManualAssign={canManageCandidates && !matching && !recognizedPositionId ? () => openSingleAssign(candidate.id) : undefined}
                                                     onView={() => onViewCandidate(candidate.id)}
                                                     tr={tr}
@@ -1031,8 +1152,9 @@ export function TalentPoolPage({
                                 </section>
                             );
                         })}
-                    </div>
-                )}
+                        </div>
+                    )}
+                </div>
 
                 <PaginationBar
                     total={total ?? filteredCandidates.length}
@@ -1141,17 +1263,19 @@ function ToolbarSelect({
     value,
     onChange,
     label,
+    widthClass,
     children,
 }: {
     value: string;
     onChange: (value: string) => void;
     label: string;
+    widthClass: string;
     children: React.ReactNode;
 }) {
     return (
-        <label className="relative inline-flex h-8 items-center">
+        <label className={cn("relative inline-flex h-8 min-w-0 items-center", widthClass)}>
             <span className="sr-only">{label}</span>
-            <select value={value} onChange={(event) => onChange(event.target.value)} className="h-8 max-w-[180px] appearance-none bg-transparent py-0 pl-0 pr-5 text-[12px] text-[#33353D] outline-none hover:text-[#1E3BFA]">
+            <select value={value} onChange={(event) => onChange(event.target.value)} className="h-8 w-full min-w-0 truncate appearance-none bg-transparent py-0 pl-0 pr-5 text-[12px] text-[#33353D] outline-none hover:text-[#1E3BFA]">
                 {children}
             </select>
             <ChevronDown className="pointer-events-none absolute right-0 h-3 w-3 text-[#86888F]"/>
@@ -1191,7 +1315,7 @@ function StatCard({
             onClick={onClick}
             className={cn(
                 "relative min-w-0 rounded-[8px] border bg-white px-5 py-4 text-left transition-colors",
-                active ? "border-[#1E3BFA]" : "border-[#EBEEF5] hover:border-[#1E3BFA]/45",
+                active ? "border-[#1E3BFA] bg-[rgba(30,59,250,0.02)]" : "border-[#EBEEF5] hover:border-[#1E3BFA]/45",
             )}
         >
             {loading ? <span className="absolute inset-x-0 bottom-0 h-0.5 animate-pulse bg-[#1E3BFA]"/> : null}
@@ -1212,12 +1336,13 @@ function GroupBadge({tone, children}: {tone: TalentPoolGroupTone; children: Reac
         amber: "bg-[rgba(255,171,36,0.12)] text-[#D48806]",
         emerald: "bg-[rgba(12,201,145,0.10)] text-[#0A9C71]",
     };
-    return <span className={cn("inline-flex h-[22px] shrink-0 items-center rounded-[4px] px-2 text-[12px]", toneClass[tone])}>{children}</span>;
+    return <span className={cn("inline-flex h-[22px] shrink-0 items-center rounded-[5px] px-[9px] text-[12px] font-medium", toneClass[tone])}>{children}</span>;
 }
 
 function CandidateRow({
     candidate,
     selected,
+    confirmingMatch,
     reIdentifying,
     reIdentifyFailed,
     onToggleSelect,
@@ -1234,6 +1359,7 @@ function CandidateRow({
 }: {
     candidate: CandidateSummary;
     selected: boolean;
+    confirmingMatch: boolean;
     reIdentifying: boolean;
     reIdentifyFailed: boolean;
     onToggleSelect?: () => void;
@@ -1256,13 +1382,16 @@ function CandidateRow({
         candidate.city,
         candidate.phone || candidate.candidate_code,
     ].filter(Boolean).join(" · ");
-    const tags = Array.isArray(candidate.tags) ? candidate.tags.filter(Boolean).slice(0, 3) : [];
+    const allTags = Array.isArray(candidate.tags) ? candidate.tags.filter(Boolean) : [];
+    const visibleTags = allTags.slice(0, 2);
+    const hiddenTagCount = Math.max(0, allTags.length - visibleTags.length);
+    const recognition = resolveTalentPoolRecognitionState(candidate, tr, reIdentifying, reIdentifyFailed);
     const explanation = reIdentifyFailed
-        ? tr.aiStillNoMatch
+        ? tr.aiErrorDesc
         : sanitizeCandidateFacingErrorText(candidate.ai_match_reason || "", {
             context: "position_match",
             language,
-        }) || (isMatching ? tr.aiMatchingHint : (isPendingActionCandidate(candidate) ? tr.aiNoMatch : ""));
+        }) || (isMatching ? tr.aiMatchingHint : (isPendingActionCandidate(candidate) ? tr.aiNoMatch : candidate.ai_potential_reason || ""));
     const sourceTone = isIdentifyErrorCandidate(candidate)
         ? "text-[#F53F3F]"
         : isNoSystemPositionCandidate(candidate)
@@ -1277,17 +1406,19 @@ function CandidateRow({
     const actionClass = "whitespace-nowrap text-[12px] text-[#0F23D9] hover:text-[#1E3BFA] disabled:cursor-not-allowed disabled:text-[#B0B2B8]";
     return (
         <div className={cn(
-            "grid min-h-14 w-full min-w-[1020px] items-center border-b border-[#F2F3F5] text-[12px] text-[#0F1014] last:border-b-0 hover:bg-[#F8F8F9]",
-            "[grid-template-columns:40px_minmax(210px,1.35fr)_minmax(250px,2.2fr)_minmax(132px,.9fr)_minmax(138px,.9fr)_230px]",
+            "relative grid min-h-[72px] w-full items-center border-b border-[#F5F6F8] py-2.5 text-[12px] text-[#0F1014] last:border-b-0 hover:bg-[#FAFBFC]",
+            TALENT_POOL_ROW_MIN_WIDTH_CLASS,
+            TALENT_POOL_ROW_GRID_CLASS,
             selected && "bg-[rgba(30,59,250,0.025)]",
         )}>
+            <span className={cn("absolute inset-y-0 left-0 w-[3px]", recognition.spineClass)}/>
             <div className="flex items-center justify-center">
                 {onToggleSelect ? (
                     <input type="checkbox" checked={selected} onChange={onToggleSelect} className="h-3.5 w-3.5 rounded-[3px] border-[#D6D8DD] accent-[#1E3BFA]"/>
                 ) : null}
             </div>
-            <div className="flex min-w-0 items-center gap-2.5 pr-4">
-                <span className={cn("flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[11px] text-white", avatarClass)}>
+            <div className="flex min-w-0 items-center gap-[11px] pr-3">
+                <span className={cn("flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-full text-[12px] text-white", avatarClass)}>
                     {String(candidate.name || "?").trim().slice(0, 1)}
                 </span>
                 <div className="min-w-0">
@@ -1297,37 +1428,67 @@ function CandidateRow({
                     <p className="mt-0.5 truncate text-[11px] leading-4 text-[#B0B2B8]" title={profile}>{profile || sourceLabel(candidate.source, tr)}</p>
                 </div>
             </div>
-            <div className="min-w-0 pr-5">
-                <div className="flex min-w-0 items-center gap-1.5 overflow-hidden">
-                    {tags.map((tag) => (
-                        <span key={tag} className="inline-flex h-5 max-w-[110px] shrink-0 items-center truncate rounded-[4px] bg-[rgba(30,59,250,0.06)] px-2 text-[11px] text-[#1E3BFA]" title={tag}>{tag}</span>
-                    ))}
-                    {candidate.ai_potential_position ? (
-                        <span className="inline-flex h-5 max-w-[150px] shrink-0 items-center truncate rounded-[4px] bg-[rgba(12,201,145,0.08)] px-2 text-[11px] text-[#0A9C71]" title={candidate.ai_potential_reason || candidate.ai_potential_position}>
-                            {tr.potentialPrefix}{candidate.ai_potential_position}
+            <div className="flex min-w-0 flex-col gap-1.5 pr-5">
+                <div className="flex min-w-0 items-center gap-2 overflow-hidden">
+                    <span className={cn("inline-flex h-[22px] shrink-0 items-center gap-1.5 rounded-full px-[9px] text-[11px] font-medium", recognition.badgeClass)}>
+                        {recognition.kind === "matched" ? <BadgeCheck className="h-3 w-3" strokeWidth={2.2}/> : null}
+                        {recognition.kind === "matching" ? <Loader2 className="h-3 w-3 animate-spin" strokeWidth={2.3}/> : null}
+                        {recognition.kind === "unmatched" ? <TriangleAlert className="h-3 w-3" strokeWidth={2.2}/> : null}
+                        {recognition.kind === "error" ? <CircleX className="h-3 w-3" strokeWidth={2.2}/> : null}
+                        {recognition.kind === "archived" ? <Archive className="h-3 w-3" strokeWidth={2.2}/> : null}
+                        {recognition.label}
+                    </span>
+                    {recognition.kind === "matched" && candidate.ai_match_position_title ? (
+                        <span className="inline-flex h-[22px] min-w-0 max-w-[220px] items-center truncate rounded-[5px] bg-[rgba(30,59,250,0.07)] px-[9px] text-[11px] font-medium text-[#1E3BFA]" title={candidate.ai_match_position_title}>
+                            {candidate.ai_match_position_title}
                         </span>
                     ) : null}
-                    {!tags.length && !candidate.ai_potential_position ? <span className="text-[#B0B2B8]">—</span> : null}
                 </div>
-                {explanation ? <p className="mt-0.5 truncate text-[11px] leading-4 text-[#B0B2B8]" title={explanation}>{explanation}</p> : null}
+                {recognition.loading ? (
+                    <span className="h-2 w-[180px] max-w-full animate-pulse rounded-full bg-[#E7EBF2]"/>
+                ) : explanation ? (
+                    <p className="truncate text-[11px] leading-4 text-[#86888F]" title={explanation}>{explanation}</p>
+                ) : null}
+            </div>
+            <div className="flex min-w-0 flex-wrap content-center gap-1.5 pr-4">
+                {visibleTags.map((tag) => (
+                    <span key={tag} className="inline-flex h-5 max-w-[112px] items-center truncate rounded-[4px] bg-[rgba(30,59,250,0.06)] px-2 text-[11px] text-[#1E3BFA]" title={tag}>{tag}</span>
+                ))}
+                {hiddenTagCount > 0 ? (
+                    <span className="inline-flex h-5 items-center rounded-[4px] bg-[#F2F3F5] px-2 text-[11px] text-[#86888F]" title={allTags.join("、")}>+{hiddenTagCount}</span>
+                ) : null}
+                {candidate.ai_potential_position ? (
+                    <span className="inline-flex h-5 max-w-[150px] items-center truncate rounded-[4px] bg-[rgba(12,201,145,0.08)] px-2 text-[11px] text-[#0A9C71]" title={candidate.ai_potential_reason || candidate.ai_potential_position}>
+                        {tr.potentialPrefix}{candidate.ai_potential_position}
+                    </span>
+                ) : null}
+                {!allTags.length && !candidate.ai_potential_position ? <span className="text-[#C6C8CE]">—</span> : null}
             </div>
             <div className={cn("min-w-0 truncate pr-4 text-[12px]", sourceTone)} title={tr.sourceStage + "：" + sourceStage}>
                 {sourceStage}
             </div>
-            <div className="min-w-0 truncate pr-4 tabular-nums text-[#86888F]" title={enteredAt ? formatDateTime(enteredAt) : undefined}>
-                {enteredAt ? formatDateTime(enteredAt) : "—"}
-            </div>
-            <div className="flex min-w-0 flex-wrap items-center justify-end gap-x-3.5 gap-y-1 pr-4">
-                {onConfirmMatch ? <button type="button" className={actionClass} onClick={onConfirmMatch}>{tr.confirmMatch}</button> : null}
-                {onChangePosition ? <button type="button" className={actionClass} onClick={onChangePosition}>{tr.changePosition}</button> : null}
-                {onReIdentify ? (
-                    <button type="button" className={actionClass} onClick={onReIdentify} disabled={reIdentifying}>
-                        {reIdentifying ? tr.reIdentifying : tr.reIdentify}
-                    </button>
-                ) : null}
-                {onManualAssign ? <button type="button" className={actionClass} onClick={onManualAssign}>{isArchived ? tr.assignPosition : tr.manualAssign}</button> : null}
-                {onCancelMatch ? <button type="button" className="whitespace-nowrap text-[12px] text-[#F53F3F] hover:text-[#d92d2d]" onClick={onCancelMatch}>{tr.stopMatch}</button> : null}
-                <button type="button" className={actionClass} onClick={onView}>{tr.view}</button>
+            <div className="flex min-w-0 flex-col items-end gap-1.5 pr-[18px]">
+                <span className="max-w-full truncate text-[11px] tabular-nums text-[#86888F]" title={enteredAt ? formatDateTime(enteredAt) : undefined}>
+                    {enteredAt ? formatDateTime(enteredAt) : "—"}
+                </span>
+                <div className="flex min-w-0 flex-wrap items-center justify-end gap-x-3 gap-y-1">
+                    {onConfirmMatch ? (
+                        <button type="button" className={cn("inline-flex items-center", actionClass)} onClick={onConfirmMatch} disabled={confirmingMatch} aria-busy={confirmingMatch}>
+                            {confirmingMatch ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin"/> : null}
+                            {confirmingMatch ? tr.confirmingMatch : tr.confirmMatch}
+                        </button>
+                    ) : null}
+                    {onChangePosition ? <button type="button" className={actionClass} onClick={onChangePosition} disabled={confirmingMatch}>{tr.changePosition}</button> : null}
+                    {onReIdentify ? (
+                        <button type="button" className={cn("inline-flex items-center", actionClass)} onClick={onReIdentify} disabled={reIdentifying} aria-busy={reIdentifying}>
+                            {reIdentifying ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin"/> : null}
+                            {reIdentifying ? tr.reIdentifying : tr.reIdentify}
+                        </button>
+                    ) : null}
+                    {onManualAssign ? <button type="button" className={actionClass} onClick={onManualAssign}>{isArchived ? tr.assignPosition : tr.manualAssign}</button> : null}
+                    {onCancelMatch ? <button type="button" className="whitespace-nowrap text-[12px] text-[#F53F3F] hover:text-[#d92d2d]" onClick={onCancelMatch}>{tr.stopMatch}</button> : null}
+                    <button type="button" className={actionClass} onClick={onView}>{tr.view}</button>
+                </div>
             </div>
         </div>
     );
