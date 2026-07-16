@@ -135,6 +135,7 @@ export type TaskSSEEvent = {
   related_candidate_id?: number;
   candidate_id?: number;
   task_type?: string;
+  org_code?: string | null;
   schedule_id?: number;
   schedule_status?: string | null;
   interviewer_user_code?: string | null;

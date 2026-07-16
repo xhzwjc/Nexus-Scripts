@@ -196,6 +196,18 @@ def _warmup_recruitment_pdf_ocr() -> None:
 @app.on_event("startup")
 async def startup_event():
     """启动时初始化"""
+    # 招聘模块的事件总线/匹配调度器/限流器均为进程内单例，多 worker 部署会导致
+    # SSE 丢事件、匹配恢复互踩、模型限流超发。扩容前必须先外部化这些状态。
+    try:
+        web_concurrency = int(str(os.getenv("WEB_CONCURRENCY", "1") or "1").strip())
+    except (TypeError, ValueError):
+        web_concurrency = 1
+    if web_concurrency > 1:
+        logger.warning(
+            "WEB_CONCURRENCY=%s > 1：招聘模块当前仅支持单进程部署，"
+            "多 worker 会丢失 SSE 事件并击穿模型并发限制，请先降回 1。",
+            web_concurrency,
+        )
     try:
         await run_in_threadpool(ensure_script_hub_schema)
         await recover_orphaned_tasks_on_startup()

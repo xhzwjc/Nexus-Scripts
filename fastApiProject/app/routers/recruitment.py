@@ -139,10 +139,6 @@ def _task_event_for_session(
     session: Dict[str, Any],
     permission_context: Optional[PermissionContext],
 ) -> Optional[str]:
-    if _has_unrestricted_task_event_access(session):
-        return raw_event
-    if permission_context is None:
-        return None
     try:
         payload = json.loads(raw_event)
     except (TypeError, ValueError, json.JSONDecodeError):
@@ -155,10 +151,29 @@ def _task_event_for_session(
     candidate_snapshot = payload.get("candidate_snapshot")
     snapshot = candidate_snapshot if isinstance(candidate_snapshot, dict) else {}
     event_org_code = str(payload.get("org_code") or snapshot.get("org_code") or "").strip()
-    if permission_context.visible_org_codes is not None:
+
+    # P0-5：组织可见性过滤对所有会话统一生效（含 process-execute / log-view）。
+    # 此前这两类功能权限会直接透传原始事件，导致跨组织实时泄露候选人快照。
+    # 仅"涉及候选人"的事件强制要求组织可见（无组织信息一律 fail-closed 丢弃）；
+    # batch_summary 等不含候选人数据的控制事件正常放行。
+    involves_candidate = bool(
+        payload.get("candidate_id")
+        or payload.get("related_candidate_id")
+        or snapshot
+    )
+    if (
+        involves_candidate
+        and permission_context is not None
+        and permission_context.visible_org_codes is not None
+    ):
         visible_org_codes = {normalize_org_code(code) for code in permission_context.visible_org_codes}
         if not event_org_code or normalize_org_code(event_org_code) not in visible_org_codes:
             return None
+
+    if _has_unrestricted_task_event_access(session):
+        return raw_event
+    if permission_context is None:
+        return None
 
     if task_type == "department_review":
         if not any(_session_has_permission(session, permission) for permission in RECRUITMENT_REVIEW_SCOPED_PERMISSIONS):
@@ -226,13 +241,14 @@ async def stream_task_events(
     if not token:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
+    # P0-5：所有会话都构建权限上下文——process-execute / log-view 用户的事件
+    # 同样需要按组织可见范围过滤，不再无条件透传。
     event_permission_context: Optional[PermissionContext] = None
-    if not _has_unrestricted_task_event_access(_session):
-        db = SessionLocal()
-        try:
-            event_permission_context = build_permission_context(db, _session)
-        finally:
-            db.close()
+    db = SessionLocal()
+    try:
+        event_permission_context = build_permission_context(db, _session)
+    finally:
+        db.close()
 
     subscription_id, q = TaskEventBus.subscribe(token)
 
@@ -264,7 +280,15 @@ async def stream_task_events(
 
 
 async def recover_orphaned_tasks_on_startup():
-    """供主 app lifespan 调用。服务启动时将所有 status=running/queued 的任务标记为 failed。
+    """供主 app lifespan 调用。服务启动时仅将不可恢复的中断任务标记为 failed。
+
+    P0-4 恢复语义：
+    - queued 任务（初筛持久化队列中排队的任务）一律不动，由
+      resume_screening_queue_on_startup 正常派发——此前重启会把整批排队任务
+      永久标记 failed，需要人工逐个重筛。
+    - screening_flow 根任务（含 running/pending）不在这里处理，由
+      resume_screening_queue_on_startup 统一重新入队（带启动恢复次数上限）。
+    - 其余 running 任务（chat/JD/面试题等一次性流式任务）不可恢复，标记 failed。
 
     分批处理（每批 10 个），批次间加随机抖动延迟，避免并发写库死锁。
     """
@@ -277,7 +301,8 @@ async def recover_orphaned_tasks_on_startup():
     db = SessionLocal()
     try:
         orphaned = db.query(RecruitmentAITaskLog).filter(
-            RecruitmentAITaskLog.status.in_(["running", "queued"])
+            RecruitmentAITaskLog.status == "running",
+            RecruitmentAITaskLog.task_type != "screening_flow",
         ).all()
         if not orphaned:
             return
@@ -293,9 +318,9 @@ async def recover_orphaned_tasks_on_startup():
             try:
                 for row_id in [r.id for r in batch]:
                     row = db.query(RecruitmentAITaskLog).filter(RecruitmentAITaskLog.id == row_id).first()
-                    if row and row.status in ("running", "queued"):
+                    if row and row.status == "running" and row.task_type != "screening_flow":
                         row.status = "failed"
-                        row.error_message = "服务重启，任务中断。请手动重新触发初筛。"
+                        row.error_message = "服务重启，任务中断。请重新发起该任务。"
                 db.commit()
                 logger.info("Batch %d-%d: marked %d orphaned tasks as failed",
                             batch_start, batch_start + len(batch), len(batch))

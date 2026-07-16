@@ -266,15 +266,36 @@ def test_task_event_dependency_rejects_unrelated_permission():
 
 
 @pytest.mark.parametrize("permission", ["recruitment-process-execute", "recruitment-log-view"])
-def test_full_task_event_permissions_keep_existing_unfiltered_stream(permission):
-    session = {"id": "full-user", "permissions": {permission: True}}
+def test_full_task_event_permissions_stream_full_snapshot_within_visible_orgs(permission):
+    """P0-5：process-execute / log-view 仍能收到完整候选人快照，但组织可见性对其同样生效。
 
-    assert recruitment._should_deliver_task_event("not-json", session, None) is True
-    assert recruitment._should_deliver_task_event(
-        _task_event(task_type="screening_flow", interviewer_user_code="other", org_code="company-b"),
-        session,
-        None,
-    ) is True
+    修复前：这两类功能权限会绕过组织过滤，直接透传原始事件（含跨组织候选人 PII）。
+    修复后：本组织事件仍带全量快照放行，跨组织候选人事件一律丢弃。
+    """
+    actor_id = "full-user"
+    session = {"id": actor_id, "permissions": {permission: True}}
+    context = _permission_context(actor_id, permission, visible_org_codes=("company-a",))
+
+    # 本组织事件：unrestricted 权限仍拿到完整快照（不像纯面试官那样被剥离）
+    own_event = _task_event(
+        task_type="screening_flow",
+        interviewer_user_code="other",
+        org_code="company-a",
+    )
+    assert recruitment._should_deliver_task_event(own_event, session, context) is True
+    scoped_payload = json.loads(recruitment._task_event_for_session(own_event, session, context))
+    assert "candidate_snapshot" in scoped_payload
+
+    # 跨组织候选人事件：即使拥有 unrestricted 权限也必须被组织过滤丢弃
+    cross_org_event = _task_event(
+        task_type="screening_flow",
+        interviewer_user_code="other",
+        org_code="company-b",
+    )
+    assert recruitment._should_deliver_task_event(cross_org_event, session, context) is False
+
+    # 无法解析组织信息的畸形事件：fail-closed 丢弃
+    assert recruitment._should_deliver_task_event("not-json", session, context) is False
 
 
 @pytest.mark.parametrize("permission", INTERVIEW_SCOPED_PERMISSIONS[:2])

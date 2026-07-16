@@ -211,6 +211,10 @@ class MatchTask:
     enqueue_time: float = field(default_factory=time.monotonic)
     started_at: Optional[float] = None  # worker 真正开始执行的时间
     retry_count: int = 0  # 已重试次数
+    # 请求级上下文随任务固化（P0-3）：回调必须从任务读取，不得依赖全局回调闭包，
+    # 否则并发触发匹配时后一个请求会覆盖前一批任务的岗位池/会话/操作人。
+    session_token: Optional[str] = None
+    task_type: str = "ai_position_match"
 
 
 # ─────────────────────────────────────────
@@ -347,9 +351,13 @@ class FairMatchScheduler:
         batch_id: str,
         candidates: List[Any],
         position_summaries: List[Dict[str, Any]],
+        *,
+        session_token: Optional[str] = None,
+        task_type: str = "ai_position_match",
     ):
         """
         批量入队。同一 batch_id 的任务属于同一次上传。
+        session_token/task_type/position_summaries 固化到每个任务，供回调读取（P0-3）。
         """
         async with self._queue_lock:
             is_new_user = (
@@ -363,6 +371,8 @@ class FairMatchScheduler:
                     candidate_id=candidate.id,
                     candidate=candidate,
                     position_summaries=position_summaries,
+                    session_token=session_token,
+                    task_type=task_type,
                 )
                 self._user_queues[user_id].append(task)
                 with self._state_lock:

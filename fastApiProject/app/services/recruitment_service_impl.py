@@ -286,6 +286,9 @@ SCREENING_LIVE_TASK_STATUSES = ("pending", "queued", "running", "cancelling")
 SCREENING_ORPHAN_STALE_MINUTES = 10
 SCREENING_ROOT_RECOVERY_GRACE_SECONDS = 8
 SCREENING_INFRA_MAX_RETRIES = 3
+# P0-4：单个初筛根任务允许被"启动恢复"重新入队的最大次数，超过后标记 failed，
+# 防止会导致进程崩溃的任务在每次重启后被无限重投。
+SCREENING_STARTUP_RESUME_MAX_ATTEMPTS = max(1, int(os.getenv("SCREENING_STARTUP_RESUME_MAX_ATTEMPTS", "3")))
 SCREENING_HEARTBEAT_INTERVAL_SECONDS = 5
 _screening_worker_lock = threading.Lock()
 _screening_worker_active_task_ids: set[int] = set()
@@ -1403,6 +1406,219 @@ def _dimension_has_effective_evidence(value: Any) -> bool:
     return False
 
 
+def _auto_correct_score_metrics_from_dimensions(
+    score_payload: Any,
+    *,
+    fallback_max_possible_score: Optional[float] = None,
+) -> Tuple[Dict[str, Any], List[str]]:
+    payload = dict(score_payload if isinstance(score_payload, dict) else {})
+    dimensions = payload.get("dimensions") if isinstance(payload.get("dimensions"), list) else []
+    if not dimensions:
+        return payload, []
+
+    dimension_scores: List[float] = []
+    for item in dimensions:
+        if not isinstance(item, dict):
+            return payload, []
+        numeric_score = _parse_score_number(item.get("score"))
+        if numeric_score is None:
+            return payload, []
+        dimension_scores.append(float(numeric_score))
+
+    dimension_total = round(sum(dimension_scores) + 1e-9, 1)
+    max_possible_score = _parse_score_number(fallback_max_possible_score)
+    expected_match_percent = _calculate_match_percent_from_total_score(
+        dimension_total,
+        max_possible_score=max_possible_score,
+    )
+    warnings: List[str] = []
+
+    current_total_score = _parse_score_number(payload.get("total_score"))
+    if current_total_score is None or abs(current_total_score - dimension_total) > 0.1:
+        warnings.append("score.total_score 已按 dimensions 自动校正")
+    payload["total_score"] = dimension_total
+
+    current_match_percent = _parse_score_number(payload.get("match_percent"))
+    if expected_match_percent is not None:
+        if current_match_percent is None or abs(current_match_percent - expected_match_percent) > 0.5:
+            warnings.append("score.match_percent 已按 total_score 自动校正")
+        payload["match_percent"] = expected_match_percent
+
+    return payload, warnings
+
+
+def _build_expected_one_pass_dimensions(
+    *,
+    skill_snapshots: Sequence[Dict[str, Any]],
+    schema_config: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+    expected_dimensions = _build_expected_score_dimensions_from_rules(skill_snapshots, limit=12)
+    expected_labels = {
+        str(item.get("label") or "").strip()
+        for item in expected_dimensions
+        if isinstance(item, dict) and str(item.get("label") or "").strip()
+    }
+    for label in (
+        str(item or "").strip()
+        for item in ((schema_config.get("score") or {}).get("required_dimension_labels") or [])
+    ):
+        if not label or label in expected_labels:
+            continue
+        expected_dimensions.append(
+            {
+                "label": label,
+                "score": None,
+                "max_score": 0.0,
+                "reason": "",
+                "evidence": [],
+            }
+        )
+        expected_labels.add(label)
+    return expected_dimensions[:12]
+
+
+def _backfill_missing_required_dimensions_as_zero_score(
+    score_payload: Any,
+    *,
+    expected_dimensions: Sequence[Dict[str, Any]],
+    fallback_max_possible_score: Optional[float] = None,
+) -> Tuple[Dict[str, Any], List[str]]:
+    payload = dict(score_payload if isinstance(score_payload, dict) else {})
+    actual_dimensions = [dict(item) for item in (payload.get("dimensions") or []) if isinstance(item, dict)]
+    actual_by_label: Dict[str, Dict[str, Any]] = {}
+    extra_dimensions: List[Dict[str, Any]] = []
+    for item in actual_dimensions:
+        label = str(item.get("label") or "").strip()
+        if not label:
+            extra_dimensions.append(item)
+            continue
+        if label not in actual_by_label:
+            actual_by_label[label] = item
+        else:
+            extra_dimensions.append(item)
+
+    rebuilt_dimensions: List[Dict[str, Any]] = []
+    backfilled_labels: List[str] = []
+    for expected in expected_dimensions:
+        label = str(expected.get("label") or "").strip()
+        if not label:
+            continue
+        existing = actual_by_label.pop(label, None)
+        if existing is not None:
+            rebuilt_dimensions.append(existing)
+            continue
+        rebuilt_dimensions.append(
+            {
+                "label": label,
+                "score": 0.0,
+                "max_score": round(float(_parse_score_number(expected.get("max_score")) or 0.0), 1),
+                "reason": "简历未提及",
+                "evidence": [],
+                "is_inferred": False,
+            }
+        )
+        backfilled_labels.append(label)
+    rebuilt_dimensions.extend(actual_by_label.values())
+    rebuilt_dimensions.extend(extra_dimensions)
+    payload["dimensions"] = rebuilt_dimensions
+
+    warnings: List[str] = []
+    if backfilled_labels:
+        warnings.append(f"score.dimensions 缺少维度，已按规则补零：{'、'.join(backfilled_labels[:8])}")
+        payload, metric_warnings = _auto_correct_score_metrics_from_dimensions(
+            payload,
+            fallback_max_possible_score=fallback_max_possible_score,
+        )
+        warnings.extend(metric_warnings)
+    return payload, _normalize_score_warning_items(warnings, limit=12)
+
+
+def _derive_deterministic_suggested_status(
+    score_payload: Any,
+    schema_config: Dict[str, Any],
+) -> Tuple[Optional[str], List[str]]:
+    payload = dict(score_payload if isinstance(score_payload, dict) else {})
+    dimensions = payload.get("dimensions") if isinstance(payload.get("dimensions"), list) else []
+    required_dimension_labels = [
+        str(item or "").strip()
+        for item in ((schema_config.get("score") or {}).get("required_dimension_labels") or [])
+        if str(item or "").strip()
+    ]
+    actual_by_label = {
+        str(item.get("label") or "").strip(): item
+        for item in dimensions
+        if isinstance(item, dict) and str(item.get("label") or "").strip()
+    }
+    if any(label not in actual_by_label for label in required_dimension_labels):
+        return None, []
+
+    total_score = _parse_score_number(payload.get("total_score"))
+    match_percent = _parse_score_number(payload.get("match_percent"))
+    if total_score is None and match_percent is None:
+        return None, []
+    max_possible_score = _parse_score_number((schema_config.get("score") or {}).get("max_possible_score"))
+    if total_score is None and match_percent is not None and max_possible_score is not None:
+        total_score = round((float(match_percent) / 100.0 * max_possible_score) + 1e-9, 1)
+    if match_percent is None and total_score is not None:
+        match_percent = _calculate_match_percent_from_total_score(
+            total_score,
+            max_possible_score=max_possible_score,
+        )
+    if total_score is None or match_percent is None:
+        return None, []
+
+    thresholds = (schema_config.get("score") or {}).get("status_thresholds") or {}
+    pass_threshold = _parse_score_number(thresholds.get("pass_threshold")) or 75.0
+    pool_threshold = _parse_score_number(thresholds.get("pool_threshold")) or 55.0
+    required_core_labels = [
+        str(item or "").strip()
+        for item in ((schema_config.get("score") or {}).get("required_core_dimension_labels") or [])
+        if str(item or "").strip()
+    ]
+    missing_core_evidence = [
+        label
+        for label in required_core_labels
+        if label in actual_by_label and not _dimension_has_effective_evidence(actual_by_label[label].get("evidence"))
+    ]
+    if match_percent >= pass_threshold:
+        status = "screening_passed"
+    elif match_percent >= pool_threshold:
+        status = "talent_pool"
+    else:
+        status = "screening_rejected"
+    if status == "screening_passed" and missing_core_evidence:
+        status = "talent_pool" if match_percent >= pool_threshold else "screening_rejected"
+    return status, missing_core_evidence
+
+
+def _fail_close_permissive_suggested_status(
+    score_payload: Any,
+    schema_config: Dict[str, Any],
+) -> Tuple[Dict[str, Any], List[str], Optional[str]]:
+    """P0-1 fail-closed 守卫：模型自报的 suggested_status 不得比确定性推导更宽松。
+
+    只拦截"模型判 screening_passed，但按最终分数阈值/核心维度证据推导达不到通过"
+    的危险方向；模型比推导更严格（如推导 talent_pool、模型给 screening_rejected）时
+    尊重模型的定性判断，不上调。
+    """
+    payload = dict(score_payload if isinstance(score_payload, dict) else {})
+    model_status = _normalize_suggested_status(payload.get("suggested_status"))
+    if model_status != "screening_passed":
+        return payload, [], model_status
+    derived_status, missing_core_evidence = _derive_deterministic_suggested_status(payload, schema_config)
+    if not derived_status or derived_status == "screening_passed":
+        return payload, [], model_status
+    reason = (
+        f"核心维度缺少简历原文证据：{'、'.join(missing_core_evidence[:4])}"
+        if missing_core_evidence
+        else "最终分数未达到通过阈值"
+    )
+    payload["suggested_status"] = derived_status
+    return payload, [
+        f"score.suggested_status 已按确定性规则由 screening_passed 下调为 {derived_status}（{reason}）"
+    ], derived_status
+
+
 def sanitize_screening_payload(
     payload: Any,
     schema_config: Dict[str, Any],
@@ -1411,10 +1627,12 @@ def sanitize_screening_payload(
     skill_snapshots: Optional[Sequence[Dict[str, Any]]] = None,
     extra_warnings: Optional[Sequence[Any]] = None,
 ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
-    """Sanitize screening payload structure without any auto-correction.
+    """结构清洗 + 确定性评分校正（P0-1）。
 
-    NOTE: All auto-correction logic has been removed.
-    The system now uses AI-returned scores directly without modification.
+    模型自报的 total_score / match_percent 只作参考：维度得分存在时一律按
+    total = Σdimension.score、match_percent = 确定性换算重算并告警；
+    one-pass 模式还会补零缺失维度、在 suggested_status 缺失时按阈值推导；
+    模型给出的 screening_passed 若达不到确定性推导结果则 fail-closed 下调。
     """
     sanitized_payload = _sanitize_screening_payload_structure(
         payload,
@@ -1423,40 +1641,199 @@ def sanitize_screening_payload(
     )
     raw_model_suggested_status = _normalize_suggested_status((sanitized_payload.get("score") or {}).get("suggested_status"))
     sanitize_meta = sanitized_payload.get("_sanitize_meta") if isinstance(sanitized_payload.get("_sanitize_meta"), dict) else {}
+    sanitized_score = dict(sanitized_payload.get("score") if isinstance(sanitized_payload.get("score"), dict) else {})
+    repair_warnings: List[str] = []
+    normalized_final_suggested_status = raw_model_suggested_status
 
-    # 直接使用AI返回的评分，不做任何自动校正
-    # - 不校正 total_score 和 match_percent
-    # - 不补全缺失维度
-    # - 不推导 suggested_status
+    if sanitized_score.get("dimensions"):
+        sanitized_score, metric_warnings = _auto_correct_score_metrics_from_dimensions(
+            sanitized_score,
+            fallback_max_possible_score=(schema_config.get("score") or {}).get("max_possible_score"),
+        )
+        repair_warnings.extend(metric_warnings)
+        sanitized_payload["score"] = sanitized_score
+
+    if one_pass_compat:
+        expected_dimensions = _build_expected_one_pass_dimensions(
+            skill_snapshots=list(skill_snapshots or []),
+            schema_config=schema_config,
+        )
+        if expected_dimensions:
+            sanitized_score, backfill_warnings = _backfill_missing_required_dimensions_as_zero_score(
+                sanitized_score,
+                expected_dimensions=expected_dimensions,
+                fallback_max_possible_score=(schema_config.get("score") or {}).get("max_possible_score"),
+            )
+            repair_warnings.extend(backfill_warnings)
+        if (
+            not _normalize_suggested_status(sanitized_score.get("suggested_status"))
+            and sanitized_score.get("dimensions")
+            and not _score_payload_reuses_rule_text_as_evidence(
+                dimensions=sanitized_score.get("dimensions") or [],
+                skill_snapshots=list(skill_snapshots or []),
+            )
+        ):
+            derived_status, _missing_core_evidence = _derive_deterministic_suggested_status(
+                sanitized_score,
+                schema_config,
+            )
+            if derived_status:
+                sanitized_score["suggested_status"] = derived_status
+                normalized_final_suggested_status = derived_status
+                repair_warnings.append("score.suggested_status 缺失，已按最终分数规则自动推导")
+        sanitized_payload["score"] = sanitized_score
+
+    if sanitized_score.get("dimensions"):
+        sanitized_score, fail_close_warnings, fail_closed_status = _fail_close_permissive_suggested_status(
+            sanitized_score,
+            schema_config,
+        )
+        if fail_close_warnings:
+            repair_warnings.extend(fail_close_warnings)
+            normalized_final_suggested_status = fail_closed_status
+            sanitized_payload["score"] = sanitized_score
 
     warnings = _normalize_score_warning_items(
         [
             *(sanitize_meta.get("dimension_warnings") or []),
             *(sanitize_meta.get("structure_warnings") or []),
             *(extra_warnings or []),
+            *repair_warnings,
+            *_validate_screening_payload_warnings(sanitized_payload, schema_config),
         ],
         limit=12,
     )
     return sanitized_payload, {
         "warnings": warnings,
         "raw_model_suggested_status": raw_model_suggested_status,
-        "normalized_final_suggested_status": raw_model_suggested_status,
+        "normalized_final_suggested_status": normalized_final_suggested_status,
     }
 
 
-def _validate_screening_payload_warnings(payload: Any, schema_config: Dict[str, Any]) -> List[str]:
-    sanitized_payload, meta = sanitize_screening_payload(payload, schema_config)
-    warnings = _normalize_score_warning_items(meta.get("warnings"), limit=12)
-    score_payload = sanitized_payload.get("score") if isinstance(sanitized_payload.get("score"), dict) else {}
-    recommendation = _normalize_helper_semantic_text(score_payload.get("recommendation"))
-    suggested_status = _normalize_suggested_status(score_payload.get("suggested_status"))
-    positive_recommendation = any(token in recommendation for token in ["建议通过", "通过初筛", "安排首面", "继续评估", "推荐进入"])
-    negative_recommendation = any(token in recommendation for token in ["不建议", "淘汰", "不通过", "暂不推荐"])
-    if suggested_status == "screening_rejected" and positive_recommendation:
+def _validate_screening_payload_warnings(payload: Dict[str, Any], schema_config: Dict[str, Any]) -> List[str]:
+    """只读诊断：直接读取 payload，不做清洗、不修改入参、不递归调用 sanitize。"""
+    warnings: List[str] = []
+    parsed_resume = payload.get("parsed_resume") if isinstance(payload.get("parsed_resume"), dict) else {}
+    score_payload = payload.get("score") if isinstance(payload.get("score"), dict) else {}
+    parsed_resume_config = schema_config.get("parsed_resume") or {}
+    score_config = schema_config.get("score") or {}
+
+    for field in parsed_resume_config.get("list_fields") or []:
+        if not isinstance(parsed_resume.get(field), list):
+            warnings.append(f"parsed_resume.{field} 不是数组，已按空数组清洗。")
+
+    dimensions = score_payload.get("dimensions") if isinstance(score_payload.get("dimensions"), list) else []
+    if not dimensions:
+        warnings.append("score.dimensions 缺失或为空。")
+    required_dimension_labels = [
+        str(item or "").strip()
+        for item in (score_config.get("required_dimension_labels") or [])
+        if str(item or "").strip()
+    ]
+    if required_dimension_labels:
+        actual_dimension_labels = {
+            str(item.get("label") or "").strip()
+            for item in dimensions
+            if isinstance(item, dict) and str(item.get("label") or "").strip()
+        }
+        missing_dimension_labels = [label for label in required_dimension_labels if label not in actual_dimension_labels]
+        if missing_dimension_labels:
+            warnings.append(f"score.dimensions 缺少维度：{'、'.join(missing_dimension_labels[:8])}")
+
+    total_score = _parse_score_number(score_payload.get("total_score"))
+    match_percent = _parse_score_number(score_payload.get("match_percent"))
+    dimension_total = round(sum((_parse_score_number(item.get("score")) or 0.0) for item in dimensions if isinstance(item, dict)) + 1e-9, 1)
+    if total_score is not None and dimensions and abs(total_score - dimension_total) > 0.1:
+        warnings.append(f"score.total_score 与 dimensions 求和不一致：当前为 {total_score:.1f}，维度求和为 {dimension_total:.1f}。")
+    if total_score is not None and match_percent is not None:
+        configured_max_possible_score = _parse_score_number(score_config.get("max_possible_score"))
+        expected_match_percent = _calculate_match_percent_from_total_score(
+            total_score,
+            max_possible_score=configured_max_possible_score,
+        )
+        if expected_match_percent is not None and abs(match_percent - expected_match_percent) > 0.1:
+            if configured_max_possible_score is not None and configured_max_possible_score > 0:
+                formula = "round(total_score / max_possible_score * 100)"
+                expected_hint = "按维度满分应为"
+            else:
+                formula = "round(total_score * 10)"
+                expected_hint = "按 10 分制应为"
+            warnings.append(
+                f"score.match_percent 与 {formula} 不一致：当前为 {match_percent:.1f}，{expected_hint} {expected_match_percent:.1f}。"
+            )
+
+    current_status = _normalize_suggested_status(score_payload.get("suggested_status"))
+    current_recommendation = _compact_recommendation(score_payload.get("recommendation"))
+    if current_status and current_recommendation and not _recommendation_matches_status(current_status, current_recommendation):
         warnings.append("score.recommendation 与 suggested_status 不一致。")
-    if suggested_status == "screening_passed" and negative_recommendation:
-        warnings.append("score.recommendation 与 suggested_status 不一致。")
-    return _normalize_score_warning_items(warnings, limit=12)
+
+    for field, allowed_values in (score_config.get("enum_fields") or {}).items():
+        value = str(score_payload.get(field) or "").strip()
+        if value and value not in set(allowed_values):
+            warnings.append(f"score.{field} 不在合法枚举内。")
+        if not value:
+            warnings.append(f"score.{field} 缺失或无效。")
+    if not _compact_recommendation(score_payload.get("recommendation")):
+        warnings.append("score.recommendation 缺失或无效。")
+
+    if not isinstance(score_payload.get("advantages"), list):
+        warnings.append("score.advantages 不是数组，已按空数组清洗。")
+    if not isinstance(score_payload.get("concerns"), list):
+        warnings.append("score.concerns 不是数组，已按空数组清洗。")
+
+    # 校验：score > 0 但 evidence 为空
+    for dim in dimensions:
+        if not isinstance(dim, dict):
+            continue
+        dim_score = _parse_score_number(dim.get("score")) or 0.0
+        dim_evidence = dim.get("evidence")
+        dim_label = str(dim.get("label") or "").strip()
+        evidence_is_empty = (
+            dim_evidence is None
+            or (isinstance(dim_evidence, str) and not dim_evidence.strip())
+            or (isinstance(dim_evidence, list) and len(dim_evidence) == 0)
+        )
+        if dim_score > 0 and evidence_is_empty:
+            warnings.append(f"维度[{dim_label}]得分>{dim_score}但evidence为空，疑似推断评分。")
+
+    # 校验：evidence 里混入了判断句
+    PSEUDO_EVIDENCE_PATTERNS = ["简历未提及", "未见", "缺乏", "不足", "无相关经验", "未明确说明", "候选人具备", "体现了", "说明其"]
+    dimension_rule_notes = [
+        str(item or "").strip()
+        for item in ((schema_config.get("score") or {}).get("dimension_rule_notes") or [])
+        if str(item or "").strip()
+    ]
+    RULE_TEXT_PATTERNS = [
+        "核心第一优先",
+        "岗位要求",
+        "加分项",
+        "硬性要求",
+        "评分说明",
+        "评分标准",
+        "满分",
+    ]
+    for dim in dimensions:
+        if not isinstance(dim, dict):
+            continue
+        dim_label = str(dim.get("label") or "").strip()
+        dim_evidence = dim.get("evidence")
+        evidence_texts = []
+        if isinstance(dim_evidence, str):
+            evidence_texts = [dim_evidence]
+        elif isinstance(dim_evidence, list):
+            evidence_texts = [str(e) for e in dim_evidence if e]
+        for ev in evidence_texts:
+            if any(pattern in ev for pattern in PSEUDO_EVIDENCE_PATTERNS):
+                warnings.append(f"维度[{dim_label}]的evidence包含判断句而非原文摘录。")
+                break
+            if any(pattern in ev for pattern in RULE_TEXT_PATTERNS):
+                warnings.append(f"维度[{dim_label}]的evidence疑似引用了 Skill/JD 规则文本。")
+                break
+            if any(note and len(note) >= 8 and note in ev for note in dimension_rule_notes):
+                warnings.append(f"维度[{dim_label}]的evidence疑似复用了评分规则说明文本。")
+                break
+
+    return warnings[:12]
 
 
 def sanitize_screening_payload_fast(
@@ -1467,16 +1844,17 @@ def sanitize_screening_payload_fast(
 ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """Critical-path-only sanitization for one-pass screening.
 
-    NOTE: All auto-correction logic has been removed.
-    The system now uses AI-returned scores directly without modification.
-
     Performs ONLY the business-critical steps:
     1. Structure/type sanitization
+    2. Score metric auto-correction (total_score / match_percent from dimensions)
+    3. Missing required dimension backfill (zero-score)
+    4. Deterministic suggested_status derivation + fail-closed 下调（P0-1）
 
-    Skipped (no longer performed):
-    - Score metric auto-correction (total_score / match_percent from dimensions)
-    - Missing required dimension backfill (zero-score)
-    - Deterministic suggested_status derivation
+    Skips (deferred to background or omitted):
+    - _validate_screening_payload_warnings
+    - _score_payload_reuses_rule_text_as_evidence
+    - _analyze_ai_score_payload_quality
+    - Pseudo-evidence pattern detection
     """
     sanitized_payload = _sanitize_screening_payload_structure(
         payload,
@@ -1486,12 +1864,64 @@ def sanitize_screening_payload_fast(
     raw_model_suggested_status = _normalize_suggested_status(
         (sanitized_payload.get("score") or {}).get("suggested_status")
     )
+    sanitized_score = dict(
+        sanitized_payload.get("score")
+        if isinstance(sanitized_payload.get("score"), dict)
+        else {}
+    )
+    repair_warnings: List[str] = []
+    normalized_final_suggested_status = raw_model_suggested_status
 
-    # 直接使用AI返回的评分，不做任何自动校正
+    # Step 1: auto-correct total_score and match_percent from dimensions
+    if sanitized_score.get("dimensions"):
+        sanitized_score, metric_warnings = _auto_correct_score_metrics_from_dimensions(
+            sanitized_score,
+            fallback_max_possible_score=(schema_config.get("score") or {}).get("max_possible_score"),
+        )
+        repair_warnings.extend(metric_warnings)
+        sanitized_payload["score"] = sanitized_score
+
+    # Step 2: backfill missing required dimensions as zero-score
+    expected_dimensions = _build_expected_one_pass_dimensions(
+        skill_snapshots=list(skill_snapshots or []),
+        schema_config=schema_config,
+    )
+    if expected_dimensions:
+        sanitized_score, backfill_warnings = _backfill_missing_required_dimensions_as_zero_score(
+            sanitized_score,
+            expected_dimensions=expected_dimensions,
+            fallback_max_possible_score=(schema_config.get("score") or {}).get("max_possible_score"),
+        )
+        repair_warnings.extend(backfill_warnings)
+        sanitized_payload["score"] = sanitized_score
+
+    # Step 3: derive suggested_status if missing
+    if not _normalize_suggested_status(sanitized_score.get("suggested_status")):
+        derived_status, _missing = _derive_deterministic_suggested_status(
+            sanitized_score,
+            schema_config,
+        )
+        if derived_status:
+            sanitized_score["suggested_status"] = derived_status
+            normalized_final_suggested_status = derived_status
+            repair_warnings.append("score.suggested_status 缺失，已按最终分数规则自动推导")
+            sanitized_payload["score"] = sanitized_score
+
+    # Step 4: fail-closed — 模型给出的 screening_passed 达不到确定性推导结果时下调
+    if sanitized_score.get("dimensions"):
+        sanitized_score, fail_close_warnings, fail_closed_status = _fail_close_permissive_suggested_status(
+            sanitized_score,
+            schema_config,
+        )
+        if fail_close_warnings:
+            repair_warnings.extend(fail_close_warnings)
+            normalized_final_suggested_status = fail_closed_status
+            sanitized_payload["score"] = sanitized_score
+
     return sanitized_payload, {
-        "warnings": [],
+        "warnings": repair_warnings,
         "raw_model_suggested_status": raw_model_suggested_status,
-        "normalized_final_suggested_status": raw_model_suggested_status,
+        "normalized_final_suggested_status": normalized_final_suggested_status,
         "fast_path": True,
     }
 
@@ -5463,11 +5893,14 @@ class RecruitmentService:
                 )
             )
             candidate_snapshot = self._build_candidate_sse_snapshot(row.related_candidate_id) if should_attach_candidate_snapshot else None
+            # P0-5：事件携带组织信息，供交付端按组织可见范围过滤。
+            event_org_code = normalize_org_code(getattr(row, "org_code", None))
             payload = {
                 "task_id": row.id,
                 "status": row.status,
                 "related_candidate_id": row.related_candidate_id,
                 "task_type": row.task_type,
+                "org_code": event_org_code,
             }
             if candidate_snapshot is not None:
                 payload["candidate_snapshot"] = candidate_snapshot
@@ -5478,6 +5911,7 @@ class RecruitmentService:
                     "task_id": row.id,
                     "status": row.status,
                     "task_type": row.task_type,
+                    "org_code": event_org_code,
                     "auto_requeue_scheduled": auto_requeue_scheduled,
                 }
                 if candidate_snapshot is not None:
@@ -5546,6 +5980,7 @@ class RecruitmentService:
                         "status": task.status,
                         "related_candidate_id": cid,
                         "task_type": task.task_type,
+                        "org_code": normalize_org_code(getattr(task, "org_code", None)),
                     }
                     task_token = self._resolve_task_session_token(task)
                     if task_token:
@@ -7327,6 +7762,8 @@ class RecruitmentService:
 
     def cancel_ai_task(self, task_id: int, actor_id: str) -> Dict[str, Any]:
         row = self._get_ai_task_log_row(task_id)
+        # P0-2：取消任务与查看任务详情同口径，越权任务 ID 直接拒绝。
+        self._assert_business_row_visible(row)
         if row.status in {"success", "fallback", "failed", "cancelled"}:
             return self._serialize_ai_task_log(row, include_full_request_snapshot=True)
         if row.status == "cancelling":
@@ -8885,15 +9322,26 @@ class RecruitmentService:
             },
             max_bytes=AI_TASK_LOG_OUTPUT_SNAPSHOT_LIMIT,
         )
-        row.validation_meta_json = _prepare_ai_task_json_text(
-            {
-                **current_validation,
-                "startup_resume_scheduled": reason == "startup_resume",
-            }
-        )
+        next_validation = {
+            **current_validation,
+            "startup_resume_scheduled": reason == "startup_resume",
+        }
+        if reason == "startup_resume":
+            try:
+                previous_startup_resume_count = int(current_validation.get("startup_resume_count") or 0)
+            except Exception:
+                previous_startup_resume_count = 0
+            next_validation["startup_resume_count"] = previous_startup_resume_count + 1
+        row.validation_meta_json = _prepare_ai_task_json_text(next_validation)
         self.db.add(row)
 
     def resume_screening_queue_on_startup(self) -> Dict[str, Any]:
+        # P0-4：queued 任务不再被启动流程标记 failed（见 recover_orphaned_tasks_on_startup），
+        # 由本方法末尾的 dispatch 正常派发。pending/running 的 screening 根任务仅在
+        # 超过陈旧阈值时重新入队——运行中的任务有 5 秒级心跳持续刷新 updated_at，
+        # 陈旧门可避免滚动部署/新旧进程并存时把仍在执行的任务重复投递；
+        # 未过门的中断任务由既有孤儿结算机制收尾。启动重投带次数上限，
+        # 防止会导致进程崩溃的任务被无限重投。
         stale_before = datetime.now() - timedelta(minutes=SCREENING_ORPHAN_STALE_MINUTES)
         rows = self.db.query(RecruitmentAITaskLog).filter(
             self._screening_root_task_filter(),
@@ -8903,13 +9351,52 @@ class RecruitmentService:
             RecruitmentAITaskLog.id.asc(),
         ).all()
         requeued_ids: List[int] = []
+        exhausted_ids: List[int] = []
         for row in rows:
             checkpoint = row.updated_at or row.stage_started_at or row.created_at or datetime.now()
             if checkpoint >= stale_before:
                 continue
+            current_validation = _decode_ai_task_json_text(getattr(row, "validation_meta_json", None), {})
+            if not isinstance(current_validation, dict):
+                current_validation = {}
+            try:
+                startup_resume_count = int(current_validation.get("startup_resume_count") or 0)
+            except Exception:
+                startup_resume_count = 0
+            if startup_resume_count >= SCREENING_STARTUP_RESUME_MAX_ATTEMPTS:
+                failure_message = "服务多次重启后任务仍未完成，已停止自动恢复，请手动重新发起初筛。"
+                row.status = "failed"
+                row.stage = "failed"
+                row.stage_completed_at = datetime.now()
+                row.error_message = _truncate_utf8_text(failure_message, AI_TASK_LOG_SUMMARY_LIMIT)
+                row.output_summary = _truncate_utf8_text(failure_message, AI_TASK_LOG_SUMMARY_LIMIT)
+                row.validation_meta_json = _prepare_ai_task_json_text(
+                    {
+                        **current_validation,
+                        "screening_result_valid": False,
+                        "screening_result_state": "startup_resume_exhausted",
+                        "failure_code": "startup_resume_exhausted",
+                    }
+                )
+                self.db.add(row)
+                if row.related_candidate_id:
+                    candidate = self.db.query(RecruitmentCandidate).filter(
+                        RecruitmentCandidate.id == row.related_candidate_id,
+                        RecruitmentCandidate.deleted.is_(False),
+                    ).first()
+                    if candidate:
+                        self._mark_candidate_screening_failed_if_needed(
+                            candidate,
+                            actor_id="system",
+                            reason=failure_message,
+                            source="startup_recovery",
+                        )
+                        self.db.add(candidate)
+                exhausted_ids.append(int(row.id))
+                continue
             self._requeue_screening_root_task(row, reason="startup_resume")
             requeued_ids.append(int(row.id))
-        if requeued_ids:
+        if requeued_ids or exhausted_ids:
             self.db.commit()
         with _screening_worker_lock:
             for task_id in requeued_ids:
@@ -8918,6 +9405,8 @@ class RecruitmentService:
         return {
             "requeued_task_ids": requeued_ids,
             "requeued_count": len(requeued_ids),
+            "exhausted_task_ids": exhausted_ids,
+            "exhausted_count": len(exhausted_ids),
             "dispatch": dispatch_payload,
         }
 
@@ -15294,10 +15783,12 @@ class RecruitmentService:
             json.dumps(parsed_response_json, ensure_ascii=False, default=str) if parsed_response_json is not None else "<empty>",
         )
 
-    def _create_match_started_callback(self, actor_id: str):
+    def _create_match_started_callback(self):
         async def _on_match_started(task, slot):
             from ..database import SessionLocal
 
+            # P0-3：操作人取自任务本身，禁止读取回调创建时的闭包变量。
+            actor_id = str(getattr(task, "user_id", "") or "").strip() or "unknown"
             db = SessionLocal()
             try:
                 updated_count = (
@@ -15351,11 +15842,14 @@ class RecruitmentService:
         logger.info("[AI_MATCH] trigger_ai_position_match called: candidate_ids=%s, actor_id=%s, task_type=%s, batch_id=%s",
                     candidate_ids, actor_id, task_type, batch_id)
 
-        # 查询待匹配候选人
-        candidates = self.db.query(RecruitmentCandidate).filter(
-            RecruitmentCandidate.id.in_(candidate_ids),
-            RecruitmentCandidate.deleted.is_(False),
-        ).all()
+        # 查询待匹配候选人（P0-2：走组织可见范围过滤，越权 ID 直接拒绝，不静默跳过）
+        requested_ids = _dedupe_ints(candidate_ids)
+        candidates = self._build_candidate_scoped_query(None).filter(
+            RecruitmentCandidate.id.in_(requested_ids),
+        ).all() if requested_ids else []
+        if len(candidates) != len(requested_ids):
+            missing_count = len(requested_ids) - len(candidates)
+            raise ValueError(f"共 {missing_count} 个候选人不存在或超出当前账号可见范围，已阻止 AI 岗位匹配。")
 
         # 也包含 talent_pool 状态的候选人（重新识别场景）
         candidates = [c for c in candidates if c.status in ("matching", "unmatched", "talent_pool")]
@@ -15483,22 +15977,25 @@ class RecruitmentService:
                 "summary": summary,
             })
 
-        # 每次请求都重新注入回调（service 是按请求创建的，session 会过期）
+        # P0-3：回调不再携带任何请求级状态（session/actor/岗位池全部固化在 MatchTask 上），
+        # 重复注入只是刷新到等价的无状态 handler，并发批次不会再互相覆盖上下文。
         logger.info("[AI_MATCH] Injecting callbacks into scheduler")
         scheduler.set_callbacks(
-            match_callback=self._create_match_callback(session_token, task_type, actor_id, position_summaries),
-            error_callback=self._create_match_error_callback(session_token, task_type, actor_id, batch_id, position_summaries),
-            task_started_callback=self._create_match_started_callback(actor_id),
+            match_callback=self._create_match_callback(),
+            error_callback=self._create_match_error_callback(),
+            task_started_callback=self._create_match_started_callback(),
         )
 
         logger.info("[AI_MATCH] Enqueuing %d candidates to scheduler, positions=%d", len(candidates_to_enqueue), len(position_summaries))
 
-        # 入队到调度器
+        # 入队到调度器（请求级上下文随任务固化）
         await scheduler.enqueue_batch(
             user_id=actor_id,
             batch_id=batch_id,
             candidates=candidates_to_enqueue,
             position_summaries=position_summaries,
+            session_token=self._normalize_task_session_token(session_token),
+            task_type=task_type,
         )
 
         logger.info("[AI_MATCH] Enqueue complete: batch_id=%s, %d candidates queued, scheduler running=%s",
@@ -15511,8 +16008,12 @@ class RecruitmentService:
             "message": f"AI匹配已启动，{len(candidates_to_enqueue)}份简历排队处理中",
         }
 
-    def _create_match_callback(self, session_token: str, task_type: str, actor_id: str, position_summaries: List[Dict]):
-        """创建匹配完成回调（供调度器 worker 调用）"""
+    def _create_match_callback(self):
+        """创建匹配完成回调（供调度器 worker 调用）。
+
+        P0-3：回调为无状态 handler，session_token/actor_id/task_type/岗位池
+        一律从 MatchTask 上读取，避免并发触发匹配时全局回调被覆盖导致串单。
+        """
         ai_gateway = self.ai_gateway
 
         def _resolve_ai_match_runtime_config(config_id: int):
@@ -15554,6 +16055,12 @@ class RecruitmentService:
 
             logger.info("[AI_MATCH] _on_match_done called: candidate_id=%d, slot_key=%s, batch_id=%s",
                         task.candidate_id, slot.key_id, task.batch_id)
+
+            # P0-3：请求级上下文一律取自任务本身，禁止读取回调创建时的闭包变量。
+            session_token = getattr(task, "session_token", None)
+            actor_id = str(getattr(task, "user_id", "") or "").strip() or "unknown"
+            task_type = str(getattr(task, "task_type", "") or "").strip() or "ai_position_match"
+            position_summaries = list(getattr(task, "position_summaries", None) or [])
 
             db = None
             candidate = None
@@ -15799,10 +16306,16 @@ class RecruitmentService:
                             snapshot_ai_match_reason = candidate_snapshot.get("ai_match_reason") if isinstance(candidate_snapshot, dict) else None
                             snapshot_ai_potential_position = candidate_snapshot.get("ai_potential_position") if isinstance(candidate_snapshot, dict) else None
                             snapshot_ai_potential_reason = candidate_snapshot.get("ai_potential_reason") if isinstance(candidate_snapshot, dict) else None
+                            event_org_code = (
+                                str(candidate_snapshot.get("org_code") or "").strip()
+                                if isinstance(candidate_snapshot, dict)
+                                else ""
+                            ) or (normalize_org_code(getattr(candidate, "org_code", None)) if candidate is not None else None)
                             payload = {
                                 "candidate_id": task.candidate_id,
                                 "batch_id": task.batch_id,
                                 "task_type": task_type,
+                                "org_code": event_org_code,
                                 "status": final_status,
                                 "ai_match_reason": snapshot_ai_match_reason or (match_result.get("reason") if match_result else None),
                                 "ai_match_position_id": snapshot_ai_match_position_id if snapshot_ai_match_position_id is not None else (match_result.get("position_id") if match_result else None),
@@ -15848,10 +16361,16 @@ class RecruitmentService:
                 snapshot_ai_match_reason = candidate_snapshot.get("ai_match_reason") if isinstance(candidate_snapshot, dict) else None
                 snapshot_ai_potential_position = candidate_snapshot.get("ai_potential_position") if isinstance(candidate_snapshot, dict) else None
                 snapshot_ai_potential_reason = candidate_snapshot.get("ai_potential_reason") if isinstance(candidate_snapshot, dict) else None
+                event_org_code = (
+                    str(candidate_snapshot.get("org_code") or "").strip()
+                    if isinstance(candidate_snapshot, dict)
+                    else ""
+                ) or (normalize_org_code(getattr(candidate, "org_code", None)) if candidate is not None else None)
                 payload = {
                     "candidate_id": task.candidate_id,
                     "batch_id": task.batch_id,
                     "task_type": task_type,
+                    "org_code": event_org_code,
                     "status": final_status,
                     "ai_match_reason": snapshot_ai_match_reason or (match_result.get("reason") if match_result else None),
                     "ai_match_position_id": snapshot_ai_match_position_id if snapshot_ai_match_position_id is not None else (match_result.get("position_id") if match_result else None),
@@ -15868,11 +16387,12 @@ class RecruitmentService:
 
         return _on_match_done
 
-    def _create_match_error_callback(self, session_token: str, task_type: str, actor_id: str, batch_id: str, position_summaries: List[Dict[str, Any]]):
+    def _create_match_error_callback(self):
         """创建匹配失败回调（供调度器 worker 调用）
 
         重试逻辑：最多重试 MATCH_MAX_RETRIES 次，间隔 MATCH_RETRY_DELAYS 秒。
         被用户取消的任务不重试，直接标记 cancelled。
+        P0-3：回调为无状态 handler，上下文一律取自 MatchTask。
         """
         async def _on_match_error(task, error):
             import asyncio
@@ -15882,6 +16402,13 @@ class RecruitmentService:
 
             logger.warning("[AI_MATCH] _on_match_error called: candidate_id=%d, error=%s, error_type=%s, retry_count=%d",
                            task.candidate_id, error, type(error).__name__, task.retry_count)
+
+            # P0-3：请求级上下文一律取自任务本身，禁止读取回调创建时的闭包变量。
+            session_token = getattr(task, "session_token", None)
+            actor_id = str(getattr(task, "user_id", "") or "").strip() or "unknown"
+            task_type = str(getattr(task, "task_type", "") or "").strip() or "ai_position_match"
+            position_summaries = list(getattr(task, "position_summaries", None) or [])
+            batch_id = task.batch_id
             # 记录异常的详细信息
             if hasattr(error, 'raw_response_text'):
                 logger.warning("[AI_MATCH] Error raw_response_text: %s", str(error.raw_response_text)[:500] if error.raw_response_text else "None")
@@ -15911,11 +16438,13 @@ class RecruitmentService:
                 scheduler.clear_cancelled(task.candidate_id)
                 db = SessionLocal()
                 candidate_snapshot = None
+                candidate_org_code = None
                 try:
                     candidate = db.query(RecruitmentCandidate).filter(
                         RecruitmentCandidate.id == task.candidate_id,
                     ).first()
                     if candidate:
+                        candidate_org_code = normalize_org_code(getattr(candidate, "org_code", None))
                         candidate.status = "unmatched"
                         candidate.ai_match_reason = "用户手动停止匹配"
                         candidate.talent_pool_reason = "ai_error"
@@ -15926,7 +16455,7 @@ class RecruitmentService:
 
                     log_row = RecruitmentAITaskLog(
                         task_type=task_type,
-                        org_code=None,
+                        org_code=candidate_org_code or normalize_org_code(None),
                         batch_id=task.batch_id,
                         status="cancelled",
                         related_candidate_id=task.candidate_id,
@@ -15949,6 +16478,7 @@ class RecruitmentService:
                         "candidate_id": task.candidate_id,
                         "batch_id": task.batch_id,
                         "task_type": task_type,
+                        "org_code": candidate_org_code,
                         "status": "unmatched",
                         "ai_match_position_id": None,
                         "ai_match_position_title": None,
@@ -15973,9 +16503,14 @@ class RecruitmentService:
                 # 写重试审计日志
                 db = SessionLocal()
                 try:
+                    retry_org_code = normalize_org_code(
+                        db.query(RecruitmentCandidate.org_code).filter(
+                            RecruitmentCandidate.id == task.candidate_id,
+                        ).scalar()
+                    )
                     log_row = RecruitmentAITaskLog(
                         task_type=task_type,
-                        org_code=None,
+                        org_code=retry_org_code,
                         batch_id=task.batch_id,
                         status="retrying",
                         related_candidate_id=task.candidate_id,
@@ -16009,6 +16544,7 @@ class RecruitmentService:
             db = SessionLocal()
             log_row = None
             candidate_snapshot = None
+            candidate_org_code = None
             try:
                 now = datetime.now()
 
@@ -16016,6 +16552,7 @@ class RecruitmentService:
                     RecruitmentCandidate.id == task.candidate_id,
                 ).first()
                 if candidate:
+                    candidate_org_code = normalize_org_code(getattr(candidate, "org_code", None))
                     candidate.status = "unmatched"
                     candidate.ai_match_reason = failure_message
                     candidate.ai_match_at = now
@@ -16027,7 +16564,7 @@ class RecruitmentService:
 
                 log_row = RecruitmentAITaskLog(
                     task_type=task_type,
-                    org_code=None,
+                    org_code=candidate_org_code or normalize_org_code(None),
                     batch_id=task.batch_id,
                     status="failed",
                     related_candidate_id=task.candidate_id,
@@ -16065,6 +16602,7 @@ class RecruitmentService:
                     "candidate_id": task.candidate_id,
                     "batch_id": task.batch_id,
                     "task_type": task_type,
+                    "org_code": candidate_org_code,
                     "status": "unmatched",
                     "ai_match_reason": failure_message,
                     "ai_match_position_id": None,
@@ -16150,12 +16688,8 @@ class RecruitmentService:
         from .match_scheduler import scheduler
         from .task_event_bus import TaskEventBus
 
-        candidate = self.db.query(RecruitmentCandidate).filter(
-            RecruitmentCandidate.id == candidate_id,
-            RecruitmentCandidate.deleted.is_(False),
-        ).first()
-        if not candidate:
-            raise ValueError("Candidate not found")
+        # P0-2：走可见性校验，越权 ID 与不存在同样抛 ValueError（路由层转 404），不泄露存在性。
+        candidate = self._get_candidate(candidate_id)
 
         if candidate.status != "matching":
             candidate_snapshot = self._serialize_realtime_candidate_item(candidate)
@@ -16220,12 +16754,8 @@ class RecruitmentService:
 
     def move_to_talent_pool(self, candidate_id: int, actor_id: str):
         """将候选人移入人才库（人工操作）"""
-        candidate = self.db.query(RecruitmentCandidate).filter(
-            RecruitmentCandidate.id == candidate_id,
-            RecruitmentCandidate.deleted.is_(False),
-        ).first()
-        if not candidate:
-            raise ValueError("Candidate not found")
+        # P0-2：走可见性校验，越权 ID 与不存在同样抛 ValueError（路由层转 404）。
+        candidate = self._get_candidate(candidate_id)
 
         source_status = candidate.status
         self._apply_candidate_status_transition(
@@ -16255,10 +16785,14 @@ class RecruitmentService:
 
     def batch_move_to_talent_pool(self, candidate_ids: List[int], actor_id: str) -> Dict[str, Any]:
         """批量移入人才库"""
-        candidates = self.db.query(RecruitmentCandidate).filter(
-            RecruitmentCandidate.id.in_(candidate_ids),
-            RecruitmentCandidate.deleted.is_(False),
-        ).all()
+        # P0-2：走组织可见范围过滤，要求"请求 ID 数 = 可见结果数"，不静默跳过。
+        requested_ids = _dedupe_ints(candidate_ids)
+        candidates = self._build_candidate_scoped_query(None).filter(
+            RecruitmentCandidate.id.in_(requested_ids),
+        ).all() if requested_ids else []
+        if len(candidates) != len(requested_ids):
+            missing_count = len(requested_ids) - len(candidates)
+            raise ValueError(f"共 {missing_count} 个候选人不存在或超出当前账号可见范围，已阻止批量移入人才库。")
         for c in candidates:
             self._apply_candidate_status_transition(
                 c,
@@ -16440,13 +16974,17 @@ class RecruitmentService:
 
     def batch_assign_position_with_status(self, candidate_ids: List[int], position_id: Optional[int], actor_id: str, update_status: bool = True) -> Dict[str, Any]:
         """批量分配岗位并更新状态"""
-        candidates = self.db.query(RecruitmentCandidate).filter(
-            RecruitmentCandidate.id.in_(candidate_ids),
-            RecruitmentCandidate.deleted.is_(False)
-        ).all()
+        # P0-2：走组织可见范围过滤，要求"请求 ID 数 = 可见结果数"，不静默跳过。
+        requested_ids = _dedupe_ints(candidate_ids)
+        candidates = self._build_candidate_scoped_query(None).filter(
+            RecruitmentCandidate.id.in_(requested_ids),
+        ).all() if requested_ids else []
 
         if not candidates:
             raise ValueError("No candidates found")
+        if len(candidates) != len(requested_ids):
+            missing_count = len(requested_ids) - len(candidates)
+            raise ValueError(f"共 {missing_count} 个候选人不存在或超出当前账号可见范围，已阻止批量分配岗位。")
 
         position = self._get_position(position_id) if position_id else None
         updated_count = 0
@@ -16471,12 +17009,17 @@ class RecruitmentService:
         import zipfile
         import tempfile
         from openpyxl import Workbook
-        candidates = self.db.query(RecruitmentCandidate).filter(
-            RecruitmentCandidate.id.in_(candidate_ids),
-            RecruitmentCandidate.deleted.is_(False),
-        ).all()
+        # P0-2：导出必须走组织可见范围过滤，且要求"请求 ID 数 = 可见结果数"，
+        # 防止拿到跨组织候选人 ID 后批量导出 PII 与简历原件。
+        requested_ids = _dedupe_ints(candidate_ids)
+        candidates = self._build_candidate_scoped_query(None).filter(
+            RecruitmentCandidate.id.in_(requested_ids),
+        ).all() if requested_ids else []
         if not candidates:
             raise ValueError("No candidates found for the given IDs")
+        if len(candidates) != len(requested_ids):
+            missing_count = len(requested_ids) - len(candidates)
+            raise ValueError(f"共 {missing_count} 个候选人不存在或超出当前账号可见范围，已阻止导出。")
         wb = Workbook()
         ws = wb.active
         ws.title = "Candidates"

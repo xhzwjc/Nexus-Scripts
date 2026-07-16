@@ -253,14 +253,18 @@ def test_ai_match_callback_does_not_hold_db_session_during_model_call(monkeypatc
 
     service = RecruitmentService(Mock())
     service.ai_gateway.match_position = match_position
-    callback = service._create_match_callback(
-        None,
-        "ai_position_match",
-        "actor",
-        [{"id": 1, "title": "产品经理", "department": "", "key_requirements": ""}],
-    )
+    # P0-3：回调改为无状态 handler，请求级上下文随 MatchTask 传递
+    callback = service._create_match_callback()
 
-    task = SimpleNamespace(candidate_id=123, batch_id="batch-1", resume_content="resume text")
+    task = SimpleNamespace(
+        candidate_id=123,
+        batch_id="batch-1",
+        resume_content="resume text",
+        user_id="actor",
+        task_type="ai_position_match",
+        session_token=None,
+        position_summaries=[{"id": 1, "title": "产品经理", "department": "", "key_requirements": ""}],
+    )
     slot = SimpleNamespace(config_id=7, key_id="config_7")
     asyncio.run(callback(task, slot))
 
@@ -327,14 +331,18 @@ def test_ai_match_resume_text_db_exhaustion_is_retried_not_marked_unavailable(mo
 
     service = RecruitmentService(Mock())
     service.ai_gateway.match_position = Mock(side_effect=AssertionError("model call should not run"))
-    callback = service._create_match_callback(
-        None,
-        "ai_position_match",
-        "actor",
-        [{"id": 1, "title": "产品经理", "department": "", "key_requirements": ""}],
-    )
+    # P0-3：回调改为无状态 handler，请求级上下文随 MatchTask 传递
+    callback = service._create_match_callback()
 
-    task = SimpleNamespace(candidate_id=123, batch_id="batch-1", resume_content=None)
+    task = SimpleNamespace(
+        candidate_id=123,
+        batch_id="batch-1",
+        resume_content=None,
+        user_id="actor",
+        task_type="ai_position_match",
+        session_token=None,
+        position_summaries=[{"id": 1, "title": "产品经理", "department": "", "key_requirements": ""}],
+    )
     slot = SimpleNamespace(config_id=7, key_id="config_7")
 
     try:

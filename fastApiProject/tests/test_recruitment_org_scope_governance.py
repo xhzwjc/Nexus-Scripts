@@ -489,7 +489,7 @@ def test_smart_match_enqueues_visible_positions_without_auto_screen(monkeypatch)
         def set_callbacks(self, **kwargs):
             self.callbacks_set = True
 
-        async def enqueue_batch(self, *, user_id, batch_id, candidates, position_summaries):
+        async def enqueue_batch(self, *, user_id, batch_id, candidates, position_summaries, session_token=None, task_type="ai_position_match"):
             self.live_candidate_ids.update(candidate.id for candidate in candidates)
             self.enqueued_batches.append(
                 {
@@ -611,7 +611,7 @@ def test_smart_match_uses_visible_positions_and_prefers_primary_org_duplicate_ti
         def set_callbacks(self, **kwargs):
             return None
 
-        async def enqueue_batch(self, *, user_id, batch_id, candidates, position_summaries):
+        async def enqueue_batch(self, *, user_id, batch_id, candidates, position_summaries, session_token=None, task_type="ai_position_match"):
             self.live_candidate_ids.update(candidate.id for candidate in candidates)
             self.enqueued_batches.append(
                 {
@@ -1798,5 +1798,57 @@ def test_rbac_super_admin_admin_role_and_limited_grant_boundaries():
                 is_super_admin=False,
                 notes=None,
             )
+    finally:
+        db.close()
+
+
+def test_export_candidates_blocks_cross_org_ids(monkeypatch):
+    """P0-2：受限组织用户导出跨组织候选人 ID 时必须被拒绝，不得导出他人 PII。"""
+    db = _build_test_db()
+    try:
+        _seed_org_tree(db)
+        own = _add_candidate(
+            db, org_code="chunmiao-rd", position_id=None, name="本部门候选人", created_by="rd-user"
+        )
+        cross = _add_candidate(
+            db, org_code="haoshi", position_id=None, name="他组织候选人", created_by="haoshi-hr"
+        )
+        rd_user = _service(db, _session("rd-user", "chunmiao-rd", DATA_SCOPE_ORG_ONLY))
+
+        # 仅导出本组织候选人：允许
+        zip_path = rd_user.export_candidates([own.id], include_resumes=False)
+        assert zip_path
+
+        # 携带跨组织候选人 ID：整体拒绝，不静默跳过
+        with pytest.raises(ValueError) as exc_info:
+            rd_user.export_candidates([own.id, cross.id], include_resumes=False)
+        assert "可见范围" in str(exc_info.value)
+
+        # 仅跨组织候选人 ID：拒绝
+        with pytest.raises(ValueError):
+            rd_user.export_candidates([cross.id], include_resumes=False)
+    finally:
+        db.close()
+
+
+def test_batch_move_to_talent_pool_blocks_cross_org_ids():
+    """P0-2：批量移入人才库携带跨组织候选人 ID 时整体拒绝。"""
+    db = _build_test_db()
+    try:
+        _seed_org_tree(db)
+        own = _add_candidate(
+            db, org_code="chunmiao-rd", position_id=None, name="本部门候选人", created_by="rd-user"
+        )
+        cross = _add_candidate(
+            db, org_code="haoshi", position_id=None, name="他组织候选人", created_by="haoshi-hr"
+        )
+        rd_user = _service(db, _session("rd-user", "chunmiao-rd", DATA_SCOPE_ORG_ONLY))
+
+        result = rd_user.batch_move_to_talent_pool([own.id], "rd-user")
+        assert result["moved_count"] == 1
+
+        with pytest.raises(ValueError) as exc_info:
+            rd_user.batch_move_to_talent_pool([own.id, cross.id], "rd-user")
+        assert "可见范围" in str(exc_info.value)
     finally:
         db.close()
