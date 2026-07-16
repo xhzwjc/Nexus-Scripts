@@ -253,6 +253,151 @@ export interface CandidateScore {
   [key: string]: unknown;
 }
 
+export type CandidateComparisonComparabilityLevel = "strict" | "limited" | "incompatible";
+export type CandidateComparisonManualOverrideMode = "none" | "partial" | "complete";
+export type CandidateComparisonDuplicateMatch = "phone" | "email" | "both";
+export type CandidateComparisonArtifactState = "strict" | "legacy" | "stale" | "missing" | "invalid" | "processing" | "failed";
+export type CandidateComparisonReasonCode =
+  | "artifact_missing"
+  | "artifact_legacy"
+  | "artifact_stale"
+  | "artifact_invalid"
+  | "artifact_processing"
+  | "artifact_failed"
+  | "protocol_mismatch"
+  | "dimension_mismatch"
+  | "score_total_mismatch"
+  | "position_context_mismatch"
+  | "manual_override_mixed"
+  | "possible_duplicate_contact";
+
+export interface CandidateComparisonPreviewRequest {
+  candidate_ids: number[];
+  expected_position_id: number;
+}
+
+export interface CandidateComparisonTargetContext {
+  position_id: number;
+  position_title: string;
+  evaluation_protocol_hash: string | null;
+}
+
+export interface CandidateComparisonComparability {
+  level: CandidateComparisonComparabilityLevel;
+  facts_allowed: boolean;
+  score_deltas_allowed: boolean;
+  ranking_allowed: boolean;
+  reasons: CandidateComparisonReasonCode[];
+}
+
+export interface CandidateComparisonDuplicateGroup {
+  candidate_ids: number[];
+  matched_by: CandidateComparisonDuplicateMatch;
+}
+
+export interface CandidateComparisonRevisions {
+  candidate_updated_at: string | null;
+  resume_id: number | null;
+  parse_id: number | null;
+  score_id: number | null;
+  screening_task_id: number | null;
+}
+
+export interface CandidateComparisonFacts {
+  city: string | null;
+  education: string | null;
+  years_of_experience: string | null;
+  current_company: string | null;
+}
+
+export interface CandidateComparisonAiScreening {
+  total_score: number | null;
+  total_score_scale: number | null;
+  match_percent: number | null;
+  recommendation: string | null;
+  suggested_status: string | null;
+  advantages: string[];
+  concerns: string[];
+}
+
+export interface CandidateComparisonManualOverride {
+  score: number | null;
+  reason: string | null;
+}
+
+export interface CandidateComparisonScreeningDimension {
+  dimension_key: string;
+  label: string;
+  max_score: number | null;
+  score: number | null;
+  normalized_score: number | null;
+  reason: string | null;
+  evidence: string[];
+  is_inferred: boolean;
+  radar_category: string | null;
+}
+
+export interface CandidateComparisonScreeningProtocol {
+  evaluation_protocol_hash: string | null;
+  screening_run_id: string | null;
+  prompt_version: string | null;
+  provider: string | null;
+  model_name: string | null;
+}
+
+export interface CandidateComparisonScreening {
+  ai: CandidateComparisonAiScreening;
+  manual_override: CandidateComparisonManualOverride;
+  dimensions: CandidateComparisonScreeningDimension[];
+  protocol: CandidateComparisonScreeningProtocol;
+}
+
+export interface CandidateComparisonMemberCandidate {
+  id: number;
+  name: string;
+  status: string;
+  display_status: string;
+  position_id: number;
+}
+
+export interface CandidateComparisonMember {
+  candidate: CandidateComparisonMemberCandidate;
+  artifact_state: CandidateComparisonArtifactState;
+  revisions: CandidateComparisonRevisions;
+  facts: CandidateComparisonFacts;
+  screening: CandidateComparisonScreening | null;
+  warnings: CandidateComparisonReasonCode[];
+}
+
+export interface CandidateComparisonDimensionValue {
+  candidate_id: number;
+  score: number | null;
+  normalized_score: number | null;
+  reason: string | null;
+  evidence: string[];
+  is_highest: boolean;
+}
+
+export interface CandidateComparisonAlignedDimension {
+  dimension_key: string;
+  label: string;
+  max_score: number | null;
+  is_core: boolean;
+  spread: number | null;
+  values: CandidateComparisonDimensionValue[];
+}
+
+export interface CandidateComparisonPreview {
+  snapshot_version: string;
+  target_context: CandidateComparisonTargetContext;
+  comparability: CandidateComparisonComparability;
+  manual_override_mode: CandidateComparisonManualOverrideMode;
+  possible_duplicate_groups: CandidateComparisonDuplicateGroup[];
+  members: CandidateComparisonMember[];
+  aligned_dimensions: CandidateComparisonAlignedDimension[];
+  key_differences: string[];
+}
+
 export interface CandidateStatusHistory {
   id: number;
   candidate_id: number;

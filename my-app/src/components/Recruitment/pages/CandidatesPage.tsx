@@ -21,6 +21,7 @@ import {
     Eye,
     FileText,
     GraduationCap,
+    GitCompareArrows,
     Loader2,
     Mail,
     MapPin,
@@ -46,6 +47,7 @@ import {
     recruitmentApi,
     type AITaskLog,
     type CandidateDetail,
+    type CandidateComparisonPreview,
     type CandidateScoreDimension,
     type CandidateSummary,
     type DepartmentReviewBatch,
@@ -104,6 +106,7 @@ import {
     SearchField,
 } from "../components/SharedComponents";
 import {CandidateRadarChart} from "../components/CandidateRadarChart";
+import {CandidateComparisonTray, CandidateComparisonWorkspace} from "./CandidateComparisonWorkspace";
 import {
     formatActionError,
     formatDateTime,
@@ -3197,6 +3200,20 @@ function CandidateFilterBar({
 
 type CandidatesPageProps = {
     pageActive: boolean;
+    candidateWorkspaceMode: "list" | "comparison";
+    comparisonCandidates: CandidateSummary[];
+    comparisonPreview: CandidateComparisonPreview | null;
+    comparisonLoading: boolean;
+    comparisonFailed: boolean;
+    comparisonStale: boolean;
+    comparisonProcessing: boolean;
+    importCandidatesToComparison: (candidateIds: number[]) => void;
+    toggleCandidateInComparison: (candidate: CandidateSummary) => void;
+    removeCandidateFromComparison: (candidateId: number) => void;
+    clearCandidateComparison: () => void;
+    startCandidateComparison: () => void;
+    exitCandidateComparison: () => void;
+    refreshCandidateComparison: () => void;
     permissions: CandidatePagePermissions;
     panelClass?: string;
     candidateViewMode: CandidateViewMode;
@@ -3353,6 +3370,20 @@ type CandidatesPageProps = {
 
 export function CandidatesPage({
     pageActive,
+    candidateWorkspaceMode,
+    comparisonCandidates,
+    comparisonPreview,
+    comparisonLoading,
+    comparisonFailed,
+    comparisonStale,
+    comparisonProcessing,
+    importCandidatesToComparison,
+    toggleCandidateInComparison,
+    removeCandidateFromComparison,
+    clearCandidateComparison,
+    startCandidateComparison,
+    exitCandidateComparison,
+    refreshCandidateComparison,
     permissions,
     panelClass = defaultPanelClass,
     candidateViewMode,
@@ -3473,9 +3504,14 @@ export function CandidatesPage({
     createFollowUp,
     deleteFollowUp,
 }: CandidatesPageProps) {
-    const {language} = useI18n();
+    const {language, t} = useI18n();
     const isZh = language !== "en-US";
     const tr = React.useMemo(() => getCandidatesLocale(language), [language]);
+    const comparisonText = t.recruitment.candidateComparison;
+    const comparisonCandidateIdSet = React.useMemo(
+        () => new Set(comparisonCandidates.map((candidate) => candidate.id)),
+        [comparisonCandidates],
+    );
     const activeQuickPosition = candidatePositionFilter[0] || "";
     const exportFieldOptions = React.useMemo(() => ([
         { key: "name", label: isZh ? "姓名" : "Name", defaultChecked: true },
@@ -4958,9 +4994,30 @@ export function CandidatesPage({
     const candidateDialogSecondaryButtonClassName = "h-[34px] rounded-[6px] border-[#E6E7EB] bg-white px-[18px] text-[13px] text-[#33353D] shadow-none hover:border-[#1E3BFA] hover:bg-[#F7F8FA] hover:text-[#1E3BFA]";
     const candidateDialogPrimaryButtonClassName = "h-[34px] rounded-[6px] bg-[#1E3BFA] px-[18px] text-[13px] text-white shadow-none hover:bg-[#0F23D9] disabled:bg-[#1E3BFA] disabled:text-white disabled:opacity-50";
     const candidateBatchActionButtonClassName = "h-7 shrink-0 whitespace-nowrap rounded-[4px] border-[#E6E7EB] bg-white px-2.5 text-[12px] font-normal text-[#33353D] shadow-none hover:border-[#1E3BFA] hover:bg-[#F7F8FA] hover:text-[#1E3BFA] focus-visible:ring-1 focus-visible:ring-[#1E3BFA]";
+    const comparisonImportDisabledReason = selectedCandidateIds.length > 4
+        ? comparisonText.maximumReached
+        : undefined;
 
     return (
         <>
+            {candidateWorkspaceMode === "comparison" ? (
+                <CandidateComparisonWorkspace
+                    preview={comparisonPreview}
+                    selectedCandidates={comparisonCandidates}
+                    detailOpen={selectedCandidateId !== null}
+                    text={comparisonText}
+                    loading={comparisonLoading}
+                    failed={comparisonFailed}
+                    stale={comparisonStale}
+                    processing={comparisonProcessing}
+                    onBack={exitCandidateComparison}
+                    onRefresh={refreshCandidateComparison}
+                    onRemoveCandidate={removeCandidateFromComparison}
+                    onOpenCandidate={setSelectedCandidateId}
+                    resolveCandidateStatus={labelForCandidateStatus}
+                    resolveCandidateSource={labelForCandidateSource}
+                />
+            ) : null}
             <div className="h-full min-h-0 overflow-hidden bg-white">
                 <div
                     className="grid h-full min-h-0 grid-cols-1 gap-0 overflow-hidden bg-white xl:grid-cols-[var(--candidate-position-scope-width)_minmax(0,1fr)]"
@@ -5130,6 +5187,16 @@ export function CandidatesPage({
                                             {tr.requeueFreshScreening}
                                         </Button>
                                         </> : null}
+                                        {permissions.manageCandidate ? <Button
+                                            size="sm"
+                                            variant="ghost"
+                                            className="h-7 shrink-0 whitespace-nowrap rounded-[4px] px-1.5 text-[12px] font-semibold text-[#1E3BFA] shadow-none hover:bg-[rgba(30,59,250,0.05)] hover:text-[#0F23D9]"
+                                            title={comparisonImportDisabledReason}
+                                            onClick={() => importCandidatesToComparison(selectedCandidateIds)}
+                                        >
+                                            <GitCompareArrows className="h-3.5 w-3.5"/>
+                                            {comparisonText.importSelection}
+                                        </Button> : null}
                                         {permissions.manageCandidate && permissions.viewTalentPool ? <Button
                                             size="sm"
                                             variant="outline"
@@ -5230,7 +5297,10 @@ export function CandidatesPage({
                             )}
                         </div>
                     </CardHeader>
-                    <CardContent className="relative flex min-h-0 flex-1 flex-col px-0 pb-1 pt-0">
+                    <CardContent className={cn(
+                        "relative flex min-h-0 flex-1 flex-col px-0 pt-0",
+                        comparisonCandidates.length ? "pb-24" : "pb-1",
+                    )}>
                         {candidateMatchSortLoading ? (
                             <div className="mb-2 flex items-center gap-2 rounded-[6px] border border-[rgba(255,171,36,0.30)] bg-[rgba(255,171,36,0.08)] px-2.5 py-2 text-sm text-[#D48806]">
                                 <Loader2 className="h-4 w-4 animate-spin"/>
@@ -5454,6 +5524,16 @@ export function CandidatesPage({
                 </Card>
                 </div>
 
+                {candidateWorkspaceMode === "list" ? (
+                    <CandidateComparisonTray
+                        candidates={comparisonCandidates}
+                        text={comparisonText}
+                        onRemove={removeCandidateFromComparison}
+                        onClear={clearCandidateComparison}
+                        onStart={startCandidateComparison}
+                    />
+                ) : null}
+
                 <Dialog
                     modal={false}
                     open={pageActive && selectedCandidateId !== null}
@@ -5613,6 +5693,24 @@ export function CandidatesPage({
                                                     </button>
                                                 </PopoverTrigger>
                                                 <PopoverContent className="z-[10020] w-44 rounded-[6px] border-[#E6E7EB] bg-white p-1 shadow-[0_8px_24px_rgba(14,17,20,0.12)]" align="end">
+                                                    {permissions.manageCandidate ? (
+                                                        <button
+                                                            type="button"
+                                                            className="flex w-full items-center gap-2 rounded-[4px] px-3 py-2 text-left text-[12px] text-[#33353D] hover:bg-[#F2F3F5]"
+                                                            aria-label={comparisonCandidateIdSet.has(candidateDetail.candidate.id)
+                                                                ? comparisonText.removeCandidateAria(candidateDetail.candidate.name || comparisonText.unknownCandidate)
+                                                                : comparisonText.compareCandidateAria(candidateDetail.candidate.name || comparisonText.unknownCandidate)}
+                                                            onClick={() => {
+                                                                setCandidateHeaderMoreOpen(false);
+                                                                toggleCandidateInComparison(candidateDetail.candidate);
+                                                            }}
+                                                        >
+                                                            <GitCompareArrows className="h-3.5 w-3.5"/>
+                                                            {comparisonCandidateIdSet.has(candidateDetail.candidate.id)
+                                                                ? comparisonText.removeCandidate
+                                                                : comparisonText.addCandidate}
+                                                        </button>
+                                                    ) : null}
                                                     <button
                                                         type="button"
                                                         className="flex w-full items-center gap-2 rounded-[4px] px-3 py-2 text-left text-[12px] text-[#33353D] hover:bg-[#F2F3F5] disabled:cursor-not-allowed disabled:text-[#B0B2B8]"

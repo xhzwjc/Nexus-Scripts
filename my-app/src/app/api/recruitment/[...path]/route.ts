@@ -48,6 +48,10 @@ function resolveRecruitmentPermission(path: string, method: string): string | st
     return RECRUITMENT_TASK_EVENT_PERMISSIONS;
   }
 
+  if (path === "candidate-comparisons/preview" && normalizedMethod === "POST") {
+    return "recruitment-candidate-manage";
+  }
+
   if (path === "chat/context") {
     return "recruitment-assistant-view";
   }

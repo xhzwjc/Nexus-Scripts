@@ -24,6 +24,7 @@ from ..recruitment_schemas import (
     CandidateBatchDeleteRequest,
     CandidateBatchStatusUpdateRequest,
     CandidateBatchUpdatePositionRequest,
+    CandidateComparisonPreviewRequest,
     CandidateExportRequest,
     CandidateScreenBatchCancelRequest,
     CandidateScreenBatchQueryRequest,
@@ -641,6 +642,22 @@ def list_candidates(query: Optional[str] = Query(None), status: Optional[str] = 
     return {"success": True, "data": {"items": result["items"], "total": result["total"]}, "request_id": str(uuid.uuid4())}
 
 
+@recruitment_router.post("/candidate-comparisons/preview")
+def preview_candidate_comparison(
+    payload: CandidateComparisonPreviewRequest,
+    _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-candidate-manage")),
+    service: RecruitmentService = Depends(get_recruitment_service),
+):
+    try:
+        data = service.preview_candidate_comparison(
+            payload.candidate_ids,
+            payload.expected_position_id,
+        )
+        return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 @recruitment_router.post("/candidates/export")
 async def export_candidates(payload: CandidateExportRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-candidate-manage")), service: RecruitmentService = Depends(get_recruitment_service)):
     try:
@@ -755,7 +772,11 @@ async def get_candidate_detail(candidate_id: int, _session: Dict[str, Any] = Dep
 @recruitment_router.patch("/candidates/{candidate_id}")
 async def update_candidate(candidate_id: int, payload: CandidateUpdateRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-candidate-manage")), service: RecruitmentService = Depends(get_recruitment_service)):
     try:
-        data = service.update_candidate(candidate_id, payload.model_dump(exclude_none=True), _session.get("id") or "unknown")
+        candidate_update_payload = payload.model_dump(exclude_none=True)
+        for nullable_score_field in ("manual_override_score", "manual_override_reason"):
+            if nullable_score_field in payload.model_fields_set:
+                candidate_update_payload[nullable_score_field] = getattr(payload, nullable_score_field)
+        data = service.update_candidate(candidate_id, candidate_update_payload, _session.get("id") or "unknown")
         return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))

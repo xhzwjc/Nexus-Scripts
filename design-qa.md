@@ -163,3 +163,45 @@ No actionable P0, P1, or P2 differences remain. Permission Center extrapolates t
 No P3 item is required for this page. Other Permission Center child pages retain their existing content styling until their scheduled one-page-at-a-time refactor.
 
 final result: passed
+
+---
+
+# 候选人对比托盘与工作区 Design QA
+
+## 对照范围
+
+- source visual truth path: `AI Recruitment Redesign Project/候选人 Candidates.dc.html`
+- implementation screenshot path: `/tmp/nexus-candidate-compare-design-qa/implementation-1958x1107.png`
+- viewport: 浏览器报告 `1958 × 1107` CSS pixels，浅色主题
+- state: 候选人页选择 2 位同岗位候选人，进入不可直接比较的真实数据状态
+
+## 对照证据
+
+- rendered implementation: 已在本地浏览器完成托盘、加载态、真实结果态、移除退出和查看详情交互验证。
+- source capture: 受受控浏览器本地 `file://` 安全策略限制，原型 HTML 无法打开并生成视觉截图；没有通过临时服务或复制到公共目录绕过该限制。
+- full-view comparison evidence: 缺少可打开的源视觉截图，无法形成合规的同画面对照。
+- focused region comparison evidence: 同上；已按原型源码逐项核对尺寸、颜色、间距和文案，但不将源码核对冒充视觉对照。
+
+## Findings
+
+- [P1 已修复] 首次实现受现有页面容器影响，只覆盖内容区域，未覆盖系统顶部和左侧导航。已将托盘与工作区通过 Portal 提升到页面最外层，并将工作区设为整屏模态层；修复后实现画面不再露出系统框架。
+- 当前实现未发现运行时错误：候选人选择、同岗位约束、2–4 人限制、托盘增删、进入对比、真实快照、少于 2 人自动退出、查看候选人详情均已验证；浏览器控制台无新增 warning/error。
+- 因缺少源视觉截图，字体、精细间距、颜色和图标的最终像素级一致性无法判定为通过。
+
+## Comparison History
+
+1. 首轮实现检查发现整屏覆盖 P1 问题。
+2. 修复为 `document.body` Portal，并复测工作区覆盖、返回和详情切换。
+3. 后续实现截图和交互验证通过；源视觉仍因本地文件安全策略无法捕获，因此不能完成最终视觉对照。
+
+## Implementation Checklist
+
+- [x] 底部深色候选人对比托盘
+- [x] 同岗位 2–4 人业务约束与反馈
+- [x] 整屏候选人对比工作区
+- [x] 可比性、差异摘要、事实、评分维度、人工复核和只读提示
+- [x] 真实后端快照、权限、竞态取消和数据失效对账
+- [x] 类型检查、前后端专项测试、隔离生产构建和浏览器交互验证
+- [ ] 由用户在可直接打开的新版原型环境中完成最终视觉验收
+
+final result: blocked

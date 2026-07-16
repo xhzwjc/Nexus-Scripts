@@ -1,6 +1,6 @@
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StrictInt, field_validator
 
 
 class PositionCreateRequest(BaseModel):
@@ -94,6 +94,20 @@ class CandidateUpdateRequest(BaseModel):
     hr_feedback: Optional[str] = None
     hr_feedback_reason: Optional[str] = None
     owner_id: Optional[str] = None
+
+
+class CandidateComparisonPreviewRequest(BaseModel):
+    candidate_ids: List[StrictInt] = Field(..., min_length=2, max_length=4)
+    expected_position_id: StrictInt = Field(..., ge=1)
+
+    @field_validator("candidate_ids")
+    @classmethod
+    def validate_candidate_ids(cls, value: List[int]) -> List[int]:
+        if any(candidate_id <= 0 for candidate_id in value):
+            raise ValueError("candidate_comparison_candidate_ids_must_be_positive")
+        if len(set(value)) != len(value):
+            raise ValueError("candidate_comparison_candidate_ids_must_be_unique")
+        return value
 
 
 class CandidateStatusUpdateRequest(BaseModel):

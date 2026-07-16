@@ -6,6 +6,7 @@ from contextlib import contextmanager
 import hashlib
 import json
 import logging
+import math
 import mimetypes
 import os
 import random
@@ -11404,6 +11405,1013 @@ class RecruitmentService:
             RecruitmentCandidate,
             org_code,
         )
+
+    def preview_candidate_comparison(
+        self,
+        candidate_ids: Sequence[int],
+        expected_position_id: int,
+    ) -> Dict[str, Any]:
+        return self._build_candidate_comparison_preview(candidate_ids, expected_position_id)
+
+    @staticmethod
+    def _candidate_comparison_int(value: Any) -> Optional[int]:
+        if isinstance(value, bool):
+            return None
+        try:
+            normalized = int(value)
+        except (TypeError, ValueError):
+            return None
+        return normalized if normalized > 0 else None
+
+    @staticmethod
+    def _candidate_comparison_codes(values: Iterable[Any]) -> List[str]:
+        codes: List[str] = []
+        for value in values:
+            code = str(value or "").strip()
+            if code and code not in codes:
+                codes.append(code)
+        return codes
+
+    @staticmethod
+    def _candidate_comparison_digest(value: Any, *, prefix: str = "") -> str:
+        canonical = _normalize_payload_for_comparison(value)
+        digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        return f"{prefix}{digest}"
+
+    @staticmethod
+    def _extract_candidate_comparison_system_prompt(full_request: Dict[str, Any]) -> str:
+        request_body = full_request.get("request_body")
+        if not isinstance(request_body, dict):
+            return ""
+        direct_system = request_body.get("system")
+        if isinstance(direct_system, str):
+            return direct_system
+        system_instruction = request_body.get("system_instruction")
+        if isinstance(system_instruction, dict):
+            parts = system_instruction.get("parts")
+            if isinstance(parts, list):
+                return "\n".join(
+                    str(part.get("text") or "")
+                    for part in parts
+                    if isinstance(part, dict) and str(part.get("text") or "")
+                )
+        messages = request_body.get("messages")
+        if isinstance(messages, list):
+            for message in messages:
+                if isinstance(message, dict) and message.get("role") == "system":
+                    return str(message.get("content") or "")
+        return ""
+
+    def _build_candidate_comparison_protocol(
+        self,
+        *,
+        task_row: RecruitmentAITaskLog,
+        resume_row: RecruitmentResumeFile,
+        parse_row: RecruitmentResumeParseResult,
+        score_row: RecruitmentCandidateScore,
+        score_payload: Dict[str, Any],
+        expected_position_id: int,
+    ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+        skill_snapshots = _decode_ai_task_json_text(task_row.related_skill_snapshots_json, None)
+        score_rule_snapshot = _decode_ai_task_json_text(task_row.score_rule_snapshot_json, None)
+        request_meta = self._extract_screening_request_meta_from_task(task_row)
+        full_request = _decode_ai_task_json_text(task_row.full_request_snapshot, None)
+        stored_score_payload = json_loads_safe(score_row.score_json, None)
+        output_snapshot = _decode_ai_task_json_text(task_row.output_snapshot, None)
+        validation_meta = _decode_ai_task_json_text(task_row.validation_meta_json, None)
+        score_debug = stored_score_payload.get("debug") if isinstance(stored_score_payload, dict) else None
+        required_skill_keys = {
+            "id",
+            "skill_code",
+            "name",
+            "description",
+            "skill_group",
+            "version",
+            "task_types",
+            "content",
+            "tags",
+            "sort_order",
+            "is_enabled",
+        }
+        if (
+            not isinstance(skill_snapshots, list)
+            or not skill_snapshots
+            or any(not isinstance(item, dict) or not required_skill_keys.issubset(item) for item in skill_snapshots)
+            or not isinstance(score_rule_snapshot, list)
+            or not score_rule_snapshot
+            or any(
+                not isinstance(item, dict)
+                or not {"skill_id", "skill_name", "label", "max_score", "is_core", "note"}.issubset(item)
+                for item in score_rule_snapshot
+            )
+            or not isinstance(request_meta, dict)
+            or not request_meta
+            or not isinstance(full_request, dict)
+            or not full_request
+            or not isinstance(stored_score_payload, dict)
+            or stored_score_payload.get("_storage_format") != RAW_SCREENING_SCORE_STORAGE_FORMAT
+            or not isinstance(output_snapshot, dict)
+            or not isinstance(validation_meta, dict)
+            or not isinstance(score_debug, dict)
+            or not {"score_source", "primary_model_call_succeeded", "final_response_source", "score_validation_passed"}.issubset(score_debug)
+            or not str(task_row.screening_run_id or "").strip()
+            or not str(task_row.request_hash or "").strip()
+        ):
+            return None, "artifact_legacy"
+
+        position_snapshot = request_meta.get("position_snapshot")
+        prompt_version = str(request_meta.get("prompt_version") or "").strip()
+        screening_mode = str(request_meta.get("screening_mode") or "").strip()
+        request_scope = str(request_meta.get("request_scope") or "").strip()
+        provider = str(full_request.get("provider") or "").strip()
+        runtime_provider = str(full_request.get("runtime_provider") or "").strip()
+        model_name = str(full_request.get("model_name") or "").strip()
+        model_source = str(full_request.get("source") or "").strip()
+        response_mode = str(full_request.get("response_mode") or "").strip()
+        system_prompt = self._extract_candidate_comparison_system_prompt(full_request)
+        request_body = full_request.get("request_body")
+        full_temperature = _parse_score_number(full_request.get("temperature"))
+        request_temperature = _parse_score_number(request_meta.get("temperature"))
+        total_score_scale = _parse_score_number(score_payload.get("total_score_scale"))
+        result_meta_keys = (
+            "final_response_source",
+            "parse_strategy",
+            "primary_model_call_succeeded",
+            "reused_existing_parse",
+        )
+        if any(key not in output_snapshot or key not in validation_meta for key in result_meta_keys):
+            return None, "artifact_legacy"
+        if any(output_snapshot.get(key) != validation_meta.get(key) for key in result_meta_keys):
+            return None, "artifact_invalid"
+        final_response_source = str(output_snapshot.get("final_response_source") or "").strip()
+        parse_strategy = str(output_snapshot.get("parse_strategy") or "").strip()
+        primary_model_call_succeeded = output_snapshot.get("primary_model_call_succeeded")
+        reused_existing_parse = output_snapshot.get("reused_existing_parse")
+        score_source = str(score_debug.get("score_source") or "").strip()
+        stored_final_response_source = str(score_debug.get("final_response_source") or "").strip()
+        required_position_keys = {
+            "title",
+            "department",
+            "location",
+            "employment_type",
+            "salary_range",
+            "key_requirements",
+            "bonus_points",
+            "summary",
+            "active_jd_snapshot",
+        }
+        if (
+            not isinstance(position_snapshot, dict)
+            or not required_position_keys.issubset(position_snapshot)
+            or not prompt_version
+            or not provider
+            or not runtime_provider
+            or not model_name
+            or not model_source
+            or response_mode != "json"
+            or not system_prompt
+            or (request_scope, screening_mode) not in {
+                ("screening_one_pass", "default"),
+                ("screening_score_only", "rerank_from_existing_parse"),
+                ("screening_fallback", "fallback_parse_then_score"),
+            }
+            or not final_response_source
+            or not parse_strategy
+            or not isinstance(primary_model_call_succeeded, bool)
+            or not isinstance(reused_existing_parse, bool)
+            or score_source not in {"primary_screening_model", "primary_score_model"}
+            or not stored_final_response_source
+            or not isinstance(request_body, dict)
+            or full_temperature is None
+            or request_temperature is None
+            or total_score_scale is None
+            or total_score_scale <= 0
+        ):
+            return None, "artifact_legacy"
+        expected_parse_strategy = {
+            "screening_one_pass": "combined_parse_and_score",
+            "screening_score_only": "rerank_from_existing_parse",
+            "screening_fallback": "fallback_parse_then_score",
+        }[request_scope]
+        if (
+            parse_strategy != expected_parse_strategy
+            or (request_scope == "screening_one_pass" and reused_existing_parse is not False)
+            or (request_scope == "screening_score_only" and reused_existing_parse is not True)
+        ):
+            return None, "artifact_invalid"
+
+        expected_raw_text_hash = _build_resume_content_hash(parse_row.raw_text)
+        custom_requirements = _extract_custom_requirements_from_skill_snapshots(skill_snapshots)
+        integrity_checks = (
+            str(request_meta.get("request_hash") or "").strip() == str(task_row.request_hash or "").strip(),
+            self._candidate_comparison_int(request_meta.get("resume_file_id")) == int(resume_row.id),
+            self._candidate_comparison_int(request_meta.get("position_id")) == expected_position_id,
+            bool(expected_raw_text_hash),
+            str(request_meta.get("raw_resume_text_hash") or "") == expected_raw_text_hash,
+            str(request_meta.get("position_snapshot_hash") or "") == _build_json_content_hash(position_snapshot),
+            str(request_meta.get("score_rule_snapshot_hash") or "") == _build_json_content_hash(score_rule_snapshot),
+            str(request_meta.get("custom_requirements_hash") or "") == _build_resume_content_hash(custom_requirements),
+            str(request_meta.get("provider") or "").strip() == provider,
+            str(request_meta.get("model_name") or "").strip() == model_name,
+            str(request_meta.get("source") or "").strip() == model_source,
+            request_temperature == full_temperature,
+            score_debug.get("primary_model_call_succeeded") is True,
+            score_debug.get("score_validation_passed") is True,
+            stored_final_response_source == score_source,
+            final_response_source == stored_final_response_source,
+            primary_model_call_succeeded is True,
+            score_source == (
+                "primary_screening_model"
+                if request_scope == "screening_one_pass"
+                else "primary_score_model"
+            ),
+        )
+        if not all(integrity_checks):
+            return None, "artifact_invalid"
+        if task_row.model_provider and str(task_row.model_provider).strip() != provider:
+            return None, "artifact_invalid"
+        if task_row.model_name and str(task_row.model_name).strip() != model_name:
+            return None, "artifact_invalid"
+        if task_row.model_source and str(task_row.model_source).strip() != model_source:
+            return None, "artifact_invalid"
+
+        request_options = dict(request_body)
+        for prompt_key in ("messages", "contents", "system", "system_instruction"):
+            request_options.pop(prompt_key, None)
+        schema_snapshot = {
+            "score_storage_format": stored_score_payload.get("_storage_format"),
+            "response_format": full_request.get("response_format"),
+            "response_mode": response_mode,
+        }
+        protocol_payload = {
+            "skill_snapshots": skill_snapshots,
+            "score_rule_snapshot": score_rule_snapshot,
+            "position_snapshot": position_snapshot,
+            "temporary_requirements": custom_requirements,
+            "prompt": {
+                "version": prompt_version,
+                "system_prompt": system_prompt,
+                "schema": schema_snapshot,
+            },
+            "screening_mode": screening_mode,
+            "request_scope": request_scope,
+            "result_source": {
+                "task_status": task_row.status,
+                "final_response_source": final_response_source,
+                "primary_model_call_succeeded": primary_model_call_succeeded,
+                "parse_strategy": parse_strategy,
+                "reused_existing_parse": reused_existing_parse,
+                "score_source": score_source,
+            },
+            "model": {
+                "provider": provider,
+                "runtime_provider": runtime_provider,
+                "model_name": model_name,
+                "source": model_source,
+                "base_url": full_request.get("base_url"),
+                "endpoint": full_request.get("endpoint"),
+                "response_mode": response_mode,
+                "temperature": full_temperature,
+                "request_options": request_options,
+            },
+            "score_scale": total_score_scale,
+        }
+        protocol_hash = self._candidate_comparison_digest(protocol_payload, prefix="protocol:")
+        return {
+            "hash": protocol_hash,
+            "position_snapshot_hash": _build_json_content_hash(position_snapshot),
+            "score_rule_snapshot": score_rule_snapshot,
+            "request_scope": request_scope,
+            "public": {
+                "evaluation_protocol_hash": protocol_hash,
+                "screening_run_id": task_row.screening_run_id,
+                "prompt_version": prompt_version,
+                "provider": provider,
+                "model_name": model_name,
+            },
+        }, None
+
+    def _build_candidate_comparison_dimensions(
+        self,
+        *,
+        score_payload: Dict[str, Any],
+        protocol: Dict[str, Any],
+        require_consistent_totals: bool = True,
+    ) -> Tuple[List[Dict[str, Any]], bool]:
+        rules = protocol.get("score_rule_snapshot")
+        dimensions = score_payload.get("dimensions")
+        if not isinstance(rules, list) or not rules or not isinstance(dimensions, list):
+            return [], False
+
+        rule_by_key: Dict[Tuple[str, float], Dict[str, Any]] = {}
+        rule_labels: set[str] = set()
+        for rule in rules:
+            if not isinstance(rule, dict):
+                return [], False
+            label = str(rule.get("label") or "")
+            max_score = _parse_score_number(rule.get("max_score"))
+            if (
+                not label
+                or label in rule_labels
+                or max_score is None
+                or not math.isfinite(max_score)
+                or max_score <= 0
+            ):
+                return [], False
+            rule_labels.add(label)
+            rule_by_key[(label, float(max_score))] = rule
+        if len(rule_by_key) != len(rules) or len(dimensions) != len(rules):
+            return [], False
+
+        dimension_by_key: Dict[Tuple[str, float], Dict[str, Any]] = {}
+        for dimension in dimensions:
+            if not isinstance(dimension, dict):
+                return [], False
+            label = str(dimension.get("label") or "")
+            model_max_score = _parse_score_number(dimension.get("max_score"))
+            score = _parse_score_number(dimension.get("score"))
+            if (
+                not label
+                or model_max_score is None
+                or score is None
+                or not math.isfinite(model_max_score)
+                or not math.isfinite(score)
+            ):
+                return [], False
+            key = (label, float(model_max_score))
+            authoritative_rule = rule_by_key.get(key)
+            if key in dimension_by_key or not authoritative_rule or score < 0 or score > float(model_max_score):
+                return [], False
+            evidence_value = dimension.get("evidence")
+            if isinstance(evidence_value, list):
+                evidence = [str(item) for item in evidence_value if str(item or "").strip()]
+            elif str(evidence_value or "").strip():
+                evidence = [str(evidence_value)]
+            else:
+                evidence = []
+            dimension_key = self._candidate_comparison_digest(
+                {
+                    "protocol": protocol.get("hash"),
+                    "label": label,
+                    "max_score": float(authoritative_rule["max_score"]),
+                },
+                prefix="dimension:",
+            )[:34]
+            dimension_by_key[key] = {
+                "dimension_key": dimension_key,
+                "label": label,
+                "max_score": float(authoritative_rule["max_score"]),
+                "is_core": bool(authoritative_rule.get("is_core")),
+                "score": float(score),
+                "normalized_score": round(float(score) / float(authoritative_rule["max_score"]) * 100, 2),
+                "reason": str(dimension.get("reason") or ""),
+                "evidence": evidence,
+                "is_inferred": bool(dimension.get("is_inferred")),
+                "radar_category": str(dimension.get("radar_category") or "").strip() or None,
+            }
+        if set(dimension_by_key) != set(rule_by_key):
+            return [], False
+        ordered_dimensions = [dimension_by_key[key] for key in rule_by_key]
+        if not require_consistent_totals:
+            return ordered_dimensions, True
+        total_score = _parse_score_number(score_payload.get("total_score"))
+        total_score_scale = _parse_score_number(score_payload.get("total_score_scale"))
+        match_percent = _parse_score_number(score_payload.get("match_percent"))
+        derived_total_score = sum(float(item["score"]) for item in ordered_dimensions)
+        max_possible_score = sum(float(item["max_score"]) for item in ordered_dimensions)
+        if (
+            total_score is None
+            or total_score_scale is None
+            or match_percent is None
+            or not math.isfinite(total_score)
+            or not math.isfinite(total_score_scale)
+            or not math.isfinite(match_percent)
+            or total_score < 0
+            or total_score > total_score_scale
+            or total_score_scale <= 0
+            or not math.isclose(max_possible_score, total_score_scale, rel_tol=0, abs_tol=0.1)
+            or match_percent < 0
+            or match_percent > 100
+            or not math.isclose(total_score, derived_total_score, rel_tol=0, abs_tol=0.1)
+        ):
+            return [], False
+        request_scope = str(protocol.get("request_scope") or "")
+        expected_match_percent = _calculate_match_percent_from_total_score(
+            total_score,
+            max_possible_score=(
+                None
+                if request_scope == "screening_one_pass"
+                else max_possible_score
+            ),
+        )
+        if (
+            expected_match_percent is None
+            or not math.isclose(match_percent, float(expected_match_percent), rel_tol=0, abs_tol=0.5)
+        ):
+            return [], False
+        return ordered_dimensions, True
+
+    @staticmethod
+    def _build_candidate_comparison_aligned_dimensions(
+        member_states: Sequence[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        if not member_states:
+            return []
+        first_dimensions = list(member_states[0].get("dimensions") or [])
+        aligned: List[Dict[str, Any]] = []
+        for original_index, first_dimension in enumerate(first_dimensions):
+            dimension_key = first_dimension.get("dimension_key")
+            values: List[Dict[str, Any]] = []
+            for member_state in member_states:
+                member_dimension = next(
+                    (
+                        item
+                        for item in list(member_state.get("dimensions") or [])
+                        if item.get("dimension_key") == dimension_key
+                    ),
+                    None,
+                )
+                if not member_dimension:
+                    return []
+                values.append(
+                    {
+                        "candidate_id": member_state["payload"]["candidate"]["id"],
+                        "score": member_dimension["score"],
+                        "normalized_score": member_dimension["normalized_score"],
+                        "reason": _truncate_utf8_text(str(member_dimension.get("reason") or ""), 300),
+                        "evidence": [
+                            _truncate_utf8_text(str(value), 300)
+                            for value in list(member_dimension.get("evidence") or [])[:2]
+                        ],
+                        "is_highest": False,
+                    }
+                )
+            highest_score = max(float(value["normalized_score"]) for value in values)
+            for value in values:
+                value["is_highest"] = math.isclose(
+                    float(value["normalized_score"]),
+                    highest_score,
+                    rel_tol=0,
+                    abs_tol=0.005,
+                )
+            normalized_scores = [float(value["normalized_score"]) for value in values]
+            aligned.append(
+                {
+                    "dimension_key": dimension_key,
+                    "label": first_dimension["label"],
+                    "max_score": first_dimension["max_score"],
+                    "is_core": first_dimension["is_core"],
+                    "spread": round(max(normalized_scores) - min(normalized_scores), 2),
+                    "_rule_order": original_index,
+                    "values": values,
+                }
+            )
+        aligned.sort(
+            key=lambda item: (
+                -float(item["spread"]),
+                0 if item["is_core"] else 1,
+                int(item["_rule_order"]),
+            )
+        )
+        for item in aligned:
+            item.pop("_rule_order", None)
+        return aligned
+
+    @staticmethod
+    def _candidate_comparison_phone_key(value: Any) -> str:
+        raw_phone = str(value or "").strip()
+        if not raw_phone:
+            return ""
+        digits = re.sub(r"\D", "", raw_phone)
+        if digits.startswith("0086") and len(digits) == 15:
+            digits = digits[4:]
+        elif digits.startswith("86") and len(digits) == 13:
+            digits = digits[2:]
+        if re.fullmatch(r"1[3-9]\d{9}", digits):
+            return f"cn-mobile:{digits}"
+        return f"exact:{raw_phone.lower()}"
+
+    @staticmethod
+    def _build_candidate_comparison_duplicate_groups(
+        candidates: Sequence[RecruitmentCandidate],
+    ) -> List[Dict[str, Any]]:
+        phone_groups: Dict[str, List[int]] = defaultdict(list)
+        email_groups: Dict[str, List[int]] = defaultdict(list)
+        for candidate in candidates:
+            normalized_phone = RecruitmentService._candidate_comparison_phone_key(candidate.phone)
+            normalized_email = str(candidate.email or "").strip().lower()
+            if normalized_phone:
+                phone_groups[normalized_phone].append(int(candidate.id))
+            if normalized_email:
+                email_groups[normalized_email].append(int(candidate.id))
+
+        grouped_matches: Dict[Tuple[int, ...], set[str]] = defaultdict(set)
+        for matched_by, groups in (("phone", phone_groups), ("email", email_groups)):
+            for candidate_group in groups.values():
+                normalized_group = tuple(sorted(set(candidate_group)))
+                if len(normalized_group) >= 2:
+                    grouped_matches[normalized_group].add(matched_by)
+
+        result: List[Dict[str, Any]] = []
+        for candidate_group in sorted(grouped_matches):
+            matched_fields = grouped_matches[candidate_group]
+            matched_by = "both" if matched_fields == {"phone", "email"} else next(iter(matched_fields))
+            result.append({"candidate_ids": list(candidate_group), "matched_by": matched_by})
+        return result
+
+    def _build_candidate_comparison_preview(
+        self,
+        candidate_ids: Sequence[int],
+        expected_position_id: int,
+    ) -> Dict[str, Any]:
+        requested_ids = list(candidate_ids or [])
+        normalized_ids = [self._candidate_comparison_int(value) for value in requested_ids]
+        normalized_position_id = self._candidate_comparison_int(expected_position_id)
+        if (
+            len(normalized_ids) < 2
+            or len(normalized_ids) > 4
+            or any(candidate_id is None for candidate_id in normalized_ids)
+            or len(set(normalized_ids)) != len(normalized_ids)
+            or normalized_position_id is None
+        ):
+            raise ValueError("candidate_comparison_invalid_selection")
+        selected_ids = [int(candidate_id) for candidate_id in normalized_ids if candidate_id is not None]
+
+        candidate_rows = self._build_candidate_scoped_query().filter(
+            RecruitmentCandidate.id.in_(selected_ids),
+        ).all()
+        candidate_by_id = {int(row.id): row for row in candidate_rows}
+        if len(candidate_by_id) != len(selected_ids):
+            raise ValueError("candidate_comparison_scope_violation")
+        candidates = [candidate_by_id[candidate_id] for candidate_id in selected_ids]
+        candidate_org_codes = {normalize_org_code(row.org_code) for row in candidates}
+        candidate_position_ids = {self._candidate_comparison_int(row.position_id) for row in candidates}
+        if len(candidate_org_codes) != 1 or candidate_position_ids != {normalized_position_id}:
+            raise ValueError("candidate_comparison_scope_violation")
+        candidate_org_code = next(iter(candidate_org_codes))
+
+        position_query = self.db.query(RecruitmentPosition).filter(
+            RecruitmentPosition.id == normalized_position_id,
+            RecruitmentPosition.deleted.is_(False),
+        )
+        position_query = self._apply_business_org_scope_filter(
+            position_query,
+            RecruitmentPosition,
+            apply_self_scope=False,
+        )
+        position = position_query.first()
+        if not position or normalize_org_code(position.org_code) != candidate_org_code:
+            raise ValueError("candidate_comparison_scope_violation")
+        current_position_snapshot = {
+            "title": position.title,
+            "department": position.department,
+            "location": position.location,
+            "employment_type": position.employment_type,
+            "salary_range": position.salary_range,
+            "key_requirements": position.key_requirements,
+            "bonus_points": position.bonus_points,
+            "summary": position.summary,
+            "active_jd_snapshot": self._serialize_active_jd_snapshot(position),
+        }
+        current_position_snapshot_hash = _build_json_content_hash(current_position_snapshot)
+
+        resume_ids = {int(row.latest_resume_file_id) for row in candidates if row.latest_resume_file_id}
+        parse_ids = {int(row.latest_parse_result_id) for row in candidates if row.latest_parse_result_id}
+        score_ids = {int(row.latest_score_id) for row in candidates if row.latest_score_id}
+        resume_rows = self.db.query(RecruitmentResumeFile).filter(
+            RecruitmentResumeFile.id.in_(resume_ids),
+            RecruitmentResumeFile.org_code == candidate_org_code,
+        ).all() if resume_ids else []
+        parse_rows = self.db.query(RecruitmentResumeParseResult).filter(
+            RecruitmentResumeParseResult.id.in_(parse_ids),
+            RecruitmentResumeParseResult.org_code == candidate_org_code,
+        ).all() if parse_ids else []
+        score_rows = self.db.query(RecruitmentCandidateScore).filter(
+            RecruitmentCandidateScore.id.in_(score_ids),
+            RecruitmentCandidateScore.org_code == candidate_org_code,
+        ).all() if score_ids else []
+        ranked_root_tasks = self.db.query(
+            RecruitmentAITaskLog.id.label("task_id"),
+            func.row_number().over(
+                partition_by=RecruitmentAITaskLog.related_candidate_id,
+                order_by=(
+                    RecruitmentAITaskLog.created_at.desc(),
+                    RecruitmentAITaskLog.id.desc(),
+                ),
+            ).label("candidate_task_rank"),
+        ).filter(
+            self._screening_root_task_filter(),
+            RecruitmentAITaskLog.related_candidate_id.in_(selected_ids),
+            RecruitmentAITaskLog.org_code == candidate_org_code,
+        ).subquery()
+        root_task_rows = self.db.query(RecruitmentAITaskLog).join(
+            ranked_root_tasks,
+            ranked_root_tasks.c.task_id == RecruitmentAITaskLog.id,
+        ).filter(
+            ranked_root_tasks.c.candidate_task_rank <= 12,
+        ).order_by(
+            RecruitmentAITaskLog.related_candidate_id.asc(),
+            RecruitmentAITaskLog.created_at.desc(),
+            RecruitmentAITaskLog.id.desc(),
+        ).all()
+
+        resume_by_id = {int(row.id): row for row in resume_rows}
+        parse_by_id = {int(row.id): row for row in parse_rows}
+        score_by_id = {int(row.id): row for row in score_rows}
+        tasks_by_candidate: Dict[int, List[RecruitmentAITaskLog]] = defaultdict(list)
+        for task_row in root_task_rows:
+            tasks_by_candidate[int(task_row.related_candidate_id)].append(task_row)
+
+        member_states = [
+            self._build_candidate_comparison_member(
+                candidate,
+                expected_position_id=normalized_position_id,
+                resume_by_id=resume_by_id,
+                parse_by_id=parse_by_id,
+                score_by_id=score_by_id,
+                task_rows=tasks_by_candidate.get(int(candidate.id), []),
+            )
+            for candidate in candidates
+        ]
+        duplicate_groups = self._build_candidate_comparison_duplicate_groups(candidates)
+        duplicate_candidate_ids = {
+            candidate_id
+            for duplicate_group in duplicate_groups
+            for candidate_id in duplicate_group["candidate_ids"]
+        }
+        for member_state in member_states:
+            if member_state["payload"]["candidate"]["id"] in duplicate_candidate_ids:
+                member_state["payload"]["warnings"] = self._candidate_comparison_codes(
+                    [*member_state["payload"]["warnings"], "possible_duplicate_contact"]
+                )
+
+        protocol_hashes = {
+            str(state.get("protocol_hash"))
+            for state in member_states
+            if state.get("protocol_hash")
+        }
+        member_warning_codes = {
+            str(warning)
+            for state in member_states
+            for warning in list(state["payload"].get("warnings") or [])
+        }
+        protocol_mismatch = len(protocol_hashes) > 1
+        position_context_mismatch = "position_context_mismatch" in member_warning_codes or any(
+            state.get("position_snapshot_hash")
+            and state.get("position_snapshot_hash") != current_position_snapshot_hash
+            for state in member_states
+        )
+        dimension_key_sets = {
+            tuple(dimension.get("dimension_key") for dimension in list(state.get("dimensions") or []))
+            for state in member_states
+            if state.get("dimensions")
+        }
+        dimension_mismatch = "dimension_mismatch" in member_warning_codes or len(dimension_key_sets) > 1
+        if protocol_mismatch:
+            for member_state in member_states:
+                member_state["payload"]["warnings"] = self._candidate_comparison_codes(
+                    [*member_state["payload"]["warnings"], "protocol_mismatch"]
+                )
+        if position_context_mismatch:
+            for member_state in member_states:
+                if (
+                    member_state.get("position_snapshot_hash")
+                    and member_state.get("position_snapshot_hash") != current_position_snapshot_hash
+                ):
+                    member_state["payload"]["warnings"] = self._candidate_comparison_codes(
+                        [*member_state["payload"]["warnings"], "position_context_mismatch"]
+                    )
+        if dimension_mismatch:
+            for member_state in member_states:
+                member_state["payload"]["warnings"] = self._candidate_comparison_codes(
+                    [*member_state["payload"]["warnings"], "dimension_mismatch"]
+                )
+
+        manual_override_count = sum(1 for state in member_states if state["manual_override_present"])
+        manual_override_mode = (
+            "none"
+            if manual_override_count == 0
+            else "complete"
+            if manual_override_count == len(member_states)
+            else "partial"
+        )
+        if manual_override_mode == "partial":
+            for member_state in member_states:
+                member_state["payload"]["warnings"] = self._candidate_comparison_codes(
+                    [*member_state["payload"]["warnings"], "manual_override_mixed"]
+                )
+        artifact_states = {str(state["payload"]["artifact_state"]) for state in member_states}
+        comparison_reasons: List[str] = []
+        for artifact_state in ("processing", "failed", "missing", "legacy", "stale", "invalid"):
+            if artifact_state in artifact_states:
+                comparison_reasons.append(f"artifact_{artifact_state}")
+        if manual_override_mode == "partial":
+            comparison_reasons.append("manual_override_mixed")
+        if duplicate_groups:
+            comparison_reasons.append("possible_duplicate_contact")
+        if protocol_mismatch:
+            comparison_reasons.append("protocol_mismatch")
+        if position_context_mismatch:
+            comparison_reasons.append("position_context_mismatch")
+        if dimension_mismatch:
+            comparison_reasons.append("dimension_mismatch")
+        if "score_total_mismatch" in member_warning_codes:
+            comparison_reasons.append("score_total_mismatch")
+        if (
+            artifact_states.intersection({"processing", "failed", "stale", "invalid"})
+            or protocol_mismatch
+            or position_context_mismatch
+            or dimension_mismatch
+        ):
+            comparison_level = "incompatible"
+        elif artifact_states.intersection({"missing", "legacy"}):
+            comparison_level = "limited"
+        else:
+            comparison_level = "strict"
+        dimensions_are_structurally_aligned = bool(
+            len(protocol_hashes) == 1
+            and member_states
+            and all(state.get("dimensions") for state in member_states)
+            and len(dimension_key_sets) == 1
+        )
+        aligned_dimensions = (
+            self._build_candidate_comparison_aligned_dimensions(member_states)
+            if dimensions_are_structurally_aligned
+            else []
+        )
+        if comparison_level == "strict" and not aligned_dimensions:
+            comparison_level = "incompatible"
+            comparison_reasons.append("dimension_mismatch")
+        if comparison_level != "strict" and not aligned_dimensions:
+            for member_state in member_states:
+                member_state["payload"]["screening"] = None
+        key_differences = [
+            dimension["dimension_key"]
+            for dimension in sorted(
+                (dimension for dimension in aligned_dimensions if float(dimension.get("spread") or 0) > 0),
+                key=lambda dimension: (-float(dimension["spread"]), str(dimension["dimension_key"])),
+            )[:3]
+        ]
+        ranking_allowed = (
+            comparison_level == "strict"
+            and manual_override_mode != "partial"
+            and not duplicate_groups
+        )
+        if not ranking_allowed:
+            for dimension in aligned_dimensions:
+                for value in dimension["values"]:
+                    value["is_highest"] = False
+
+        snapshot_payload = {
+            "position_id": normalized_position_id,
+            "position_updated_at": isoformat_or_none(position.updated_at),
+            "current_jd_version_id": position.current_jd_version_id,
+            "current_position_snapshot_hash": current_position_snapshot_hash,
+            "members": [state["revision_token"] for state in member_states],
+            "possible_duplicate_groups": duplicate_groups,
+        }
+        return {
+            "snapshot_version": self._candidate_comparison_digest(snapshot_payload, prefix="cmpv1:"),
+            "target_context": {
+                "position_id": normalized_position_id,
+                "position_title": position.title,
+                "evaluation_protocol_hash": (
+                    next(iter(protocol_hashes))
+                    if len(protocol_hashes) == 1
+                    else None
+                ),
+            },
+            "comparability": {
+                "level": comparison_level,
+                "facts_allowed": True,
+                "score_deltas_allowed": comparison_level == "strict",
+                "ranking_allowed": ranking_allowed,
+                "reasons": self._candidate_comparison_codes(comparison_reasons),
+            },
+            "manual_override_mode": manual_override_mode,
+            "possible_duplicate_groups": duplicate_groups,
+            "members": [state["payload"] for state in member_states],
+            "aligned_dimensions": aligned_dimensions,
+            "key_differences": key_differences if comparison_level == "strict" else [],
+        }
+
+    def _build_candidate_comparison_member(
+        self,
+        candidate: RecruitmentCandidate,
+        *,
+        expected_position_id: int,
+        resume_by_id: Dict[int, RecruitmentResumeFile],
+        parse_by_id: Dict[int, RecruitmentResumeParseResult],
+        score_by_id: Dict[int, RecruitmentCandidateScore],
+        task_rows: Sequence[RecruitmentAITaskLog],
+    ) -> Dict[str, Any]:
+        resume_row = resume_by_id.get(int(candidate.latest_resume_file_id or 0))
+        parse_row = parse_by_id.get(int(candidate.latest_parse_result_id or 0))
+        score_row = score_by_id.get(int(candidate.latest_score_id or 0))
+        warnings: List[str] = []
+        artifact_state = "legacy"
+        exact_task: Optional[RecruitmentAITaskLog] = None
+        protocol: Optional[Dict[str, Any]] = None
+        dimension_rows: List[Dict[str, Any]] = []
+        serialized_score = self._serialize_score(score_row) if score_row else None
+        if parse_row and score_row:
+            for task_row in task_rows:
+                persisted_refs = _decode_ai_task_json_text(task_row.persisted_result_refs_json, {})
+                if not isinstance(persisted_refs, dict):
+                    continue
+                if (
+                    self._candidate_comparison_int(persisted_refs.get("parse_result_id")) == int(parse_row.id)
+                    and self._candidate_comparison_int(persisted_refs.get("score_result_id")) == int(score_row.id)
+                ):
+                    exact_task = task_row
+                    break
+        related_task_rows = [
+            task_row
+            for task_row in task_rows
+            if task_row.related_position_id == expected_position_id
+            and task_row.related_resume_file_id == getattr(resume_row, "id", candidate.latest_resume_file_id)
+        ]
+        latest_related_task = related_task_rows[0] if related_task_rows else None
+        latest_related_status = str(getattr(latest_related_task, "status", "") or "").strip()
+        latest_related_is_newer = bool(
+            latest_related_task
+            and (
+                not exact_task
+                or list(task_rows).index(latest_related_task) < list(task_rows).index(exact_task)
+            )
+        )
+        if latest_related_is_newer and latest_related_status in SCREENING_LIVE_TASK_STATUSES:
+            artifact_state = "processing"
+            warnings.append("artifact_processing")
+        elif (
+            latest_related_is_newer
+            and latest_related_status in TERMINAL_AI_TASK_STATUSES
+            and latest_related_status not in {"success", "fallback"}
+        ):
+            artifact_state = "failed"
+            warnings.append("artifact_failed")
+        elif latest_related_is_newer and latest_related_status in {"success", "fallback"}:
+            artifact_state = "stale"
+            warnings.append("artifact_stale")
+        elif not resume_row or not parse_row or not score_row:
+            artifact_state = "missing"
+            warnings.append("artifact_missing")
+        elif (
+            int(resume_row.candidate_id) != int(candidate.id)
+            or int(parse_row.candidate_id) != int(candidate.id)
+            or int(score_row.candidate_id) != int(candidate.id)
+            or int(parse_row.resume_file_id) != int(resume_row.id)
+            or int(score_row.parse_result_id) != int(parse_row.id)
+        ):
+            artifact_state = "stale"
+            warnings.append("artifact_stale")
+        else:
+            if not exact_task:
+                has_persisted_refs = any(
+                    isinstance(_decode_ai_task_json_text(task_row.persisted_result_refs_json, None), dict)
+                    and bool(_decode_ai_task_json_text(task_row.persisted_result_refs_json, None))
+                    for task_row in task_rows
+                )
+                artifact_state = "stale" if has_persisted_refs else "legacy"
+                warnings.append("artifact_stale" if has_persisted_refs else "artifact_legacy")
+            elif (
+                exact_task.related_position_id != expected_position_id
+                or exact_task.related_resume_file_id != resume_row.id
+            ):
+                artifact_state = "stale"
+                warnings.append("artifact_stale")
+                if exact_task.related_position_id != expected_position_id:
+                    warnings.append("position_context_mismatch")
+            elif resume_row.parse_status != "success" or parse_row.status != "success":
+                artifact_state = "invalid"
+                warnings.append("artifact_invalid")
+            elif exact_task.status not in {"success", "fallback"}:
+                artifact_state = "failed" if exact_task.status in TERMINAL_AI_TASK_STATUSES else "processing"
+                warnings.append(f"artifact_{artifact_state}")
+            else:
+                validation_meta = _decode_ai_task_json_text(exact_task.validation_meta_json, {})
+                if not isinstance(validation_meta, dict) or "screening_result_valid" not in validation_meta:
+                    artifact_state = "legacy"
+                    warnings.append("artifact_legacy")
+                elif validation_meta.get("screening_result_valid") is not True:
+                    artifact_state = "invalid"
+                    warnings.append("artifact_invalid")
+                else:
+                    protocol, protocol_error = self._build_candidate_comparison_protocol(
+                        task_row=exact_task,
+                        resume_row=resume_row,
+                        parse_row=parse_row,
+                        score_row=score_row,
+                        score_payload=serialized_score or {},
+                        expected_position_id=expected_position_id,
+                    )
+                    if not protocol:
+                        artifact_state = "invalid" if protocol_error == "artifact_invalid" else "legacy"
+                        warnings.append(protocol_error or "artifact_legacy")
+                    else:
+                        dimension_rows, dimensions_valid = self._build_candidate_comparison_dimensions(
+                            score_payload=serialized_score or {},
+                            protocol=protocol,
+                        )
+                        if not dimensions_valid:
+                            artifact_state = "invalid"
+                            reference_dimension_rows, reference_dimensions_valid = self._build_candidate_comparison_dimensions(
+                                score_payload=serialized_score or {},
+                                protocol=protocol,
+                                require_consistent_totals=False,
+                            )
+                            if reference_dimensions_valid:
+                                dimension_rows = reference_dimension_rows
+                                warnings.extend(["artifact_invalid", "score_total_mismatch"])
+                            else:
+                                warnings.extend(["artifact_invalid", "dimension_mismatch"])
+                        else:
+                            artifact_state = "strict"
+
+        screening = None
+        if (
+            serialized_score
+            and protocol
+            and dimension_rows
+            and artifact_state in {"strict", "invalid"}
+        ):
+            screening = {
+                "ai": {
+                    "total_score": serialized_score.get("total_score"),
+                    "total_score_scale": serialized_score.get("total_score_scale"),
+                    "match_percent": serialized_score.get("match_percent"),
+                    "suggested_status": serialized_score.get("suggested_status"),
+                    "recommendation": _truncate_utf8_text(str(serialized_score.get("recommendation") or ""), 800) or None,
+                    "advantages": [
+                        _truncate_utf8_text(str(value), 400)
+                        for value in list(serialized_score.get("advantages") or [])[:5]
+                    ],
+                    "concerns": [
+                        _truncate_utf8_text(str(value), 400)
+                        for value in list(serialized_score.get("concerns") or [])[:5]
+                    ],
+                },
+                "manual_override": {
+                    "score": score_row.manual_override_score,
+                    "reason": _truncate_utf8_text(str(score_row.manual_override_reason or ""), 800) or None,
+                },
+                "dimensions": [
+                    {
+                        **dimension,
+                        "reason": _truncate_utf8_text(str(dimension.get("reason") or ""), 300),
+                        "evidence": [
+                            _truncate_utf8_text(str(value), 300)
+                            for value in list(dimension.get("evidence") or [])[:2]
+                        ],
+                    }
+                    for dimension in dimension_rows
+                ],
+                "protocol": protocol["public"],
+            }
+
+        display_payload = self._build_candidate_list_display_payload(
+            candidate,
+            _preloaded_score_row=score_row,
+        )
+        payload = {
+            "candidate": {
+                "id": int(candidate.id),
+                "name": candidate.name,
+                "status": candidate.status,
+                "display_status": display_payload.get("display_status") or candidate.status,
+                "position_id": candidate.position_id,
+            },
+            "artifact_state": artifact_state,
+            "revisions": {
+                "candidate_updated_at": isoformat_or_none(candidate.updated_at),
+                "resume_id": resume_row.id if resume_row else candidate.latest_resume_file_id,
+                "parse_id": parse_row.id if parse_row else candidate.latest_parse_result_id,
+                "score_id": score_row.id if score_row else candidate.latest_score_id,
+                "screening_task_id": (exact_task or latest_related_task).id if (exact_task or latest_related_task) else None,
+            },
+            "facts": {
+                "city": candidate.city,
+                "education": candidate.education,
+                "years_of_experience": candidate.years_of_experience,
+                "current_company": candidate.current_company,
+            },
+            "screening": screening,
+            "warnings": self._candidate_comparison_codes(warnings),
+        }
+        return {
+            "payload": payload,
+            "protocol_hash": protocol.get("hash") if protocol else None,
+            "position_snapshot_hash": protocol.get("position_snapshot_hash") if protocol else None,
+            "dimensions": dimension_rows if screening else [],
+            "manual_override_present": bool(score_row and score_row.manual_override_score is not None),
+            "revision_token": {
+                **payload["revisions"],
+                "artifact_state": artifact_state,
+                "score_updated_at": isoformat_or_none(score_row.updated_at) if score_row else None,
+                "screening_task_updated_at": isoformat_or_none((exact_task or latest_related_task).updated_at) if (exact_task or latest_related_task) else None,
+                "manual_override_score": score_row.manual_override_score if score_row else None,
+            },
+        }
 
     def list_candidates(self, query: Optional[str] = None, status: Optional[str] = None, position_id: Optional[int] = None, tag: Optional[str] = None, limit: int = 0, offset: int = 0, org_code: Optional[str] = None, compact: bool = False, sort_by: Optional[str] = None, sort_order: Optional[str] = None, source: Optional[str] = None, time_filter: Optional[str] = None, match_min: Optional[float] = None) -> Dict[str, Any]:
         builder = self._build_candidate_scoped_query(org_code)

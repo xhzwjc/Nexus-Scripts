@@ -54,6 +54,8 @@ import {
     recruitmentApi,
     splitTags,
     type AITaskLog,
+    type CandidateComparisonPreview,
+    type CandidateComparisonPreviewRequest,
     type CandidateDetail,
     type CandidateSummary,
     type ChatContext,
@@ -299,6 +301,75 @@ type KeepAliveFreezeProps = {
     frozen: boolean;
     children: React.ReactNode;
 };
+
+type CandidateComparisonLoadOptions = {
+    background?: boolean;
+    candidateIds?: number[];
+    selectionItems?: CandidateSummary[];
+};
+
+function removeCandidateFromComparisonPreview(
+    preview: CandidateComparisonPreview | null,
+    candidateId: number,
+): CandidateComparisonPreview | null {
+    if (!preview || !preview.members.some((member) => member.candidate.id === candidateId)) {
+        return preview;
+    }
+
+    const members = preview.members.filter((member) => member.candidate.id !== candidateId);
+    const remainingCandidateIds = new Set(members.map((member) => member.candidate.id));
+    const alignedDimensions = preview.aligned_dimensions.map((dimension) => {
+        const values = dimension.values.filter((value) => remainingCandidateIds.has(value.candidate_id));
+        const normalizedScores = values
+            .map((value) => value.normalized_score)
+            .filter((score): score is number => score != null && Number.isFinite(score));
+        const highestScore = normalizedScores.length ? Math.max(...normalizedScores) : null;
+        const spread = normalizedScores.length
+            ? Math.round((Math.max(...normalizedScores) - Math.min(...normalizedScores)) * 100) / 100
+            : null;
+        return {
+            ...dimension,
+            spread,
+            values: values.map((value) => ({
+                ...value,
+                is_highest: Boolean(
+                    preview.comparability.ranking_allowed
+                    && highestScore != null
+                    && value.normalized_score != null
+                    && Math.abs(value.normalized_score - highestScore) < 0.005
+                ),
+            })),
+        };
+    });
+    const possibleDuplicateGroups = preview.possible_duplicate_groups
+        .map((group) => ({
+            ...group,
+            candidate_ids: group.candidate_ids.filter((id) => remainingCandidateIds.has(id)),
+        }))
+        .filter((group) => group.candidate_ids.length > 1);
+    const manualOverrideCount = members.filter((member) => member.screening?.manual_override.score != null).length;
+    const manualOverrideMode = manualOverrideCount === 0
+        ? "none"
+        : manualOverrideCount === members.length
+            ? "complete"
+            : "partial";
+    const keyDifferences = preview.comparability.score_deltas_allowed
+        ? alignedDimensions
+            .filter((dimension) => (dimension.spread || 0) > 0)
+            .sort((left, right) => (right.spread || 0) - (left.spread || 0) || left.dimension_key.localeCompare(right.dimension_key))
+            .slice(0, 3)
+            .map((dimension) => dimension.dimension_key)
+        : [];
+
+    return {
+        ...preview,
+        manual_override_mode: manualOverrideMode,
+        possible_duplicate_groups: possibleDuplicateGroups,
+        members,
+        aligned_dimensions: alignedDimensions,
+        key_differences: keyDifferences,
+    };
+}
 
 // keep-alive 页面隐藏期间跳过整棵子树的 React reconciliation（memo 比较器在 frozen 时判定"未变化"），
 // 恢复可见的那次渲染会立刻使用最新内容。组件全程保持挂载：内部 state、滚动位置、effect 均不受影响。
@@ -1878,8 +1949,9 @@ export default function RecruitmentAutomationContainer({
     orgScopeSelection,
     onOrgScopeSelectionChange,
 }: RecruitmentAutomationContainerProps) {
-    const {language} = useI18n();
+    const {language, t} = useI18n();
     const isZh = language === "zh-CN";
+    const candidateComparisonText = t.recruitment.candidateComparison;
     // Temporary UI toggle: keep the top-right assistant button in code for quick restore later.
     const hideTopRightAssistantEntry = true;
     const sessionUser = useMemo(() => getStoredScriptHubSession()?.user ?? null, []);
@@ -2711,6 +2783,20 @@ export default function RecruitmentAutomationContainer({
     const [selectedPositionId, setSelectedPositionId] = useState<number | null>(null);
     const [selectedCandidateId, setSelectedCandidateId] = useState<number | null>(null);
     const [selectedCandidateIds, setSelectedCandidateIds] = useState<number[]>([]);
+    const [candidateWorkspaceMode, setCandidateWorkspaceMode] = useState<"list" | "comparison">("list");
+    const [comparisonCandidateIds, setComparisonCandidateIds] = useState<number[]>([]);
+    const [comparisonSelectionItems, setComparisonSelectionItems] = useState<CandidateSummary[]>([]);
+    const [comparisonPreview, setComparisonPreview] = useState<CandidateComparisonPreview | null>(null);
+    const [comparisonLoading, setComparisonLoading] = useState(false);
+    const [comparisonRefreshing, setComparisonRefreshing] = useState(false);
+    const [comparisonFailed, setComparisonFailed] = useState(false);
+    const [comparisonStale, setComparisonStale] = useState(false);
+    const comparisonCandidateIdsRef = useRef<number[]>([]);
+    const comparisonRequestIdRef = useRef(0);
+    const comparisonAbortControllerRef = useRef<AbortController | null>(null);
+    const comparisonReconcileAttemptsRef = useRef(0);
+    const comparisonInvalidationRevisionRef = useRef(0);
+    const candidateSelectionItemCacheRef = useRef<Map<number, CandidateSummary>>(new Map());
     const [selectedLogId, setSelectedLogId] = useState<number | null>(null);
     const lastCandidateMenuPageRef = useRef<RecruitmentPage>(initialPage || "workspace");
     const candidateMenuSelectionResetRef = useRef(false);
@@ -3481,6 +3567,24 @@ export default function RecruitmentAutomationContainer({
         });
     }, [candidateMatchFilter, candidatePositionFilter, candidateSourceFilter, candidateStatusFilter, candidateTimeFilter, candidates, deferredCandidateQuery, isCandidatePageActive]);
 
+    useEffect(() => {
+        const retainedCandidateIds = new Set([...selectedCandidateIds, ...comparisonCandidateIds]);
+        candidateSelectionItemCacheRef.current.forEach((_candidate, candidateId) => {
+            if (!retainedCandidateIds.has(candidateId)) {
+                candidateSelectionItemCacheRef.current.delete(candidateId);
+            }
+        });
+        visibleCandidates.forEach((candidate) => {
+            if (retainedCandidateIds.has(candidate.id)) {
+                candidateSelectionItemCacheRef.current.set(candidate.id, candidate);
+            }
+        });
+        const detailCandidate = candidateDetail?.candidate;
+        if (detailCandidate && retainedCandidateIds.has(detailCandidate.id)) {
+            candidateSelectionItemCacheRef.current.set(detailCandidate.id, detailCandidate);
+        }
+    }, [candidateDetail, comparisonCandidateIds, selectedCandidateIds, visibleCandidates]);
+
     function getLiveScreeningTaskId(candidate?: CandidateSummary | null) {
         const taskId = Number(candidate?.active_screening_task_id || 0);
         if (!taskId) {
@@ -3736,6 +3840,20 @@ export default function RecruitmentAutomationContainer({
         setCandidateTotal(nextCandidateTotal);
         setCandidateScopeTotal((current) => Math.max(0, current - deletedCount));
         setSelectedCandidateIds((current) => current.filter((id) => !deletedIdSet.has(id)));
+        if (comparisonCandidateIdsRef.current.some((id) => deletedIdSet.has(id))) {
+            comparisonRequestIdRef.current += 1;
+            comparisonAbortControllerRef.current?.abort();
+            comparisonAbortControllerRef.current = null;
+            comparisonReconcileAttemptsRef.current = 0;
+            const nextComparisonIds = comparisonCandidateIdsRef.current.filter((id) => !deletedIdSet.has(id));
+            comparisonCandidateIdsRef.current = nextComparisonIds;
+            setComparisonCandidateIds(nextComparisonIds);
+            setComparisonSelectionItems((current) => current.filter((candidate) => !deletedIdSet.has(candidate.id)));
+            setComparisonPreview(null);
+            setComparisonFailed(false);
+            setComparisonStale(false);
+            setCandidateWorkspaceMode("list");
+        }
         setCandidateStatsData((current) => decrementCandidateStatsData(current, deletedSnapshots));
         setCandidatePipelineStatsData((current) => decrementCandidateStatsData(current, deletedSnapshots));
 
@@ -3949,6 +4067,357 @@ export default function RecruitmentAutomationContainer({
         candidateSelectionScopeKeyRef.current = candidateSelectionScopeKey;
         setSelectedCandidateIds((current) => current.length ? [] : current);
     }, [candidateSelectionScopeKey]);
+
+    const comparisonDataScopeKey = useMemo(() => JSON.stringify({
+        dataScope: recruitmentDataCacheKey,
+        departmentScope: selectedDepartmentScope,
+        orgScope: selectedOrgScope,
+        canManageCandidate,
+    }), [canManageCandidate, recruitmentDataCacheKey, selectedDepartmentScope, selectedOrgScope]);
+    const comparisonDataScopeKeyRef = useRef<string | null>(null);
+
+    const clearCandidateComparison = useCallback(() => {
+        comparisonRequestIdRef.current += 1;
+        comparisonAbortControllerRef.current?.abort();
+        comparisonAbortControllerRef.current = null;
+        comparisonReconcileAttemptsRef.current = 0;
+        comparisonCandidateIdsRef.current = [];
+        setCandidateWorkspaceMode("list");
+        setComparisonCandidateIds([]);
+        setComparisonSelectionItems([]);
+        setComparisonPreview(null);
+        setComparisonLoading(false);
+        setComparisonRefreshing(false);
+        setComparisonFailed(false);
+        setComparisonStale(false);
+    }, []);
+
+    useEffect(() => {
+        if (comparisonDataScopeKeyRef.current === null) {
+            comparisonDataScopeKeyRef.current = comparisonDataScopeKey;
+            return;
+        }
+        if (comparisonDataScopeKeyRef.current === comparisonDataScopeKey) {
+            return;
+        }
+        comparisonDataScopeKeyRef.current = comparisonDataScopeKey;
+        candidateSelectionItemCacheRef.current.clear();
+        clearCandidateComparison();
+    }, [clearCandidateComparison, comparisonDataScopeKey]);
+
+    useEffect(() => {
+        comparisonCandidateIdsRef.current = comparisonCandidateIds;
+    }, [comparisonCandidateIds]);
+
+    const findComparisonCandidate = useCallback((candidateId: number) => {
+        if (candidateDetail?.candidate.id === candidateId) {
+            return candidateDetail.candidate;
+        }
+        return comparisonSelectionItems.find((candidate) => candidate.id === candidateId)
+            || candidates.find((candidate) => candidate.id === candidateId)
+            || allCandidates.find((candidate) => candidate.id === candidateId)
+            || candidateSelectionItemCacheRef.current.get(candidateId)
+            || null;
+    }, [allCandidates, candidateDetail, candidates, comparisonSelectionItems]);
+
+    const validateComparisonCandidates = useCallback((items: CandidateSummary[], options?: {silent?: boolean; allowSingle?: boolean; ignoreMaximum?: boolean}) => {
+        if (items.length < (options?.allowSingle ? 1 : 2)) {
+            if (!options?.silent) toast.error(candidateComparisonText.minimumRequired);
+            return null;
+        }
+        if (items.length > 4 && !options?.ignoreMaximum) {
+            if (!options?.silent) toast.error(candidateComparisonText.maximumReached);
+            return null;
+        }
+        const expectedPositionId = items[0]?.position_id;
+        if (expectedPositionId == null) {
+            if (!options?.silent) toast.error(candidateComparisonText.assignedPositionRequired);
+            return null;
+        }
+        if (items.some((candidate) => candidate.position_id == null)) {
+            if (!options?.silent) toast.error(candidateComparisonText.assignedPositionRequired);
+            return null;
+        }
+        if (items.some((candidate) => candidate.position_id !== expectedPositionId)) {
+            if (!options?.silent) toast.error(candidateComparisonText.samePositionRequired);
+            return null;
+        }
+        return expectedPositionId;
+    }, [candidateComparisonText]);
+
+    const importCandidatesToComparison = useCallback((candidateIds: number[]) => {
+        const normalizedIds = Array.from(new Set(candidateIds.filter((candidateId) => Number.isFinite(candidateId) && candidateId > 0)));
+        if (normalizedIds.length < 1) {
+            return;
+        }
+        const items = normalizedIds
+            .map((candidateId) => findComparisonCandidate(candidateId))
+            .filter((candidate): candidate is CandidateSummary => Boolean(candidate));
+        if (items.length !== normalizedIds.length) {
+            toast.error(candidateComparisonText.selectedCandidateUnavailable);
+            return;
+        }
+        const existingIds = new Set(comparisonCandidateIdsRef.current);
+        const newItems = items.filter((candidate) => !existingIds.has(candidate.id));
+        if (!newItems.length) {
+            toast.info(candidateComparisonText.alreadyInTray);
+            setSelectedCandidateIds([]);
+            return;
+        }
+        const allRequestedItems = [...comparisonSelectionItems, ...newItems];
+        if (validateComparisonCandidates(allRequestedItems, {allowSingle: true, ignoreMaximum: true}) == null) {
+            return;
+        }
+        const availableSlots = Math.max(0, 4 - comparisonSelectionItems.length);
+        const acceptedItems = newItems.slice(0, availableSlots);
+        if (!acceptedItems.length) {
+            toast.error(candidateComparisonText.maximumReached);
+            return;
+        }
+        const mergedItems = [...comparisonSelectionItems, ...acceptedItems];
+        comparisonRequestIdRef.current += 1;
+        comparisonAbortControllerRef.current?.abort();
+        comparisonAbortControllerRef.current = null;
+        comparisonReconcileAttemptsRef.current = 0;
+        const mergedIds = mergedItems.map((candidate) => candidate.id);
+        comparisonCandidateIdsRef.current = mergedIds;
+        setComparisonCandidateIds(mergedIds);
+        setComparisonSelectionItems(mergedItems);
+        setComparisonPreview(null);
+        setComparisonFailed(false);
+        setComparisonStale(false);
+        setSelectedCandidateIds([]);
+        toast.success(candidateComparisonText.addedToTray(mergedItems.length));
+        if (acceptedItems.length < newItems.length) {
+            toast.warning(candidateComparisonText.overflowSkipped);
+        }
+    }, [candidateComparisonText, comparisonSelectionItems, findComparisonCandidate, validateComparisonCandidates]);
+
+    const loadCandidateComparison = useCallback(async (options?: CandidateComparisonLoadOptions) => {
+        const requestedSelectionItems = options?.selectionItems ?? comparisonSelectionItems;
+        const requestedCandidateIds = options?.candidateIds ?? comparisonCandidateIds;
+        const expectedPositionId = validateComparisonCandidates(requestedSelectionItems, {silent: true});
+        if (expectedPositionId == null) {
+            setComparisonFailed(true);
+            setComparisonStale(true);
+            return;
+        }
+        const payload: CandidateComparisonPreviewRequest = {
+            candidate_ids: requestedCandidateIds,
+            expected_position_id: expectedPositionId,
+        };
+        const requestId = comparisonRequestIdRef.current + 1;
+        comparisonRequestIdRef.current = requestId;
+        const invalidationRevision = comparisonInvalidationRevisionRef.current;
+        comparisonAbortControllerRef.current?.abort();
+        const controller = new AbortController();
+        comparisonAbortControllerRef.current = controller;
+        if (options?.background) {
+            setComparisonRefreshing(true);
+        } else {
+            setComparisonLoading(true);
+        }
+        setComparisonFailed(false);
+        try {
+            const preview = await recruitmentApi<CandidateComparisonPreview>("/candidate-comparisons/preview", {
+                method: "POST",
+                body: JSON.stringify(payload),
+                signal: controller.signal,
+            });
+            if (comparisonRequestIdRef.current !== requestId || controller.signal.aborted) {
+                return;
+            }
+            setComparisonPreview(preview);
+            setComparisonFailed(false);
+            setComparisonStale(comparisonInvalidationRevisionRef.current !== invalidationRevision);
+        } catch (error) {
+            if (isRecruitmentRequestAborted(error) || comparisonRequestIdRef.current !== requestId) {
+                return;
+            }
+            setComparisonFailed(true);
+            setComparisonStale(true);
+        } finally {
+            if (comparisonRequestIdRef.current === requestId) {
+                if (comparisonAbortControllerRef.current === controller) {
+                    comparisonAbortControllerRef.current = null;
+                }
+                setComparisonLoading(false);
+                setComparisonRefreshing(false);
+            }
+        }
+    }, [comparisonCandidateIds, comparisonSelectionItems, validateComparisonCandidates]);
+
+    const removeCandidateFromComparison = useCallback((candidateId: number) => {
+        comparisonRequestIdRef.current += 1;
+        comparisonAbortControllerRef.current?.abort();
+        comparisonAbortControllerRef.current = null;
+        comparisonReconcileAttemptsRef.current = 0;
+        const nextIds = comparisonCandidateIdsRef.current.filter((item) => item !== candidateId);
+        const nextIdSet = new Set(nextIds);
+        const nextItems = comparisonSelectionItems.filter((candidate) => nextIdSet.has(candidate.id));
+        comparisonCandidateIdsRef.current = nextIds;
+        setComparisonCandidateIds(nextIds);
+        setComparisonSelectionItems(nextItems);
+        setComparisonLoading(false);
+        setComparisonFailed(false);
+        if (candidateWorkspaceMode === "comparison" && nextIds.length < 2) {
+            setComparisonPreview(null);
+            setComparisonRefreshing(false);
+            setComparisonStale(false);
+            setCandidateWorkspaceMode("list");
+            toast.info(candidateComparisonText.removedAndExited);
+            return;
+        }
+        if (candidateWorkspaceMode !== "comparison") {
+            setComparisonPreview(null);
+            setComparisonRefreshing(false);
+            setComparisonStale(false);
+            return;
+        }
+        setComparisonPreview((current) => removeCandidateFromComparisonPreview(current, candidateId));
+        void loadCandidateComparison({
+            background: true,
+            candidateIds: nextIds,
+            selectionItems: nextItems,
+        });
+    }, [candidateComparisonText.removedAndExited, candidateWorkspaceMode, comparisonSelectionItems, loadCandidateComparison]);
+
+    const toggleCandidateInComparison = useCallback((candidate: CandidateSummary) => {
+        if (comparisonCandidateIdsRef.current.includes(candidate.id)) {
+            removeCandidateFromComparison(candidate.id);
+            return;
+        }
+        if (candidate.position_id == null) {
+            toast.error(candidateComparisonText.assignedPositionRequired);
+            return;
+        }
+        if (comparisonCandidateIdsRef.current.length >= 4) {
+            toast.error(candidateComparisonText.maximumReached);
+            return;
+        }
+        const currentPositionId = comparisonSelectionItems[0]?.position_id;
+        if (currentPositionId != null && candidate.position_id !== currentPositionId) {
+            toast.error(candidateComparisonText.samePositionRequired);
+            return;
+        }
+        const nextIds = [...comparisonCandidateIdsRef.current, candidate.id];
+        comparisonCandidateIdsRef.current = nextIds;
+        comparisonReconcileAttemptsRef.current = 0;
+        setComparisonCandidateIds(nextIds);
+        setComparisonSelectionItems((current) => [...current, candidate]);
+        setComparisonPreview(null);
+        setComparisonFailed(false);
+        setComparisonStale(false);
+        toast.success(candidateComparisonText.addedToTray(nextIds.length));
+    }, [candidateComparisonText, comparisonSelectionItems, removeCandidateFromComparison]);
+
+    const startCandidateComparison = useCallback(() => {
+        if (validateComparisonCandidates(comparisonSelectionItems) == null) {
+            return;
+        }
+        comparisonReconcileAttemptsRef.current = 0;
+        setComparisonPreview(null);
+        setComparisonFailed(false);
+        setComparisonStale(false);
+        setCandidateWorkspaceMode("comparison");
+    }, [comparisonSelectionItems, validateComparisonCandidates]);
+
+    const exitCandidateComparison = useCallback(() => {
+        comparisonRequestIdRef.current += 1;
+        comparisonAbortControllerRef.current?.abort();
+        comparisonAbortControllerRef.current = null;
+        setComparisonLoading(false);
+        setComparisonRefreshing(false);
+        setCandidateWorkspaceMode("list");
+    }, []);
+
+    const refreshCandidateComparison = useCallback(() => {
+        comparisonReconcileAttemptsRef.current = 0;
+        void loadCandidateComparison({background: Boolean(comparisonPreview)});
+    }, [comparisonPreview, loadCandidateComparison]);
+
+    const comparisonProcessing = useMemo(() => Boolean(
+        comparisonPreview?.members.some((member) => member.artifact_state === "processing"),
+    ), [comparisonPreview]);
+
+    useEffect(() => {
+        if (
+            candidateWorkspaceMode !== "comparison"
+            || comparisonSelectionItems.length < 2
+            || comparisonPreview
+            || comparisonLoading
+            || comparisonRefreshing
+            || comparisonFailed
+        ) {
+            return;
+        }
+        void loadCandidateComparison();
+    }, [
+        candidateWorkspaceMode,
+        comparisonFailed,
+        comparisonLoading,
+        comparisonPreview,
+        comparisonRefreshing,
+        comparisonSelectionItems,
+        loadCandidateComparison,
+    ]);
+
+    useEffect(() => {
+        if (
+            candidateWorkspaceMode !== "comparison"
+            || activePage !== "candidates"
+            || !pageVisible
+            || comparisonLoading
+            || comparisonRefreshing
+            || (!comparisonProcessing && !comparisonStale)
+        ) {
+            return undefined;
+        }
+        const shouldUseFastReconcile = (
+            comparisonProcessing || comparisonStale
+        ) && comparisonReconcileAttemptsRef.current < 6;
+        const timer = window.setTimeout(() => {
+            if (shouldUseFastReconcile) {
+                comparisonReconcileAttemptsRef.current += 1;
+            }
+            void loadCandidateComparison({background: true});
+        }, shouldUseFastReconcile ? 5000 : 60000);
+        return () => window.clearTimeout(timer);
+    }, [
+        activePage,
+        candidateWorkspaceMode,
+        comparisonLoading,
+        comparisonProcessing,
+        comparisonRefreshing,
+        comparisonStale,
+        loadCandidateComparison,
+        pageVisible,
+    ]);
+
+    useEffect(() => {
+        if (typeof window === "undefined") {
+            return undefined;
+        }
+        const handleComparisonFocus = () => {
+            if (
+                candidateWorkspaceMode !== "comparison"
+                || activePageRef.current !== "candidates"
+                || comparisonLoading
+                || comparisonRefreshing
+            ) {
+                return;
+            }
+            void loadCandidateComparison({background: true});
+        };
+        window.addEventListener("focus", handleComparisonFocus);
+        return () => window.removeEventListener("focus", handleComparisonFocus);
+    }, [candidateWorkspaceMode, comparisonLoading, comparisonRefreshing, loadCandidateComparison]);
+
+    useEffect(() => () => {
+        comparisonRequestIdRef.current += 1;
+        comparisonAbortControllerRef.current?.abort();
+        comparisonAbortControllerRef.current = null;
+    }, []);
 
     const removeCandidateIdsFromSelection = useCallback((candidateIds: number[]) => {
         const removedIdSet = new Set(candidateIds.filter((candidateId) => Number.isFinite(candidateId)));
@@ -4935,6 +5404,18 @@ export default function RecruitmentAutomationContainer({
             return;
         }
 
+        const selectedComparisonIds = new Set(comparisonCandidateIdsRef.current);
+        const selectedComparisonUpdates = normalizedUpdates.filter(({snapshot}) => selectedComparisonIds.has(snapshot.id));
+        if (selectedComparisonUpdates.length) {
+            comparisonInvalidationRevisionRef.current += 1;
+            comparisonReconcileAttemptsRef.current = 0;
+            setComparisonSelectionItems((current) => current.map((candidate) => {
+                const update = selectedComparisonUpdates.find(({snapshot}) => snapshot.id === candidate.id);
+                return update ? mergeCandidatePatch(candidate, update.snapshot) : candidate;
+            }));
+            setComparisonStale(true);
+        }
+
         // 实时补丁只更新当前内存页；失效旧页快照，避免切页或返回页面时重新展示旧任务状态。
         candidateListPageCacheRef.current = null;
         candidateListPreloadLoadedAtRef.current = 0;
@@ -5672,7 +6153,7 @@ export default function RecruitmentAutomationContainer({
             expectedCity: candidate?.expected_city || "",
             notes: candidate?.notes || "",
             tagsText: joinTags(candidate?.tags),
-            manualOverrideScore: score?.manual_override_score ? String(score.manual_override_score) : "",
+            manualOverrideScore: score?.manual_override_score != null ? String(score.manual_override_score) : "",
             manualOverrideReason: score?.manual_override_reason || "",
             hrFeedback: score?.hr_feedback || "",
             hrFeedbackReason: score?.hr_feedback_reason || "",
@@ -15167,6 +15648,20 @@ export default function RecruitmentAutomationContainer({
         return (
             <CandidatesPage
                 pageActive={activePage === "candidates"}
+                candidateWorkspaceMode={candidateWorkspaceMode}
+                comparisonCandidates={comparisonSelectionItems}
+                comparisonPreview={comparisonPreview}
+                comparisonLoading={comparisonLoading}
+                comparisonFailed={comparisonFailed}
+                comparisonStale={comparisonStale}
+                comparisonProcessing={comparisonProcessing}
+                importCandidatesToComparison={importCandidatesToComparison}
+                toggleCandidateInComparison={toggleCandidateInComparison}
+                removeCandidateFromComparison={removeCandidateFromComparison}
+                clearCandidateComparison={clearCandidateComparison}
+                startCandidateComparison={startCandidateComparison}
+                exitCandidateComparison={exitCandidateComparison}
+                refreshCandidateComparison={refreshCandidateComparison}
                 permissions={{
                     manageCandidate: canManageCandidate,
                     executeProcess: canExecuteProcess,
@@ -15640,6 +16135,9 @@ export default function RecruitmentAutomationContainer({
             departmentReviews,
             candidatesLoading, candidatesInitialLoaded,
             selectedCandidateIds, candidateDetailLoading, candidateEditor,
+            candidateWorkspaceMode, comparisonSelectionItems, comparisonPreview,
+            comparisonLoading, comparisonRefreshing, comparisonFailed,
+            comparisonStale, comparisonProcessing,
             candidateSaving, exporting, pendingStatus, statusUpdateReason,
             candidateViewMode, candidatePositionFilter, candidateStatusFilter,
             candidateMatchFilter, candidateSourceFilter, candidateTimeFilter,
