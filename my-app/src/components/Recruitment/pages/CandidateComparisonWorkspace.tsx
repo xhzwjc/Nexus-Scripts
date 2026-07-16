@@ -432,6 +432,9 @@ export function CandidateComparisonWorkspace({
     }, [preview]);
     const coreDimensions = React.useMemo(() => preview?.aligned_dimensions.filter((dimension) => dimension.is_core) || [], [preview]);
     const otherDimensions = React.useMemo(() => preview?.aligned_dimensions.filter((dimension) => !dimension.is_core) || [], [preview]);
+    // 有限可比下，就绪成员的优势/风险与其总分同源、同样可背书，应与总分一并展示；
+    // 仅当无任何可背书评分（不可比）时整节隐藏。
+    const hasAnyScreening = React.useMemo(() => members.some((member) => member.screening != null), [members]);
     const bestOverallScore = React.useMemo(() => {
         if (!preview?.comparability.ranking_allowed || preview.manual_override_mode !== "none") return null;
         const scores = members.map(normalizedAiScore).filter((score): score is number => score != null);
@@ -717,9 +720,9 @@ export function CandidateComparisonWorkspace({
                                     {(member) => member.screening?.ai.recommendation || text.noData}
                                 </ComparisonGridRow>
 
-                                {level === "strict" ? <ComparisonSectionTitle title={text.aiAssessmentTitle} members={members}/> : null}
-                                {level === "strict" ? <ComparisonGridRow label={text.strengthsTitle} members={members}>{(member) => <TextList values={member.screening?.ai.advantages || []} emptyText={text.noData} dotColor="#0CC991"/>}</ComparisonGridRow> : null}
-                                {level === "strict" ? <ComparisonGridRow label={text.risksTitle} members={members}>{(member) => <TextList values={member.screening?.ai.concerns || []} emptyText={text.noData} dotColor="#FFAB24"/>}</ComparisonGridRow> : null}
+                                {hasAnyScreening ? <ComparisonSectionTitle title={text.aiAssessmentTitle} members={members}/> : null}
+                                {hasAnyScreening ? <ComparisonGridRow label={text.strengthsTitle} members={members}>{(member) => <TextList values={member.screening?.ai.advantages || []} emptyText={text.noData} dotColor="#0CC991"/>}</ComparisonGridRow> : null}
+                                {hasAnyScreening ? <ComparisonGridRow label={text.risksTitle} members={members}>{(member) => <TextList values={member.screening?.ai.concerns || []} emptyText={text.noData} dotColor="#FFAB24"/>}</ComparisonGridRow> : null}
                             </div>
                         </section>
 

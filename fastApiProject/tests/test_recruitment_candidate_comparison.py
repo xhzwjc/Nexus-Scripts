@@ -455,7 +455,9 @@ def test_preview_rejects_cross_position_selection_with_generic_error():
         RecruitmentService(db).preview_candidate_comparison([first.id, second.id], first_position.id)
 
 
-def test_legacy_protocol_is_facts_only_and_does_not_return_screening_values():
+def test_limited_hides_unprovable_member_but_keeps_ready_member_own_scores():
+    # B1：有限可比下，口径不可证的历史成员仅事实；就绪且口径可证的成员保留各自原始评分，
+    # 但跨候选人差值/最佳/排序全部关闭（不因他人 legacy 而一并隐藏可信分数）。
     db = _build_test_db()
     position = _add_position(db)
     first, first_task = _add_strict_candidate(db, position, index=1, engineering_score=8, delivery_score=2)
@@ -467,11 +469,18 @@ def test_legacy_protocol_is_facts_only_and_does_not_return_screening_values():
 
     assert result["comparability"]["level"] == "limited"
     assert result["comparability"]["score_deltas_allowed"] is False
+    assert result["comparability"]["ranking_allowed"] is False
     assert "artifact_legacy" in result["comparability"]["reasons"]
+    assert result["aligned_dimensions"] == []
+    assert result["key_differences"] == []
+    # 口径不可证的历史成员：仅事实，不返回评分。
     assert result["members"][0]["artifact_state"] == "legacy"
     assert result["members"][0]["screening"] is None
-    assert all(member["screening"] is None for member in result["members"])
-    assert result["aligned_dimensions"] == []
+    # 就绪且口径可证的成员：保留各自原始评分与维度。
+    assert result["members"][1]["artifact_state"] == "strict"
+    assert result["members"][1]["screening"] is not None
+    assert result["members"][1]["screening"]["ai"]["total_score"] is not None
+    assert result["members"][1]["screening"]["dimensions"]
 
 
 def test_exact_refs_from_old_position_are_stale_not_legacy():

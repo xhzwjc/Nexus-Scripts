@@ -23,7 +23,7 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tupl
 import httpx
 from sqlalchemy import and_, case, func, literal_column, or_
 from sqlalchemy.exc import DataError, IntegrityError, OperationalError, SQLAlchemyError, TimeoutError as SQLAlchemyTimeoutError
-from sqlalchemy.orm import Session, load_only
+from sqlalchemy.orm import Session, defer, load_only
 
 from ..database import DB_MAX_OVERFLOW, DB_POOL_SIZE, SessionLocal
 from ..permission_governance import (
@@ -11924,6 +11924,9 @@ class RecruitmentService:
         candidate_ids: Sequence[int],
         expected_position_id: int,
     ) -> Dict[str, Any]:
+        # 建立干净的只读事务读取起点，使下方各表读取共享同一事务快照，
+        # 避免边预览边重筛时不同候选人被并发写切开导致内部不一致。
+        self._release_clean_db_connection_checkpoint("candidate_comparison_preview")
         requested_ids = list(candidate_ids or [])
         normalized_ids = [self._candidate_comparison_int(value) for value in requested_ids]
         normalized_position_id = self._candidate_comparison_int(expected_position_id)
@@ -12007,6 +12010,11 @@ class RecruitmentService:
         root_task_rows = self.db.query(RecruitmentAITaskLog).join(
             ranked_root_tasks,
             ranked_root_tasks.c.task_id == RecruitmentAITaskLog.id,
+        ).options(
+            # full_request_snapshot 内嵌完整 Prompt 与简历原文，是最重的 LONGTEXT 列。
+            # 扫描窗口（每候选人最多 12 行）内延迟加载，仅在命中 exact_task 构建评价口径
+            # 契约时按行懒加载（≤ 成员数），把重字段读取从 ≤48 行降到 ≤4 行。
+            defer(RecruitmentAITaskLog.full_request_snapshot),
         ).filter(
             ranked_root_tasks.c.candidate_task_rank <= 12,
         ).order_by(
@@ -12144,6 +12152,11 @@ class RecruitmentService:
             comparison_reasons.append("dimension_mismatch")
         if comparison_level != "strict" and not aligned_dimensions:
             for member_state in member_states:
+                # 有限可比(limited)：保留各自“就绪且评估口径可证”成员的原始评分与维度
+                # （彼此同口径、可信），仅隐藏无法背书口径的成员；跨候选人差值/最佳/排序仍关闭。
+                # 不可比(incompatible)：状态不稳定或冲突，全员回退为仅事实。
+                if comparison_level == "limited" and member_state["payload"]["artifact_state"] == "strict":
+                    continue
                 member_state["payload"]["screening"] = None
         key_differences = [
             dimension["dimension_key"]
