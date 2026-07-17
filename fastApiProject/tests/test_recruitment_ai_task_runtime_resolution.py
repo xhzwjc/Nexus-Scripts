@@ -15,6 +15,7 @@ def test_resolve_initial_ai_task_runtime_prefills_llm_tasks():
     assert runtime == {
         "provider": "openai-compatible",
         "model_name": "interview_question_generation-model",
+        "source": None,
     }
 
 

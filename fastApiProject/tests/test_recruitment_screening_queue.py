@@ -4976,7 +4976,8 @@ def test_final_score_dimensions_do_not_leak_weight_text_or_is_core():
 
     score_payload = _build_score_compat_payload(normalized_score, score_enhancements)
 
-    assert set(score_payload["dimensions"][0].keys()) == {"label", "score", "max_score", "reason", "evidence", "is_inferred"}
+    # radar_category 是后续新增的安全展示字段；仍用精确集合断言，确保 weight_text/is_core 不泄漏。
+    assert set(score_payload["dimensions"][0].keys()) == {"label", "score", "max_score", "reason", "evidence", "is_inferred", "radar_category"}
 
 
 def test_recommendation_matches_screening_passed_semantically():

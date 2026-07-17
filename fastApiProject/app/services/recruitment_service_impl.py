@@ -13640,6 +13640,13 @@ class RecruitmentService:
         # 之前这里经过 compact 后，字典字段会按 max_items 截断，导致 talent_pool_reason
         # 等靠后的字段在详情接口里丢失，前端只能把已归档人才误判成“待识别/历史人才库数据”。
         candidate_payload = self._serialize_candidate_summary(candidate, _preloaded_score_row=score_row)
+        # 只截断岗位初筛 Skill 的超长 content（前端详情不渲染完整 content），避免 payload 膨胀。
+        # 仅缩短字符串、不做字段级 compact——保留候选人摘要的全部字段（见上方历史教训注释）。
+        screening_skills_payload = candidate_payload.get("position_screening_skills") if isinstance(candidate_payload, dict) else None
+        if isinstance(screening_skills_payload, list):
+            for skill_item in screening_skills_payload:
+                if isinstance(skill_item, dict) and isinstance(skill_item.get("content"), str):
+                    skill_item["content"] = _truncate_utf8_text(skill_item["content"], CANDIDATE_DETAIL_TEXT_PREVIEW_BYTES)
         workflow_memory_payload = self._serialize_workflow_memory(workflow_memory, compact=True) if workflow_memory else None
         serialized_activity: List[Dict[str, Any]] = []
         for item in activity:
