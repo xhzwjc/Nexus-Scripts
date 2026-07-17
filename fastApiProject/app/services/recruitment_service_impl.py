@@ -17865,6 +17865,51 @@ class RecruitmentService:
             return "generation_changed"
         return None
 
+    def _detect_protocol_drift(self, run_id: Optional[int], candidate: RecruitmentCandidate) -> Optional[str]:
+        """晋级前核对评估协议是否在运行途中被改动：把 run 冻结的岗位快照/状态阈值 hash 与
+        当前重算值比对，不一致则本结果按过期处理（协议变了，结果口径已不再可信）。
+
+        只比对"可无歧义重算"的两项：岗位筛选快照 + 状态阈值。Skill 解析依赖入队时的
+        解析标志/显式技能（run 未存），重算会误判，故从略（同岗位下改 Skill 的漂移由
+        re-enqueue 的 request_hash 变化兜底）。任一重算失败/缺 hash → 不阻断。
+        """
+        if not run_id:
+            return None
+        try:
+            run_row = self.db.query(
+                RecruitmentCandidateScreeningRun.position_snapshot_hash,
+                RecruitmentCandidateScreeningRun.status_thresholds_hash,
+            ).filter(RecruitmentCandidateScreeningRun.id == run_id).first()
+        except Exception:
+            return None
+        if run_row is None:
+            return None
+        try:
+            frozen_position_hash, frozen_thresholds_hash = run_row
+        except (TypeError, ValueError):
+            return None  # 非真实 DB 行（Mock）
+        frozen_position_hash = str(frozen_position_hash or "").strip() or None
+        frozen_thresholds_hash = str(frozen_thresholds_hash or "").strip() or None
+        if frozen_position_hash:
+            try:
+                current_position_hash = _build_json_content_hash(self._get_position_screening_payload(candidate) or {})
+            except Exception:
+                current_position_hash = None
+            if current_position_hash and current_position_hash != frozen_position_hash:
+                return "protocol_changed"
+        if frozen_thresholds_hash:
+            try:
+                current_thresholds_hash = _build_json_content_hash(
+                    _build_status_threshold_payload(
+                        self._get_rule_config("default_status_rules", DEFAULT_RULE_CONFIGS["default_status_rules"])
+                    )
+                )
+            except Exception:
+                current_thresholds_hash = None
+            if current_thresholds_hash and current_thresholds_hash != frozen_thresholds_hash:
+                return "protocol_changed"
+        return None
+
     def _detect_superseded_score_promotion(
         self,
         candidate: RecruitmentCandidate,
@@ -17940,6 +17985,14 @@ class RecruitmentService:
                     candidate.id, expected_pos, current_pos,
                 )
                 return "position_changed"
+        # 协议漂移：同一岗位但其筛选快照/状态阈值在运行途中被改动 → 结果口径已变，按过期处理。
+        protocol_drift = self._detect_protocol_drift(expected_run_id, candidate)
+        if protocol_drift:
+            logger.warning(
+                "[SCREENING_CAS] Superseded (protocol_changed) candidate_id=%s run_id=%s",
+                candidate.id, expected_run_id,
+            )
+            return protocol_drift
         return None
 
     def _save_score_result(self, candidate: RecruitmentCandidate, parse_row: RecruitmentResumeParseResult, actor_id: str, content: Dict[str, Any], *, allow_status_advance: bool = True, superseded_reason: Any = _UNSET) -> RecruitmentCandidateScore:

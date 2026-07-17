@@ -2106,6 +2106,46 @@ def test_cancelled_run_late_score_does_not_promote_or_update_candidate():
         db.close()
 
 
+def test_promotion_detects_protocol_drift_when_position_content_changes():
+    """P1：run 冻结岗位快照 hash；晋级期若岗位内容被改动（同岗位、改 JD/要求）→ 协议漂移，
+    结果按过期处理，不写候选人权威。未改动不误报。"""
+    from app.recruitment_models import RecruitmentPosition
+    from app.services.recruitment_service_impl import _build_json_content_hash
+    db = _build_test_db()
+    try:
+        _seed_org_tree(db)
+        admin = _session("group-admin", "group", DATA_SCOPE_ALL, super_admin=True)
+        position = _create_position(db, admin, org_code="chunmiao-rd", title="协议漂移岗", actor_id="rd-user")
+        candidate = _add_candidate(db, org_code="chunmiao-rd", position_id=position["id"], name="协议漂移候选人", created_by="rd-user")
+        db.commit()
+        service = RecruitmentService(db)
+        frozen_pos_hash = _build_json_content_hash(service._get_position_screening_payload(candidate) or {})
+        run = service._open_screening_run(
+            candidate=candidate, root_task_id=501, screening_run_key="k",
+            request_meta={"request_hash": "h", "position_snapshot_hash": frozen_pos_hash}, actor_id="rd-user",
+        )
+        db.commit()
+
+        # 未改动 → 无漂移（不误报）
+        assert service._detect_protocol_drift(run.id, candidate) is None
+
+        # 岗位内容被改动 → 协议漂移
+        pos_row = db.query(RecruitmentPosition).filter(RecruitmentPosition.id == position["id"]).first()
+        pos_row.key_requirements = (pos_row.key_requirements or "") + " 运行途中新增要求"
+        db.add(pos_row)
+        db.commit()
+        db.refresh(candidate)
+        assert service._detect_protocol_drift(run.id, candidate) == "protocol_changed"
+
+        # 全 CAS 也应判过期
+        from types import SimpleNamespace
+        service._current_screening_run_id = run.id
+        parse_stub = SimpleNamespace(id=1, resume_file_id=candidate.latest_resume_file_id or 0)
+        assert service._detect_superseded_score_promotion(candidate, parse_stub) == "protocol_changed"
+    finally:
+        db.close()
+
+
 def test_terminal_screening_paths_close_run_and_clear_active():
     """P1：非晋级终态（失败/超时/invalid）兜底关闭 run 并清 active 指针；
     缓存命中 success 把仍在 running 的 run 补标 promoted；已终态 run 不被覆盖。"""
