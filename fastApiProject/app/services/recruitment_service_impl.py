@@ -1599,12 +1599,17 @@ def _derive_deterministic_suggested_status(
 def _rebuild_dimensions_against_authoritative_rules(
     score_payload: Any,
     schema_config: Dict[str, Any],
+    *,
+    raw_resume_text: str = "",
 ) -> Tuple[Dict[str, Any], List[str], bool]:
-    """P0-1 权威评分口径：只接受规则快照定义的唯一维度集合。
+    """P0-1/P0-3 权威评分口径：只接受规则快照定义的唯一维度集合。
 
     - 按规则顺序重建 dimensions：每个维度的 max_score 一律以权威规则为准；
+      权威满分被夹到 [0, +inf)，非有限值按 0 处理，防止负满分缩小分母抬高匹配度；
     - 模型自造/重复/规则外维度不计入总分（保留告警与审计）；
     - 每个维度得分裁剪到 [0, 权威满分]；缺失维度按零分补齐；
+    - 若提供 raw_resume_text：正分维度的 evidence 必须能在简历原文中被证实，
+      否则该维度回退为 0 分（防止模型伪造 evidence 刷满分）；
     - total_score = Σ裁剪后得分，match_percent = total / Σ权威满分 * 100。
     返回 (payload, warnings, rebuilt)；无权威规则时 rebuilt=False，走旧链路。
     """
@@ -1633,12 +1638,14 @@ def _rebuild_dimensions_against_authoritative_rules(
     warnings: List[str] = []
     rebuilt_dimensions: List[Dict[str, Any]] = []
     backfilled_labels: List[str] = []
-    total_score = 0.0
-    max_possible_score = 0.0
+    verify_evidence = bool(str(raw_resume_text or "").strip())
     for rule in rules:
         label = str(rule.get("label") or "").strip()
-        authoritative_max = round(float(_parse_score_number(rule.get("max_score")) or 0.0), 1)
-        max_possible_score += authoritative_max
+        raw_authoritative_max = _parse_score_number(rule.get("max_score"))
+        authoritative_max = round(float(raw_authoritative_max), 1) if raw_authoritative_max is not None and math.isfinite(float(raw_authoritative_max)) else 0.0
+        if authoritative_max < 0:
+            warnings.append(f"维度[{label}]规则满分为负或非法，已按 0 分执行")
+            authoritative_max = 0.0
         existing = model_by_label.pop(label, None)
         if existing is None:
             rebuilt_dimensions.append(
@@ -1656,17 +1663,32 @@ def _rebuild_dimensions_against_authoritative_rules(
         model_max = _parse_score_number(existing.get("max_score"))
         if model_max is not None and abs(float(model_max) - authoritative_max) > 0.05:
             warnings.append(f"维度[{label}]满分与规则不一致（模型={model_max}），已按规则 {authoritative_max} 分执行")
-        score = float(_parse_score_number(existing.get("score")) or 0.0)
+        raw_score = _parse_score_number(existing.get("score"))
+        score = float(raw_score) if raw_score is not None and math.isfinite(float(raw_score)) else 0.0
         if score > authoritative_max:
             warnings.append(f"维度[{label}]得分超过上限，已自动裁剪")
             score = authoritative_max
         if score < 0:
             warnings.append(f"维度[{label}]得分为负，已按 0 分执行")
             score = 0.0
+        # P0-3：正分维度必须有可被简历原文证实的 evidence，否则回退为 0 分。
+        if verify_evidence and score > 0:
+            evidence_items = _normalize_score_text_items(existing.get("evidence"), limit=4)
+            supported = any(
+                item
+                and item != "简历未提及"
+                and not _looks_like_summary_evidence_text(item)
+                and _resume_item_supported(item, raw_resume_text, allow_short=True)
+                for item in evidence_items
+            )
+            if not supported:
+                warnings.append(f"维度[{label}]的 evidence 无法在简历原文中证实，已按 0 分回退")
+                score = 0.0
+                existing["reason"] = "简历未提及"
+                existing["evidence"] = []
         existing["score"] = round(score, 2)
         existing["max_score"] = authoritative_max
         rebuilt_dimensions.append(existing)
-        total_score += score
 
     # 规则外维度：不计入总分，仅告警留痕
     leftover_labels = [*model_by_label.keys(), *ignored_labels]
@@ -1678,6 +1700,12 @@ def _rebuild_dimensions_against_authoritative_rules(
         warnings.append(f"score.dimensions 缺少维度，已按规则补零：{'、'.join(backfilled_labels[:8])}")
 
     payload["dimensions"] = rebuilt_dimensions
+    max_possible_score = sum(
+        float(_parse_score_number(item.get("max_score")) or 0.0) for item in rebuilt_dimensions
+    )
+    total_score = sum(
+        float(_parse_score_number(item.get("score")) or 0.0) for item in rebuilt_dimensions
+    )
     dimension_total = round(total_score + 1e-9, 1)
     current_total_score = _parse_score_number(payload.get("total_score"))
     if current_total_score is None or abs(current_total_score - dimension_total) > 0.1:
@@ -1737,6 +1765,7 @@ def sanitize_screening_payload(
     one_pass_compat: bool = False,
     skill_snapshots: Optional[Sequence[Dict[str, Any]]] = None,
     extra_warnings: Optional[Sequence[Any]] = None,
+    raw_resume_text: str = "",
 ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """结构清洗 + 确定性评分校正（P0-1）。
 
@@ -1756,11 +1785,12 @@ def sanitize_screening_payload(
     repair_warnings: List[str] = []
     normalized_final_suggested_status = raw_model_suggested_status
 
-    # P0-1 权威口径优先：有规则快照时按规则集重建维度/总分/匹配度；
+    # P0-1 权威口径优先：有规则快照时按规则集重建维度/总分/匹配度（并做 P0-3 证据核验）；
     # 无规则（如直接传裸 schema 的调用方）退回旧的求和校正链路。
     sanitized_score, rebuild_warnings, was_rebuilt = _rebuild_dimensions_against_authoritative_rules(
         sanitized_score,
         schema_config,
+        raw_resume_text=raw_resume_text,
     )
     if was_rebuilt:
         repair_warnings.extend(rebuild_warnings)
@@ -1946,6 +1976,7 @@ def sanitize_screening_payload_fast(
     schema_config: Dict[str, Any],
     *,
     skill_snapshots: Optional[Sequence[Dict[str, Any]]] = None,
+    raw_resume_text: str = "",
 ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """Critical-path-only sanitization for one-pass screening.
 
@@ -1977,10 +2008,11 @@ def sanitize_screening_payload_fast(
     repair_warnings: List[str] = []
     normalized_final_suggested_status = raw_model_suggested_status
 
-    # Step 1: P0-1 权威口径优先——有规则快照时按规则集重建维度/总分/匹配度
+    # Step 1: P0-1 权威口径优先——有规则快照时按规则集重建维度/总分/匹配度（含 P0-3 证据核验）
     sanitized_score, rebuild_warnings, was_rebuilt = _rebuild_dimensions_against_authoritative_rules(
         sanitized_score,
         schema_config,
+        raw_resume_text=raw_resume_text,
     )
     if was_rebuilt:
         repair_warnings.extend(rebuild_warnings)
@@ -2026,7 +2058,7 @@ def sanitize_screening_payload_fast(
     }
 
 
-def sanitize_screening_score_payload(payload: Any, schema_config: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+def sanitize_screening_score_payload(payload: Any, schema_config: Dict[str, Any], *, raw_resume_text: str = "") -> Tuple[Dict[str, Any], Dict[str, Any]]:
     score_payload, extraction_meta = _extract_model_score_payload_with_meta(payload)
     sanitized_wrapper, meta = sanitize_screening_payload(
         {
@@ -2035,6 +2067,7 @@ def sanitize_screening_score_payload(payload: Any, schema_config: Dict[str, Any]
             "position_match": score_payload.get("position_match") if isinstance(score_payload, dict) else None,
         },
         schema_config,
+        raw_resume_text=raw_resume_text,
     )
     sanitized_score = sanitized_wrapper.get("score") or {}
     position_match_payload = sanitized_wrapper.get("position_match")
@@ -6712,6 +6745,11 @@ class RecruitmentService:
         position_snapshot_hash = _build_json_content_hash(position_snapshot)
         score_rule_snapshot_hash = _build_json_content_hash(list(score_rule_snapshot or []))
         custom_requirements_hash = _build_resume_content_hash(custom_requirements)
+        # P1：状态阈值影响最终状态判定，纳入 request_hash——改阈值后旧缓存结果失效、强制重算。
+        status_thresholds = _build_status_threshold_payload(
+            self._get_rule_config("default_status_rules", DEFAULT_RULE_CONFIGS["default_status_rules"])
+        )
+        status_thresholds_hash = _build_json_content_hash(status_thresholds)
         request_hash = self._build_request_hash(
             request_scope,
             resume_file_id,
@@ -6721,6 +6759,7 @@ class RecruitmentService:
             score_rule_snapshot_hash,
             custom_requirements_hash,
             prompt_version,
+            status_thresholds_hash,
             runtime_signature.get("model_name") or "",
             runtime_signature.get("temperature") or 0,
         )
@@ -6735,6 +6774,7 @@ class RecruitmentService:
             "position_snapshot": position_snapshot,
             "score_rule_snapshot_hash": score_rule_snapshot_hash,
             "custom_requirements_hash": custom_requirements_hash,
+            "status_thresholds_hash": status_thresholds_hash,
             "prompt_version": prompt_version,
             "provider": runtime_signature.get("provider"),
             "model_name": runtime_signature.get("model_name"),
@@ -17530,27 +17570,32 @@ class RecruitmentService:
         self,
         candidate: RecruitmentCandidate,
         parse_row: RecruitmentResumeParseResult,
+        *,
+        expected_position_id: Any = _UNSET,
     ) -> Optional[str]:
         """P1 generation/CAS：晋级为权威结果前做一次加锁比对。
 
-        若加锁读到的当前 latest_resume_file_id 已不等于本次评分所依据的简历
-        （parse_row.resume_file_id），说明运行期间候选人换了简历，本结果已过期，
-        不得覆盖候选人的权威指针与状态（评分行仍留档，供审计）。
+        加锁读候选人当前 latest_resume_file_id / position_id：
+        - 若已不等于本次评分所依据的简历（parse_row.resume_file_id）→ resume_changed；
+        - 若传入 expected_position_id 且当前岗位已变 → position_changed。
+        任一命中即视为过期，本结果只留档、不得覆盖候选人权威指针/状态/岗位/通知。
         """
         try:
             expected_resume_file_id = int(getattr(parse_row, "resume_file_id", 0) or 0)
         except (TypeError, ValueError):
             expected_resume_file_id = 0
-        if not expected_resume_file_id:
+        check_position = expected_position_id is not _UNSET
+        if not expected_resume_file_id and not check_position:
             return None
         row = self.db.query(
             RecruitmentCandidate.latest_resume_file_id,
+            RecruitmentCandidate.position_id,
             RecruitmentCandidate.deleted,
         ).filter(RecruitmentCandidate.id == candidate.id).with_for_update().first()
         if row is None:
             return "candidate_deleted"
         try:
-            current_resume_file_id, deleted = row
+            current_resume_file_id, current_position_id, deleted = row
         except (TypeError, ValueError):
             # 非真实 DB 行（如单测 Mock）无法判定，按未过期处理，不阻断晋级。
             return None
@@ -17559,20 +17604,32 @@ class RecruitmentService:
         try:
             current_resume_file_id = int(current_resume_file_id or 0)
         except (TypeError, ValueError):
-            return None
-        if current_resume_file_id and current_resume_file_id != expected_resume_file_id:
+            current_resume_file_id = 0
+        if expected_resume_file_id and current_resume_file_id and current_resume_file_id != expected_resume_file_id:
             logger.warning(
-                "[SCREENING_CAS] Superseded score promotion skipped candidate_id=%s expected_resume_file_id=%s current_resume_file_id=%s",
-                candidate.id,
-                expected_resume_file_id,
-                current_resume_file_id,
+                "[SCREENING_CAS] Superseded (resume_changed) candidate_id=%s expected_resume_file_id=%s current=%s",
+                candidate.id, expected_resume_file_id, current_resume_file_id,
             )
             return "resume_changed"
+        if check_position:
+            try:
+                expected_pos = int(expected_position_id or 0)
+                current_pos = int(current_position_id or 0)
+            except (TypeError, ValueError):
+                expected_pos = current_pos = 0
+            if expected_pos and current_pos and expected_pos != current_pos:
+                logger.warning(
+                    "[SCREENING_CAS] Superseded (position_changed) candidate_id=%s expected_position_id=%s current=%s",
+                    candidate.id, expected_pos, current_pos,
+                )
+                return "position_changed"
         return None
 
-    def _save_score_result(self, candidate: RecruitmentCandidate, parse_row: RecruitmentResumeParseResult, actor_id: str, content: Dict[str, Any], *, allow_status_advance: bool = True) -> RecruitmentCandidateScore:
+    def _save_score_result(self, candidate: RecruitmentCandidate, parse_row: RecruitmentResumeParseResult, actor_id: str, content: Dict[str, Any], *, allow_status_advance: bool = True, superseded_reason: Any = _UNSET) -> RecruitmentCandidateScore:
         # P1：CAS 判定——运行期间简历被替换则本结果过期，只留档不晋级为权威。
-        superseded_reason = self._detect_superseded_score_promotion(candidate, parse_row)
+        # 调用方可传入已算好的 superseded_reason（用于在写候选人字段前统一门控）。
+        if superseded_reason is _UNSET:
+            superseded_reason = self._detect_superseded_score_promotion(candidate, parse_row)
         if isinstance(content, dict) and content.get("_storage_format") == RAW_SCREENING_SCORE_STORAGE_FORMAT:
             raw_score = content.get("score") if isinstance(content.get("score"), dict) else {}
             total_score = raw_score.get("total_score") if _is_json_number(raw_score.get("total_score")) else None
@@ -18418,6 +18475,7 @@ class RecruitmentService:
                 authoritative_payload,
                 screening_schema_config,
                 skill_snapshots=skill_snapshots,
+                raw_resume_text=raw_text,
             )
             parsed_resume = sanitized_payload.get("parsed_resume") if isinstance(sanitized_payload.get("parsed_resume"), dict) else {}
             raw_score_payload = sanitized_payload.get("score") if isinstance(sanitized_payload.get("score"), dict) else {}
@@ -18597,50 +18655,73 @@ class RecruitmentService:
         )
         self.db.add(parse_row)
         self.db.flush()
+        # P0-1：在写入任何"候选人派生字段"之前做 CAS——若运行期间候选人已换简历或换岗，
+        # 本结果过期，只把 parse_row / score_row 作为不可变审计记录留档，绝不覆盖候选人
+        # 姓名/电话/邮箱/学历/latest_parse_result_id/岗位推荐/状态，也不发送邮件。
+        superseded_reason = self._detect_superseded_score_promotion(
+            candidate,
+            parse_row,
+            expected_position_id=resolved_request_meta.get("position_id"),
+        )
         basic_info = parsed_resume.get("basic_info") or {}
-        candidate.name = str(basic_info.get("name") or candidate.name).strip() or candidate.name
-        sanitized_phone = _sanitize_basic_info_value("phone", basic_info.get("phone"))
-        candidate.phone = sanitized_phone or None
-        candidate.email = str(basic_info.get("email") or "").strip() or None
-        candidate.years_of_experience = str(basic_info.get("years_of_experience") or "").strip() or None
-        candidate.education = _sanitize_basic_info_value("education", basic_info.get("education")) or None
-        parsed_age = _parse_age_value(basic_info.get("age"))
-        if parsed_age is not None:
-            candidate.age = parsed_age
-        self._apply_candidate_parsed_location_fields(candidate, basic_info)
-        candidate.latest_parse_result_id = parse_row.id
-        candidate.updated_by = actor_id
-        self._apply_screening_position_match_payload(candidate, position_match_payload, source="one_pass_screening")
+        if not superseded_reason:
+            candidate.name = str(basic_info.get("name") or candidate.name).strip() or candidate.name
+            sanitized_phone = _sanitize_basic_info_value("phone", basic_info.get("phone"))
+            candidate.phone = sanitized_phone or None
+            candidate.email = str(basic_info.get("email") or "").strip() or None
+            candidate.years_of_experience = str(basic_info.get("years_of_experience") or "").strip() or None
+            candidate.education = _sanitize_basic_info_value("education", basic_info.get("education")) or None
+            parsed_age = _parse_age_value(basic_info.get("age"))
+            if parsed_age is not None:
+                candidate.age = parsed_age
+            self._apply_candidate_parsed_location_fields(candidate, basic_info)
+            candidate.latest_parse_result_id = parse_row.id
+            candidate.updated_by = actor_id
+            self._apply_screening_position_match_payload(candidate, position_match_payload, source="one_pass_screening")
+        else:
+            candidate.updated_by = actor_id
+            logger.warning(
+                "[SCREENING_CAS] One-pass result superseded (%s), candidate fields/notification skipped candidate_id=%s",
+                superseded_reason, candidate.id,
+            )
         resume_file.parse_status = "success"
         resume_file.parse_error = None
         self.db.add(candidate)
         self.db.add(resume_file)
         save_started_at = time.perf_counter()
         prev_ai_recommended_status = candidate.ai_recommended_status
+        effective_result_valid = screening_result_valid and not superseded_reason
         score_row = self._save_score_result(
             candidate,
             parse_row,
             actor_id,
             storage_payload,
-            allow_status_advance=screening_result_valid,
+            allow_status_advance=effective_result_valid,
+            superseded_reason=superseded_reason or None,
         )
-        if not screening_result_valid:
+        if not effective_result_valid:
             candidate.ai_recommended_status = prev_ai_recommended_status
             self.db.add(candidate)
-        final_task_status = "success" if screening_result_valid else "invalid_result"
-        final_response_source = "primary_screening_model" if screening_result_valid else "primary_screening_model_invalid"
-        final_output_summary = _build_screening_output_summary(
-            parsed_resume=parsed_resume,
-            score_payload=raw_score_payload,
-        ) or task.get("output_summary") or ("初筛流程已完成" if screening_result_valid else "AI 返回了无效初筛结果")
-        screening_result_state = "success" if screening_result_valid else "invalid"
+        if superseded_reason:
+            final_task_status = "invalid_result"
+            final_response_source = "superseded_resume_changed"
+            final_output_summary = "结果已过期：运行期间候选人简历已更换，仅留档不写入候选人档案。"
+            screening_result_state = "superseded"
+        else:
+            final_task_status = "success" if screening_result_valid else "invalid_result"
+            final_response_source = "primary_screening_model" if screening_result_valid else "primary_screening_model_invalid"
+            final_output_summary = _build_screening_output_summary(
+                parsed_resume=parsed_resume,
+                score_payload=raw_score_payload,
+            ) or task.get("output_summary") or ("初筛流程已完成" if screening_result_valid else "AI 返回了无效初筛结果")
+            screening_result_state = "success" if screening_result_valid else "invalid"
         self.db.commit()
         self.db.refresh(parse_row)
         self.db.refresh(score_row)
         self.db.refresh(candidate)
         save_duration_ms = max(0, int((time.perf_counter() - save_started_at) * 1000))
-        logger.info("Screening result check candidate_id=%s batch_id=%s screening_result_valid=%s", candidate.id, batch_id, screening_result_valid)
-        if screening_result_valid:
+        logger.info("Screening result check candidate_id=%s batch_id=%s screening_result_valid=%s superseded=%s", candidate.id, batch_id, screening_result_valid, bool(superseded_reason))
+        if screening_result_valid and not superseded_reason:
             # 非批量上传时，单个发送邮件
             has_batch = bool(batch_id)
             if not has_batch:
@@ -18675,7 +18756,7 @@ class RecruitmentService:
                 "score": raw_score_payload,
                 "raw_response_text": task.get("raw_response_text"),
                 "meta": {
-                    "stage": "completed" if screening_result_valid else "failed",
+                    "stage": "completed" if effective_result_valid else "failed",
                     "parse_status": "completed",
                     "parse_strategy": "combined_parse_and_score",
                     "reused_existing_parse": False,
@@ -18683,7 +18764,8 @@ class RecruitmentService:
                     "primary_model_call_succeeded": True,
                     "final_response_source": final_response_source,
                     "screening_result_state": screening_result_state,
-                    "screening_result_valid": screening_result_valid,
+                    "screening_result_valid": effective_result_valid,
+                    "superseded_reason": superseded_reason or None,
                     "invalid_result_reasons": invalid_result_reasons,
                     "validation_warnings": validation_warnings,
                     "model_schema_violation": model_schema_violation,
@@ -18694,7 +18776,7 @@ class RecruitmentService:
                     "response_debug": task.get("response_debug"),
                 },
             },
-            error_message=None if screening_result_valid else "AI 返回了无效初筛结果",
+            error_message=(final_output_summary if superseded_reason else (None if screening_result_valid else "AI 返回了无效初筛结果")),
             token_usage=task.get("token_usage"),
             memory_source=memory_source,
             batch_id=batch_id,
@@ -18709,8 +18791,9 @@ class RecruitmentService:
             validation_meta={
                 "validation_warnings": validation_warnings,
                 "invalid_result_reasons": invalid_result_reasons,
-                "screening_result_valid": screening_result_valid,
+                "screening_result_valid": effective_result_valid,
                 "screening_result_state": screening_result_state,
+                "superseded_reason": superseded_reason or None,
                 "parse_strategy": "combined_parse_and_score",
                 "reused_existing_parse": False,
                 "reused_existing_score": False,
@@ -18730,7 +18813,7 @@ class RecruitmentService:
                 candidate=candidate,
                 parse_row=parse_row,
                 score_row=score_row,
-                screening_result_valid=screening_result_valid,
+                screening_result_valid=effective_result_valid,
                 raw_model_suggested_status=validation_meta.get("raw_model_suggested_status"),
                 normalized_final_suggested_status=validation_meta.get("normalized_final_suggested_status") or raw_score_payload.get("suggested_status"),
             ),
@@ -19447,6 +19530,7 @@ class RecruitmentService:
             raw_score_payload, validation_meta = sanitize_screening_score_payload(
                 authoritative_payload,
                 screening_schema_config,
+                raw_resume_text=raw_resume_text,
             )
             position_match_payload = (
                 raw_score_payload.get("position_match")

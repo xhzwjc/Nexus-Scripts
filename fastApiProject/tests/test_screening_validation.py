@@ -295,3 +295,76 @@ def test_screening_prompt_wraps_resume_in_untrusted_delimiters():
     )
     # 注入文本仍在（作为数据），但被定界符包裹成不可信段（builder 以 \n\n 连接）。
     assert f"<<<RAW_RESUME_TEXT>>>\n\n{injected}\n\n<<<END_RAW_RESUME_TEXT>>>" in screening_prompt
+
+
+def test_forged_evidence_is_zeroed_against_raw_resume():
+    """P0-3：正分维度的 evidence 若无法在简历原文中证实，该维度回退为 0 分，
+    总分/匹配度随之下降，防止模型伪造 evidence 刷满分。"""
+    schema_config = {
+        "parsed_resume": SCREENING_PAYLOAD_SCHEMA_CONFIG["parsed_resume"],
+        "score": {
+            **SCREENING_PAYLOAD_SCHEMA_CONFIG["score"],
+            "required_dimension_labels": ("IoT协议", "自动化测试"),
+            "required_dimension_rules": (
+                {"label": "IoT协议", "max_score": 5.0, "is_core": True},
+                {"label": "自动化测试", "max_score": 5.0, "is_core": False},
+            ),
+            "max_possible_score": 10.0,
+            "status_thresholds": {"pass_threshold": 75.0, "pool_threshold": 55.0},
+        },
+    }
+    payload = {
+        "parsed_resume": _empty_parsed_resume(),
+        "score": {
+            "total_score": 10, "match_percent": 100,
+            "advantages": ["强"], "concerns": [],
+            "recommendation": "建议面试", "suggested_status": "screening_passed",
+            "dimensions": [
+                {"label": "IoT协议", "score": 5.0, "max_score": 5.0, "reason": "命中", "evidence": ["简历里根本不存在的伪造内容"], "is_inferred": False},
+                {"label": "自动化测试", "score": 5.0, "max_score": 5.0, "reason": "命中", "evidence": ["使用 Python 编写自动化测试脚本"], "is_inferred": False},
+            ],
+        },
+    }
+    raw = "候选人简历：使用 Python 编写自动化测试脚本，无线通信经验有限。"
+    sanitized, meta = sanitize_screening_payload(payload, schema_config, raw_resume_text=raw)
+    score = sanitized["score"]
+    dims = {d["label"]: d for d in score["dimensions"]}
+    assert dims["IoT协议"]["score"] == 0.0          # 伪造 evidence → 归零
+    assert dims["自动化测试"]["score"] == 5.0        # 真实 evidence → 保留
+    assert score["total_score"] == 5.0
+    assert score["match_percent"] == 50
+    assert any("无法在简历原文中证实" in w for w in meta["warnings"])
+
+
+def test_negative_rule_max_score_does_not_inflate_match_percent():
+    """P0-3：规则满分为负时按 0 处理，不得缩小分母抬高匹配度。"""
+    schema_config = {
+        "parsed_resume": SCREENING_PAYLOAD_SCHEMA_CONFIG["parsed_resume"],
+        "score": {
+            **SCREENING_PAYLOAD_SCHEMA_CONFIG["score"],
+            "required_dimension_labels": ("正常维度", "恶意维度"),
+            "required_dimension_rules": (
+                {"label": "正常维度", "max_score": 8.0, "is_core": True},
+                {"label": "恶意维度", "max_score": -100.0, "is_core": False},
+            ),
+            "status_thresholds": {"pass_threshold": 75.0, "pool_threshold": 55.0},
+        },
+    }
+    payload = {
+        "parsed_resume": _empty_parsed_resume(),
+        "score": {
+            "total_score": 4, "match_percent": 100,
+            "advantages": ["ok"], "concerns": [],
+            "recommendation": "建议面试", "suggested_status": "screening_passed",
+            "dimensions": [
+                {"label": "正常维度", "score": 4.0, "max_score": 8.0, "reason": "命中", "evidence": ["核心经验"], "is_inferred": False},
+                {"label": "恶意维度", "score": 4.0, "max_score": -100.0, "reason": "命中", "evidence": ["核心经验"], "is_inferred": False},
+            ],
+        },
+    }
+    raw = "候选人简历：核心经验丰富。"
+    sanitized, meta = sanitize_screening_payload(payload, schema_config, raw_resume_text=raw)
+    score = sanitized["score"]
+    # 分母 = 8 + 0（负满分归零），total = 4 + clamp(4→0)=4；match = 4/8*100 = 50，绝不 100
+    assert score["match_percent"] == 50
+    assert any("规则满分为负或非法" in w for w in meta["warnings"])

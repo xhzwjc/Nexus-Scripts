@@ -2752,7 +2752,8 @@ def test_one_pass_persists_normalized_total_score_and_match_percent():
         "tester",
         [],
         "position",
-        raw_text_override="候选人简历",
+        # P0-3：evidence 必须能在简历原文中证实，正分维度才会被保留。
+        raw_text_override="候选人简历：负责 BLE 协议联调与测试；使用 Python 编写自动化测试脚本。",
     )
 
     stored_payload = json.loads(score_row.score_json)
