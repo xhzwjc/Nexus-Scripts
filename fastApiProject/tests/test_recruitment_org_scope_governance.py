@@ -2052,3 +2052,55 @@ def test_screening_run_unique_generation_and_cancel_marks_run():
         assert run_for_task.cancel_requested_by == "rd-user"
     finally:
         db.close()
+
+
+def test_cancelled_run_late_score_does_not_promote_or_update_candidate():
+    """P0：取消屏障——run 取消后迟到的评分绝不能把 run 改回 promoted、
+    也不得写候选人权威指针（latest_score_id）。取消同时清空 active 指针。"""
+    from app.recruitment_models import RecruitmentResumeFile, RecruitmentResumeParseResult, RecruitmentAITaskLog
+    from app.services.recruitment_service_impl import RAW_SCREENING_SCORE_STORAGE_FORMAT
+    db = _build_test_db()
+    try:
+        _seed_org_tree(db)
+        position = _create_position(db, _session("group-admin", "group", DATA_SCOPE_ALL, super_admin=True), org_code="chunmiao-rd", title="取消岗", actor_id="rd-user")
+        candidate = _add_candidate(db, org_code="chunmiao-rd", position_id=position["id"], name="取消屏障候选人", created_by="rd-user")
+        resume = RecruitmentResumeFile(candidate_id=candidate.id, org_code="chunmiao-rd", original_name="r.pdf", stored_name="r.pdf", storage_path="/tmp/r.pdf", parse_status="success", uploaded_by="rd-user")
+        db.add(resume)
+        db.flush()
+        candidate.latest_resume_file_id = resume.id
+        candidate.status = "pending_screening"
+        parse_row = RecruitmentResumeParseResult(candidate_id=candidate.id, resume_file_id=resume.id, org_code="chunmiao-rd", raw_text="raw", status="success")
+        db.add(parse_row)
+        db.flush()
+
+        task = RecruitmentAITaskLog(task_type="screening_flow", org_code="chunmiao-rd", status="running", related_candidate_id=candidate.id, created_by="rd-user")
+        db.add(task)
+        db.flush()
+        service = RecruitmentService(db)
+        run = service._open_screening_run(candidate=candidate, root_task_id=task.id, screening_run_key="k1", request_meta={"request_hash": "h"}, actor_id="rd-user")
+        run.status = "running"
+        db.add(run)
+        db.commit()
+
+        # 用户取消
+        service.cancel_ai_task(task.id, "rd-user")
+        db.refresh(candidate)
+        db.refresh(run)
+        assert run.status == "cancelled"
+        assert candidate.active_screening_run_id is None  # 取消清空 active 指针
+
+        # 迟到评分尝试晋级
+        content = {
+            "_storage_format": RAW_SCREENING_SCORE_STORAGE_FORMAT,
+            "score": {"total_score": 8.0, "match_percent": 80, "advantages": ["强"], "concerns": [], "recommendation": "建议面试", "suggested_status": "screening_passed", "dimensions": []},
+        }
+        service._current_screening_run_id = run.id
+        score_row = service._save_score_result(candidate, parse_row, "rd-user", content, allow_status_advance=True)
+        db.commit()
+        db.refresh(candidate)
+        db.refresh(run)
+        assert run.status == "cancelled", f"取消的 run 不得被改回，实际={run.status}"
+        assert candidate.latest_score_id is None, "取消后不得写候选人权威评分指针"
+        assert getattr(score_row, "_superseded_reason", None) == "cancelled"
+    finally:
+        db.close()

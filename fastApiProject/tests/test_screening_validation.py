@@ -404,3 +404,39 @@ def test_same_evidence_cannot_score_multiple_unrelated_dimensions():
     assert dims["维度B"]["score"] == 0.0        # 复用同一证据 → 回退
     assert sanitized["score"]["total_score"] == 5.0
     assert any("已被其他维度占用" in w for w in meta["warnings"])
+
+
+def test_negated_capability_is_not_counted_as_positive_evidence():
+    """P0-6：简历明确否定某能力（如"无 Kubernetes 经验"）时，
+    伪造成该维度正向 evidence 不得成立；真实非否定能力仍保留。"""
+    schema_config = {
+        "parsed_resume": SCREENING_PAYLOAD_SCHEMA_CONFIG["parsed_resume"],
+        "score": {
+            **SCREENING_PAYLOAD_SCHEMA_CONFIG["score"],
+            "required_dimension_labels": ("容器编排", "自动化测试"),
+            "required_dimension_rules": (
+                {"label": "容器编排", "max_score": 5.0, "is_core": True},
+                {"label": "自动化测试", "max_score": 5.0, "is_core": False},
+            ),
+            "max_possible_score": 10.0,
+            "status_thresholds": {"pass_threshold": 75.0, "pool_threshold": 55.0},
+        },
+    }
+    payload = {
+        "parsed_resume": _empty_parsed_resume(),
+        "score": {
+            "total_score": 10, "match_percent": 100,
+            "advantages": ["强"], "concerns": [],
+            "recommendation": "建议面试", "suggested_status": "screening_passed",
+            "dimensions": [
+                {"label": "容器编排", "score": 5.0, "max_score": 5.0, "reason": "命中", "evidence": ["熟悉 Kubernetes 集群编排"], "is_inferred": False},
+                {"label": "自动化测试", "score": 5.0, "max_score": 5.0, "reason": "命中", "evidence": ["使用 Python 编写自动化测试脚本"], "is_inferred": False},
+            ],
+        },
+    }
+    raw = "候选人简历：明确无 Kubernetes 经验；使用 Python 编写自动化测试脚本。"
+    sanitized, meta = sanitize_screening_payload(payload, schema_config, raw_resume_text=raw)
+    dims = {d["label"]: d for d in sanitized["score"]["dimensions"]}
+    assert dims["容器编排"]["score"] == 0.0          # 简历明确否定 → 归零
+    assert dims["自动化测试"]["score"] == 5.0        # 真实非否定能力 → 保留
+    assert sanitized["score"]["total_score"] == 5.0

@@ -1699,6 +1699,7 @@ def _rebuild_dimensions_against_authoritative_rules(
                 and item != "简历未提及"
                 and not _looks_like_summary_evidence_text(item)
                 and _resume_item_supported(item, raw_resume_text, allow_short=True)
+                and not _evidence_negated_in_resume(item, raw_resume_text)
             ]
             fresh_evidence = [
                 item for item in supporting_evidence
@@ -4368,6 +4369,59 @@ def _resume_item_supported(item: Any, raw_text: str, *, allow_short: bool = Fals
     return len(matched) >= max(1, min(len(result_tokens), 2))
 
 
+# 否定语境线索：高精度集合（不含裸"不""非"以免误伤，如"对不同系统…"）。
+_EVIDENCE_NEGATION_CUES_CJK = (
+    "无", "没有", "没", "未", "缺乏", "缺少", "暂无", "尚未", "并未", "从未",
+    "不熟悉", "不具备", "不了解", "不会", "不懂", "不涉及", "不包含",
+)
+_EVIDENCE_NEGATION_CUES_EN = ("no ", "not ", "without", "lack", "never", "n't", "none of")
+
+
+def _evidence_negated_in_resume(item: Any, raw_text: str) -> bool:
+    """检测 evidence 指向的关键点在简历原文中是否处于否定语境（如"无 Kubernetes 经验"）。
+
+    保守判定：仅当能在原文定位到该 evidence 的显著 token，且其"每一次"出现的紧邻前文都带否定词，
+    才判为否定证据；只要有一次出现是非否定语境就认可（避免误伤真实正向证据）。定位不到则不干预。
+    这道用于挡"简历明确否定某能力、却被伪造成该维度正向 evidence"的语义绕过。
+    """
+    text = _resume_item_to_report_text(item)
+    if not text:
+        return False
+    searchable = _resume_search_text(raw_text)
+    if not searchable:
+        return False
+    lowered = text.lower()
+    generic_tokens = {
+        "负责", "相关", "经验", "能力", "项目", "工作", "参与", "支持", "协作", "测试", "研发",
+        "系统", "平台", "流程", "模块", "优化", "输出", "问题", "管理", "推动", "具备",
+    }
+    tokens: List[str] = []
+    for tok in re.findall(r"[A-Za-z][A-Za-z0-9+_.-]{1,24}", lowered):
+        normalized = tok.strip().lower()
+        if len(normalized) >= 2 and normalized not in tokens:
+            tokens.append(normalized)
+    for seg in extract_keywords(lowered):
+        normalized = str(seg).strip().lower()
+        if len(normalized) >= 2 and normalized not in generic_tokens and normalized not in tokens:
+            tokens.append(normalized)
+    if not tokens:
+        return False
+    any_token_located = False
+    for token in tokens:
+        occurrences = [m.start() for m in re.finditer(re.escape(token), searchable)]
+        if not occurrences:
+            continue
+        any_token_located = True
+        for pos in occurrences:
+            window = searchable[max(0, pos - 8):pos]
+            cjk_negated = any(cue in window for cue in _EVIDENCE_NEGATION_CUES_CJK)
+            en_negated = any(cue in (window + " ") for cue in _EVIDENCE_NEGATION_CUES_EN)
+            if not (cjk_negated or en_negated):
+                # 该 token 至少有一次出现在非否定语境 → 证据可成立，不判否定。
+                return False
+    return any_token_located
+
+
 def _normalize_resume_item(item: Any) -> Any:
     if isinstance(item, dict):
         cleaned: Dict[str, Any] = {}
@@ -6306,11 +6360,16 @@ class RecruitmentService:
             ).first()
             if not candidate:
                 continue
-            # 获取该候选人的最新评分
+            # 只认权威晋级评分：candidate.latest_score_id 仅在 CAS 通过（非 superseded）时写入。
+            # 不能再取"最大 id 的评分"——superseded 评分也会入库且常是最新 id，会用过期结果发信。
+            if not candidate.latest_score_id:
+                continue
             score = (
                 self.db.query(RecruitmentCandidateScore)
-                .filter(RecruitmentCandidateScore.candidate_id == cid)
-                .order_by(RecruitmentCandidateScore.id.desc())
+                .filter(
+                    RecruitmentCandidateScore.id == candidate.latest_score_id,
+                    RecruitmentCandidateScore.candidate_id == cid,
+                )
                 .first()
             )
             if not score:
@@ -6788,6 +6847,16 @@ class RecruitmentService:
             self._get_rule_config("default_status_rules", DEFAULT_RULE_CONFIGS["default_status_rules"])
         )
         status_thresholds_hash = _build_json_content_hash(status_thresholds)
+        # 评估协议指纹：定义"这次初筛怎么评"的全部要素（岗位快照/评分规则/状态阈值/prompt/模型/供应商）。
+        # 冻结到 run 上，供晋级期与运行期核对，也供审计与不可比口径判定。
+        evaluation_protocol_hash = _build_json_content_hash({
+            "position_snapshot_hash": position_snapshot_hash,
+            "score_rule_snapshot_hash": score_rule_snapshot_hash,
+            "status_thresholds_hash": status_thresholds_hash,
+            "prompt_version": prompt_version,
+            "model_name": runtime_signature.get("model_name") or "",
+            "provider": runtime_signature.get("provider") or "",
+        })
         request_hash = self._build_request_hash(
             request_scope,
             resume_file_id,
@@ -6813,6 +6882,7 @@ class RecruitmentService:
             "score_rule_snapshot_hash": score_rule_snapshot_hash,
             "custom_requirements_hash": custom_requirements_hash,
             "status_thresholds_hash": status_thresholds_hash,
+            "evaluation_protocol_hash": evaluation_protocol_hash,
             "prompt_version": prompt_version,
             "provider": runtime_signature.get("provider"),
             "model_name": runtime_signature.get("model_name"),
@@ -7960,6 +8030,18 @@ class RecruitmentService:
         run.cancel_requested_by = actor_id
         run.completed_at = datetime.now()
         self.db.add(run)
+        # 取消同时清空候选人 active 指针（若仍指向本 run），让 generation CAS 也能兜住取消：
+        # 后到的评分即使跑到晋级点，也会因 active 不再等于本 run 而判过期。
+        try:
+            locked_candidate = self.db.query(RecruitmentCandidate).filter(
+                RecruitmentCandidate.id == run.candidate_id,
+            ).populate_existing().with_for_update().first()
+        except Exception:
+            locked_candidate = None
+        if locked_candidate is not None and getattr(locked_candidate, "active_screening_run_id", None) == run.id:
+            locked_candidate.active_screening_run_id = None
+            locked_candidate.updated_by = actor_id
+            self.db.add(locked_candidate)
 
     def cancel_ai_task(self, task_id: int, actor_id: str) -> Dict[str, Any]:
         row = self._get_ai_task_log_row(task_id)
@@ -17622,6 +17704,36 @@ class RecruitmentService:
             position_list_lines.append(line)
         return "\n".join(position_list_lines) if position_list_lines else "暂无系统岗位"
 
+    def _detect_run_cancellation_block(self, run_id: Optional[int]) -> Optional[str]:
+        """晋级前对本 run 加锁核对状态：已取消/已进入不可晋级终态则返回过期原因，禁止晋级。
+
+        这是取消屏障的第一道：即使候选人 active_screening_run_id 仍指向本 run（取消只标了 run
+        状态、未清空指针的旧路径），也能凭 run 自身状态挡住"取消后仍晋级/发信"的确定性缺陷。
+        锁顺序：调用方已先锁候选人行，这里再锁 run 行，保持 候选人→run 的一致加锁次序。
+        """
+        if not run_id:
+            return None
+        try:
+            run_row = self.db.query(
+                RecruitmentCandidateScreeningRun.status,
+                RecruitmentCandidateScreeningRun.cancel_requested_at,
+            ).filter(RecruitmentCandidateScreeningRun.id == run_id).with_for_update().first()
+        except Exception:
+            return None
+        if run_row is None:
+            return None
+        try:
+            run_status, cancel_requested_at = run_row
+        except (TypeError, ValueError):
+            # 非真实 DB 行（单测 Mock）无法判定，按未过期处理。
+            return None
+        if cancel_requested_at is not None or run_status == "cancelled":
+            return "cancelled"
+        # 本 run 已被判定过期/失败等不可晋级终态，不得再写权威结果。
+        if run_status in {"superseded", "failed", "invalid_result", "timeout"}:
+            return "generation_changed"
+        return None
+
     def _detect_superseded_score_promotion(
         self,
         candidate: RecruitmentCandidate,
@@ -17657,6 +17769,14 @@ class RecruitmentService:
             return None
         if deleted:
             return "candidate_deleted"
+        # 取消屏障：本 run 已取消/已终态则立即判过期，绝不覆盖候选人权威结果或触发通知。
+        run_block_reason = self._detect_run_cancellation_block(expected_run_id)
+        if run_block_reason:
+            logger.warning(
+                "[SCREENING_CAS] Superseded (%s) candidate_id=%s run_id=%s",
+                run_block_reason, candidate.id, expected_run_id,
+            )
+            return run_block_reason
         # Commit 2 generation/CAS：本 run 不再是候选人当前 active run（有更晚的初筛抢占，
         # 或已被取消清空）→ 过期。这挡住 T1/T2 乱序完成时旧 run 覆盖新结果。
         if expected_run_id is not None and current_active_run_id is not None and int(current_active_run_id) != int(expected_run_id):
@@ -18197,6 +18317,7 @@ class RecruitmentService:
             prompt_version=str(meta.get("prompt_version") or "").strip() or None,
             model_name=str(meta.get("model_name") or "").strip() or None,
             provider=str(meta.get("provider") or "").strip() or None,
+            evaluation_protocol_hash=str(meta.get("evaluation_protocol_hash") or "").strip() or None,
             created_by=actor_id,
         )
         self.db.add(run)
@@ -18208,14 +18329,20 @@ class RecruitmentService:
         return run
 
     def _stamp_parse_run_id(self, parse_row: Any) -> None:
-        """把当前 run id 回填到解析结果行，保证工件可稳定溯源到 run。"""
+        """把当前 run id 回填到解析结果行，保证工件可稳定溯源到"创建它的 run"。
+
+        不可变溯源：仅当该解析行尚未归属任何 run 时才回填。复用历史解析（rerank/score-only）时
+        绝不改写它原始的 screening_run_id，否则会把旧解析的来源篡改成当前 run，破坏可追溯性。
+        """
         run_id = self._current_screening_run_id
         if not run_id or parse_row is None:
             return
         try:
-            if getattr(parse_row, "screening_run_id", None) != run_id:
-                parse_row.screening_run_id = run_id
-                self.db.add(parse_row)
+            existing_run_id = getattr(parse_row, "screening_run_id", None)
+            if existing_run_id:
+                return
+            parse_row.screening_run_id = run_id
+            self.db.add(parse_row)
         except Exception:
             logger.debug("Failed to stamp screening_run_id on parse row", exc_info=True)
 
@@ -18244,20 +18371,37 @@ class RecruitmentService:
         if not run:
             return
         now = datetime.now()
-        run.status = status
-        if superseded_reason:
+        target_status = status
+        # 取消屏障（第二道）：取消是不可逆终态——后到的晋级/过期都不得把它改回来，
+        # 且绝不写候选人权威指针。审计用的 parse/score 引用仍可回填。
+        if run.status == "cancelled" and status != "cancelled":
+            logger.warning(
+                "[SCREENING_RUN] keep cancelled run id=%s, refuse status=%s promote_candidate=%s",
+                run_id, status, getattr(promote_candidate, "id", None),
+            )
+            target_status = "cancelled"
+            promote_candidate = None
+        # 过期/失败等终态不得被后到结果覆盖回 promoted/success。
+        elif status in {"promoted", "success"} and run.status in {"superseded", "failed", "invalid_result", "timeout"}:
+            logger.warning(
+                "[SCREENING_RUN] refuse to promote terminal run id=%s current=%s", run_id, run.status,
+            )
+            target_status = run.status
+            promote_candidate = None
+        run.status = target_status
+        if superseded_reason and target_status != "cancelled":
             run.superseded_reason = superseded_reason
         if parse_result_id:
             run.parse_result_id = parse_result_id
         if score_result_id:
             run.score_result_id = score_result_id
-        if status in {"promoted", "success"}:
+        if target_status in {"promoted", "success"}:
             run.promoted_at = now
             run.completed_at = now
             if promote_candidate is not None:
                 promote_candidate.latest_screening_run_id = run.id
                 self.db.add(promote_candidate)
-        elif status in {"superseded", "cancelled", "failed", "invalid_result"}:
+        elif target_status in {"superseded", "cancelled", "failed", "invalid_result"}:
             run.completed_at = now
         self.db.add(run)
 

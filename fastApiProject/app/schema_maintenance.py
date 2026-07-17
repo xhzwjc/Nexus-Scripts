@@ -665,10 +665,15 @@ def ensure_recruitment_schema() -> None:
                 _add_column_if_missing(inspector, "recruitment_candidates", "screening_generation", "ALTER TABLE recruitment_candidates ADD COLUMN screening_generation INTEGER NOT NULL DEFAULT 0", "Added recruitment_candidates.screening_generation column")
                 _add_column_if_missing(inspector, "recruitment_candidates", "active_screening_run_id", "ALTER TABLE recruitment_candidates ADD COLUMN active_screening_run_id INTEGER NULL", "Added recruitment_candidates.active_screening_run_id column")
                 _add_column_if_missing(inspector, "recruitment_candidates", "latest_screening_run_id", "ALTER TABLE recruitment_candidates ADD COLUMN latest_screening_run_id INTEGER NULL", "Added recruitment_candidates.latest_screening_run_id column")
+                # ALTER 只加列不建索引；模型上这些列声明了 index=True，需在既有生产表上补建。
+                _add_index_if_missing(inspector, "recruitment_candidates", "ix_recruitment_candidates_active_screening_run_id", "CREATE INDEX ix_recruitment_candidates_active_screening_run_id ON recruitment_candidates (active_screening_run_id)", "Created index ix_recruitment_candidates_active_screening_run_id")
+                _add_index_if_missing(inspector, "recruitment_candidates", "ix_recruitment_candidates_latest_screening_run_id", "CREATE INDEX ix_recruitment_candidates_latest_screening_run_id ON recruitment_candidates (latest_screening_run_id)", "Created index ix_recruitment_candidates_latest_screening_run_id")
             if inspector.has_table("recruitment_resume_parse_results"):
                 _add_column_if_missing(inspector, "recruitment_resume_parse_results", "screening_run_id", "ALTER TABLE recruitment_resume_parse_results ADD COLUMN screening_run_id INTEGER NULL", "Added recruitment_resume_parse_results.screening_run_id column")
+                _add_index_if_missing(inspector, "recruitment_resume_parse_results", "ix_recruitment_resume_parse_results_screening_run_id", "CREATE INDEX ix_recruitment_resume_parse_results_screening_run_id ON recruitment_resume_parse_results (screening_run_id)", "Created index ix_recruitment_resume_parse_results_screening_run_id")
             if inspector.has_table("recruitment_candidate_scores"):
                 _add_column_if_missing(inspector, "recruitment_candidate_scores", "screening_run_id", "ALTER TABLE recruitment_candidate_scores ADD COLUMN screening_run_id INTEGER NULL", "Added recruitment_candidate_scores.screening_run_id column")
+                _add_index_if_missing(inspector, "recruitment_candidate_scores", "ix_recruitment_candidate_scores_screening_run_id", "CREATE INDEX ix_recruitment_candidate_scores_screening_run_id ON recruitment_candidate_scores (screening_run_id)", "Created index ix_recruitment_candidate_scores_screening_run_id")
 
             jd_columns = {column["name"] for column in inspector.get_columns("recruitment_jd_versions")}
             if "publish_text" not in jd_columns:
