@@ -354,11 +354,27 @@ CANDIDATE_DETAIL_ACTIVITY_LIMIT = max(10, int(os.getenv("CANDIDATE_DETAIL_ACTIVI
 CANDIDATE_DETAIL_TEXT_PREVIEW_BYTES = max(1024, int(os.getenv("CANDIDATE_DETAIL_TEXT_PREVIEW_BYTES", "16000")))
 CANDIDATE_DETAIL_JSON_PREVIEW_BYTES = max(2048, int(os.getenv("CANDIDATE_DETAIL_JSON_PREVIEW_BYTES", "24000")))
 CANDIDATE_DETAIL_COLLECTION_LIMIT = max(5, int(os.getenv("CANDIDATE_DETAIL_COLLECTION_LIMIT", "24")))
-TERMINAL_AI_TASK_STATUSES = {"success", "fallback", "failed", "invalid_result", "json_parse_failed", "invalid_json_variant_conflict", "timeout", "retry_exhausted", "cancelled", "rate_limited", "upstream_timeout", "request_failed", "screening_total_timeout", "quota_exceeded"}
+TERMINAL_AI_TASK_STATUSES = {"success", "fallback", "failed", "invalid_result", "json_parse_failed", "invalid_json_variant_conflict", "timeout", "retry_exhausted", "cancelled", "rate_limited", "upstream_timeout", "request_failed", "screening_total_timeout", "quota_exceeded", "superseded", "screening_rule_invalid", "resume_text_unavailable"}
+# 过期原因归类（P0 控制流：superseded 是独立终态，不伪装成 invalid_result）
+SCREENING_SUPERSEDED_REASONS = {"resume_changed", "position_changed", "candidate_deleted", "generation_changed", "protocol_changed", "cancelled"}
 TERMINAL_SCREENING_STAGES = {"parsed", "completed", "failed", "cancelled"}
 
 class RecruitmentConflictError(RuntimeError):
     pass
+
+
+class RecruitmentScreeningRuleInvalidError(ValueError):
+    """初筛 Skill 存在但解析不出任何有效评分维度——不得调用模型，直接终态。"""
+    pass
+
+
+class RecruitmentScreeningResumeTextUnavailableError(ValueError):
+    """简历原文为空/过短——不得评分，直接终态。"""
+    pass
+
+
+# 评分前简历原文的最小可识别字符数（与 recruitment_utils.MIN_RESUME_TEXT_LENGTH 对齐）。
+SCREENING_MIN_RESUME_TEXT_LENGTH = 50
 
 
 def _dedupe_ints(values: Iterable[Any]) -> List[int]:
@@ -5907,6 +5923,10 @@ def _build_screening_task_progress_snapshot(
 
 
 def _classify_screening_task_failure(exc: Exception) -> Tuple[str, str]:
+    if isinstance(exc, RecruitmentScreeningRuleInvalidError):
+        return "screening_rule_invalid", str(exc) or "初筛 Skill 未能解析出有效评分维度。"
+    if isinstance(exc, RecruitmentScreeningResumeTextUnavailableError):
+        return "resume_text_unavailable", str(exc) or "简历未提取到可识别文本。"
     if isinstance(exc, RecruitmentAIScreeningTotalTimeoutError):
         return "screening_total_timeout", str(exc) or f"初筛总耗时超过 {int(SCREENING_TOTAL_TIMEOUT_SECONDS)} 秒，已终止"
     if isinstance(exc, RecruitmentAIJSONParseError):
@@ -17605,7 +17625,8 @@ class RecruitmentService:
             current_resume_file_id = int(current_resume_file_id or 0)
         except (TypeError, ValueError):
             current_resume_file_id = 0
-        if expected_resume_file_id and current_resume_file_id and current_resume_file_id != expected_resume_file_id:
+        # 空值安全：换简历或清空简历指针（A→None）都算过期。
+        if expected_resume_file_id and current_resume_file_id != expected_resume_file_id:
             logger.warning(
                 "[SCREENING_CAS] Superseded (resume_changed) candidate_id=%s expected_resume_file_id=%s current=%s",
                 candidate.id, expected_resume_file_id, current_resume_file_id,
@@ -17617,7 +17638,8 @@ class RecruitmentService:
                 current_pos = int(current_position_id or 0)
             except (TypeError, ValueError):
                 expected_pos = current_pos = 0
-            if expected_pos and current_pos and expected_pos != current_pos:
+            # 空值安全：换岗或岗位被清空（A→None）都算过期。
+            if expected_pos and current_pos != expected_pos:
                 logger.warning(
                     "[SCREENING_CAS] Superseded (position_changed) candidate_id=%s expected_position_id=%s current=%s",
                     candidate.id, expected_pos, current_pos,
@@ -19586,35 +19608,51 @@ class RecruitmentService:
                 ),
             )
             prev_ai_recommended_status = candidate.ai_recommended_status
-            self._apply_screening_position_match_payload(candidate, position_match_payload, source="resume_score")
+            # P0 控制流：score-only/fallback 晋级前统一 CAS——过期则不写岗位推荐、不晋级、不发邮件。
+            score_superseded_reason = self._detect_superseded_score_promotion(
+                candidate,
+                parse_row,
+                expected_position_id=candidate.position_id,
+            )
+            if not score_superseded_reason:
+                self._apply_screening_position_match_payload(candidate, position_match_payload, source="resume_score")
+            effective_result_valid = screening_result_valid and not score_superseded_reason
             score_row = self._save_score_result(
                 candidate,
                 parse_row,
                 actor_id,
                 storage_payload,
-                allow_status_advance=screening_result_valid,
+                allow_status_advance=effective_result_valid,
+                superseded_reason=score_superseded_reason or None,
             )
-            if not screening_result_valid:
+            if not effective_result_valid:
                 candidate.ai_recommended_status = prev_ai_recommended_status
                 self.db.add(candidate)
-            final_task_status = "success"
-            final_response_source = "primary_score_model"
-            final_output_summary = _build_screening_output_summary(
-                score_payload=raw_score_payload,
-            ) or task.get("output_summary")
-            screening_result_state = "success"
-            final_error_message = None
-            if not screening_result_valid:
-                final_task_status = "invalid_result"
-                final_response_source = "primary_score_model_invalid"
-                final_output_summary = f"AI 返回了无效初筛结果：{invalid_result_summary}" if invalid_result_summary else "AI 返回了无效初筛结果"
+            if score_superseded_reason:
+                final_task_status = "superseded"
+                final_response_source = "superseded_resume_changed"
+                final_output_summary = "结果已过期：运行期间候选人简历/岗位已变更，仅留档不写入候选人档案。"
                 final_error_message = final_output_summary
-                screening_result_state = "invalid"
+                screening_result_state = "superseded"
+            else:
+                final_task_status = "success"
+                final_response_source = "primary_score_model"
+                final_output_summary = _build_screening_output_summary(
+                    score_payload=raw_score_payload,
+                ) or task.get("output_summary")
+                screening_result_state = "success"
+                final_error_message = None
+                if not screening_result_valid:
+                    final_task_status = "invalid_result"
+                    final_response_source = "primary_score_model_invalid"
+                    final_output_summary = f"AI 返回了无效初筛结果：{invalid_result_summary}" if invalid_result_summary else "AI 返回了无效初筛结果"
+                    final_error_message = final_output_summary
+                    screening_result_state = "invalid"
             self.db.commit()
             self.db.refresh(score_row)
             self.db.refresh(candidate)
             save_duration_ms = max(0, int((time.perf_counter() - save_started_at) * 1000))
-            if screening_result_valid:
+            if effective_result_valid:
                 # 非批量上传时，单个发送邮件；批量上传由 _emit_batch_summary_if_needed 统一触发
                 has_batch = bool(batch_id or (task_log_row and getattr(task_log_row, 'batch_id', None)) or (log_row and getattr(log_row, 'batch_id', None)))
                 if not has_batch:
@@ -19634,8 +19672,9 @@ class RecruitmentService:
                 "invalid_result_summary": invalid_result_summary or None,
                 "model_schema_violation": model_schema_violation,
                 "model_schema_violation_reason": model_schema_violation_reason,
-                "screening_result_valid": screening_result_valid,
+                "screening_result_valid": effective_result_valid,
                 "screening_result_state": screening_result_state,
+                "superseded_reason": score_superseded_reason or None,
                 "parse_strategy": parse_strategy,
                 "reused_existing_parse": reused_existing_parse,
                 "final_response_source": final_response_source,
@@ -19659,7 +19698,7 @@ class RecruitmentService:
                 candidate=candidate,
                 parse_row=parse_row,
                 score_row=score_row,
-                screening_result_valid=screening_result_valid,
+                screening_result_valid=effective_result_valid,
                 raw_model_suggested_status=validation_meta.get("raw_model_suggested_status")
                 or (str(raw_score_payload.get("suggested_status") or "").strip() or None),
                 normalized_final_suggested_status=validation_meta.get("normalized_final_suggested_status")
@@ -19669,21 +19708,22 @@ class RecruitmentService:
                 self._update_ai_task_log(
                     log_row,
                     status="running",
-                    stage="saving" if screening_result_valid else "failed",
+                    stage="saving" if effective_result_valid else "failed",
                     output_summary=final_output_summary,
                     output_snapshot={
                         **score_task_snapshot_base,
-                        "stage": "saving" if screening_result_valid else "failed",
+                        "stage": "saving" if effective_result_valid else "failed",
                         "parse_strategy": parse_strategy,
                         "parse_status": parse_status_label,
-                        "score_status": "completed" if screening_result_valid else "failed",
-                        "persist_status": "completed" if screening_result_valid else "failed",
+                        "score_status": "completed" if effective_result_valid else "failed",
+                        "persist_status": "completed" if effective_result_valid else "failed",
                         "score_result_id": score_row.id,
                         "invalid_result_summary": invalid_result_summary or None,
                         "model_schema_violation": model_schema_violation,
                         "model_schema_violation_reason": model_schema_violation_reason,
-                        "screening_result_valid": screening_result_valid,
+                        "screening_result_valid": effective_result_valid,
                         "screening_result_state": screening_result_state,
+                        "superseded_reason": score_superseded_reason or None,
                         "final_response_source": final_response_source,
                         "position_match": position_match_payload or None,
                         "response_debug": score_response_debug,
@@ -20112,6 +20152,12 @@ class RecruitmentService:
             raise ValueError("该岗位未配置初筛Skill，无法发起初筛。请先在岗位配置中绑定初筛Skill后再发起初筛。")
 
         score_rule_snapshot = _build_score_rule_snapshot(skill_snapshots)
+        # P0 evidence fail-closed：绑定了 Skill 但解析不出任何权威评分维度时，
+        # 不调用模型，直接以 screening_rule_invalid 结束，避免模型自造维度刷满分。
+        if skill_snapshots and not score_rule_snapshot:
+            raise RecruitmentScreeningRuleInvalidError(
+                "初筛 Skill 未能解析出任何有效评分维度（缺少满分/维度表），已阻止初筛。请检查 Skill 规则表。"
+            )
         parse_row: Optional[RecruitmentResumeParseResult] = self._get_current_parse_result(candidate)
         had_existing_parse = allow_reuse_parse and self._can_reuse_existing_parse_result(candidate, parse_row)
         if not had_existing_parse:
@@ -20122,6 +20168,12 @@ class RecruitmentService:
             if parse_row and getattr(parse_row, "raw_text", None)
             else self._extract_resume_file_raw_text(resume_file)
         )
+        # P0 evidence fail-closed：简历原文为空/过短时不评分（extract 已尽力再取一次），
+        # 直接以 resume_text_unavailable 结束，禁止自动晋级。
+        if len(re.findall(r"[A-Za-z0-9一-鿿]", str(request_raw_text or ""))) < SCREENING_MIN_RESUME_TEXT_LENGTH:
+            raise RecruitmentScreeningResumeTextUnavailableError(
+                "简历未提取到可识别文本，已阻止初筛。请上传文本版 PDF 或 Word 后重试。"
+            )
 
         default_request_meta = self._build_screening_request_meta(
             candidate=candidate,
@@ -20547,6 +20599,32 @@ class RecruitmentService:
                         extra=build_root_task_snapshot_extra(),
                     ),
                 )
+                # P0 控制流：缓存命中晋级前也必须做 CAS——运行期间换简历/换岗则不晋级，仅留档。
+                cache_superseded = self._detect_superseded_score_promotion(
+                    candidate,
+                    parse_row,
+                    expected_position_id=request_meta.get("position_id"),
+                ) if parse_row else "candidate_deleted"
+                if cache_superseded:
+                    candidate.updated_by = actor_id
+                    self.db.add(candidate)
+                    self.db.commit()
+                    self.db.refresh(candidate)
+                    flow_state["score_status"] = "superseded"
+                    flow_state["persist_status"] = "superseded"
+                    superseded_summary = "结果已过期：运行期间候选人简历/岗位已变更，命中的缓存结果未写入候选人档案。"
+                    finish_root_task(
+                        candidate_ref=candidate,
+                        status="superseded",
+                        stage="superseded",
+                        output_summary=superseded_summary,
+                        error_message=superseded_summary,
+                        fallback_state="superseded",
+                        fallback_valid=False,
+                        fallback_reasons=[f"superseded:{cache_superseded}"],
+                        fallback_summary=superseded_summary,
+                    )
+                    return self.get_candidate_detail(candidate.id)
                 if parse_row:
                     candidate.latest_parse_result_id = parse_row.id
                 if score_row:
@@ -20620,6 +20698,30 @@ class RecruitmentService:
                             deadline_at=screening_deadline_at,
                             batch_id=batch_id,
                         )
+                        # P0 控制流：one-pass 判定过期时，根流程立即进入 superseded 终态——
+                        # 禁止 reparse / salvage / fallback / workflow / 缓存晋级 / 自动推进 / 邮件，
+                        # 只保留 parse/score 审计记录，返回数据库当前权威候选人状态。
+                        one_pass_superseded = getattr(score_row, "_superseded_reason", None)
+                        if one_pass_superseded:
+                            candidate = self._get_candidate(candidate_id)
+                            flow_state["parse_status"] = "completed"
+                            flow_state["score_status"] = "superseded"
+                            flow_state["persist_status"] = "superseded"
+                            flow_state["parse_result_id"] = parse_row.id if parse_row else None
+                            flow_state["score_result_id"] = score_row.id if score_row else None
+                            superseded_summary = "结果已过期：运行期间候选人简历/岗位已变更，仅留档不写入候选人档案。"
+                            finish_root_task(
+                                candidate_ref=candidate,
+                                status="superseded",
+                                stage="superseded",
+                                output_summary=superseded_summary,
+                                error_message=superseded_summary,
+                                fallback_state="superseded",
+                                fallback_valid=False,
+                                fallback_reasons=[f"superseded:{one_pass_superseded}"],
+                                fallback_summary=superseded_summary,
+                            )
+                            return self.get_candidate_detail(candidate.id)
                         candidate = self._get_candidate(candidate_id)
                         # If one-pass returned empty basic_info, re-parse before proceeding
                         _one_pass_bi = json_loads_safe(getattr(parse_row, "basic_info_json", None) or "{}", {})
@@ -20974,6 +21076,28 @@ class RecruitmentService:
                     flow_state["primary_model_call_succeeded"] = score_validation_meta.get("primary_model_call_succeeded")
                 flow_state["raw_model_suggested_status"] = score_validation_meta.get("raw_model_suggested_status") or flow_state.get("raw_model_suggested_status")
                 flow_state["normalized_final_suggested_status"] = score_validation_meta.get("normalized_final_suggested_status") or flow_state.get("normalized_final_suggested_status")
+            # P0 控制流：fallback/score-only 子任务判定过期时，根流程进入 superseded 终态——
+            # 禁止写工作流记忆（否则会把过期结果晋级为 latest）、禁止自动推进，仅留档。
+            fallback_superseded = str(score_validation_meta.get("superseded_reason") or "").strip() or (
+                score_validation_meta.get("screening_result_state") == "superseded" and "resume_changed" or ""
+            )
+            if fallback_superseded:
+                candidate = self._get_candidate(candidate_id)
+                flow_state["score_status"] = "superseded"
+                flow_state["persist_status"] = "superseded"
+                superseded_summary = "结果已过期：运行期间候选人简历/岗位已变更，仅留档不写入候选人档案。"
+                finish_root_task(
+                    candidate_ref=candidate,
+                    status="superseded",
+                    stage="superseded",
+                    output_summary=superseded_summary,
+                    error_message=superseded_summary,
+                    fallback_state="superseded",
+                    fallback_valid=False,
+                    fallback_reasons=[f"superseded:{fallback_superseded}"],
+                    fallback_summary=superseded_summary,
+                )
+                return self.get_candidate_detail(candidate.id)
             screening_result_valid = score_validation_meta.get("screening_result_valid")
             is_valid_result = screening_result_valid if isinstance(screening_result_valid, bool) else True
             flow_state["score_status"] = "completed" if is_valid_result else "failed"

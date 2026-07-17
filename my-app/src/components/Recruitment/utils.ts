@@ -1545,6 +1545,16 @@ export function sanitizeCandidateFacingErrorText(
             ? "模型接口超时，请稍后重试。"
             : "Model API timed out. Please retry later.";
     }
+    if (normalized.toLowerCase().includes("resume_text_unavailable")) {
+        return isZh
+            ? "简历未提取到可识别文本，请上传文本版 PDF 或 Word 后重试。"
+            : "No readable text was extracted from the resume. Please upload a text-based PDF or Word file and retry.";
+    }
+    if (normalized.toLowerCase().includes("screening_rule_invalid")) {
+        return isZh
+            ? "初筛 Skill 未能解析出有效评分维度，请检查岗位绑定的初筛规则表。"
+            : "The screening skill produced no valid scoring dimensions. Please check the position's screening rule table.";
+    }
     if (context === "screening_auto_retry" && (normalized.includes("自动重试") || normalized.toLowerCase().includes("retry automatically"))) {
         return normalized;
     }

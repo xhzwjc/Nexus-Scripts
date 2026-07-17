@@ -523,6 +523,10 @@ const TERMINAL_SCREENING_TASK_STATUSES = new Set([
     "upstream_timeout",
     "request_failed",
     "screening_total_timeout",
+    // 后端 P0 控制流新增终态：过期（换简历/换岗）、规则无效、简历无文本。
+    "superseded",
+    "screening_rule_invalid",
+    "resume_text_unavailable",
 ]);
 
 type CandidateSnapshotBatchUpdate = {
@@ -5900,7 +5904,7 @@ export default function RecruitmentAutomationContainer({
                     scheduleCandidateStatsRefresh();
                 }
                 if (event.related_candidate_id && event.task_type === "screening_flow") {
-                    const failedLike = new Set(["failed", "invalid_result", "json_parse_failed", "timeout", "retry_exhausted", "quota_exceeded", "rate_limited", "upstream_timeout", "request_failed"]);
+                    const failedLike = new Set(["failed", "invalid_result", "json_parse_failed", "timeout", "retry_exhausted", "quota_exceeded", "rate_limited", "upstream_timeout", "request_failed", "screening_rule_invalid", "resume_text_unavailable"]);
                     if (!event.candidate_snapshot) {
                         setAllCandidates((current) => {
                             let changed = false;

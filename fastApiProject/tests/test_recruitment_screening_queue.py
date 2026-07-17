@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import httpx
+import pytest
 from sqlalchemy.exc import OperationalError, SQLAlchemyError, TimeoutError as SQLAlchemyTimeoutError
 
 import app.services.recruitment_service_impl as recruitment_impl
@@ -22,6 +23,8 @@ from app.services.recruitment_prompts import (
 from app.services.recruitment_service_impl import (
     RAW_SCREENING_SCORE_STORAGE_FORMAT,
     RecruitmentService,
+    RecruitmentScreeningResumeTextUnavailableError,
+    RecruitmentScreeningRuleInvalidError,
     SCREENING_ONE_PASS_TASK_TYPE,
     SCREENING_PAYLOAD_SCHEMA_CONFIG,
     SCREENING_FLOW_TASK_TYPE,
@@ -2418,7 +2421,7 @@ def test_extract_json_parse_failure_meta_marks_empty_parse_response():
 def test_screen_candidate_reranks_from_existing_parse_when_mode_explicit():
     service = RecruitmentService(Mock())
     candidate = SimpleNamespace(id=5, position_id=9, latest_resume_file_id=12, updated_by=None, status="screening_passed", match_percent=80, ai_recommended_status="screening_passed")
-    parse_row = SimpleNamespace(id=31, resume_file_id=12, status="success", raw_text="候选人简历")
+    parse_row = SimpleNamespace(id=31, resume_file_id=12, status="success", raw_text="候选人简历：三年物联网测试经验，负责 IoT 协议联调与自动化测试，使用 Python 编写自动化测试脚本与测试平台，熟悉智能家居生态与设备联动测试。")
     score_row = SimpleNamespace(id=41)
     score_log = SimpleNamespace(
         id=92,
@@ -2441,7 +2444,7 @@ def test_screen_candidate_reranks_from_existing_parse_when_mode_explicit():
     service._get_candidate = Mock(return_value=candidate)
     service._can_reuse_existing_parse_result = Mock(return_value=True)
     service._resolve_screening_skills = Mock(return_value=([], "position", "position_binding", {}))
-    service._prepare_screening_task_context = Mock(return_value=([{"id": 1, "name": "初筛规则", "content": "规则"}], [1], ""))
+    service._prepare_screening_task_context = Mock(return_value=([{"id": 1, "name": "初筛规则", "content": "| 维度 | 权重 | 满分 | 说明 |\n| --- | --- | --- | --- |\n| IoT协议 | 50% | 5 | 核心第一优先，必须提供 BLE 相关简历原文证据 |\n| 自动化测试 | 50% | 5 | 需要体现自动化脚本或测试平台经验 |"}], [1], ""))
     service._build_screening_request_meta = Mock(return_value={"request_hash": "hash"})
     service._load_reusable_screening_result = Mock(return_value=None)
     service._ensure_screening_root_task = Mock(return_value=root_log)
@@ -2499,9 +2502,9 @@ def test_screen_candidate_uses_one_pass_as_default_path_when_parse_missing():
     service._get_candidate = Mock(return_value=candidate)
     service._can_reuse_existing_parse_result = Mock(return_value=False)
     service._get_resume_file = Mock(return_value=SimpleNamespace(id=12))
-    service._extract_resume_file_raw_text = Mock(return_value="候选人简历")
+    service._extract_resume_file_raw_text = Mock(return_value="候选人简历：三年物联网测试经验，负责 IoT 协议联调与自动化测试，使用 Python 编写自动化测试脚本与测试平台，熟悉智能家居生态与设备联动测试。")
     service._resolve_screening_skills = Mock(return_value=([], "position", "position_binding", {}))
-    service._prepare_screening_task_context = Mock(return_value=([{"id": 1, "name": "初筛规则", "content": "规则"}], [1], ""))
+    service._prepare_screening_task_context = Mock(return_value=([{"id": 1, "name": "初筛规则", "content": "| 维度 | 权重 | 满分 | 说明 |\n| --- | --- | --- | --- |\n| IoT协议 | 50% | 5 | 核心第一优先，必须提供 BLE 相关简历原文证据 |\n| 自动化测试 | 50% | 5 | 需要体现自动化脚本或测试平台经验 |"}], [1], ""))
     service._build_screening_request_meta = Mock(return_value={"request_hash": "hash"})
     service._load_reusable_screening_result = Mock(return_value=None)
     service._get_latest_valid_screening_result_for_candidate = Mock(return_value=None)
@@ -2532,6 +2535,84 @@ def test_screen_candidate_uses_one_pass_as_default_path_when_parse_missing():
     assert service._screen_candidate_with_single_ai_call.call_args.kwargs["root_task_id"] == root_log.id
     assert service._screen_candidate_with_single_ai_call.call_args.kwargs["cancel_control"] is cancel_control
     assert service._screen_candidate_with_single_ai_call.call_args.kwargs["deadline_at"] is not None
+
+
+def _make_screen_orchestration_service(one_pass_return):
+    """构造一个只暴露 screen_candidate 根编排、内部依赖全部 mock 的 service。"""
+    service = RecruitmentService(Mock())
+    candidate = SimpleNamespace(id=5, position_id=9, latest_resume_file_id=12, updated_by=None, status="pending_screening")
+    root_log = SimpleNamespace(
+        id=91, screening_run_id="run-91", root_task_id=91, validation_meta_json=None,
+        error_message=None, output_summary="初筛完成", timing_breakdown_json=None, output_snapshot=None,
+    )
+    service._get_candidate = Mock(return_value=candidate)
+    service._can_reuse_existing_parse_result = Mock(return_value=False)
+    service._get_resume_file = Mock(return_value=SimpleNamespace(id=12))
+    service._extract_resume_file_raw_text = Mock(return_value="候选人简历：三年物联网测试经验，负责 IoT 协议联调与自动化测试，使用 Python 编写自动化测试脚本与测试平台，熟悉智能家居生态与设备联动测试。")
+    service._resolve_screening_skills = Mock(return_value=([], "position", "position_binding", {}))
+    service._prepare_screening_task_context = Mock(return_value=([{"id": 1, "name": "初筛规则", "content": "| 维度 | 权重 | 满分 | 说明 |\n| --- | --- | --- | --- |\n| IoT协议 | 50% | 5 | 核心第一优先 |\n| 自动化测试 | 50% | 5 | 次要 |"}], [1], ""))
+    service._build_screening_request_meta = Mock(return_value={"request_hash": "hash", "position_id": 9})
+    service._load_reusable_screening_result = Mock(return_value=None)
+    service._get_latest_valid_screening_result_for_candidate = Mock(return_value=None)
+    service._ensure_screening_root_task = Mock(return_value=root_log)
+    service._update_ai_task_log = Mock(return_value=root_log)
+    service._get_current_parse_result = Mock(return_value=None)
+    service._parse_latest_resume = Mock()
+    service._score_candidate = Mock()
+    service._reparse_candidate_basic_info = Mock()
+    service._save_screening_workflow_memory = Mock()
+    service._maybe_send_auto_resume_mail_after_screening = Mock()
+    service._auto_advance_candidate_after_screening = Mock()
+    service._get_latest_screening_run_task = Mock(return_value=None)
+    service._get_latest_screening_score_run_task = Mock(return_value=None)
+    service._build_screening_run_timing_breakdown = Mock(return_value={"total_duration_ms": 1})
+    service._build_screening_persisted_result_refs = Mock(return_value={})
+    service._finish_ai_task_log = Mock(return_value=root_log)
+    service._serialize_parse_result = Mock(return_value={})
+    service._serialize_score = Mock(return_value={})
+    service.get_candidate_detail = Mock(return_value={"candidate": {"id": 5, "status": candidate.status}})
+    service._screen_candidate_with_single_ai_call = Mock(return_value=one_pass_return)
+    return service, candidate, root_log
+
+
+def test_root_short_circuits_on_one_pass_superseded_and_skips_downstream():
+    # P0 控制流端到端：one-pass 返回 superseded 时，根编排必须直接进 superseded 终态——
+    # 不 reparse、不 salvage、不 fallback、不写工作流记忆、不自动推进、不发邮件。
+    parse_row = SimpleNamespace(id=31, resume_file_id=12, status="success", basic_info_json='{"name":"张三","phone":"1","email":"a@b.c","age":"30","years_of_experience":"3","education":"本科","location":"上海"}')
+    score_row = SimpleNamespace(id=41)
+    setattr(score_row, "_superseded_reason", "resume_changed")
+
+    service, candidate, root_log = _make_screen_orchestration_service((parse_row, score_row))
+    service.screen_candidate(5, "tester")
+
+    # 根任务落 superseded 终态
+    finish_kwargs = service._finish_ai_task_log.call_args.kwargs
+    assert finish_kwargs["status"] == "superseded"
+    # 禁止 reparse / fallback / 工作流记忆 / 自动推进 / 邮件
+    service._reparse_candidate_basic_info.assert_not_called()
+    service._parse_latest_resume.assert_not_called()
+    service._score_candidate.assert_not_called()
+    service._save_screening_workflow_memory.assert_not_called()
+    service._auto_advance_candidate_after_screening.assert_not_called()
+    service._maybe_send_auto_resume_mail_after_screening.assert_not_called()
+
+
+def test_root_fails_closed_when_resume_text_unavailable():
+    # P0 evidence fail-closed 端到端：简历原文为空/过短 → 不调用模型，直接抛 resume_text_unavailable。
+    service, candidate, root_log = _make_screen_orchestration_service((None, None))
+    service._extract_resume_file_raw_text = Mock(return_value="太短")
+    with pytest.raises(RecruitmentScreeningResumeTextUnavailableError):
+        service.screen_candidate(5, "tester")
+    service._screen_candidate_with_single_ai_call.assert_not_called()
+
+
+def test_root_fails_closed_when_skill_has_no_parseable_dimensions():
+    # P0 evidence fail-closed 端到端：绑定 Skill 但无可解析维度 → 不调用模型，直接抛 screening_rule_invalid。
+    service, candidate, root_log = _make_screen_orchestration_service((None, None))
+    service._prepare_screening_task_context = Mock(return_value=([{"id": 1, "name": "空规则", "content": "没有任何维度表的纯文字规则"}], [1], ""))
+    with pytest.raises(RecruitmentScreeningRuleInvalidError):
+        service.screen_candidate(5, "tester")
+    service._screen_candidate_with_single_ai_call.assert_not_called()
 
 
 def test_one_pass_task_type_is_not_resume_score():
@@ -3175,9 +3256,9 @@ def test_root_failure_inherits_parse_child_request_context():
     service._get_candidate = Mock(return_value=candidate)
     service._can_reuse_existing_parse_result = Mock(return_value=False)
     service._get_resume_file = Mock(return_value=SimpleNamespace(id=12))
-    service._extract_resume_file_raw_text = Mock(return_value="候选人简历")
+    service._extract_resume_file_raw_text = Mock(return_value="候选人简历：三年物联网测试经验，负责 IoT 协议联调与自动化测试，使用 Python 编写自动化测试脚本与测试平台，熟悉智能家居生态与设备联动测试。")
     service._resolve_screening_skills = Mock(return_value=([], "position", "position_binding", {}))
-    service._prepare_screening_task_context = Mock(return_value=([{"id": 1, "name": "初筛规则", "content": "规则"}], [1], ""))
+    service._prepare_screening_task_context = Mock(return_value=([{"id": 1, "name": "初筛规则", "content": "| 维度 | 权重 | 满分 | 说明 |\n| --- | --- | --- | --- |\n| IoT协议 | 50% | 5 | 核心第一优先，必须提供 BLE 相关简历原文证据 |\n| 自动化测试 | 50% | 5 | 需要体现自动化脚本或测试平台经验 |"}], [1], ""))
     service._build_screening_request_meta = Mock(return_value={"request_hash": "hash"})
     service._load_reusable_screening_result = Mock(return_value=None)
     service._get_latest_valid_screening_result_for_candidate = Mock(return_value=None)
