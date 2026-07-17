@@ -1706,7 +1706,9 @@ def _rebuild_dimensions_against_authoritative_rules(
                 if item
                 and item != "简历未提及"
                 and not _looks_like_summary_evidence_text(item)
-                and _resume_item_supported(item, raw_resume_text, allow_short=True)
+                # P0-1 引用式核验：必须为原文逐字摘录（短语级），取代旧的模糊 token 匹配——
+                # 模糊匹配正是"简历有 Python 一词→随便撑任意维度"漏过去的地方。
+                and _evidence_verbatim_quote_in_resume(item, raw_resume_text)
                 and not _evidence_negated_in_resume(item, raw_resume_text)
             ]
             fresh_evidence = [
@@ -1714,7 +1716,7 @@ def _rebuild_dimensions_against_authoritative_rules(
                 if _evidence_semantic_signature(item) not in used_evidence_signatures
             ]
             if not supporting_evidence:
-                warnings.append(f"维度[{label}]的 evidence 无法在简历原文中证实，已按 0 分回退")
+                warnings.append(f"维度[{label}]的 evidence 无法在简历原文中证实为逐字摘录（须为原文短语级引用），已按 0 分回退")
                 score = 0.0
                 existing["reason"] = "简历未提及"
                 existing["evidence"] = []
@@ -1807,6 +1809,56 @@ _POSITIVE_RECOMMENDATION_CUES = (
 _STATUS_CONSISTENT_RECOMMENDATION = {
     "screening_rejected": "综合评分未达通过阈值，建议暂不推进（按最终分数确定性判定）。",
 }
+
+
+def _rebuild_derived_score_texts(score_payload: Any) -> Tuple[Dict[str, Any], List[str]]:
+    """P0-1 派生文案一致性：advantages/concerns 一律按最终（权威重建+证据核验后）dimensions
+    重新生成——维度被归零后，模型原来的"优势"文案不得残留（模型原文在分层存储 ai_raw_score 留档）。
+
+    规则：得分 ≥60% 满分的维度进 advantages（label：reason）；<40% 的进 concerns；
+    中间带不进任何一侧。零满分维度跳过。
+    """
+    payload = dict(score_payload if isinstance(score_payload, dict) else {})
+    dims = [d for d in (payload.get("dimensions") or []) if isinstance(d, dict)]
+    if not dims:
+        return payload, []
+    # 空壳保持空壳：全零维度且模型本来就没给任何文案时不注入 concerns——
+    # 否则空壳签名被破坏，one-pass 多变体的空壳识别/冲突判定会误判。
+    has_positive = any(float(_parse_score_number(d.get("score")) or 0.0) > 0 for d in dims)
+    if (
+        not has_positive
+        and not _normalize_score_text_items(payload.get("advantages"), limit=5)
+        and not _normalize_score_text_items(payload.get("concerns"), limit=5)
+        and not str(payload.get("recommendation") or "").strip()
+    ):
+        return payload, []
+    advantages: List[str] = []
+    concerns: List[str] = []
+    for dim in dims:
+        label = str(dim.get("label") or "").strip()
+        if not label:
+            continue
+        raw_max = _parse_score_number(dim.get("max_score"))
+        max_score = float(raw_max) if raw_max is not None and math.isfinite(float(raw_max)) else 0.0
+        if max_score <= 0:
+            continue
+        raw_score = _parse_score_number(dim.get("score"))
+        score = float(raw_score) if raw_score is not None and math.isfinite(float(raw_score)) else 0.0
+        reason = str(dim.get("reason") or "").strip()
+        ratio = score / max_score
+        if ratio >= 0.6:
+            advantages.append(f"{label}：{reason}" if reason and reason != "简历未提及" else label)
+        elif ratio < 0.4:
+            concerns.append(f"{label}：{reason}" if reason else f"{label}：证据不足")
+    old_advantages = _normalize_score_text_items(payload.get("advantages"), limit=5)
+    old_concerns = _normalize_score_text_items(payload.get("concerns"), limit=5)
+    new_advantages = _normalize_score_text_items(advantages, limit=5)
+    new_concerns = _normalize_score_text_items(concerns, limit=5)
+    payload["advantages"] = new_advantages
+    payload["concerns"] = new_concerns
+    if new_advantages != old_advantages or new_concerns != old_concerns:
+        return payload, ["score.advantages/concerns 已按最终维度重建（模型原始文案仅留档）"]
+    return payload, []
 
 
 def _reconcile_recommendation_with_final_status(
@@ -1903,6 +1955,10 @@ def sanitize_screening_payload(
                 sanitized_score, deterministic_status,
             )
             repair_warnings.extend(rec_warnings)
+        if was_rebuilt:
+            # P0-1：advantages/concerns 按最终维度重建，被归零维度的模型夸奖文案不得残留。
+            sanitized_score, derived_warnings = _rebuild_derived_score_texts(sanitized_score)
+            repair_warnings.extend(derived_warnings)
         sanitized_payload["score"] = sanitized_score
 
     warnings = _normalize_score_warning_items(
@@ -2130,6 +2186,10 @@ def sanitize_screening_payload_fast(
                 sanitized_score, deterministic_status,
             )
             repair_warnings.extend(rec_warnings)
+        if was_rebuilt:
+            # P0-1：advantages/concerns 按最终维度重建，被归零维度的模型夸奖文案不得残留。
+            sanitized_score, derived_warnings = _rebuild_derived_score_texts(sanitized_score)
+            repair_warnings.extend(derived_warnings)
         sanitized_payload["score"] = sanitized_score
 
     return sanitized_payload, {
@@ -4472,6 +4532,32 @@ def _evidence_negated_in_resume(item: Any, raw_text: str) -> bool:
     return any_token_located
 
 
+def _evidence_verbatim_quote_in_resume(item: Any, raw_text: str) -> bool:
+    """P0-1 引用式证据核验：evidence 必须是简历原文的逐字摘录（去空白小写比对），
+    且达到"短语级"长度——含中文 ≥4 字符、纯英文/数字 ≥12 字符。
+
+    这从根上消灭两类伪造：①改写/编造的证据（非逐字→拒）；②裸关键词撑维度
+    （简历里有 "Python" 一个词就给"银行经验"满分——关键词过短→拒，模型只能引用
+    完整原句，而完整原句配错维度时在审计里一眼可见，且被唯一占用规则限制只能撑一个维度）。
+    """
+    text = _resume_item_to_report_text(item)
+    if not text:
+        return False
+    normalized = re.sub(r"\s+", "", text).lower()
+    if not normalized:
+        return False
+    has_cjk = bool(re.search(r"[一-鿿]", normalized))
+    if has_cjk:
+        if len(normalized) < 4:
+            return False
+    elif len(normalized) < 12:
+        return False
+    haystack = re.sub(r"\s+", "", str(raw_text or "")).lower()
+    if not haystack:
+        return False
+    return normalized in haystack
+
+
 # 通用/无区分度的中文片段：语义去重签名里剔除它们，避免"经验/能力"等把不同证据误判成同一条。
 _GENERIC_LABEL_FRAGMENTS = {
     "经验", "能力", "相关", "水平", "工作", "技能", "知识", "熟悉", "掌握", "了解", "理解",
@@ -5771,6 +5857,10 @@ def _can_salvage_invalid_one_pass_result(
         ],
         limit=16,
     )
+    # 后端确定性修复的"信息性提示"不是模型缺陷，不得毒化可抢救判定
+    # （否则任何一次派生文案重建/措辞改写都会让本可抢救的结果直接判死）。
+    _informational_markers = ("已按最终维度重建", "已按最终状态改写")
+    reasons = [item for item in reasons if not any(marker in item for marker in _informational_markers)]
     if any(
         "Skill/JD 规则文本" in item
         or "评分规则说明文本" in item

@@ -293,20 +293,23 @@ RESUME_SCORE_SYSTEM_PROMPT_V3 = """你是 ATS 评分引擎。基于已有 parsed
 输出 schema：
 """ + SCORE_ONLY_OUTPUT_SCHEMA_V3
 
-# v6/v7：system prompt 新增防注入安全段，且评分改为后端权威口径重建 + evidence 原文核验。
+# v7/v8：引用式证据契约（P0-1）——evidence 必须是简历原文的逐字摘录（短语级，非裸关键词），
+# 且必须与所在维度直接相关；后端做逐字核验，改写/缩写/无关引用一律按 0 分处理。
 # 与旧结果不等价，版本号上调以使 request_hash 变化、旧缓存结果失效、强制按新契约重跑。
-RESUME_SCREENING_PROMPT_VERSION = "resume_screening_one_pass_v6"
-RESUME_SCORE_PROMPT_VERSION = "resume_score_with_position_match_v7"
+RESUME_SCREENING_PROMPT_VERSION = "resume_screening_one_pass_v7"
+RESUME_SCORE_PROMPT_VERSION = "resume_score_with_position_match_v8"
 # V3 versions — activate by changing the above two lines
 RESUME_SCREENING_PROMPT_VERSION_V3 = "resume_screening_one_pass_v3"
 RESUME_SCORE_PROMPT_VERSION_V3 = "resume_score_with_position_match_v3"
 
 _COMMON_EVIDENCE_RULES = """- The only valid evidence source is the raw resume text in the user prompt.
-- Evidence must quote or excerpt the raw resume text directly. Never use JD text, screening skills, rule notes, system text, helper fields, or your own paraphrases as evidence.
-- evidence may be a string or a list of strings, but every item must be a direct resume excerpt.
+- Every evidence item MUST be a character-for-character verbatim excerpt copied from the raw resume text (a phrase or sentence, not a bare keyword). The backend verifies this mechanically: any paraphrased, shortened, reworded, or invented evidence is automatically treated as no evidence and the dimension is scored 0.
+- Every evidence item MUST be directly and specifically relevant to the dimension it supports. Quoting a real but unrelated resume sentence (e.g. quoting a Python sentence as evidence for banking experience) counts as fabricated evidence — set that dimension to score 0 instead.
+- Never use JD text, screening skills, rule notes, system text, helper fields, or your own paraphrases as evidence.
+- evidence may be a string or a list of strings, but every item must be a verbatim resume excerpt.
 - Evidence must not use judgment phrases such as “简历中提及…”, “候选人具备…”, “体现了…”, or “说明其…”.
-- If a dimension has no direct resume evidence, set score to 0, reason to “简历未提及”, and leave evidence empty.
-- Do not reuse the same evidence as full support for unrelated dimensions."""
+- If a dimension has no directly relevant verbatim resume evidence, set score to 0, reason to “简历未提及”, and leave evidence empty. Doing this honestly is always better than forcing evidence.
+- Do not reuse the same evidence (verbatim or reworded) as support for multiple dimensions — each excerpt supports at most one dimension."""
 
 
 RESUME_SCREENING_SYSTEM_PROMPT = """You are an ATS screening engine for recruitment.

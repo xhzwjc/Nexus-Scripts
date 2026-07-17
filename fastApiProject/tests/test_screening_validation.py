@@ -442,6 +442,111 @@ def test_negated_capability_is_not_counted_as_positive_evidence():
     assert sanitized["score"]["total_score"] == 5.0
 
 
+def test_bare_keyword_cannot_prop_unrelated_dimension():
+    """P0-1 复审反例：简历只有 "Python"，模型拿它当"银行核心系统经验"的证据刷满分。
+    引用式核验：裸关键词（纯英文 <12 字符）不构成证据 → 该维度归零；
+    真实短语级逐字引用的维度保留。"""
+    schema_config = {
+        "parsed_resume": SCREENING_PAYLOAD_SCHEMA_CONFIG["parsed_resume"],
+        "score": {
+            **SCREENING_PAYLOAD_SCHEMA_CONFIG["score"],
+            "required_dimension_labels": ("银行核心系统经验", "自动化测试"),
+            "required_dimension_rules": (
+                {"label": "银行核心系统经验", "max_score": 5.0, "is_core": True},
+                {"label": "自动化测试", "max_score": 5.0, "is_core": False},
+            ),
+            "max_possible_score": 10.0,
+            "status_thresholds": {"pass_threshold": 75.0, "pool_threshold": 55.0},
+        },
+    }
+    payload = {
+        "parsed_resume": _empty_parsed_resume(),
+        "score": {
+            "total_score": 10, "match_percent": 100,
+            "advantages": ["银行经验丰富"], "concerns": [],
+            "recommendation": "建议面试", "suggested_status": "screening_passed",
+            "dimensions": [
+                {"label": "银行核心系统经验", "score": 5.0, "max_score": 5.0, "reason": "命中", "evidence": ["Python"], "is_inferred": False},
+                {"label": "自动化测试", "score": 5.0, "max_score": 5.0, "reason": "命中", "evidence": ["使用 Python 编写自动化测试脚本"], "is_inferred": False},
+            ],
+        },
+    }
+    raw = "候选人简历：使用 Python 编写自动化测试脚本，参与测试平台建设。"
+    sanitized, meta = sanitize_screening_payload(payload, schema_config, raw_resume_text=raw)
+    dims = {d["label"]: d for d in sanitized["score"]["dimensions"]}
+    assert dims["银行核心系统经验"]["score"] == 0.0   # 裸关键词 → 归零
+    assert dims["自动化测试"]["score"] == 5.0          # 短语级逐字引用 → 保留
+    assert sanitized["score"]["total_score"] == 5.0
+    assert sanitized["score"]["suggested_status"] != "screening_passed"
+
+
+def test_paraphrased_evidence_is_rejected():
+    """P0-1：改写措辞的证据（非逐字摘录）不再被模糊匹配放行，一律归零。"""
+    schema_config = {
+        "parsed_resume": SCREENING_PAYLOAD_SCHEMA_CONFIG["parsed_resume"],
+        "score": {
+            **SCREENING_PAYLOAD_SCHEMA_CONFIG["score"],
+            "required_dimension_labels": ("IoT协议",),
+            "required_dimension_rules": ({"label": "IoT协议", "max_score": 5.0, "is_core": True},),
+            "max_possible_score": 5.0,
+            "status_thresholds": {"pass_threshold": 75.0, "pool_threshold": 55.0},
+        },
+    }
+    payload = {
+        "parsed_resume": _empty_parsed_resume(),
+        "score": {
+            "total_score": 5, "match_percent": 100,
+            "advantages": ["强"], "concerns": [],
+            "recommendation": "建议面试", "suggested_status": "screening_passed",
+            "dimensions": [
+                {"label": "IoT协议", "score": 5.0, "max_score": 5.0, "reason": "命中", "evidence": ["候选人在 BLE 协议联调方面经验相当丰富"], "is_inferred": False},
+            ],
+        },
+    }
+    raw = "候选人简历：负责 BLE 协议联调与自动化测试工作。"
+    sanitized, meta = sanitize_screening_payload(payload, schema_config, raw_resume_text=raw)
+    assert sanitized["score"]["dimensions"][0]["score"] == 0.0
+    assert any("逐字" in w for w in meta["warnings"])
+
+
+def test_advantages_rebuilt_from_final_dimensions_after_zeroing():
+    """P0-1 派生一致性：伪造证据维度归零后，模型原来的夸奖文案不得残留在 advantages，
+    该维度进入 concerns。"""
+    schema_config = {
+        "parsed_resume": SCREENING_PAYLOAD_SCHEMA_CONFIG["parsed_resume"],
+        "score": {
+            **SCREENING_PAYLOAD_SCHEMA_CONFIG["score"],
+            "required_dimension_labels": ("银行核心系统经验", "自动化测试"),
+            "required_dimension_rules": (
+                {"label": "银行核心系统经验", "max_score": 5.0, "is_core": True},
+                {"label": "自动化测试", "max_score": 5.0, "is_core": False},
+            ),
+            "max_possible_score": 10.0,
+            "status_thresholds": {"pass_threshold": 75.0, "pool_threshold": 55.0},
+        },
+    }
+    payload = {
+        "parsed_resume": _empty_parsed_resume(),
+        "score": {
+            "total_score": 10, "match_percent": 100,
+            "advantages": ["十年银行核心系统经验，行业背景极佳"], "concerns": [],
+            "recommendation": "建议面试", "suggested_status": "screening_passed",
+            "dimensions": [
+                {"label": "银行核心系统经验", "score": 5.0, "max_score": 5.0, "reason": "命中", "evidence": ["简历里不存在的伪造银行经历"], "is_inferred": False},
+                {"label": "自动化测试", "score": 5.0, "max_score": 5.0, "reason": "自动化能力扎实", "evidence": ["使用 Python 编写自动化测试脚本"], "is_inferred": False},
+            ],
+        },
+    }
+    raw = "候选人简历：使用 Python 编写自动化测试脚本，参与测试平台建设。"
+    sanitized, meta = sanitize_screening_payload(payload, schema_config, raw_resume_text=raw)
+    advantages = sanitized["score"]["advantages"]
+    concerns = sanitized["score"]["concerns"]
+    assert not any("银行" in item for item in advantages), f"归零维度不得残留在 advantages：{advantages}"
+    assert any("自动化测试" in item for item in advantages)
+    assert any("银行核心系统经验" in item for item in concerns)
+    assert any("已按最终维度重建" in w for w in meta["warnings"])
+
+
 def test_recommendation_rewritten_when_final_status_is_reject():
     """P0-6：证据归零导致确定性拒绝时，模型残留的"建议面试"推进措辞被改写为一致结论，
     消除"0 分拒绝却建议面试"的矛盾。"""
