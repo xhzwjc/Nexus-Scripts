@@ -2106,6 +2106,52 @@ def test_cancelled_run_late_score_does_not_promote_or_update_candidate():
         db.close()
 
 
+def test_terminal_screening_paths_close_run_and_clear_active():
+    """P1：非晋级终态（失败/超时/invalid）兜底关闭 run 并清 active 指针；
+    缓存命中 success 把仍在 running 的 run 补标 promoted；已终态 run 不被覆盖。"""
+    db = _build_test_db()
+    try:
+        _seed_org_tree(db)
+        candidate = _add_candidate(db, org_code="chunmiao-rd", position_id=None, name="终态关闭候选人", created_by="rd-user")
+        db.commit()
+        service = RecruitmentService(db)
+
+        def _open_running(root_task_id):
+            run = service._open_screening_run(candidate=candidate, root_task_id=root_task_id, screening_run_key="k", request_meta={}, actor_id="rd-user")
+            run.status = "running"
+            db.add(run)
+            db.commit()
+            service._current_screening_run_id = run.id
+            return run
+
+        for root_status, expected in [("request_failed", "timeout"), ("screening_total_timeout", "timeout"), ("invalid_result", "invalid_result"), ("failed", "failed")]:
+            run = _open_running(400 + hash(root_status) % 100)
+            service._finalize_bound_screening_run(root_status, candidate_ref=candidate)
+            db.commit()
+            db.refresh(run)
+            db.refresh(candidate)
+            assert run.status == expected, f"{root_status} 应关到 {expected}，实际 {run.status}"
+            assert run.completed_at is not None
+            assert candidate.active_screening_run_id is None, f"{root_status} 后 active 指针应清空"
+
+        # 缓存命中 success：run 仍 running → 补标 promoted，latest_screening_run_id 指向它
+        run_ok = _open_running(499)
+        service._finalize_bound_screening_run("success", candidate_ref=candidate)
+        db.commit()
+        db.refresh(run_ok)
+        db.refresh(candidate)
+        assert run_ok.status == "promoted"
+        assert candidate.latest_screening_run_id == run_ok.id
+
+        # 已终态（promoted）再调 finalize：不被覆盖
+        service._finalize_bound_screening_run("failed", candidate_ref=candidate)
+        db.commit()
+        db.refresh(run_ok)
+        assert run_ok.status == "promoted", "已晋级的 run 不得被后续终态覆盖"
+    finally:
+        db.close()
+
+
 def test_atomic_enqueue_defers_task_commit_until_run_created():
     """P0 #2：原子入队——defer_commit 让 root task 只 flush、不提交；回滚可整体丢弃，
     证明 task 与 run 能在同一事务里单次提交（派单器在提交前看不到 queued 任务）。"""

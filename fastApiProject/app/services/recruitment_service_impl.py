@@ -18538,9 +18538,78 @@ class RecruitmentService:
             if promote_candidate is not None:
                 promote_candidate.latest_screening_run_id = run.id
                 self.db.add(promote_candidate)
-        elif target_status in {"superseded", "cancelled", "failed", "invalid_result"}:
+        elif target_status in {"superseded", "cancelled", "failed", "invalid_result", "timeout"}:
             run.completed_at = now
         self.db.add(run)
+
+    def _clear_active_run_pointer_if_matches(self, run: Any) -> None:
+        """把候选人 active_screening_run_id 清空（仅当仍指向本 run）——避免终态 run 残留占据 active。"""
+        if run is None or not getattr(run, "candidate_id", None):
+            return
+        try:
+            locked = self.db.query(RecruitmentCandidate).filter(
+                RecruitmentCandidate.id == run.candidate_id,
+            ).populate_existing().with_for_update().first()
+        except Exception:
+            locked = None
+        if locked is not None and getattr(locked, "active_screening_run_id", None) == run.id:
+            locked.active_screening_run_id = None
+            self.db.add(locked)
+
+    def _finalize_bound_screening_run(
+        self,
+        root_status: str,
+        *,
+        candidate_ref: Optional[RecruitmentCandidate] = None,
+        parse_row: Any = None,
+        score_row: Any = None,
+    ) -> None:
+        """P1：初筛根任务落终态时，兜底把绑定的 run 也关闭，避免 invalid/失败/超时/fail-closed/
+        缓存命中等路径把 run 永久留在 queued/running，并清理残留的 active 指针。
+
+        - 正常晋级/过期（success 非缓存、superseded）已由 _save_score_result 精确落定，这里遇到
+          已终态的 run 不覆盖；
+        - 缓存命中 success 路径不走 _save_score_result，run 仍是 running → 这里补标 promoted；
+        - 失败/invalid/超时 → 关到对应终态并清 active。
+        """
+        run_id = self._current_screening_run_id
+        if not run_id:
+            return
+        run = self.db.query(RecruitmentCandidateScreeningRun).filter(
+            RecruitmentCandidateScreeningRun.id == run_id,
+        ).first()
+        if run is None:
+            return
+        if run.status in {"promoted", "success", "superseded", "cancelled", "failed", "invalid_result", "timeout"}:
+            # 已终态：不覆盖，但确保非晋级终态不残留 active 指针。
+            if run.status not in {"promoted", "success"}:
+                self._clear_active_run_pointer_if_matches(run)
+            return
+        parse_result_id = getattr(parse_row, "id", None)
+        score_result_id = getattr(score_row, "id", None)
+        if root_status in {"success", "fallback"}:
+            self._mark_screening_run_status(
+                run_id, status="promoted", parse_result_id=parse_result_id,
+                score_result_id=score_result_id, promote_candidate=candidate_ref,
+            )
+            return
+        if root_status == "superseded":
+            self._mark_screening_run_status(
+                run_id, status="superseded", superseded_reason="superseded",
+                parse_result_id=parse_result_id, score_result_id=score_result_id,
+            )
+        elif root_status == "cancelled":
+            self._mark_screening_run_status(
+                run_id, status="cancelled", superseded_reason="cancelled",
+                parse_result_id=parse_result_id, score_result_id=score_result_id,
+            )
+        elif root_status in {"invalid_result", "json_parse_failed", "invalid_json_variant_conflict"}:
+            self._mark_screening_run_status(run_id, status="invalid_result", parse_result_id=parse_result_id, score_result_id=score_result_id)
+        elif root_status in {"timeout", "screening_total_timeout", "retry_exhausted", "upstream_timeout", "request_failed", "rate_limited", "quota_exceeded"}:
+            self._mark_screening_run_status(run_id, status="timeout", parse_result_id=parse_result_id, score_result_id=score_result_id)
+        else:
+            self._mark_screening_run_status(run_id, status="failed", parse_result_id=parse_result_id, score_result_id=score_result_id)
+        self._clear_active_run_pointer_if_matches(run)
 
     def _ensure_screening_root_task(
         self,
@@ -21046,6 +21115,10 @@ class RecruitmentService:
                 validation_meta=validation_meta,
                 persisted_result_refs=persisted_result_refs,
                 timing_breakdown=timing_breakdown,
+            )
+            # P1：根任务落终态时兜底关闭绑定的 run（含缓存命中/失败/超时/invalid），并清理 active 指针。
+            self._finalize_bound_screening_run(
+                status, candidate_ref=candidate_ref, parse_row=parse_row, score_row=score_row,
             )
             logger.info(
                 "screening_flow finalized run_id=%s candidate_id=%s status=%s stage=%s parse_status=%s score_status=%s persist_status=%s",
