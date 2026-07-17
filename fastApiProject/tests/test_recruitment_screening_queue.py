@@ -189,6 +189,12 @@ def test_ai_match_callback_does_not_hold_db_session_during_model_call(monkeypatc
         def filter(self, *args, **kwargs):
             return self
 
+        def with_for_update(self, *args, **kwargs):
+            return self
+
+        def populate_existing(self, *args, **kwargs):
+            return self
+
         def first(self):
             return self.row
 

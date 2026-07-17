@@ -2104,3 +2104,125 @@ def test_cancelled_run_late_score_does_not_promote_or_update_candidate():
         assert getattr(score_row, "_superseded_reason", None) == "cancelled"
     finally:
         db.close()
+
+
+def test_atomic_enqueue_defers_task_commit_until_run_created():
+    """P0 #2：原子入队——defer_commit 让 root task 只 flush、不提交；回滚可整体丢弃，
+    证明 task 与 run 能在同一事务里单次提交（派单器在提交前看不到 queued 任务）。"""
+    from app.recruitment_models import RecruitmentAITaskLog, RecruitmentCandidateScreeningRun
+    from app.services.recruitment_service_impl import SCREENING_FLOW_TASK_TYPE, _build_screening_run_id
+    db = _build_test_db()
+    try:
+        _seed_org_tree(db)
+        candidate = _add_candidate(db, org_code="chunmiao-rd", position_id=None, name="原子入队候选人", created_by="rd-user")
+        db.commit()
+        service = RecruitmentService(db)
+        srid = _build_screening_run_id(candidate.id)
+        row = service._create_ai_task_log(
+            SCREENING_FLOW_TASK_TYPE, created_by="rd-user", related_candidate_id=candidate.id,
+            status="queued", stage="queued", screening_run_id=srid, defer_commit=True,
+        )
+        run = service._open_screening_run(candidate=candidate, root_task_id=row.id, screening_run_key=srid, request_meta={"request_hash": "h"}, actor_id="rd-user")
+        task_id, run_id = row.id, run.id
+        assert task_id is not None and run_id is not None  # 已 flush 拿到 id
+
+        # 尚未提交 → 回滚应整体丢弃 task 与 run（原子性的前提）
+        db.rollback()
+        assert db.query(RecruitmentAITaskLog).filter(RecruitmentAITaskLog.id == task_id).first() is None
+        assert db.query(RecruitmentCandidateScreeningRun).filter(RecruitmentCandidateScreeningRun.id == run_id).first() is None
+    finally:
+        db.close()
+
+
+def test_parse_data_lands_on_candidate_only_at_promotion():
+    """P0 #3：screening 运行途中解析不写候选人权威字段；晋级（CAS 通过）时才落地；
+    被取代（generation_changed）的 run 绝不污染候选人姓名/latest_parse_result_id。"""
+    from app.recruitment_models import RecruitmentResumeFile, RecruitmentResumeParseResult
+    from app.services.recruitment_service_impl import RAW_SCREENING_SCORE_STORAGE_FORMAT, json_dumps_safe
+    content = {
+        "_storage_format": RAW_SCREENING_SCORE_STORAGE_FORMAT,
+        "score": {"total_score": 8.0, "match_percent": 80, "advantages": ["强"], "concerns": [], "recommendation": "建议面试", "suggested_status": "screening_passed", "dimensions": []},
+    }
+
+    def _seed(db, name):
+        resume = RecruitmentResumeFile(candidate_id=None, org_code="chunmiao-rd", original_name="r.pdf", stored_name="r.pdf", storage_path="/tmp/r.pdf", parse_status="success", uploaded_by="rd-user")
+        candidate = _add_candidate(db, org_code="chunmiao-rd", position_id=None, name=name, created_by="rd-user")
+        resume.candidate_id = candidate.id
+        db.add(resume)
+        db.flush()
+        candidate.latest_resume_file_id = resume.id
+        candidate.status = "pending_screening"
+        parse_row = RecruitmentResumeParseResult(
+            candidate_id=candidate.id, resume_file_id=resume.id, org_code="chunmiao-rd", raw_text="raw",
+            basic_info_json=json_dumps_safe({"name": "解析出的新名字", "education": "硕士"}), status="success",
+        )
+        db.add(parse_row)
+        db.flush()
+        db.commit()
+        return candidate, parse_row
+
+    db = _build_test_db()
+    try:
+        _seed_org_tree(db)
+        service = RecruitmentService(db)
+
+        # 情形1：正常晋级 → 解析数据在晋级时落到候选人
+        cand_ok, parse_ok = _seed(db, "延迟落地-OK")
+        run = service._open_screening_run(candidate=cand_ok, root_task_id=301, screening_run_key="k", request_meta={"request_hash": "h"}, actor_id="rd-user")
+        db.commit()
+        assert cand_ok.name == "延迟落地-OK" and cand_ok.latest_parse_result_id is None
+        service._current_screening_run_id = run.id
+        service._save_score_result(cand_ok, parse_ok, "rd-user", content, allow_status_advance=True)
+        db.commit()
+        db.refresh(cand_ok)
+        assert cand_ok.name == "解析出的新名字", "晋级时应落地解析姓名"
+        assert cand_ok.latest_parse_result_id == parse_ok.id
+        assert cand_ok.education == "硕士"
+
+        # 情形2：被取代（旧 run 乱序完成）→ 解析数据绝不落到候选人
+        cand_sup, parse_sup = _seed(db, "延迟落地-SUP")
+        run1 = service._open_screening_run(candidate=cand_sup, root_task_id=302, screening_run_key="k1", request_meta={"request_hash": "h"}, actor_id="rd-user")
+        db.commit()
+        run2 = service._open_screening_run(candidate=cand_sup, root_task_id=303, screening_run_key="k2", request_meta={"request_hash": "h"}, actor_id="rd-user")
+        db.commit()
+        service._current_screening_run_id = run1.id
+        score_sup = service._save_score_result(cand_sup, parse_sup, "rd-user", content, allow_status_advance=True)
+        db.commit()
+        db.refresh(cand_sup)
+        assert cand_sup.name == "延迟落地-SUP", "被取代的 run 不得污染候选人姓名"
+        assert cand_sup.latest_parse_result_id is None, "被取代的 run 不得写 latest_parse_result_id"
+        assert getattr(score_sup, "_superseded_reason", None) == "generation_changed"
+    finally:
+        db.close()
+
+
+def test_ai_match_result_discarded_when_position_changed_during_run():
+    """P0 #5：AI 职位匹配 CAS——模型运行期间 HR 手动改岗，则迟到的 AI 结果作废，
+    绝不覆盖人工指派。重新识别场景（expected==current）仍可落库。"""
+    db = _build_test_db()
+    try:
+        _seed_org_tree(db)
+        admin = _session("group-admin", "group", DATA_SCOPE_ALL, super_admin=True)
+        pos_a = _create_position(db, admin, org_code="chunmiao-rd", title="岗A", actor_id="rd-user")
+        pos_b = _create_position(db, admin, org_code="chunmiao-rd", title="岗B", actor_id="rd-user")
+        candidate = _add_candidate(db, org_code="chunmiao-rd", position_id=None, name="改岗竞态候选人", created_by="rd-user")
+        db.commit()
+        service = RecruitmentService(db)
+
+        # 入队快照 expected=None（未匹配），期间未改动 → 可落库
+        assert service._ai_match_stale_reason(candidate, None) is None
+        # HR 手动指派岗A → 相对入队快照已改动 → 作废
+        candidate.position_id = pos_a["id"]
+        db.commit()
+        assert service._ai_match_stale_reason(candidate, None) == "position_changed"
+        # 重新识别：expected=岗A，仍是岗A → 可落库
+        assert service._ai_match_stale_reason(candidate, pos_a["id"]) is None
+        # expected=岗A，期间被改成岗B → 作废
+        candidate.position_id = pos_b["id"]
+        db.commit()
+        assert service._ai_match_stale_reason(candidate, pos_a["id"]) == "position_changed"
+        # 候选人被删 → 作废
+        candidate.deleted = True
+        assert service._ai_match_stale_reason(candidate, pos_b["id"]) == "deleted"
+    finally:
+        db.close()

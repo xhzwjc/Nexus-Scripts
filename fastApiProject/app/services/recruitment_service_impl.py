@@ -9133,6 +9133,7 @@ class RecruitmentService:
         model_source: Optional[str] = None,
         session_token: Optional[str] = None,
         emit_sse: bool = True,
+        defer_commit: bool = False,
     ) -> RecruitmentAITaskLog:
         now = datetime.now()
         org_code = self._current_org_code()
@@ -9174,10 +9175,18 @@ class RecruitmentService:
             created_by=created_by,
         )
         self.db.add(row)
-        self._commit_ai_task_log(row, emit_sse=emit_sse)
-        if row.root_task_id in {None, 0} and parent_task_id is None:
-            row.root_task_id = row.id
+        if defer_commit:
+            # 原子入队：只 flush 拿到 id，不提交、不发 SSE——由调用方与 run 在同一事务里一起提交。
+            self.db.flush()
+            if row.root_task_id in {None, 0} and parent_task_id is None:
+                row.root_task_id = row.id
+                self.db.add(row)
+                self.db.flush()
+        else:
             self._commit_ai_task_log(row, emit_sse=emit_sse)
+            if row.root_task_id in {None, 0} and parent_task_id is None:
+                row.root_task_id = row.id
+                self._commit_ai_task_log(row, emit_sse=emit_sse)
         return row
 
     def _commit_ai_task_log(self, row: RecruitmentAITaskLog, *, emit_sse: bool = True) -> RecruitmentAITaskLog:
@@ -9263,6 +9272,7 @@ class RecruitmentService:
         timing_breakdown: Optional[Any] = None,
         session_token: Optional[str] = None,
         emit_sse: bool = True,
+        defer_commit: bool = False,
     ) -> RecruitmentAITaskLog:
         try:
             self.db.refresh(row)
@@ -9348,6 +9358,11 @@ class RecruitmentService:
             row.stage_completed_at = row.stage_completed_at or now
             anchor = row.stage_started_at or row.created_at or now
             row.duration_ms = max(0, int((row.stage_completed_at - anchor).total_seconds() * 1000))
+        if defer_commit:
+            # 原子入队：只 flush、不提交、不发 SSE，交由调用方与 run 同事务提交。
+            self.db.add(row)
+            self.db.flush()
+            return row
         return self._commit_ai_task_log(row, emit_sse=emit_sse)
 
     def _finish_ai_task_log(
@@ -16497,9 +16512,10 @@ class RecruitmentService:
 
                 # 模型调用结束后再开 DB session 写入结果，避免长耗时 HTTP 调用占住连接。
                 db = SessionLocal()
+                # CAS：落库前对候选人加锁，锁持有到本事务 commit，防止与 HR 手动改岗竞态。
                 candidate = db.query(RecruitmentCandidate).filter(
                     RecruitmentCandidate.id == task.candidate_id,
-                ).first()
+                ).with_for_update().first()
                 if not candidate:
                     logger.error("[AI_MATCH] Candidate %d not found in DB, skipping", task.candidate_id)
                     return
@@ -16509,6 +16525,19 @@ class RecruitmentService:
                 if scheduler.is_cancelled(task.candidate_id):
                     scheduler.clear_cancelled(task.candidate_id)
                     logger.info("[AI_MATCH] Candidate %d was cancelled before result persistence, discarding match result", task.candidate_id)
+                    return
+
+                # 岗位匹配 CAS：入队后若候选人被删或岗位已被改动（HR 手动指派等），本次 AI 结果过期，
+                # 直接作废，绝不覆盖人工指派。
+                stale_reason = callback_service._ai_match_stale_reason(
+                    candidate, getattr(task, "expected_before_position_id", None)
+                )
+                if stale_reason:
+                    logger.warning(
+                        "[AI_MATCH] Candidate %d AI match result discarded (%s), expected_position=%s",
+                        task.candidate_id, stale_reason, getattr(task, "expected_before_position_id", None),
+                    )
+                    scheduler.clear_cancelled(task.candidate_id)
                     return
 
                 if match_result and match_result.get("position_id"):
@@ -17704,6 +17733,28 @@ class RecruitmentService:
             position_list_lines.append(line)
         return "\n".join(position_list_lines) if position_list_lines else "暂无系统岗位"
 
+    def _ai_match_stale_reason(self, candidate: Any, expected_before_position_id: Optional[int]) -> Optional[str]:
+        """AI 岗位匹配落库前的 CAS 判定：候选人不存在/被删/岗位相对入队快照已改动 → 结果过期。
+
+        返回过期原因（供日志），无过期返回 None。用于挡"模型运行期间 HR 手动改岗、
+        迟到的 AI 结果仍覆盖人工指派"的竞态。调用方须已对候选人加锁（FOR UPDATE）。
+        """
+        if candidate is None:
+            return "not_found"
+        if getattr(candidate, "deleted", False):
+            return "deleted"
+        try:
+            current_position_id = int(getattr(candidate, "position_id", 0) or 0) or None
+        except (TypeError, ValueError):
+            return None  # 非真实 DB 行（Mock）无法判定，不阻断。
+        try:
+            expected = int(expected_before_position_id or 0) or None
+        except (TypeError, ValueError):
+            expected = None
+        if current_position_id != expected:
+            return "position_changed"
+        return None
+
     def _detect_run_cancellation_block(self, run_id: Optional[int]) -> Optional[str]:
         """晋级前对本 run 加锁核对状态：已取消/已进入不可晋级终态则返回过期原因，禁止晋级。
 
@@ -17853,6 +17904,9 @@ class RecruitmentService:
                 setattr(score_row, "_superseded_reason", superseded_reason)
                 self._mark_screening_run_status(self._current_screening_run_id, status="superseded", superseded_reason=superseded_reason, parse_result_id=getattr(parse_row, "id", None), score_result_id=score_row.id)
             elif allow_status_advance:
+                # P0 #3：晋级时（CAS 通过）才把本 run 的解析产物落到候选人权威字段（运行途中已延迟）。
+                if self._current_screening_run_id is not None:
+                    self._promote_parse_artifacts_to_candidate(candidate, parse_row, actor_id)
                 candidate.latest_score_id = score_row.id
                 candidate.match_percent = match_percent
                 candidate.ai_recommended_status = normalized_status
@@ -17911,6 +17965,9 @@ class RecruitmentService:
             setattr(score_row, "_superseded_reason", superseded_reason)
             self._mark_screening_run_status(self._current_screening_run_id, status="superseded", superseded_reason=superseded_reason, parse_result_id=getattr(parse_row, "id", None), score_result_id=score_row.id)
         elif allow_status_advance:
+            # P0 #3：晋级时（CAS 通过）才把本 run 的解析产物落到候选人权威字段（运行途中已延迟）。
+            if self._current_screening_run_id is not None:
+                self._promote_parse_artifacts_to_candidate(candidate, parse_row, actor_id)
             candidate.latest_score_id = score_row.id
             candidate.match_percent = normalized.get("match_percent")
             candidate.ai_recommended_status = normalized_status
@@ -18424,6 +18481,7 @@ class RecruitmentService:
         force_fallback: bool = False,
         allow_reuse_parse: bool = True,
         allow_score_only_rerun: bool = True,
+        defer_commit: bool = False,
     ) -> RecruitmentAITaskLog:
         related_skill_names = _dedupe_texts(item.get("name") for item in skill_snapshots if isinstance(item, dict))
         skills_applied_to_prompt = bool(score_rule_snapshot)
@@ -18495,6 +18553,7 @@ class RecruitmentService:
             skill_resolution_detail=skill_resolution_detail,
             score_rule_snapshot=score_rule_snapshot,
             timing_breakdown={"queue_wait_ms": 0, "total_duration_ms": 0},
+            defer_commit=defer_commit,
         )
         return self._update_ai_task_log(
             row,
@@ -18503,6 +18562,7 @@ class RecruitmentService:
             screening_run_id=screening_run_id,
             batch_id=batch_id,
             root_task_id=row.id,
+            defer_commit=defer_commit,
             input_summary=_truncate_utf8_text(f"{candidate.name} · {candidate.position_id or '-'}", AI_TASK_LOG_SUMMARY_LIMIT),
             output_summary="任务已入队，等待执行",
             output_snapshot=_build_screening_task_progress_snapshot(
@@ -19155,6 +19215,58 @@ class RecruitmentService:
         )
         return parse_row, score_row
 
+    def _apply_parse_basic_info_to_candidate(
+        self,
+        candidate: RecruitmentCandidate,
+        basic_info: Dict[str, Any],
+        parse_row: Any,
+        actor_id: str,
+    ) -> None:
+        """把解析出的 basic_info 落到候选人权威字段（姓名/联系方式/年限/学历/年龄/地区）并指向 parse_row。
+
+        仅在两种情形调用：①标准 parse-only（无 screening run，用户直接解析该简历）；
+        ②screening 流程晋级时（CAS 通过后）。screening 运行途中不得调用，否则过期/被取代的
+        解析会先污染候选人权威数据（P0 #3）。
+        """
+        basic_info = basic_info or {}
+        candidate.name = str(basic_info.get("name") or candidate.name).strip() or candidate.name
+        parsed_phone = _sanitize_basic_info_value("phone", basic_info.get("phone"))
+        parsed_email = str(basic_info.get("email") or "").strip()
+        if parsed_phone:
+            candidate.phone = parsed_phone
+        if parsed_email:
+            candidate.email = parsed_email
+        candidate.years_of_experience = str(basic_info.get("years_of_experience") or "").strip() or None
+        candidate.education = _sanitize_basic_info_value("education", basic_info.get("education")) or None
+        parsed_age = _parse_age_value(basic_info.get("age"))
+        if parsed_age is not None:
+            candidate.age = parsed_age
+        self._apply_candidate_parsed_location_fields(candidate, basic_info)
+        if parse_row is not None and getattr(parse_row, "id", None):
+            candidate.latest_parse_result_id = parse_row.id
+        candidate.updated_by = actor_id
+        self.db.add(candidate)
+
+    def _promote_parse_artifacts_to_candidate(
+        self,
+        candidate: RecruitmentCandidate,
+        parse_row: Any,
+        actor_id: str,
+    ) -> None:
+        """晋级时把本 run 采用的解析产物落到候选人权威字段（screening 运行途中已延迟写入）。
+
+        从 parse_row 已持久化的 basic_info_json 读取，兼容"复用历史解析"的场景。
+        """
+        if parse_row is None:
+            return
+        try:
+            basic_info = _decode_ai_task_json_text(getattr(parse_row, "basic_info_json", None), {})
+        except Exception:
+            basic_info = {}
+        if not isinstance(basic_info, dict):
+            basic_info = {}
+        self._apply_parse_basic_info_to_candidate(candidate, basic_info, parse_row, actor_id)
+
     def _parse_latest_resume(
         self,
         candidate: RecruitmentCandidate,
@@ -19287,25 +19399,21 @@ class RecruitmentService:
             parse_row = RecruitmentResumeParseResult(org_code=normalize_org_code(getattr(candidate, "org_code", None)), candidate_id=candidate.id, resume_file_id=resume_file.id, raw_text=raw_text, basic_info_json=json_dumps_safe(sanitized_resume.get("basic_info") or {}), work_experiences_json=json_dumps_safe(sanitized_resume.get("work_experiences") or []), education_experiences_json=json_dumps_safe(sanitized_resume.get("education_experiences") or []), skills_json=json_dumps_safe(sanitized_resume.get("skills") or []), projects_json=json_dumps_safe(sanitized_resume.get("projects") or []), summary_text=sanitized_resume.get("summary") or "", status="success", error_message=parse_error_message)
             self.db.add(parse_row)
             self.db.flush()
+            self._stamp_parse_run_id(parse_row)
             basic_info = sanitized_resume.get("basic_info") or {}
-            candidate.name = str(basic_info.get("name") or candidate.name).strip() or candidate.name
-            parsed_phone = _sanitize_basic_info_value("phone", basic_info.get("phone"))
-            parsed_email = str(basic_info.get("email") or "").strip()
-            if parsed_phone:
-                candidate.phone = parsed_phone
-            if parsed_email:
-                candidate.email = parsed_email
-            candidate.years_of_experience = str(basic_info.get("years_of_experience") or "").strip() or None
-            candidate.education = _sanitize_basic_info_value("education", basic_info.get("education")) or None
-            parsed_age = _parse_age_value(basic_info.get("age"))
-            if parsed_age is not None:
-                candidate.age = parsed_age
-            self._apply_candidate_parsed_location_fields(candidate, basic_info)
-            candidate.latest_parse_result_id = parse_row.id
-            candidate.updated_by = actor_id
+            # P0 #3：screening 运行途中（已绑定 run）不得把解析写入候选人权威字段——
+            # 否则过期/被取代/被取消的解析会抢先污染候选人姓名/联系方式/学历/latest_parse_result_id。
+            # 延迟到晋级（_save_score_result 的 promoted 分支，CAS 通过后）再落地。
+            # 标准 parse-only（无 run）保持即时写入语义。
+            if self._current_screening_run_id is None:
+                self._apply_parse_basic_info_to_candidate(candidate, basic_info, parse_row, actor_id)
+            else:
+                logger.info(
+                    "[SCREENING] defer candidate basic_info apply until promotion candidate_id=%s run_id=%s parse_id=%s",
+                    candidate.id, self._current_screening_run_id, parse_row.id,
+                )
             resume_file.parse_status = "success"
             resume_file.parse_error = parse_error_message
-            self.db.add(candidate)
             self.db.add(resume_file)
             self.db.commit()
             self.db.refresh(parse_row)
@@ -19642,22 +19750,17 @@ class RecruitmentService:
         parse_row.summary_text = sanitized_resume.get("summary") or ""
         self.db.add(parse_row)
         self.db.flush()
+        self._stamp_parse_run_id(parse_row)
 
-        # Update candidate basic fields
-        candidate.name = str(basic_info.get("name") or candidate.name).strip() or candidate.name
-        parsed_phone = _sanitize_basic_info_value("phone", basic_info.get("phone"))
-        parsed_email = str(basic_info.get("email") or "").strip()
-        if parsed_phone:
-            candidate.phone = parsed_phone
-        if parsed_email:
-            candidate.email = parsed_email
-        candidate.years_of_experience = str(basic_info.get("years_of_experience") or "").strip() or None
-        candidate.education = _sanitize_basic_info_value("education", basic_info.get("education")) or None
-        parsed_age = _parse_age_value(basic_info.get("age"))
-        if parsed_age is not None:
-            candidate.age = parsed_age
-        self._apply_candidate_parsed_location_fields(candidate, basic_info)
-        self.db.add(candidate)
+        # P0 #3：screening 运行途中（已绑定 run）不把补解析写入候选人权威字段，延迟到晋级。
+        # parse_row 内容已更新（run-scoped 工件）；晋级时 _promote_parse_artifacts_to_candidate 从中落地。
+        if self._current_screening_run_id is None:
+            self._apply_parse_basic_info_to_candidate(candidate, basic_info, parse_row, actor_id)
+        else:
+            logger.info(
+                "[SCREENING] defer reparse basic_info apply until promotion candidate_id=%s run_id=%s parse_id=%s",
+                candidate.id, self._current_screening_run_id, parse_row.id,
+            )
         self.db.commit()
         self.db.refresh(parse_row)
         return parse_row
@@ -21737,6 +21840,9 @@ class RecruitmentService:
                     "reused_existing_result": True,
                     "batch_id": batch_id,
                 }
+            # 原子入队（P0 #2）：root task 与 generation run 在同一事务里创建、单次提交。
+            # defer_commit=True 让 task 只 flush 不提交、不发 SSE；派单器按 status=="queued" 扫描，
+            # 只有本事务提交后才能看见"已带 run 的 queued 任务"，杜绝"有 task 无 run"被抢跑造成双 run。
             log_row = self._ensure_screening_root_task(
                 candidate=candidate,
                 actor_id=actor_id,
@@ -21753,8 +21859,9 @@ class RecruitmentService:
                 force_fallback=force_fallback,
                 allow_reuse_parse=allow_reuse_parse,
                 allow_score_only_rerun=allow_score_only_rerun,
+                defer_commit=True,
             )
-            # Commit 2：为本次新初筛在 FOR UPDATE 下开一个 generation run，并把候选人的
+            # 为本次新初筛在候选人 FOR UPDATE 下开一个 generation run，并把候选人的
             # active_screening_run_id 指向它——晚发起的初筛会 bump generation 抢占 active，
             # 从而使先前 run 在晋级 CAS 时被判 generation_changed（乱序完成只让最新 run 晋级）。
             self._open_screening_run(
@@ -21764,7 +21871,14 @@ class RecruitmentService:
                 request_meta=request_meta,
                 actor_id=actor_id,
             )
+            # 单次提交：task + run + 候选人 active 指针一起对其他事务可见（原子）。
             self.db.commit()
+            # 提交后补发入队 SSE（defer_commit 期间已抑制）。
+            try:
+                self.db.refresh(log_row)
+                self._emit_task_event(log_row)
+            except Exception:
+                logger.debug("emit enqueue SSE after atomic commit failed", exc_info=True)
         if dispatch:
             self._dispatch_screening_queue()
         return {
