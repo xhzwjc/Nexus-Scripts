@@ -161,14 +161,26 @@ def _task_event_for_session(
         or payload.get("related_candidate_id")
         or snapshot
     )
-    if (
-        involves_candidate
-        and permission_context is not None
-        and permission_context.visible_org_codes is not None
-    ):
+    if involves_candidate and permission_context is not None and permission_context.visible_org_codes is not None:
         visible_org_codes = {normalize_org_code(code) for code in permission_context.visible_org_codes}
         if not event_org_code or normalize_org_code(event_org_code) not in visible_org_codes:
             return None
+        # P0-4：顶层 org_code 与快照 org_code 冲突时一律 fail-closed 丢弃，防止伪造 org 绕过。
+        if involves_candidate and snapshot:
+            snapshot_org_code = str(snapshot.get("org_code") or "").strip()
+            if snapshot_org_code and normalize_org_code(snapshot_org_code) not in visible_org_codes:
+                return None
+        # SELF 数据范围下，候选人流事件（screening/ai_position_match 等）还必须由本人拥有。
+        # 面试/部门评审事件按"被指派人"授权，且下游有专门的 self-scope 处理，此处不介入。
+        if (
+            permission_context.is_self_scope
+            and involves_candidate
+            and snapshot
+            and task_type not in {"department_review", "interview_schedule"}
+        ):
+            owner_id = str(snapshot.get("created_by") or snapshot.get("uploaded_by") or "").strip()
+            if not owner_id or owner_id != permission_context.actor_user_code:
+                return None
 
     if _has_unrestricted_task_event_access(session):
         return raw_event

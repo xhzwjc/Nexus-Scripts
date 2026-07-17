@@ -387,6 +387,7 @@ def test_preview_builds_strict_aligned_dimensions_without_pii_or_writes(monkeypa
         "facts_allowed": True,
         "score_deltas_allowed": True,
         "ranking_allowed": True,
+        "ranking_basis": "ai",
         "reasons": [],
     }
     assert result["target_context"]["evaluation_protocol_hash"].startswith("protocol:")
@@ -455,9 +456,10 @@ def test_preview_rejects_cross_position_selection_with_generic_error():
         RecruitmentService(db).preview_candidate_comparison([first.id, second.id], first_position.id)
 
 
-def test_limited_hides_unprovable_member_but_keeps_ready_member_own_scores():
-    # B1：有限可比下，口径不可证的历史成员仅事实；就绪且口径可证的成员保留各自原始评分，
-    # 但跨候选人差值/最佳/排序全部关闭（不因他人 legacy 而一并隐藏可信分数）。
+def test_non_strict_group_freezes_all_members_to_facts_only():
+    # GA 冻结契约：整组非 strict（任一成员 legacy/missing）时，横向对比矩阵全员仅事实——
+    # 隐藏所有 AI 分数/维度/差值/排序，避免两人对比中 A 满分、B 空白的锚定效应；
+    # 协议哈希同样不可背书，必须置空。单人历史评估走候选人详情页，不进入共享对比轴。
     db = _build_test_db()
     position = _add_position(db)
     first, first_task = _add_strict_candidate(db, position, index=1, engineering_score=8, delivery_score=2)
@@ -470,17 +472,18 @@ def test_limited_hides_unprovable_member_but_keeps_ready_member_own_scores():
     assert result["comparability"]["level"] == "limited"
     assert result["comparability"]["score_deltas_allowed"] is False
     assert result["comparability"]["ranking_allowed"] is False
+    assert result["comparability"]["ranking_basis"] == "none"
     assert "artifact_legacy" in result["comparability"]["reasons"]
     assert result["aligned_dimensions"] == []
     assert result["key_differences"] == []
-    # 口径不可证的历史成员：仅事实，不返回评分。
+    assert result["target_context"]["evaluation_protocol_hash"] is None
+    # 整组非 strict：全员仅事实，不返回任何评分。
     assert result["members"][0]["artifact_state"] == "legacy"
     assert result["members"][0]["screening"] is None
-    # 就绪且口径可证的成员：保留各自原始评分与维度。
     assert result["members"][1]["artifact_state"] == "strict"
-    assert result["members"][1]["screening"] is not None
-    assert result["members"][1]["screening"]["ai"]["total_score"] is not None
-    assert result["members"][1]["screening"]["dimensions"]
+    assert result["members"][1]["screening"] is None
+    # 事实字段仍然完整提供。
+    assert "facts" in result["members"][1]
 
 
 def test_exact_refs_from_old_position_are_stale_not_legacy():
@@ -654,19 +657,18 @@ def test_total_score_must_match_authoritative_dimension_sum():
 
     result = RecruitmentService(db).preview_candidate_comparison([first.id, second.id], position.id)
 
+    # GA 冻结契约：total 与权威维度和不一致 → 该成员 invalid → 整组非 strict →
+    # 横向矩阵全员仅事实（不再展示任何 AI 分数与对齐维度）。
     assert result["members"][0]["artifact_state"] == "invalid"
     assert "score_total_mismatch" in result["comparability"]["reasons"]
-    assert result["members"][0]["screening"]["ai"]["match_percent"] == 90
-    assert result["members"][1]["screening"]["ai"]["match_percent"] == 90
-    assert len(result["aligned_dimensions"]) == 2
+    assert result["members"][0]["screening"] is None
+    assert result["members"][1]["screening"] is None
+    assert result["aligned_dimensions"] == []
     assert result["comparability"]["level"] == "incompatible"
     assert result["comparability"]["score_deltas_allowed"] is False
     assert result["comparability"]["ranking_allowed"] is False
-    assert all(
-        value["is_highest"] is False
-        for dimension in result["aligned_dimensions"]
-        for value in dimension["values"]
-    )
+    assert result["comparability"]["ranking_basis"] == "none"
+    assert result["target_context"]["evaluation_protocol_hash"] is None
 
 
 def test_comparison_uses_candidate_business_display_status():
@@ -794,7 +796,44 @@ def test_partial_manual_override_disables_ranking_and_highest_markers():
     assert result["comparability"]["level"] == "strict"
     assert result["comparability"]["score_deltas_allowed"] is True
     assert result["comparability"]["ranking_allowed"] is False
+    assert result["comparability"]["ranking_basis"] == "none"
     assert "manual_override_mixed" in result["comparability"]["reasons"]
+    # GA：人工评分独立于 AI 工件，部分人工评分时仍原样展示，不参与排序。
+    assert result["members"][0]["manual_review"] == {"score": 90.0, "reason": None}
+    assert result["members"][1]["manual_review"] is None
+    assert all(
+        value["is_highest"] is False
+        for dimension in result["aligned_dimensions"]
+        for value in dimension["values"]
+    )
+
+
+def test_complete_manual_override_ranks_by_manual_and_disables_ai_best():
+    # GA：全员有人工评分且 strict → 只按人工分标最佳（ranking_basis=manual），
+    # AI 维度不得再标 is_highest；人工分与 AI 分永不混排。
+    db = _build_test_db()
+    position = _add_position(db)
+    first, _ = _add_strict_candidate(db, position, index=1, engineering_score=8, delivery_score=2)
+    second, _ = _add_strict_candidate(db, position, index=2, engineering_score=7, delivery_score=2)
+    for candidate, manual_score, manual_reason in [(first, 70, "复核后偏保守"), (second, 95, "现场表现极佳")]:
+        score = db.query(RecruitmentCandidateScore).filter(
+            RecruitmentCandidateScore.id == candidate.latest_score_id
+        ).one()
+        score.manual_override_score = manual_score
+        score.manual_override_reason = manual_reason
+    db.commit()
+
+    result = RecruitmentService(db).preview_candidate_comparison([first.id, second.id], position.id)
+
+    assert result["manual_override_mode"] == "complete"
+    assert result["comparability"]["level"] == "strict"
+    assert result["comparability"]["ranking_allowed"] is True
+    assert result["comparability"]["ranking_basis"] == "manual"
+    assert result["members"][0]["manual_review"]["score"] == 70.0
+    assert result["members"][0]["manual_review"]["is_highest"] is False
+    assert result["members"][1]["manual_review"]["score"] == 95.0
+    assert result["members"][1]["manual_review"]["is_highest"] is True
+    # AI 维度最佳标记全部关闭
     assert all(
         value["is_highest"] is False
         for dimension in result["aligned_dimensions"]

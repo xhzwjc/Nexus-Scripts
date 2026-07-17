@@ -282,11 +282,14 @@ export interface CandidateComparisonTargetContext {
   evaluation_protocol_hash: string | null;
 }
 
+export type CandidateComparisonRankingBasis = "ai" | "manual" | "none";
+
 export interface CandidateComparisonComparability {
   level: CandidateComparisonComparabilityLevel;
   facts_allowed: boolean;
   score_deltas_allowed: boolean;
   ranking_allowed: boolean;
+  ranking_basis: CandidateComparisonRankingBasis;
   reasons: CandidateComparisonReasonCode[];
 }
 
@@ -308,6 +311,13 @@ export interface CandidateComparisonFacts {
   education: string | null;
   years_of_experience: string | null;
   current_company: string | null;
+  source: string | null;
+}
+
+export interface CandidateComparisonManualReview {
+  score: number | null;
+  reason: string | null;
+  is_highest?: boolean;
 }
 
 export interface CandidateComparisonAiScreening {
@@ -366,6 +376,7 @@ export interface CandidateComparisonMember {
   revisions: CandidateComparisonRevisions;
   facts: CandidateComparisonFacts;
   screening: CandidateComparisonScreening | null;
+  manual_review: CandidateComparisonManualReview | null;
   warnings: CandidateComparisonReasonCode[];
 }
 

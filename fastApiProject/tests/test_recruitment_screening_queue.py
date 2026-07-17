@@ -228,7 +228,7 @@ def test_ai_match_callback_does_not_hold_db_session_during_model_call(monkeypatc
     def resolve_config_by_id(self, config_id):
         return runtime_config
 
-    def match_position(candidate_id, resume_content, positions, *, runtime_config=None, key_id=None):
+    def match_position(self, candidate_id, resume_content, positions, *, runtime_config=None, key_id=None):
         nonlocal model_call_open_session_count
         model_call_open_session_count = open_session_count
         return {
@@ -249,10 +249,11 @@ def test_ai_match_callback_does_not_hold_db_session_during_model_call(monkeypatc
 
     monkeypatch.setattr(database, "SessionLocal", session_factory)
     monkeypatch.setattr(RecruitmentAIGateway, "resolve_config_by_id", resolve_config_by_id)
+    # 0.1-C：回调每次自建网关并调用其类方法 match_position，故打桩到类方法而非实例。
+    monkeypatch.setattr(RecruitmentAIGateway, "match_position", match_position)
     monkeypatch.setattr(RecruitmentService, "_serialize_realtime_candidate_item", lambda self, row: {"status": row.status})
 
     service = RecruitmentService(Mock())
-    service.ai_gateway.match_position = match_position
     # P0-3：回调改为无状态 handler，请求级上下文随 MatchTask 传递
     callback = service._create_match_callback()
 
@@ -705,7 +706,10 @@ def test_one_pass_salvages_top_level_suggested_status_and_dimensions():
         validation_warnings=meta["warnings"],
     )
 
-    assert sanitized_payload["score"]["suggested_status"] == "talent_pool"
+    # P0-1：最终状态由确定性规则推导（50 分 < pool 阈值 55 → screening_rejected），
+    # 模型给的 talent_pool 仅作审计留存。
+    assert sanitized_payload["score"]["suggested_status"] == "screening_rejected"
+    assert meta["raw_model_suggested_status"] == "talent_pool"
     assert [item["label"] for item in sanitized_payload["score"]["dimensions"]] == ["IoT协议", "自动化测试", "文档输出能力"]
     assert any("top-level stray score 字段" in item for item in meta["warnings"])
     assert valid is True
@@ -1326,47 +1330,50 @@ def test_resolve_interview_skills_prefers_system_base_before_candidate_memory():
     assert source == "system_builtin_base"
 
 
-def test_resume_screening_queue_on_startup_requeues_only_stale_live_tasks():
+def test_resume_screening_queue_on_startup_requeues_orphans_by_process_boot_time():
+    # P0.1：重投判定与孤儿判定同源——最后心跳早于本进程启动时间即为中断孤儿，
+    # 直接重投（不再只重投"超过 10 分钟陈旧"的任务，避免重启前几分钟的任务漏投后
+    # 又被孤儿结算按启动时间判死）。心跳晚于本进程启动时间的任务视为仍在执行，不动。
     service = RecruitmentService(Mock())
-    now = datetime.now()
-    stale_row = SimpleNamespace(
+    boot = recruitment_impl.PROCESS_BOOTED_AT
+    interrupted_row = SimpleNamespace(
         id=401,
         status="running",
         stage="running",
-        updated_at=now - timedelta(minutes=30),
-        stage_started_at=now - timedelta(minutes=35),
-        created_at=now - timedelta(minutes=40),
+        updated_at=boot - timedelta(minutes=3),
+        stage_started_at=boot - timedelta(minutes=4),
+        created_at=boot - timedelta(minutes=5),
         output_snapshot=None,
         validation_meta_json=None,
         duration_ms=99,
         error_message="boom",
         output_summary="old",
     )
-    fresh_row = SimpleNamespace(
+    live_row = SimpleNamespace(
         id=402,
-        status="pending",
-        stage="pending",
-        updated_at=now - timedelta(minutes=2),
-        stage_started_at=now - timedelta(minutes=2),
-        created_at=now - timedelta(minutes=5),
+        status="running",
+        stage="running",
+        updated_at=boot + timedelta(minutes=1),
+        stage_started_at=boot + timedelta(minutes=1),
+        created_at=boot - timedelta(minutes=1),
         output_snapshot=None,
         validation_meta_json=None,
         duration_ms=None,
         error_message=None,
-        output_summary="fresh",
+        output_summary="live",
     )
-    query = _build_query_mock(all_value=[stale_row, fresh_row])
+    query = _build_query_mock(all_value=[interrupted_row, live_row])
     service.db.query.return_value = query
     service._dispatch_screening_queue = Mock(return_value={"started_count": 1, "active_count": 1, "max_concurrency": 1})
 
     with patch.object(RecruitmentService, "_screening_root_task_filter", return_value="ROOT_FILTER"), \
-            patch("app.services.recruitment_service_impl._screening_worker_active_task_ids", {stale_row.id, fresh_row.id}):
+            patch("app.services.recruitment_service_impl._screening_worker_active_task_ids", {interrupted_row.id, live_row.id}):
         payload = service.resume_screening_queue_on_startup()
 
-    assert payload["requeued_task_ids"] == [stale_row.id]
-    assert stale_row.status == "queued"
-    assert stale_row.stage == "queued"
-    assert fresh_row.status == "pending"
+    assert payload["requeued_task_ids"] == [interrupted_row.id]
+    assert interrupted_row.status == "queued"
+    assert interrupted_row.stage == "queued"
+    assert live_row.status == "running"
     service.db.commit.assert_called_once()
     service._dispatch_screening_queue.assert_called_once()
 
@@ -4790,7 +4797,7 @@ def test_root_validation_meta_does_not_embed_full_parsed_resume_and_score():
     assert validation_meta["parse_strategy"] == "rerank_from_existing_parse"
 
 
-def test_suggested_status_conflict_preserves_model_status_before_save():
+def test_suggested_status_conflict_resolved_by_deterministic_rules_before_save():
     service = RecruitmentService(Mock())
     service._auto_advance_candidate_after_screening = Mock(
         side_effect=lambda candidate, actor_id=None: setattr(candidate, "status", candidate.ai_recommended_status)
@@ -4836,13 +4843,15 @@ def test_suggested_status_conflict_preserves_model_status_before_save():
         },
     )
 
+    # P0-1 契约反转：最终状态一律由确定性规则推导（80 分 ≥ pass 阈值 75 → screening_passed），
+    # 模型给的 talent_pool 仅作审计留存并产生不一致告警。
     assert meta["raw_model_suggested_status"] == "talent_pool"
-    assert meta["normalized_final_suggested_status"] == "talent_pool"
-    assert "score.suggested_status 已按最终分数规则自动纠正" not in meta["warnings"]
-    assert score_payload["suggested_status"] == "talent_pool"
-    assert candidate.ai_recommended_status == "talent_pool"
-    assert candidate.status == "talent_pool"
-    assert score_row.suggested_status == "talent_pool"
+    assert meta["normalized_final_suggested_status"] == "screening_passed"
+    assert any("已以规则结果为准" in item for item in meta["warnings"])
+    assert score_payload["suggested_status"] == "screening_passed"
+    assert candidate.ai_recommended_status == "screening_passed"
+    assert candidate.status == "screening_passed"
+    assert score_row.suggested_status == "screening_passed"
 
 
 def test_final_score_dimensions_do_not_leak_weight_text_or_is_core():

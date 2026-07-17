@@ -1852,3 +1852,105 @@ def test_batch_move_to_talent_pool_blocks_cross_org_ids():
         assert "可见范围" in str(exc_info.value)
     finally:
         db.close()
+
+
+def test_get_screening_batch_status_scopes_by_candidate_org():
+    """P0-3：批次状态查询必须按候选人组织可见范围过滤，跨组织 batch_id 读不到任务。"""
+    from app.recruitment_models import RecruitmentAITaskLog
+    db = _build_test_db()
+    try:
+        _seed_org_tree(db)
+        own = _add_candidate(
+            db, org_code="chunmiao-rd", position_id=None, name="本部门候选人", created_by="rd-user"
+        )
+        cross = _add_candidate(
+            db, org_code="haoshi", position_id=None, name="他组织候选人", created_by="haoshi-hr"
+        )
+        batch_id = "batch-xorg-1"
+        for cand, org in [(own, "chunmiao-rd"), (cross, "haoshi")]:
+            db.add(RecruitmentAITaskLog(
+                task_type="screening_flow",
+                org_code=org,
+                batch_id=batch_id,
+                status="success",
+                related_candidate_id=cand.id,
+                created_by="rd-user" if org == "chunmiao-rd" else "haoshi-hr",
+                output_summary="done",
+            ))
+        db.commit()
+
+        rd_user = _service(db, _session("rd-user", "chunmiao-rd", DATA_SCOPE_ORG_ONLY))
+        status = rd_user.get_screening_batch_status(batch_id)
+        # 只应看到本组织的 1 条任务，跨组织候选人任务被过滤
+        assert status["total"] == 1
+        assert [row["candidate_id"] for row in status["per_candidate_status"]] == [own.id]
+
+        # 全组织管理员能看到全部 2 条
+        admin = _service(db, _session("group-admin", "group", DATA_SCOPE_ALL, super_admin=True))
+        admin_status = admin.get_screening_batch_status(batch_id)
+        assert admin_status["total"] == 2
+    finally:
+        db.close()
+
+
+def test_save_score_result_skips_authoritative_promotion_when_resume_changed_midrun():
+    """P1 generation/CAS：评分晋级前若发现候选人 latest_resume_file_id 已变（运行期换简历），
+    结果只留档、不晋级为权威（不写 latest_score_id、不推进状态、不改 ai_recommended_status）。"""
+    from app.recruitment_models import RecruitmentResumeFile, RecruitmentResumeParseResult
+    from app.services.recruitment_service_impl import RAW_SCREENING_SCORE_STORAGE_FORMAT
+    db = _build_test_db()
+    try:
+        _seed_org_tree(db)
+        candidate = _add_candidate(
+            db, org_code="chunmiao-rd", position_id=None, name="CAS候选人", created_by="rd-user"
+        )
+        old_resume = RecruitmentResumeFile(candidate_id=candidate.id, org_code="chunmiao-rd", original_name="old.pdf", stored_name="old.pdf", storage_path="/tmp/old.pdf", parse_status="success", uploaded_by="rd-user")
+        db.add(old_resume)
+        db.flush()
+        parse = RecruitmentResumeParseResult(candidate_id=candidate.id, resume_file_id=old_resume.id, org_code="chunmiao-rd", raw_text="old raw", status="success")
+        db.add(parse)
+        db.flush()
+        # 运行期间：候选人换了新简历 → latest_resume_file_id 指向新文件
+        new_resume = RecruitmentResumeFile(candidate_id=candidate.id, org_code="chunmiao-rd", original_name="new.pdf", stored_name="new.pdf", storage_path="/tmp/new.pdf", parse_status="pending", uploaded_by="rd-user")
+        db.add(new_resume)
+        db.flush()
+        candidate.latest_resume_file_id = new_resume.id
+        candidate.status = "pending_screening"
+        candidate.ai_recommended_status = None
+        candidate.latest_score_id = None
+        db.commit()
+
+        service = RecruitmentService(db)
+        content = {
+            "_storage_format": RAW_SCREENING_SCORE_STORAGE_FORMAT,
+            "score": {
+                "total_score": 8.0,
+                "match_percent": 80,
+                "advantages": ["强"],
+                "concerns": [],
+                "recommendation": "建议面试",
+                "suggested_status": "screening_passed",
+                "dimensions": [],
+            },
+        }
+        score_row = service._save_score_result(candidate, parse, "rd-user", content, allow_status_advance=True)
+        db.commit()
+        db.refresh(candidate)
+
+        # 评分行留档，但候选人权威状态未被过期结果覆盖
+        assert getattr(score_row, "_superseded_reason", None) == "resume_changed"
+        assert candidate.latest_score_id is None
+        assert candidate.ai_recommended_status is None
+        assert candidate.status == "pending_screening"
+
+        # 对照：简历未变时正常晋级
+        candidate.latest_resume_file_id = old_resume.id
+        db.commit()
+        score_row2 = service._save_score_result(candidate, parse, "rd-user", content, allow_status_advance=True)
+        db.commit()
+        db.refresh(candidate)
+        assert getattr(score_row2, "_superseded_reason", None) is None
+        assert candidate.latest_score_id == score_row2.id
+        assert candidate.ai_recommended_status == "screening_passed"
+    finally:
+        db.close()

@@ -197,15 +197,24 @@ def _warmup_recruitment_pdf_ocr() -> None:
 async def startup_event():
     """启动时初始化"""
     # 招聘模块的事件总线/匹配调度器/限流器均为进程内单例，多 worker 部署会导致
-    # SSE 丢事件、匹配恢复互踩、模型限流超发。扩容前必须先外部化这些状态。
+    # SSE 丢事件、匹配恢复互踩、模型限流超发。扩容前必须先外部化这些状态，
+    # 因此默认 fail-fast 拒绝多 worker 启动；确需临时放开需显式设置
+    # RECRUITMENT_ALLOW_MULTIPROCESS=1（自担风险）。
     try:
         web_concurrency = int(str(os.getenv("WEB_CONCURRENCY", "1") or "1").strip())
     except (TypeError, ValueError):
         web_concurrency = 1
-    if web_concurrency > 1:
+    allow_multiprocess = str(os.getenv("RECRUITMENT_ALLOW_MULTIPROCESS", "0") or "0").strip() == "1"
+    if web_concurrency > 1 and not allow_multiprocess:
+        raise RuntimeError(
+            f"WEB_CONCURRENCY={web_concurrency} > 1：招聘模块的队列/SSE/限流为进程内状态，"
+            "多 worker 会导致重复调度、限流超发与 SSE 丢事件。请将 WEB_CONCURRENCY 降回 1；"
+            "在完成队列/事件/限流外部化前如确需放开，显式设置 RECRUITMENT_ALLOW_MULTIPROCESS=1。"
+        )
+    if web_concurrency > 1 and allow_multiprocess:
         logger.warning(
-            "WEB_CONCURRENCY=%s > 1：招聘模块当前仅支持单进程部署，"
-            "多 worker 会丢失 SSE 事件并击穿模型并发限制，请先降回 1。",
+            "WEB_CONCURRENCY=%s > 1 且 RECRUITMENT_ALLOW_MULTIPROCESS=1：已放开多进程限制，"
+            "但 SSE 丢事件与模型限流超发风险仍在，请尽快完成状态外部化。",
             web_concurrency,
         )
     try:

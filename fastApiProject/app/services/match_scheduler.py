@@ -215,6 +215,9 @@ class MatchTask:
     # 否则并发触发匹配时后一个请求会覆盖前一批任务的岗位池/会话/操作人。
     session_token: Optional[str] = None
     task_type: str = "ai_position_match"
+    # 0.1-C：错误回调重新入队重试时置 True，worker 的 finally 据此保留 live 标记，
+    # 避免重试延迟窗口内同一候选人被新一次 trigger 误判为"不在飞行中"而重复匹配。
+    requeued_for_retry: bool = False
 
 
 # ─────────────────────────────────────────
@@ -279,6 +282,11 @@ class FairMatchScheduler:
 
     async def reenqueue(self, task: MatchTask):
         """重新入队（重试场景），放到队列头部优先处理"""
+        # 0.1-C：标记为重试中并确保 live 标记仍在，worker finally 不会清除它，
+        # 从而在重试延迟窗口内继续对新一次 trigger 去重。
+        task.requeued_for_retry = True
+        with self._state_lock:
+            self._live_candidate_ids.add(int(task.candidate_id))
         async with self._queue_lock:
             self._user_queues[task.user_id].appendleft(task)
             if task.user_id not in self._active_users:
@@ -428,8 +436,9 @@ class FairMatchScheduler:
                 )
                 continue
 
-            # 记录实际开始匹配时间
+            # 记录实际开始匹配时间；开始执行即清除上一轮的重试标记
             task.started_at = time.monotonic()
+            task.requeued_for_retry = False
 
             slot = None
             try:
@@ -457,11 +466,14 @@ class FairMatchScheduler:
                     "MatchWorker-%d task failed candidate=%d: %s",
                     worker_id, task.candidate_id, e, exc_info=True,
                 )
-                # 失败也要回调，写 failed 审计日志
+                # 失败也要回调，写 failed 审计日志（可能在其中 reenqueue 重试）
                 if self._error_callback:
                     await self._error_callback(task, e)
             finally:
-                self.clear_live_candidate(task.candidate_id)
+                # 0.1-C：错误回调把任务重新入队重试时保留 live 标记，不在此清除，
+                # 否则重试延迟窗口内该候选人会被新一次 trigger 视为可再次入队。
+                if not task.requeued_for_retry:
+                    self.clear_live_candidate(task.candidate_id)
                 if slot:
                     slot.release()
 

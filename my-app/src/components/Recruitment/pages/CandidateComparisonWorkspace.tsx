@@ -279,7 +279,6 @@ function DimensionComparisonRow({
         <div role="row" className="grid w-full border-b border-[#F2F3F5] bg-white" style={comparisonGridStyle(members.length)}>
             <button
                 type="button"
-                role="rowheader"
                 aria-expanded={expanded}
                 className="sticky left-0 z-10 flex flex-col items-start gap-0.5 border-r border-[#F2F3F5] bg-white px-4 py-3 text-left"
                 onClick={onToggle}
@@ -413,11 +412,32 @@ export function CandidateComparisonWorkspace({
     resolveCandidateSource,
 }: CandidateComparisonWorkspaceProps) {
     const [expandedDimensions, setExpandedDimensions] = React.useState<Set<string>>(() => new Set());
+    // GA 无障碍：全屏工作区（region 语义，非伪 modal），进入时聚焦返回按钮，
+    // Escape 返回列表，退出时把焦点还给打开前的触发元素。详情浮层打开时不接管键盘。
+    const backButtonRef = React.useRef<HTMLButtonElement | null>(null);
+    const previouslyFocusedRef = React.useRef<HTMLElement | null>(null);
+    React.useEffect(() => {
+        previouslyFocusedRef.current = (document.activeElement as HTMLElement) || null;
+        backButtonRef.current?.focus();
+        return () => {
+            const previous = previouslyFocusedRef.current;
+            if (previous && typeof previous.focus === "function" && document.contains(previous)) {
+                previous.focus();
+            }
+        };
+    }, []);
+    React.useEffect(() => {
+        if (detailOpen) return;
+        function onKeyDown(event: KeyboardEvent) {
+            if (event.key === "Escape") {
+                event.stopPropagation();
+                onBack();
+            }
+        }
+        window.addEventListener("keydown", onKeyDown);
+        return () => window.removeEventListener("keydown", onKeyDown);
+    }, [detailOpen, onBack]);
     const members = React.useMemo(() => preview?.members || [], [preview]);
-    const selectedCandidateById = React.useMemo(
-        () => new Map(selectedCandidates.map((candidate) => [candidate.id, candidate])),
-        [selectedCandidates],
-    );
     const memberNameById = React.useMemo(
         () => new Map(members.map((member) => [member.candidate.id, member.candidate.name || text.unknownCandidate])),
         [members, text.unknownCandidate],
@@ -511,9 +531,8 @@ export function CandidateComparisonWorkspace({
 
     return (
         <CandidateComparisonPortal>
-        <div
-            role="dialog"
-            aria-modal="true"
+        <section
+            role="region"
             aria-label={text.title}
             className={cn(
                 "fixed inset-0 flex min-h-0 flex-col overflow-hidden bg-[#F7F8FA]",
@@ -522,7 +541,7 @@ export function CandidateComparisonWorkspace({
         >
             <header className="flex h-[60px] shrink-0 items-center gap-4 border-b border-[#E6E7EB] bg-white px-8">
                 <div className="flex min-w-0 items-center gap-4">
-                    <button type="button" className="flex shrink-0 items-center gap-1.5 text-[13px] text-[#33353D] transition hover:text-[#1E3BFA]" onClick={onBack}>
+                    <button ref={backButtonRef} type="button" className="flex shrink-0 items-center gap-1.5 text-[13px] text-[#33353D] transition hover:text-[#1E3BFA]" onClick={onBack}>
                         <ArrowLeft className="h-4 w-4"/>
                         {text.backToCandidates}
                     </button>
@@ -629,13 +648,12 @@ export function CandidateComparisonWorkspace({
                                 <div role="row" className="sticky top-0 z-30 grid w-full border-b border-[#E6E7EB] bg-white" style={comparisonGridStyle(members.length)}>
                                     <div role="columnheader" className="sticky left-0 z-40 flex items-end border-r border-[#F2F3F5] bg-white px-4 py-4 text-[12px] text-[#86888F]">{text.comparisonDimension}</div>
                                     {members.map((member) => {
-                                        const selectedCandidate = selectedCandidateById.get(member.candidate.id);
                                         const displayStatus = member.candidate.display_status || member.candidate.status;
                                         const aiScore = normalizedAiScore(member);
                                         const rawScore = member.screening?.ai.total_score;
                                         const rawScale = member.screening?.ai.total_score_scale;
                                         const isBest = bestOverallScore != null && aiScore != null && Math.abs(bestOverallScore - aiScore) < 0.005;
-                                        const manualScore = member.screening?.manual_override.score;
+                                        const manualScore = member.manual_review?.score;
                                         return (
                                             <div role="columnheader" key={member.candidate.id} className="relative flex min-w-0 flex-col gap-2.5 border-r border-[#F2F3F5] px-4 py-4 last:border-r-0">
                                                 <button type="button" className="absolute right-3 top-3 flex h-5 w-5 items-center justify-center rounded text-[#B0B2B8] transition hover:bg-[#F2F3F5] hover:text-[#F53F3F]" aria-label={text.removeCandidateAria(member.candidate.name || text.unknownCandidate)} onClick={() => onRemoveCandidate(member.candidate.id)}>
@@ -648,10 +666,10 @@ export function CandidateComparisonWorkspace({
                                                             <span className="truncate text-[14px] font-semibold text-[#0E1114]">{member.candidate.name || text.unknownCandidate}</span>
                                                             {isBest ? <span className="shrink-0 rounded-[4px] bg-[rgba(30,59,250,0.1)] px-1.5 py-0.5 text-[10px] text-[#1E3BFA]">{text.totalScoreHighest}</span> : null}
                                                         </div>
-                                                        <p className="truncate text-[11px] font-normal text-[#86888F]">{selectedCandidate?.position_title || preview.target_context.position_title}</p>
+                                                        <p className="truncate text-[11px] font-normal text-[#86888F]">{preview.target_context.position_title}</p>
                                                     </div>
                                                 </div>
-                                                <p className="truncate text-[11px] font-normal text-[#86888F]">{[selectedCandidate?.years_of_experience, selectedCandidate?.city, selectedCandidate?.education].filter(Boolean).join(" · ") || text.noData}</p>
+                                                <p className="truncate text-[11px] font-normal text-[#86888F]">{[member.facts.years_of_experience, member.facts.city, member.facts.education].filter(Boolean).join(" · ") || text.noData}</p>
                                                 <div className="flex items-end gap-2">
                                                     <span className={cn("text-[28px] font-semibold leading-none tabular-nums", aiScore == null ? "text-[#86888F]" : "text-[#0E1114]")}>{aiScore == null ? "—" : formatComparisonNumber(aiScore, 0)}</span>
                                                     <span className="flex flex-col gap-0.5 pb-0.5 text-[10px] font-normal text-[#B0B2B8]">
@@ -675,12 +693,13 @@ export function CandidateComparisonWorkspace({
 
                                 <ComparisonSectionTitle title={text.factsTitle} members={members}/>
                                 {[
-                                    {key: "position", label: text.currentPosition, value: (member: CandidateComparisonMember) => selectedCandidateById.get(member.candidate.id)?.position_title || preview.target_context.position_title},
+                                    // GA：所有事实字段以 Preview DTO（member.facts）为唯一权威源，不再混用列表缓存；
+                                    // 移除无对比价值且实为"应聘岗位"的"当前/最近职位"行。
                                     {key: "company", label: text.currentCompany, value: (member: CandidateComparisonMember) => member.facts.current_company},
                                     {key: "experience", label: text.experience, value: (member: CandidateComparisonMember) => member.facts.years_of_experience},
                                     {key: "city", label: text.city, value: (member: CandidateComparisonMember) => member.facts.city},
                                     {key: "education", label: text.education, value: (member: CandidateComparisonMember) => member.facts.education},
-                                    {key: "source", label: text.source, value: (member: CandidateComparisonMember) => resolveCandidateSource(selectedCandidateById.get(member.candidate.id)?.source)},
+                                    {key: "source", label: text.source, value: (member: CandidateComparisonMember) => resolveCandidateSource(member.facts.source)},
                                     {key: "status", label: text.currentStage, value: (member: CandidateComparisonMember) => resolveCandidateStatus(member.candidate.display_status || member.candidate.status)},
                                 ].map((row) => (
                                     <ComparisonGridRow key={row.key} label={row.label} members={members}>
@@ -712,8 +731,12 @@ export function CandidateComparisonWorkspace({
                                 </ComparisonGridRow>
                                 <ComparisonGridRow label={<div><p>{text.manualScoreTitle}</p><p className="mt-0.5 text-[10px] font-normal text-[#B0B2B8]">{text.manualScoreIndependent}</p></div>} members={members} emphasized={preview.manual_override_mode !== "none"}>
                                     {(member) => {
-                                        const score = member.screening?.manual_override.score;
-                                        return <div><p className="text-[14px] font-semibold tabular-nums text-[#0E1114]">{score == null ? "—" : `${formatComparisonNumber(score)} / 100`}</p><p className="mt-1 text-[10px] text-[#B0B2B8]">{score == null ? text.manualScoreMissing : member.screening?.manual_override.reason || text.manualScoreIndependent}</p></div>;
+                                        // GA：人工复核独立于 AI 工件（member.manual_review），AI 分被冻结/清除时仍展示；
+                                        // 仅当 ranking_basis=manual 时按人工分标最佳，绝不与 AI 分混排。
+                                        const review = member.manual_review;
+                                        const score = review?.score;
+                                        const isBest = Boolean(preview.comparability.ranking_basis === "manual" && review?.is_highest && score != null);
+                                        return <div><div className="flex items-center gap-2"><p className="text-[14px] font-semibold tabular-nums text-[#0E1114]">{score == null ? "—" : `${formatComparisonNumber(score)} / 100`}</p>{isBest ? <span className="rounded-[4px] bg-[rgba(30,59,250,0.1)] px-1.5 py-0.5 text-[10px] text-[#1E3BFA]">{text.highestScore}</span> : null}</div><p className="mt-1 text-[10px] text-[#B0B2B8]">{score == null ? text.manualScoreMissing : review?.reason || text.manualScoreIndependent}</p></div>;
                                     }}
                                 </ComparisonGridRow>
                                 <ComparisonGridRow label={text.recommendation} members={members}>
@@ -733,7 +756,7 @@ export function CandidateComparisonWorkspace({
                     </div>
                 </div>
             ) : null}
-        </div>
+        </section>
         </CandidateComparisonPortal>
     );
 }

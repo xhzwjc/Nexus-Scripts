@@ -1073,7 +1073,8 @@ def _extract_text_from_pdf_with_macos_vision_ocr(file_path: Path) -> str:
     swift_path = shutil.which("swift")
     if not swift_path:
         raise RuntimeError("Swift runtime unavailable for macOS Vision OCR fallback.")
-    max_pages = os.getenv("RECRUITMENT_PDF_OCR_MAX_PAGES", "3").strip() or "3"
+    # Phase 2：默认从 3 页放宽到 8 页，避免多页扫描简历后文被静默截断。
+    max_pages = os.getenv("RECRUITMENT_PDF_OCR_MAX_PAGES", "8").strip() or "8"
     swift_script = """
 import Foundation
 import PDFKit
@@ -1179,7 +1180,8 @@ def _extract_text_from_pdf_with_paddleocr(file_path: Path) -> str:
 
         return run_with_ocr_engine(_run)
 
-    max_pages = int(os.getenv("RECRUITMENT_PDF_OCR_MAX_PAGES", "1").strip() or "1")
+    # Phase 2：生产 PaddleOCR 默认从 1 页放宽到 8 页——此前多页扫描简历只有首页进模型。
+    max_pages = int(os.getenv("RECRUITMENT_PDF_OCR_MAX_PAGES", "8").strip() or "8")
     render_scale = float(os.getenv("RECRUITMENT_PDF_OCR_RENDER_SCALE", "2").strip() or "2")
     document = pdfium.PdfDocument(str(file_path))
     fragments: List[str] = []
