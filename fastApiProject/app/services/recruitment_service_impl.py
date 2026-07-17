@@ -357,7 +357,14 @@ CANDIDATE_DETAIL_JSON_PREVIEW_BYTES = max(2048, int(os.getenv("CANDIDATE_DETAIL_
 CANDIDATE_DETAIL_COLLECTION_LIMIT = max(5, int(os.getenv("CANDIDATE_DETAIL_COLLECTION_LIMIT", "24")))
 TERMINAL_AI_TASK_STATUSES = {"success", "fallback", "failed", "invalid_result", "json_parse_failed", "invalid_json_variant_conflict", "timeout", "retry_exhausted", "cancelled", "rate_limited", "upstream_timeout", "request_failed", "screening_total_timeout", "quota_exceeded", "superseded", "screening_rule_invalid", "resume_text_unavailable"}
 # 过期原因归类（P0 控制流：superseded 是独立终态，不伪装成 invalid_result）
-SCREENING_SUPERSEDED_REASONS = {"resume_changed", "position_changed", "candidate_deleted", "generation_changed", "protocol_changed", "cancelled"}
+SCREENING_SUPERSEDED_REASONS = {"resume_changed", "position_changed", "candidate_deleted", "generation_changed", "protocol_changed", "cancelled", "already_promoted", "candidate_status_advanced"}
+
+# 人工决策优先（P0）：AI 初筛晋级只允许写仍处于"初筛域"的候选人；HR 已推进到部门评审/
+# 面试/Offer/入职等阶段后，迟到的 AI 结果只能留档，绝不回写状态/权威指针。
+AI_SCREENING_WRITABLE_STATUSES = {
+    "new_imported", "matching", "unmatched", "pending_screening",
+    "screening_failed", "screening_passed", "screening_rejected", "talent_pool",
+}
 TERMINAL_SCREENING_STAGES = {"parsed", "completed", "failed", "cancelled"}
 
 class RecruitmentConflictError(RuntimeError):
@@ -6032,11 +6039,33 @@ def _build_skill_resolution_detail(
     return detail
 
 
+def _normalize_threshold_value(value: Any, default: float) -> float:
+    """阈值校验（P1 fail-closed）：必须是 (0, 100] 内的有限数，否则回退默认值。
+
+    0/负数/超 100/NaN/Inf 的配置会让零分候选人直接通过或全员淘汰，一律视为非法配置。
+    """
+    parsed = _parse_score_number(value)
+    if parsed is None:
+        return default
+    try:
+        numeric = float(parsed)
+    except (TypeError, ValueError):
+        return default
+    if not math.isfinite(numeric) or numeric <= 0 or numeric > 100:
+        return default
+    return round(numeric, 1)
+
+
 def _build_status_threshold_payload(status_rules: Optional[Dict[str, Any]]) -> Dict[str, float]:
     rules = status_rules if isinstance(status_rules, dict) else {}
+    pass_threshold = _normalize_threshold_value(rules.get("pass_threshold"), 75.0)
+    pool_threshold = _normalize_threshold_value(rules.get("pool_threshold"), 55.0)
+    # 语义约束：pool 不得高于 pass（否则"进人才库"比"通过"更难，判定倒挂）。
+    if pool_threshold > pass_threshold:
+        pool_threshold = pass_threshold
     return {
-        "pass_threshold": round(float(_parse_score_number(rules.get("pass_threshold")) or 75.0), 1),
-        "pool_threshold": round(float(_parse_score_number(rules.get("pool_threshold")) or 55.0), 1),
+        "pass_threshold": pass_threshold,
+        "pool_threshold": pool_threshold,
     }
 
 
@@ -6434,15 +6463,35 @@ class RecruitmentService:
             cid = task.related_candidate_id
             if not cid:
                 continue
+            # P0 完整链条：本批根任务 success → 其 run 已晋级 → run 的评分就是候选人当前权威评分。
+            # 任一环断开（本批任务失败/超期/被取代，即便候选人有历史通过分）都不发信。
+            if str(getattr(task, "status", "") or "") != "success":
+                logger.info(
+                    "Batch auto mail skip candidate=%s: root task %s status=%s (not success)",
+                    cid, getattr(task, "id", None), getattr(task, "status", None),
+                )
+                continue
+            run = self._get_screening_run_for_root_task(getattr(task, "id", None))
+            if run is None or str(getattr(run, "status", "") or "") not in {"promoted", "success"}:
+                logger.info(
+                    "Batch auto mail skip candidate=%s: run missing or not promoted (run=%s status=%s)",
+                    cid, getattr(run, "id", None), getattr(run, "status", None),
+                )
+                continue
             candidate = self.db.query(RecruitmentCandidate).filter(
                 RecruitmentCandidate.id == cid,
                 RecruitmentCandidate.deleted.is_(False),
             ).first()
             if not candidate:
                 continue
-            # 只认权威晋级评分：candidate.latest_score_id 仅在 CAS 通过（非 superseded）时写入。
-            # 不能再取"最大 id 的评分"——superseded 评分也会入库且常是最新 id，会用过期结果发信。
-            if not candidate.latest_score_id:
+            # 只认权威晋级评分，且必须是"本 run"晋级出来的那份——历史通过分不作数。
+            if not candidate.latest_score_id or not getattr(run, "score_result_id", None):
+                continue
+            if int(run.score_result_id) != int(candidate.latest_score_id):
+                logger.info(
+                    "Batch auto mail skip candidate=%s: run score %s != candidate latest %s",
+                    cid, run.score_result_id, candidate.latest_score_id,
+                )
                 continue
             score = (
                 self.db.query(RecruitmentCandidateScore)
@@ -16919,15 +16968,26 @@ class RecruitmentService:
                 try:
                     candidate = db.query(RecruitmentCandidate).filter(
                         RecruitmentCandidate.id == task.candidate_id,
-                    ).first()
+                    ).with_for_update().first()
                     if candidate:
                         candidate_org_code = normalize_org_code(getattr(candidate, "org_code", None))
-                        candidate.status = "unmatched"
-                        candidate.ai_match_reason = "用户手动停止匹配"
-                        candidate.talent_pool_reason = "ai_error"
-                        candidate.talent_pool_moved_at = datetime.now()
-                        candidate.updated_by = actor_id
-                        db.commit()
+                        # 人工决策优先：运行期间 HR 已改岗/已推进状态则只留审计，不把候选人改回 unmatched。
+                        stale_reason = self._ai_match_stale_reason(
+                            candidate, getattr(task, "expected_before_position_id", None)
+                        )
+                        if stale_reason or str(getattr(candidate, "status", "") or "") not in {"matching", "unmatched", "talent_pool"}:
+                            logger.warning(
+                                "[AI_MATCH] skip cancel-write for candidate %d (stale=%s status=%s)",
+                                task.candidate_id, stale_reason, getattr(candidate, "status", None),
+                            )
+                            db.rollback()
+                        else:
+                            candidate.status = "unmatched"
+                            candidate.ai_match_reason = "用户手动停止匹配"
+                            candidate.talent_pool_reason = "ai_error"
+                            candidate.talent_pool_moved_at = datetime.now()
+                            candidate.updated_by = actor_id
+                            db.commit()
                         candidate_snapshot = self._serialize_realtime_candidate_item(candidate)
 
                     log_row = RecruitmentAITaskLog(
@@ -17027,16 +17087,27 @@ class RecruitmentService:
 
                 candidate = db.query(RecruitmentCandidate).filter(
                     RecruitmentCandidate.id == task.candidate_id,
-                ).first()
+                ).with_for_update().first()
                 if candidate:
                     candidate_org_code = normalize_org_code(getattr(candidate, "org_code", None))
-                    candidate.status = "unmatched"
-                    candidate.ai_match_reason = failure_message
-                    candidate.ai_match_at = now
-                    candidate.talent_pool_reason = "ai_error"
-                    candidate.talent_pool_moved_at = now
-                    candidate.updated_by = actor_id
-                    db.commit()
+                    # 人工决策优先：运行期间 HR 已改岗/已推进状态则只留审计，不把候选人改回 unmatched。
+                    stale_reason = self._ai_match_stale_reason(
+                        candidate, getattr(task, "expected_before_position_id", None)
+                    )
+                    if stale_reason or str(getattr(candidate, "status", "") or "") not in {"matching", "unmatched", "talent_pool"}:
+                        logger.warning(
+                            "[AI_MATCH] skip retry-exhausted write for candidate %d (stale=%s status=%s)",
+                            task.candidate_id, stale_reason, getattr(candidate, "status", None),
+                        )
+                        db.rollback()
+                    else:
+                        candidate.status = "unmatched"
+                        candidate.ai_match_reason = failure_message
+                        candidate.ai_match_at = now
+                        candidate.talent_pool_reason = "ai_error"
+                        candidate.talent_pool_moved_at = now
+                        candidate.updated_by = actor_id
+                        db.commit()
                     candidate_snapshot = self._serialize_realtime_candidate_item(candidate)
 
                 log_row = RecruitmentAITaskLog(
@@ -17870,6 +17941,10 @@ class RecruitmentService:
         # 本 run 已被判定过期/失败等不可晋级终态，不得再写权威结果。
         if run_status in {"superseded", "failed", "invalid_result", "timeout"}:
             return "generation_changed"
+        # 幂等：本 run 已经晋级过一次——重复回调/重复 worker 再执行只留档，绝不产生第二份权威
+        # Score、不重写 latest_score_id/状态史（终态迁移只能成功一次）。
+        if run_status in {"promoted", "success"}:
+            return "already_promoted"
         return None
 
     def _detect_protocol_drift(self, run_id: Optional[int], candidate: RecruitmentCandidate) -> Optional[str]:
@@ -17942,16 +18017,26 @@ class RecruitmentService:
             RecruitmentCandidate.position_id,
             RecruitmentCandidate.deleted,
             RecruitmentCandidate.active_screening_run_id,
+            RecruitmentCandidate.status,
         ).filter(RecruitmentCandidate.id == candidate.id).with_for_update().first()
         if row is None:
             return "candidate_deleted"
         try:
-            current_resume_file_id, current_position_id, deleted, current_active_run_id = row
+            current_resume_file_id, current_position_id, deleted, current_active_run_id, current_status = row
         except (TypeError, ValueError):
             # 非真实 DB 行（如单测 Mock）无法判定，按未过期处理，不阻断晋级。
             return None
         if deleted:
             return "candidate_deleted"
+        # P0：人工决策优先——运行期间 HR 已把候选人推进到部门评审/面试/Offer 等后续阶段，
+        # 迟到的 AI 结果绝不能把状态拉回初筛域（如 screening_passed），只留档审计。
+        normalized_status = str(current_status or "").strip()
+        if normalized_status and normalized_status not in AI_SCREENING_WRITABLE_STATUSES:
+            logger.warning(
+                "[SCREENING_CAS] Superseded (candidate_status_advanced) candidate_id=%s status=%s",
+                candidate.id, normalized_status,
+            )
+            return "candidate_status_advanced"
         # 取消屏障：本 run 已取消/已终态则立即判过期，绝不覆盖候选人权威结果或触发通知。
         run_block_reason = self._detect_run_cancellation_block(expected_run_id)
         if run_block_reason:
@@ -18585,6 +18670,13 @@ class RecruitmentService:
             )
             target_status = run.status
             promote_candidate = None
+        # 幂等：promoted 是不可变终态——重复晋级、迟到的 superseded/failed 都不得改写它，
+        # 保留首次的 score_result_id/promoted_at，也不再写候选人指针（终态迁移只成功一次）。
+        elif run.status in {"promoted", "success"} and status != run.status:
+            logger.warning(
+                "[SCREENING_RUN] keep promoted run id=%s, refuse status=%s", run_id, status,
+            )
+            return
         run.status = target_status
         if superseded_reason and target_status != "cancelled":
             run.superseded_reason = superseded_reason
@@ -20613,8 +20705,23 @@ class RecruitmentService:
         parse_row = self._get_current_parse_result(candidate)
         if not parse_row:
             parse_row = self._parse_latest_resume(candidate, actor_id, cancel_control=cancel_control)
-        return self._serialize_score(
-            self._score_candidate(
+        # P0：/score 也必须走不可变 Run——否则该路径无 generation/CAS，双会话下
+        # 旧评分（后完成）会覆盖新评分成为 latest。开 run 后晋级统一由 CAS 门控。
+        run = self._open_screening_run(
+            candidate=candidate,
+            root_task_id=None,
+            screening_run_key=_build_screening_run_id(candidate.id),
+            request_meta=None,
+            actor_id=actor_id,
+        )
+        if run is not None:
+            run.status = "running"
+            run.started_at = datetime.now()
+            self.db.add(run)
+            self.db.commit()
+        self._current_screening_run_id = run.id if run is not None else None
+        try:
+            score_row = self._score_candidate(
                 candidate,
                 parse_row,
                 actor_id,
@@ -20625,7 +20732,26 @@ class RecruitmentService:
                 skill_resolution_detail=skill_resolution_detail,
                 cancel_control=cancel_control,
             )
-        )
+        except Exception:
+            # 失败也要关 run + 清 active，避免残留 running 占据 active 指针。
+            try:
+                self._finalize_bound_screening_run("failed", candidate_ref=candidate)
+                self.db.commit()
+            except Exception:
+                self.db.rollback()
+            raise
+        # 成功：_save_score_result 已按 CAS 标记 promoted/superseded（终态则兜底跳过）；
+        # 若评分未成为权威（未晋级保存），run 只能关 invalid_result，绝不补标 promoted。
+        _authoritative = bool(getattr(score_row, "id", None)) and getattr(candidate, "latest_score_id", None) == getattr(score_row, "id", None)
+        try:
+            self._finalize_bound_screening_run(
+                "success" if _authoritative else "invalid_result",
+                candidate_ref=candidate, parse_row=parse_row, score_row=score_row,
+            )
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
+        return self._serialize_score(score_row)
 
     def _save_screening_workflow_memory(
         self,
@@ -20638,6 +20764,22 @@ class RecruitmentService:
         related_skill_ids: Sequence[int],
         custom_requirements: str,
     ) -> None:
+        # P0 中央门控：过期（superseded）或非权威的评分绝不写工作流记忆——否则旧 run 会把
+        # 工作流指针改回过期结果（salvage/缓存/乱序路径统一在此拦截）。
+        if score_row is not None and getattr(score_row, "_superseded_reason", None):
+            logger.warning(
+                "[SCREENING] skip workflow memory for superseded score candidate_id=%s score_id=%s reason=%s",
+                getattr(candidate, "id", None), getattr(score_row, "id", None), getattr(score_row, "_superseded_reason", None),
+            )
+            return
+        current_latest_score_id = getattr(candidate, "latest_score_id", None)
+        score_row_id = getattr(score_row, "id", None)
+        if score_row_id and current_latest_score_id and int(current_latest_score_id) != int(score_row_id):
+            logger.warning(
+                "[SCREENING] skip workflow memory for non-authoritative score candidate_id=%s score_id=%s latest=%s",
+                getattr(candidate, "id", None), score_row_id, current_latest_score_id,
+            )
+            return
         workflow = self._get_or_create_workflow_memory(candidate, actor_id)
         workflow.position_id = candidate.position_id
         workflow.screening_skill_ids_json = json_dumps_safe(list(related_skill_ids))
@@ -20864,6 +21006,9 @@ class RecruitmentService:
                 candidate_id=candidate.id,
             )
 
+        # P0 原子入队：同步 /screen 路径新建根任务时也走 defer_commit——task 与 run 同事务
+        # 单次提交，杜绝派单器抢到"有 task 无 run"的窗口（与 enqueue 路径同语义）。
+        _fresh_root_task = existing_task_id is None
         root_log = self._ensure_screening_root_task(
             candidate=candidate,
             actor_id=actor_id,
@@ -20880,6 +21025,7 @@ class RecruitmentService:
             force_fallback=force_fallback,
             allow_reuse_parse=allow_reuse_parse,
             allow_score_only_rerun=allow_score_only_rerun,
+            defer_commit=_fresh_root_task,
         )
         screening_run_id = root_log.screening_run_id or _build_screening_run_id(candidate.id)
         root_task_id = root_log.root_task_id or root_log.id
@@ -20895,8 +21041,18 @@ class RecruitmentService:
                 request_meta=request_meta,
                 actor_id=actor_id,
             )
-            if _bound_run is not None:
+        if _fresh_root_task or _bound_run is not None:
+            # 单次提交：task + run + active 指针一起可见；defer 期间未发的入队 SSE 提交后补发。
+            try:
                 self.db.commit()
+            except Exception:
+                self.db.rollback()
+                raise
+            if _fresh_root_task:
+                try:
+                    self._emit_task_event(root_log)
+                except Exception:
+                    logger.debug("emit screen-task SSE after atomic commit failed", exc_info=True)
         self._current_screening_run_id = _bound_run.id if _bound_run else None
         if _bound_run is not None and getattr(_bound_run, "status", None) == "queued":
             _bound_run.status = "running"
@@ -21063,7 +21219,9 @@ class RecruitmentService:
                     result["final_response_source"] = flow_state.get("final_response_source") or "primary_screening_model_invalid"
                     result.pop("failure_code", None)
                 if flow_state.get("one_pass_salvage_succeeded"):
-                    result["final_response_source"] = flow_state.get("final_response_source") or "primary_screening_model_salvaged"
+                    # 审计口径：salvage 出来的结果必须标记为 salvaged，不得被评分子任务的
+                    # 通用来源（primary_score_model）覆盖——否则无法区分"一次通过"与"抢救成功"。
+                    result["final_response_source"] = "primary_screening_model_salvaged"
             return result
 
         def finish_root_task(
@@ -21129,6 +21287,11 @@ class RecruitmentService:
                 if isinstance(source_output_snapshot, dict) and isinstance(source_output_snapshot.get("meta"), dict)
                 else {}
             )
+            # P0：run 终态与根任务终态必须同事务提交——先把 run/active 指针的改动挂进 session，
+            # 让下面 _finish_ai_task_log 内部的 commit 一次性落库（task+run+candidate 原子可见）。
+            self._finalize_bound_screening_run(
+                status, candidate_ref=candidate_ref, parse_row=parse_row, score_row=score_row,
+            )
             self._finish_ai_task_log(
                 root_log,
                 status=status,
@@ -21176,10 +21339,19 @@ class RecruitmentService:
                 persisted_result_refs=persisted_result_refs,
                 timing_breakdown=timing_breakdown,
             )
-            # P1：根任务落终态时兜底关闭绑定的 run（含缓存命中/失败/超时/invalid），并清理 active 指针。
-            self._finalize_bound_screening_run(
-                status, candidate_ref=candidate_ref, parse_row=parse_row, score_row=score_row,
-            )
+            # 兜底：_commit_ai_task_log 遇 DataError 会 rollback+重试，上面挂进 session 的 run
+            # 改动会被一并回滚——这里幂等重放并显式提交，保证任何路径下 run 终态都真正落库。
+            try:
+                self._finalize_bound_screening_run(
+                    status, candidate_ref=candidate_ref, parse_row=parse_row, score_row=score_row,
+                )
+                self.db.commit()
+            except Exception:
+                try:
+                    self.db.rollback()
+                except Exception:
+                    pass
+                logger.exception("Failed to finalize screening run after root terminal commit run_id=%s", screening_run_id)
             logger.info(
                 "screening_flow finalized run_id=%s candidate_id=%s status=%s stage=%s parse_status=%s score_status=%s persist_status=%s",
                 screening_run_id,
