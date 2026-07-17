@@ -659,7 +659,17 @@ def ensure_recruitment_schema() -> None:
             if inspector.has_table("recruitment_llm_configs"):
                 _add_column_if_missing(inspector, "recruitment_llm_configs", "created_by", "ALTER TABLE recruitment_llm_configs ADD COLUMN created_by VARCHAR(100) NULL", "Added recruitment_llm_configs.created_by column")
                 _add_column_if_missing(inspector, "recruitment_llm_configs", "updated_by", "ALTER TABLE recruitment_llm_configs ADD COLUMN updated_by VARCHAR(100) NULL", "Added recruitment_llm_configs.updated_by column")
-    
+
+            # generation/CAS（Commit 2）：候选人代次与活动 run 指针；解析/评分行回填 run_id。
+            if inspector.has_table("recruitment_candidates"):
+                _add_column_if_missing(inspector, "recruitment_candidates", "screening_generation", "ALTER TABLE recruitment_candidates ADD COLUMN screening_generation INTEGER NOT NULL DEFAULT 0", "Added recruitment_candidates.screening_generation column")
+                _add_column_if_missing(inspector, "recruitment_candidates", "active_screening_run_id", "ALTER TABLE recruitment_candidates ADD COLUMN active_screening_run_id INTEGER NULL", "Added recruitment_candidates.active_screening_run_id column")
+                _add_column_if_missing(inspector, "recruitment_candidates", "latest_screening_run_id", "ALTER TABLE recruitment_candidates ADD COLUMN latest_screening_run_id INTEGER NULL", "Added recruitment_candidates.latest_screening_run_id column")
+            if inspector.has_table("recruitment_resume_parse_results"):
+                _add_column_if_missing(inspector, "recruitment_resume_parse_results", "screening_run_id", "ALTER TABLE recruitment_resume_parse_results ADD COLUMN screening_run_id INTEGER NULL", "Added recruitment_resume_parse_results.screening_run_id column")
+            if inspector.has_table("recruitment_candidate_scores"):
+                _add_column_if_missing(inspector, "recruitment_candidate_scores", "screening_run_id", "ALTER TABLE recruitment_candidate_scores ADD COLUMN screening_run_id INTEGER NULL", "Added recruitment_candidate_scores.screening_run_id column")
+
             jd_columns = {column["name"] for column in inspector.get_columns("recruitment_jd_versions")}
             if "publish_text" not in jd_columns:
                 with engine.begin() as connection:

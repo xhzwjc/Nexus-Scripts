@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, DateTime, Float, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, Float, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.mysql import LONGTEXT, MEDIUMTEXT
 from sqlalchemy.sql import func
 
@@ -101,6 +101,12 @@ class RecruitmentCandidate(Base):
     latest_resume_file_id = Column(Integer, index=True)
     latest_parse_result_id = Column(Integer, index=True)
     latest_score_id = Column(Integer, index=True)
+    # generation/CAS：每次发起初筛在 FOR UPDATE 下自增 generation 并将 active_screening_run_id
+    # 指向新 run；晋级时对比 active_screening_run_id，只有当前活动 run 才能写权威结果，
+    # 从而挡住乱序完成、换简历/换岗/改规则后旧 run 覆盖。
+    screening_generation = Column(Integer, default=0, nullable=False)
+    active_screening_run_id = Column(Integer, index=True)
+    latest_screening_run_id = Column(Integer, index=True)
     owner_id = Column(String(100), index=True)
     created_by = Column(String(100))
     updated_by = Column(String(100))
@@ -134,6 +140,7 @@ class RecruitmentResumeParseResult(Base):
     candidate_id = Column(Integer, nullable=False, index=True)
     resume_file_id = Column(Integer, nullable=False, index=True)
     org_code = Column(String(100), default="group", nullable=False, index=True)
+    screening_run_id = Column(Integer, index=True)
     raw_text = Column(MediumText())
     basic_info_json = Column(MediumText())
     work_experiences_json = Column(MediumText())
@@ -153,6 +160,7 @@ class RecruitmentCandidateScore(Base):
     candidate_id = Column(Integer, nullable=False, index=True)
     parse_result_id = Column(Integer, nullable=False, index=True)
     org_code = Column(String(100), default="group", nullable=False, index=True)
+    screening_run_id = Column(Integer, index=True)
     score_json = Column(LongText())
     total_score = Column(Float)
     match_percent = Column(Float)
@@ -269,6 +277,50 @@ class RecruitmentAITaskLog(Base):
     token_usage_json = Column(Text)
     created_by = Column(String(100))
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
+class RecruitmentCandidateScreeningRun(Base):
+    """不可变初筛运行记录（generation/CAS 权威源）。
+
+    每次发起初筛在候选人 FOR UPDATE 下自增 generation 建一行；晋级时锁定候选人 + run，
+    校验 run 仍是候选人当前 active run（且未取消、简历/岗位/协议未变），才允许写权威结果，
+    否则仅留档并将 run 标记 superseded/cancelled。UNIQUE(candidate_id, generation) 保证代次唯一。
+    """
+    __tablename__ = "recruitment_candidate_screening_runs"
+    __table_args__ = (
+        UniqueConstraint("candidate_id", "generation", name="uq_screening_run_candidate_generation"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    candidate_id = Column(Integer, nullable=False, index=True)
+    org_code = Column(String(100), default="group", nullable=False, index=True)
+    generation = Column(Integer, nullable=False)
+    status = Column(String(50), default="queued", nullable=False, index=True)
+    superseded_reason = Column(String(50))
+    root_task_id = Column(Integer, index=True)
+    screening_run_key = Column(String(80), index=True)
+    request_hash = Column(String(120), index=True)
+    # 冻结的输入 revision（供晋级期与运行期核对，也供审计/复现）
+    expected_resume_file_id = Column(Integer)
+    expected_position_id = Column(Integer)
+    resume_hash = Column(String(120))
+    position_snapshot_hash = Column(String(120))
+    score_rule_snapshot_hash = Column(String(120))
+    status_thresholds_hash = Column(String(120))
+    prompt_version = Column(String(120))
+    model_name = Column(String(120))
+    provider = Column(String(80))
+    evaluation_protocol_hash = Column(String(120))
+    parse_result_id = Column(Integer, index=True)
+    score_result_id = Column(Integer, index=True)
+    cancel_requested_at = Column(DateTime)
+    cancel_requested_by = Column(String(100))
+    created_by = Column(String(100))
+    created_at = Column(DateTime, server_default=func.now(), nullable=False)
+    started_at = Column(DateTime)
+    completed_at = Column(DateTime)
+    promoted_at = Column(DateTime)
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
 
 

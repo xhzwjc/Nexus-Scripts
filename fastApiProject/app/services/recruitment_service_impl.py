@@ -42,6 +42,7 @@ from ..recruitment_models import (
     RecruitmentAITaskLog,
     RecruitmentCandidate,
     RecruitmentCandidateScore,
+    RecruitmentCandidateScreeningRun,
     RecruitmentCandidateStatusHistory,
     RecruitmentCandidateWorkflowMemory,
     RecruitmentChatContextMemory,
@@ -5976,6 +5977,9 @@ class RecruitmentService:
         self.permission_context: Optional[PermissionContext] = None
         self._session_token: Optional[str] = None
         self._active_org_paths: Optional[Dict[str, str]] = None
+        # generation/CAS：本次初筛运行绑定的 run id（每个初筛在独立 service 实例上执行，
+        # 故实例级状态安全）。晋级 CAS 用它对比候选人当前 active_screening_run_id。
+        self._current_screening_run_id: Optional[int] = None
 
     def set_permission_context(self, session: Optional[Dict[str, Any]]) -> "RecruitmentService":
         self.permission_context = build_permission_context(self.db, session)
@@ -7931,10 +7935,28 @@ class RecruitmentService:
     def process_next_screening_task(self) -> Dict[str, int]:
         return self._dispatch_screening_queue()
 
+    def _mark_screening_run_cancelled_for_task(self, root_task_id: Optional[int], actor_id: str) -> None:
+        """Commit 2：取消 screening_flow 根任务时，同步在其 run 上打取消请求标记（审计/追溯）。"""
+        run = self._get_screening_run_for_root_task(root_task_id)
+        if not run or run.status in {"promoted", "success", "superseded", "cancelled"}:
+            return
+        run.status = "cancelled"
+        run.superseded_reason = "cancelled"
+        run.cancel_requested_at = datetime.now()
+        run.cancel_requested_by = actor_id
+        run.completed_at = datetime.now()
+        self.db.add(run)
+
     def cancel_ai_task(self, task_id: int, actor_id: str) -> Dict[str, Any]:
         row = self._get_ai_task_log_row(task_id)
         # P0-2：取消任务与查看任务详情同口径，越权任务 ID 直接拒绝。
         self._assert_business_row_visible(row)
+        if row.task_type == SCREENING_FLOW_TASK_TYPE and row.parent_task_id is None:
+            self._mark_screening_run_cancelled_for_task(row.id, actor_id)
+            try:
+                self.db.commit()
+            except Exception:
+                self.db.rollback()
         if row.status in {"success", "fallback", "failed", "cancelled"}:
             return self._serialize_ai_task_log(row, include_full_request_snapshot=True)
         if row.status == "cancelling":
@@ -17605,22 +17627,30 @@ class RecruitmentService:
         except (TypeError, ValueError):
             expected_resume_file_id = 0
         check_position = expected_position_id is not _UNSET
-        if not expected_resume_file_id and not check_position:
-            return None
+        expected_run_id = self._current_screening_run_id
         row = self.db.query(
             RecruitmentCandidate.latest_resume_file_id,
             RecruitmentCandidate.position_id,
             RecruitmentCandidate.deleted,
+            RecruitmentCandidate.active_screening_run_id,
         ).filter(RecruitmentCandidate.id == candidate.id).with_for_update().first()
         if row is None:
             return "candidate_deleted"
         try:
-            current_resume_file_id, current_position_id, deleted = row
+            current_resume_file_id, current_position_id, deleted, current_active_run_id = row
         except (TypeError, ValueError):
             # 非真实 DB 行（如单测 Mock）无法判定，按未过期处理，不阻断晋级。
             return None
         if deleted:
             return "candidate_deleted"
+        # Commit 2 generation/CAS：本 run 不再是候选人当前 active run（有更晚的初筛抢占，
+        # 或已被取消清空）→ 过期。这挡住 T1/T2 乱序完成时旧 run 覆盖新结果。
+        if expected_run_id is not None and current_active_run_id is not None and int(current_active_run_id) != int(expected_run_id):
+            logger.warning(
+                "[SCREENING_CAS] Superseded (generation_changed) candidate_id=%s expected_run_id=%s active_run_id=%s",
+                candidate.id, expected_run_id, current_active_run_id,
+            )
+            return "generation_changed"
         try:
             current_resume_file_id = int(current_resume_file_id or 0)
         except (TypeError, ValueError):
@@ -17680,16 +17710,20 @@ class RecruitmentService:
                 suggested_status=suggested_status,
                 created_at=None,
             )
+            score_row.screening_run_id = self._current_screening_run_id
             self.db.add(score_row)
             self.db.flush()
+            self._stamp_parse_run_id(parse_row)
             normalized_status = _normalize_suggested_status(suggested_status)
             if superseded_reason:
                 setattr(score_row, "_superseded_reason", superseded_reason)
+                self._mark_screening_run_status(self._current_screening_run_id, status="superseded", superseded_reason=superseded_reason, parse_result_id=getattr(parse_row, "id", None), score_result_id=score_row.id)
             elif allow_status_advance:
                 candidate.latest_score_id = score_row.id
                 candidate.match_percent = match_percent
                 candidate.ai_recommended_status = normalized_status
                 self._auto_advance_candidate_after_screening(candidate, actor_id=actor_id)
+                self._mark_screening_run_status(self._current_screening_run_id, status="promoted", parse_result_id=getattr(parse_row, "id", None), score_result_id=score_row.id, promote_candidate=candidate)
             elif normalized_status:
                 candidate.ai_recommended_status = normalized_status
             elif not candidate.ai_recommended_status:
@@ -17734,16 +17768,20 @@ class RecruitmentService:
             suggested_status=normalized.get("suggested_status"),
             created_at=None,
         )
+        score_row.screening_run_id = self._current_screening_run_id
         self.db.add(score_row)
         self.db.flush()
+        self._stamp_parse_run_id(parse_row)
         normalized_status = _normalize_suggested_status(normalized.get("suggested_status"))
         if superseded_reason:
             setattr(score_row, "_superseded_reason", superseded_reason)
+            self._mark_screening_run_status(self._current_screening_run_id, status="superseded", superseded_reason=superseded_reason, parse_result_id=getattr(parse_row, "id", None), score_result_id=score_row.id)
         elif allow_status_advance:
             candidate.latest_score_id = score_row.id
             candidate.match_percent = normalized.get("match_percent")
             candidate.ai_recommended_status = normalized_status
             self._auto_advance_candidate_after_screening(candidate, actor_id=actor_id)
+            self._mark_screening_run_status(self._current_screening_run_id, status="promoted", parse_result_id=getattr(parse_row, "id", None), score_result_id=score_row.id, promote_candidate=candidate)
         elif normalized_status:
             candidate.ai_recommended_status = normalized_status
         elif not candidate.ai_recommended_status:
@@ -18098,6 +18136,113 @@ class RecruitmentService:
             "raw_model_suggested_status": str(raw_model_suggested_status or "").strip() or None,
             "normalized_final_suggested_status": str(normalized_final_suggested_status or "").strip() or None,
         }
+
+    def _open_screening_run(
+        self,
+        *,
+        candidate: RecruitmentCandidate,
+        root_task_id: Optional[int],
+        screening_run_key: Optional[str],
+        request_meta: Optional[Dict[str, Any]],
+        actor_id: str,
+    ) -> Optional[RecruitmentCandidateScreeningRun]:
+        """Commit 2：在候选人 FOR UPDATE 下自增 generation 建不可变 run，并把 active_screening_run_id
+        指向新 run。返回创建的 run；同一事务提交由调用方（enqueue 的 _screening_enqueue_lock 段）负责。"""
+        try:
+            locked = self.db.query(RecruitmentCandidate).filter(
+                RecruitmentCandidate.id == candidate.id,
+            ).with_for_update().first()
+        except Exception:
+            locked = None
+        target = locked or candidate
+        raw_generation = getattr(target, "screening_generation", 0)
+        try:
+            current_generation = int(raw_generation or 0)
+        except (TypeError, ValueError):
+            # 非真实 DB 行（如单测 Mock）——不开 run，返回 None，退回仅简历/岗位 CAS。
+            return None
+        next_generation = current_generation + 1
+        meta = request_meta if isinstance(request_meta, dict) else {}
+        run = RecruitmentCandidateScreeningRun(
+            candidate_id=candidate.id,
+            org_code=normalize_org_code(getattr(candidate, "org_code", None)),
+            generation=next_generation,
+            status="queued",
+            root_task_id=root_task_id,
+            screening_run_key=screening_run_key,
+            request_hash=str(meta.get("request_hash") or "").strip() or None,
+            expected_resume_file_id=int(getattr(candidate, "latest_resume_file_id", 0) or 0) or None,
+            expected_position_id=int(getattr(candidate, "position_id", 0) or 0) or None,
+            resume_hash=str(meta.get("raw_resume_text_hash") or "").strip() or None,
+            position_snapshot_hash=str(meta.get("position_snapshot_hash") or "").strip() or None,
+            score_rule_snapshot_hash=str(meta.get("score_rule_snapshot_hash") or "").strip() or None,
+            status_thresholds_hash=str(meta.get("status_thresholds_hash") or "").strip() or None,
+            prompt_version=str(meta.get("prompt_version") or "").strip() or None,
+            model_name=str(meta.get("model_name") or "").strip() or None,
+            provider=str(meta.get("provider") or "").strip() or None,
+            created_by=actor_id,
+        )
+        self.db.add(run)
+        self.db.flush()
+        target.screening_generation = next_generation
+        target.active_screening_run_id = run.id
+        target.updated_by = actor_id
+        self.db.add(target)
+        return run
+
+    def _stamp_parse_run_id(self, parse_row: Any) -> None:
+        """把当前 run id 回填到解析结果行，保证工件可稳定溯源到 run。"""
+        run_id = self._current_screening_run_id
+        if not run_id or parse_row is None:
+            return
+        try:
+            if getattr(parse_row, "screening_run_id", None) != run_id:
+                parse_row.screening_run_id = run_id
+                self.db.add(parse_row)
+        except Exception:
+            logger.debug("Failed to stamp screening_run_id on parse row", exc_info=True)
+
+    def _get_screening_run_for_root_task(self, root_task_id: Optional[int]) -> Optional[RecruitmentCandidateScreeningRun]:
+        if not root_task_id:
+            return None
+        return self.db.query(RecruitmentCandidateScreeningRun).filter(
+            RecruitmentCandidateScreeningRun.root_task_id == root_task_id,
+        ).order_by(RecruitmentCandidateScreeningRun.id.desc()).first()
+
+    def _mark_screening_run_status(
+        self,
+        run_id: Optional[int],
+        *,
+        status: str,
+        superseded_reason: Optional[str] = None,
+        parse_result_id: Optional[int] = None,
+        score_result_id: Optional[int] = None,
+        promote_candidate: Optional[RecruitmentCandidate] = None,
+    ) -> None:
+        if not run_id:
+            return
+        run = self.db.query(RecruitmentCandidateScreeningRun).filter(
+            RecruitmentCandidateScreeningRun.id == run_id,
+        ).first()
+        if not run:
+            return
+        now = datetime.now()
+        run.status = status
+        if superseded_reason:
+            run.superseded_reason = superseded_reason
+        if parse_result_id:
+            run.parse_result_id = parse_result_id
+        if score_result_id:
+            run.score_result_id = score_result_id
+        if status in {"promoted", "success"}:
+            run.promoted_at = now
+            run.completed_at = now
+            if promote_candidate is not None:
+                promote_candidate.latest_screening_run_id = run.id
+                self.db.add(promote_candidate)
+        elif status in {"superseded", "cancelled", "failed", "invalid_result"}:
+            run.completed_at = now
+        self.db.add(run)
 
     def _ensure_screening_root_task(
         self,
@@ -20265,6 +20410,25 @@ class RecruitmentService:
         )
         screening_run_id = root_log.screening_run_id or _build_screening_run_id(candidate.id)
         root_task_id = root_log.root_task_id or root_log.id
+        # Commit 2：绑定本次执行所属的 generation run，供晋级 CAS 判定 active run。
+        _bound_run = self._get_screening_run_for_root_task(root_task_id)
+        if _bound_run is None:
+            # 直接 /screen 重筛路径（未走 enqueue）——就地开一个 generation run，
+            # 使该路径也纳入统一的 active-run 晋级 CAS（真实 DB 才会成功创建）。
+            _bound_run = self._open_screening_run(
+                candidate=candidate,
+                root_task_id=root_task_id,
+                screening_run_key=screening_run_id,
+                request_meta=request_meta,
+                actor_id=actor_id,
+            )
+            if _bound_run is not None:
+                self.db.commit()
+        self._current_screening_run_id = _bound_run.id if _bound_run else None
+        if _bound_run is not None and getattr(_bound_run, "status", None) == "queued":
+            _bound_run.status = "running"
+            _bound_run.started_at = datetime.now()
+            self.db.add(_bound_run)
         root_output_snapshot = _decode_ai_task_json_text(getattr(root_log, "output_snapshot", None), {})
         existing_screening_started_at = _parse_iso_datetime_value(root_output_snapshot.get("screening_started_at")) if isinstance(root_output_snapshot, dict) else None
         existing_screening_deadline_at = _parse_iso_datetime_value(root_output_snapshot.get("screening_deadline_at")) if isinstance(root_output_snapshot, dict) else None
@@ -21429,6 +21593,17 @@ class RecruitmentService:
                 allow_reuse_parse=allow_reuse_parse,
                 allow_score_only_rerun=allow_score_only_rerun,
             )
+            # Commit 2：为本次新初筛在 FOR UPDATE 下开一个 generation run，并把候选人的
+            # active_screening_run_id 指向它——晚发起的初筛会 bump generation 抢占 active，
+            # 从而使先前 run 在晋级 CAS 时被判 generation_changed（乱序完成只让最新 run 晋级）。
+            self._open_screening_run(
+                candidate=candidate,
+                root_task_id=log_row.id,
+                screening_run_key=log_row.screening_run_id,
+                request_meta=request_meta,
+                actor_id=actor_id,
+            )
+            self.db.commit()
         if dispatch:
             self._dispatch_screening_queue()
         return {

@@ -1954,3 +1954,101 @@ def test_save_score_result_skips_authoritative_promotion_when_resume_changed_mid
         assert candidate.ai_recommended_status == "screening_passed"
     finally:
         db.close()
+
+
+def test_screening_generation_out_of_order_only_latest_run_promotes():
+    """Commit 2 generation/CAS：后发起的初筛 bump generation 抢占 active run；
+    先前 run（乱序完成）晋级时被判 generation_changed，只留档不写权威；最新 run 正常晋级。"""
+    from app.recruitment_models import RecruitmentResumeFile, RecruitmentResumeParseResult, RecruitmentCandidateScreeningRun
+    from app.services.recruitment_service_impl import RAW_SCREENING_SCORE_STORAGE_FORMAT
+    db = _build_test_db()
+    try:
+        _seed_org_tree(db)
+        position = _create_position(db, _session("group-admin", "group", DATA_SCOPE_ALL, super_admin=True), org_code="chunmiao-rd", title="测试岗", actor_id="rd-user")
+        candidate = _add_candidate(db, org_code="chunmiao-rd", position_id=position["id"], name="代次候选人", created_by="rd-user")
+        resume = RecruitmentResumeFile(candidate_id=candidate.id, org_code="chunmiao-rd", original_name="r.pdf", stored_name="r.pdf", storage_path="/tmp/r.pdf", parse_status="success", uploaded_by="rd-user")
+        db.add(resume)
+        db.flush()
+        candidate.latest_resume_file_id = resume.id
+        candidate.status = "pending_screening"
+        parse_row = RecruitmentResumeParseResult(candidate_id=candidate.id, resume_file_id=resume.id, org_code="chunmiao-rd", raw_text="raw", status="success")
+        db.add(parse_row)
+        db.flush()
+        db.commit()
+
+        service = RecruitmentService(db)
+        req_meta = {"request_hash": "h", "position_id": position["id"]}
+        run1 = service._open_screening_run(candidate=candidate, root_task_id=101, screening_run_key="k1", request_meta=req_meta, actor_id="rd-user")
+        db.commit()
+        run2 = service._open_screening_run(candidate=candidate, root_task_id=102, screening_run_key="k2", request_meta=req_meta, actor_id="rd-user")
+        db.commit()
+        db.refresh(candidate)
+        assert candidate.screening_generation == 2
+        assert candidate.active_screening_run_id == run2.id
+        assert run1.generation == 1 and run2.generation == 2
+
+        content = {
+            "_storage_format": RAW_SCREENING_SCORE_STORAGE_FORMAT,
+            "score": {"total_score": 8.0, "match_percent": 80, "advantages": ["强"], "concerns": [], "recommendation": "建议面试", "suggested_status": "screening_passed", "dimensions": []},
+        }
+
+        # T1（旧 run）乱序完成 → 被判 generation_changed，不晋级
+        service._current_screening_run_id = run1.id
+        score_row_1 = service._save_score_result(candidate, parse_row, "rd-user", content, allow_status_advance=True)
+        db.commit()
+        db.refresh(candidate)
+        assert getattr(score_row_1, "_superseded_reason", None) == "generation_changed"
+        assert candidate.latest_score_id is None
+        db.refresh(run1)
+        assert run1.status == "superseded" and run1.superseded_reason == "generation_changed"
+
+        # T2（最新 run）正常晋级
+        service._current_screening_run_id = run2.id
+        score_row_2 = service._save_score_result(candidate, parse_row, "rd-user", content, allow_status_advance=True)
+        db.commit()
+        db.refresh(candidate)
+        assert getattr(score_row_2, "_superseded_reason", None) is None
+        assert candidate.latest_score_id == score_row_2.id
+        assert candidate.latest_screening_run_id == run2.id
+        assert score_row_2.screening_run_id == run2.id
+        db.refresh(run2)
+        assert run2.status == "promoted"
+    finally:
+        db.close()
+
+
+def test_screening_run_unique_generation_and_cancel_marks_run():
+    """Commit 2：UNIQUE(candidate_id, generation) 生效；取消 root 任务在其 run 上打取消标记。"""
+    from sqlalchemy.exc import IntegrityError
+    from app.recruitment_models import RecruitmentCandidateScreeningRun, RecruitmentAITaskLog
+    db = _build_test_db()
+    try:
+        _seed_org_tree(db)
+        candidate = _add_candidate(db, org_code="chunmiao-rd", position_id=None, name="取消候选人", created_by="rd-user")
+        db.commit()
+        service = RecruitmentService(db)
+        run1 = service._open_screening_run(candidate=candidate, root_task_id=201, screening_run_key="k1", request_meta={}, actor_id="rd-user")
+        db.commit()
+
+        # 同 (candidate, generation) 再插一行应违反唯一约束
+        dup = RecruitmentCandidateScreeningRun(candidate_id=candidate.id, org_code="chunmiao-rd", generation=1, status="queued")
+        db.add(dup)
+        try:
+            db.commit()
+            assert False, "expected UNIQUE(candidate_id, generation) violation"
+        except IntegrityError:
+            db.rollback()
+
+        # 取消 root 任务 → run 打取消标记
+        task = RecruitmentAITaskLog(task_type="screening_flow", org_code="chunmiao-rd", status="running", related_candidate_id=candidate.id, created_by="rd-user")
+        db.add(task)
+        db.flush()
+        run_for_task = service._open_screening_run(candidate=candidate, root_task_id=task.id, screening_run_key="k2", request_meta={}, actor_id="rd-user")
+        db.commit()
+        service.cancel_ai_task(task.id, "rd-user")
+        db.refresh(run_for_task)
+        assert run_for_task.status == "cancelled"
+        assert run_for_task.cancel_requested_at is not None
+        assert run_for_task.cancel_requested_by == "rd-user"
+    finally:
+        db.close()
