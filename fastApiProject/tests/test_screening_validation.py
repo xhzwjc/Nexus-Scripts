@@ -440,3 +440,38 @@ def test_negated_capability_is_not_counted_as_positive_evidence():
     assert dims["容器编排"]["score"] == 0.0          # 简历明确否定 → 归零
     assert dims["自动化测试"]["score"] == 5.0        # 真实非否定能力 → 保留
     assert sanitized["score"]["total_score"] == 5.0
+
+
+def test_recommendation_rewritten_when_final_status_is_reject():
+    """P0-6：证据归零导致确定性拒绝时，模型残留的"建议面试"推进措辞被改写为一致结论，
+    消除"0 分拒绝却建议面试"的矛盾。"""
+    schema_config = {
+        "parsed_resume": SCREENING_PAYLOAD_SCHEMA_CONFIG["parsed_resume"],
+        "score": {
+            **SCREENING_PAYLOAD_SCHEMA_CONFIG["score"],
+            "required_dimension_labels": ("IoT协议",),
+            "required_core_dimension_labels": ("IoT协议",),
+            "required_dimension_rules": ({"label": "IoT协议", "max_score": 10.0, "is_core": True},),
+            "max_possible_score": 10.0,
+            "status_thresholds": {"pass_threshold": 75.0, "pool_threshold": 55.0},
+        },
+    }
+    payload = {
+        "parsed_resume": _empty_parsed_resume(),
+        "score": {
+            "total_score": 10, "match_percent": 100,
+            "advantages": ["强"], "concerns": [],
+            "recommendation": "综合表现优秀，建议面试。",
+            "suggested_status": "screening_passed",
+            "dimensions": [
+                {"label": "IoT协议", "score": 10.0, "max_score": 10.0, "reason": "命中", "evidence": ["简历里根本不存在的伪造内容"], "is_inferred": False},
+            ],
+        },
+    }
+    raw = "候选人简历：只写了会用 Excel。"
+    sanitized, meta = sanitize_screening_payload(payload, schema_config, raw_resume_text=raw)
+    score = sanitized["score"]
+    assert score["total_score"] == 0.0                       # 伪造证据归零
+    assert score["suggested_status"] == "screening_rejected"  # 确定性拒绝
+    assert "建议面试" not in str(score.get("recommendation") or "")  # 矛盾措辞已改写
+    assert any("推进类措辞" in w for w in meta["warnings"])

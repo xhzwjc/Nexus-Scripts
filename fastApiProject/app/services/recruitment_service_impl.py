@@ -1690,7 +1690,8 @@ def _rebuild_dimensions_against_authoritative_rules(
         if score < 0:
             warnings.append(f"维度[{label}]得分为负，已按 0 分执行")
             score = 0.0
-        # P0-3：正分维度必须有可被简历原文证实、且未被其他维度占用过的 evidence，否则回退为 0 分。
+        # P0-3/P0-6：正分维度的 evidence 必须①能在简历原文证实②非否定语境③与维度主题相关
+        # ④未被其他维度（含改写措辞）占用，否则回退为 0 分。
         if verify_evidence and score > 0:
             evidence_items = _normalize_score_text_items(existing.get("evidence"), limit=4)
             supporting_evidence = [
@@ -1703,7 +1704,7 @@ def _rebuild_dimensions_against_authoritative_rules(
             ]
             fresh_evidence = [
                 item for item in supporting_evidence
-                if re.sub(r"\s+", "", str(item)).lower() not in used_evidence_signatures
+                if _evidence_semantic_signature(item) not in used_evidence_signatures
             ]
             if not supporting_evidence:
                 warnings.append(f"维度[{label}]的 evidence 无法在简历原文中证实，已按 0 分回退")
@@ -1711,13 +1712,13 @@ def _rebuild_dimensions_against_authoritative_rules(
                 existing["reason"] = "简历未提及"
                 existing["evidence"] = []
             elif not fresh_evidence:
-                warnings.append(f"维度[{label}]的 evidence 已被其他维度占用（同一证据不得撑起多个维度），已按 0 分回退")
+                warnings.append(f"维度[{label}]的 evidence 已被其他维度占用（含改写措辞的同一证据不得撑起多个维度），已按 0 分回退")
                 score = 0.0
                 existing["reason"] = "简历未提及"
                 existing["evidence"] = []
             else:
                 for item in fresh_evidence:
-                    used_evidence_signatures.add(re.sub(r"\s+", "", str(item)).lower())
+                    used_evidence_signatures.add(_evidence_semantic_signature(item))
         existing["score"] = round(score, 2)
         existing["max_score"] = authoritative_max
         rebuilt_dimensions.append(existing)
@@ -1790,6 +1791,38 @@ def _apply_deterministic_suggested_status(
     ], derived_status
 
 
+# 推进类推荐措辞：确定性判为拒绝时若仍出现这类文案即为矛盾（"0 分却建议面试"）。
+_POSITIVE_RECOMMENDATION_CUES = (
+    "建议面试", "推荐面试", "建议录用", "推荐录用", "优先面试", "尽快面试", "立即面试",
+    "值得面试", "建议进入", "建议推进", "建议进面", "可安排面试", "尽快安排面试",
+    "recommend interview", "advance to interview", "proceed to interview", "move forward",
+)
+_STATUS_CONSISTENT_RECOMMENDATION = {
+    "screening_rejected": "综合评分未达通过阈值，建议暂不推进（按最终分数确定性判定）。",
+}
+
+
+def _reconcile_recommendation_with_final_status(
+    score_payload: Any,
+    final_status: Optional[str],
+) -> Tuple[Dict[str, Any], List[str]]:
+    """派生文案一致性（P0-6）：确定性最终状态为拒绝时，若 recommendation 仍是推进类措辞，
+    改写为与最终状态一致的中性结论，消除"维度归零/拒绝却建议面试"的矛盾。仅处理最清晰的拒绝矛盾。
+    """
+    payload = dict(score_payload if isinstance(score_payload, dict) else {})
+    replacement = _STATUS_CONSISTENT_RECOMMENDATION.get(str(final_status or ""))
+    if not replacement:
+        return payload, []
+    rec = str(payload.get("recommendation") or "").strip()
+    if not rec:
+        return payload, []
+    lowered = rec.lower()
+    if any(cue in rec or cue in lowered for cue in _POSITIVE_RECOMMENDATION_CUES):
+        payload["recommendation"] = replacement
+        return payload, ["score.recommendation 与确定性拒绝结论矛盾（原为推进类措辞），已按最终状态改写"]
+    return payload, []
+
+
 def sanitize_screening_payload(
     payload: Any,
     schema_config: Dict[str, Any],
@@ -1858,6 +1891,11 @@ def sanitize_screening_payload(
         repair_warnings.extend(status_warnings)
         if deterministic_status:
             normalized_final_suggested_status = deterministic_status
+            # P0-6：派生文案与最终状态对齐——拒绝结论下不得残留"建议面试"等推进措辞。
+            sanitized_score, rec_warnings = _reconcile_recommendation_with_final_status(
+                sanitized_score, deterministic_status,
+            )
+            repair_warnings.extend(rec_warnings)
         sanitized_payload["score"] = sanitized_score
 
     warnings = _normalize_score_warning_items(
@@ -2080,6 +2118,11 @@ def sanitize_screening_payload_fast(
         repair_warnings.extend(status_warnings)
         if deterministic_status:
             normalized_final_suggested_status = deterministic_status
+            # P0-6：派生文案与最终状态对齐——拒绝结论下不得残留"建议面试"等推进措辞。
+            sanitized_score, rec_warnings = _reconcile_recommendation_with_final_status(
+                sanitized_score, deterministic_status,
+            )
+            repair_warnings.extend(rec_warnings)
         sanitized_payload["score"] = sanitized_score
 
     return sanitized_payload, {
@@ -4420,6 +4463,43 @@ def _evidence_negated_in_resume(item: Any, raw_text: str) -> bool:
                 # 该 token 至少有一次出现在非否定语境 → 证据可成立，不判否定。
                 return False
     return any_token_located
+
+
+# 通用/无区分度的中文片段：语义去重签名里剔除它们，避免"经验/能力"等把不同证据误判成同一条。
+_GENERIC_LABEL_FRAGMENTS = {
+    "经验", "能力", "相关", "水平", "工作", "技能", "知识", "熟悉", "掌握", "了解", "理解",
+    "基础", "程度", "要求", "方面", "情况", "应用", "使用", "负责", "参与", "具备", "以上",
+    "年限", "岗位", "职位", "任职", "从业", "评估", "考察", "维度", "标准", "综合", "整体",
+}
+
+
+def _evidence_semantic_signature(item: Any) -> str:
+    """语义级去重签名：证据的"有区分度 token 集合"（有序拼接），改写措辞/重排后仍一致。
+
+    比纯字符串去重更强：'负责BLE协议联调与测试' 与 'BLE协议联调、测试工作' 归一到同一核心 token 集，
+    从而挡"同一条证据改写措辞后撑起多个维度"。
+    """
+    text = _resume_item_to_report_text(item).lower()
+    tokens: set[str] = set()
+    for tok in re.findall(r"[a-z][a-z0-9+_.\-]{1,24}", text):
+        if len(tok) >= 2:
+            tokens.add(tok)
+    for seg in extract_keywords(text):
+        normalized = str(seg).strip().lower()
+        if len(normalized) >= 2 and normalized not in _GENERIC_LABEL_FRAGMENTS:
+            tokens.add(normalized)
+    for run in re.findall(r"[一-鿿]{2,}", text):
+        if len(run) == 2:
+            if run not in _GENERIC_LABEL_FRAGMENTS:
+                tokens.add(run)
+        else:
+            for i in range(len(run) - 1):
+                frag = run[i:i + 2]
+                if frag not in _GENERIC_LABEL_FRAGMENTS:
+                    tokens.add(frag)
+    if not tokens:
+        return re.sub(r"\s+", "", text)
+    return "|".join(sorted(tokens))
 
 
 def _normalize_resume_item(item: Any) -> Any:
