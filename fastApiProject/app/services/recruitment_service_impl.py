@@ -1656,6 +1656,8 @@ def _rebuild_dimensions_against_authoritative_rules(
     rebuilt_dimensions: List[Dict[str, Any]] = []
     backfilled_labels: List[str] = []
     verify_evidence = bool(str(raw_resume_text or "").strip())
+    # P0-3：同一条 evidence 不得同时把多个维度撑成正分——记录已被占用的 evidence 签名。
+    used_evidence_signatures: set[str] = set()
     for rule in rules:
         label = str(rule.get("label") or "").strip()
         raw_authoritative_max = _parse_score_number(rule.get("max_score"))
@@ -1688,21 +1690,33 @@ def _rebuild_dimensions_against_authoritative_rules(
         if score < 0:
             warnings.append(f"维度[{label}]得分为负，已按 0 分执行")
             score = 0.0
-        # P0-3：正分维度必须有可被简历原文证实的 evidence，否则回退为 0 分。
+        # P0-3：正分维度必须有可被简历原文证实、且未被其他维度占用过的 evidence，否则回退为 0 分。
         if verify_evidence and score > 0:
             evidence_items = _normalize_score_text_items(existing.get("evidence"), limit=4)
-            supported = any(
-                item
+            supporting_evidence = [
+                item for item in evidence_items
+                if item
                 and item != "简历未提及"
                 and not _looks_like_summary_evidence_text(item)
                 and _resume_item_supported(item, raw_resume_text, allow_short=True)
-                for item in evidence_items
-            )
-            if not supported:
+            ]
+            fresh_evidence = [
+                item for item in supporting_evidence
+                if re.sub(r"\s+", "", str(item)).lower() not in used_evidence_signatures
+            ]
+            if not supporting_evidence:
                 warnings.append(f"维度[{label}]的 evidence 无法在简历原文中证实，已按 0 分回退")
                 score = 0.0
                 existing["reason"] = "简历未提及"
                 existing["evidence"] = []
+            elif not fresh_evidence:
+                warnings.append(f"维度[{label}]的 evidence 已被其他维度占用（同一证据不得撑起多个维度），已按 0 分回退")
+                score = 0.0
+                existing["reason"] = "简历未提及"
+                existing["evidence"] = []
+            else:
+                for item in fresh_evidence:
+                    used_evidence_signatures.add(re.sub(r"\s+", "", str(item)).lower())
         existing["score"] = round(score, 2)
         existing["max_score"] = authoritative_max
         rebuilt_dimensions.append(existing)
@@ -18149,9 +18163,12 @@ class RecruitmentService:
         """Commit 2：在候选人 FOR UPDATE 下自增 generation 建不可变 run，并把 active_screening_run_id
         指向新 run。返回创建的 run；同一事务提交由调用方（enqueue 的 _screening_enqueue_lock 段）负责。"""
         try:
+            # populate_existing() 关键：不加它时同一 session 的身份映射会返回旧对象、
+            # 不刷新 screening_generation，导致并发下两个事务都读到旧代次、抢占失败
+            # （真实 MySQL 才暴露；靠唯一约束兜底也只是报错而非正确串行）。
             locked = self.db.query(RecruitmentCandidate).filter(
                 RecruitmentCandidate.id == candidate.id,
-            ).with_for_update().first()
+            ).populate_existing().with_for_update().first()
         except Exception:
             locked = None
         target = locked or candidate

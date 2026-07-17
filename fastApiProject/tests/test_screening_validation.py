@@ -368,3 +368,39 @@ def test_negative_rule_max_score_does_not_inflate_match_percent():
     # 分母 = 8 + 0（负满分归零），total = 4 + clamp(4→0)=4；match = 4/8*100 = 50，绝不 100
     assert score["match_percent"] == 50
     assert any("规则满分为负或非法" in w for w in meta["warnings"])
+
+
+def test_same_evidence_cannot_score_multiple_unrelated_dimensions():
+    """P0-3：同一条 evidence 只能撑起一个维度；被复用到第二个维度时该维度回退 0 分。"""
+    schema_config = {
+        "parsed_resume": SCREENING_PAYLOAD_SCHEMA_CONFIG["parsed_resume"],
+        "score": {
+            **SCREENING_PAYLOAD_SCHEMA_CONFIG["score"],
+            "required_dimension_labels": ("维度A", "维度B"),
+            "required_dimension_rules": (
+                {"label": "维度A", "max_score": 5.0, "is_core": True},
+                {"label": "维度B", "max_score": 5.0, "is_core": False},
+            ),
+            "max_possible_score": 10.0,
+            "status_thresholds": {"pass_threshold": 75.0, "pool_threshold": 55.0},
+        },
+    }
+    payload = {
+        "parsed_resume": _empty_parsed_resume(),
+        "score": {
+            "total_score": 10, "match_percent": 100,
+            "advantages": ["x"], "concerns": [],
+            "recommendation": "建议面试", "suggested_status": "screening_passed",
+            "dimensions": [
+                {"label": "维度A", "score": 5.0, "max_score": 5.0, "reason": "命中", "evidence": ["负责 BLE 协议联调与测试"], "is_inferred": False},
+                {"label": "维度B", "score": 5.0, "max_score": 5.0, "reason": "命中", "evidence": ["负责 BLE 协议联调与测试"], "is_inferred": False},
+            ],
+        },
+    }
+    raw = "候选人简历：负责 BLE 协议联调与测试。"
+    sanitized, meta = sanitize_screening_payload(payload, schema_config, raw_resume_text=raw)
+    dims = {d["label"]: d for d in sanitized["score"]["dimensions"]}
+    assert dims["维度A"]["score"] == 5.0        # 首次占用该证据 → 保留
+    assert dims["维度B"]["score"] == 0.0        # 复用同一证据 → 回退
+    assert sanitized["score"]["total_score"] == 5.0
+    assert any("已被其他维度占用" in w for w in meta["warnings"])
