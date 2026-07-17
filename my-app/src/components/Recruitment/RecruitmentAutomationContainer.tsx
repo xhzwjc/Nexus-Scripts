@@ -11038,7 +11038,7 @@ export default function RecruitmentAutomationContainer({
         );
 
         return (
-            <DialogContent showCloseButton={!uploadingResume} className="flex max-h-[88vh] flex-col gap-0 overflow-hidden rounded-[8px] border-[#EBEEF5] bg-white p-0 text-[#0E1114] shadow-[0_8px_24px_rgba(14,17,20,0.16)] sm:max-w-[600px] dark:border-[#EBEEF5] dark:bg-white dark:text-[#0E1114] [&_[data-slot=dialog-close]]:right-6 [&_[data-slot=dialog-close]]:top-[18px] [&_[data-slot=dialog-close]]:rounded-[4px] [&_[data-slot=dialog-close]]:text-[#86888F] [&_[data-slot=dialog-close]]:opacity-100 [&_[data-slot=dialog-close][data-state=open]]:bg-transparent [&_[data-slot=dialog-close][data-state=open]]:text-[#86888F] [&_[data-slot=dialog-close]]:hover:bg-[#F7F8FA] [&_[data-slot=dialog-close]]:hover:text-[#0E1114]">
+            <DialogContent showCloseButton={!uploadingResume} className="flex min-w-0 max-h-[88vh] flex-col gap-0 overflow-hidden rounded-[8px] border-[#EBEEF5] bg-white p-0 text-[#0E1114] shadow-[0_8px_24px_rgba(14,17,20,0.16)] sm:max-w-[600px] dark:border-[#EBEEF5] dark:bg-white dark:text-[#0E1114] [&_[data-slot=dialog-close]]:right-6 [&_[data-slot=dialog-close]]:top-[18px] [&_[data-slot=dialog-close]]:rounded-[4px] [&_[data-slot=dialog-close]]:text-[#86888F] [&_[data-slot=dialog-close]]:opacity-100 [&_[data-slot=dialog-close][data-state=open]]:bg-transparent [&_[data-slot=dialog-close][data-state=open]]:text-[#86888F] [&_[data-slot=dialog-close]]:hover:bg-[#F7F8FA] [&_[data-slot=dialog-close]]:hover:text-[#0E1114]">
                 <DialogHeader className="shrink-0 gap-1 border-b border-[#F2F3F5] px-6 pb-[14px] pr-14 pt-[18px] text-left">
                     <DialogTitle className="text-[16px] font-semibold leading-5 text-[#0E1114] dark:text-[#0E1114]">
                         {recruitmentUiText.uploadResumeTitle}
@@ -11048,8 +11048,8 @@ export default function RecruitmentAutomationContainer({
                     </DialogDescription>
                 </DialogHeader>
 
-                <ScrollArea className="min-h-0 flex-1">
-                    <div className="space-y-4 px-6 py-5">
+                <ScrollArea className="min-h-0 min-w-0 flex-1 overflow-x-hidden [&_[data-slot=scroll-area-viewport]>div]:!block [&_[data-slot=scroll-area-viewport]>div]:!w-full [&_[data-slot=scroll-area-viewport]>div]:!min-w-0 [&_[data-slot=scroll-area-viewport]>div]:!max-w-full">
+                    <div className="w-full min-w-0 max-w-full space-y-4 overflow-x-hidden px-6 py-5">
                         <div className="space-y-2">
                             <p className="text-[12px] leading-4 text-[#33353D] dark:text-[#33353D]">
                                 {isZh ? "上传模式" : "Upload Mode"}
@@ -11208,7 +11208,7 @@ export default function RecruitmentAutomationContainer({
                         </label>
 
                         {uploadFiles.length > 0 ? (
-                            <div className="space-y-2">
+                            <div className="min-w-0 space-y-2">
                                 <div className="flex items-center justify-between gap-3">
                                     <p className="text-[12px] text-[#33353D] dark:text-[#33353D]">
                                         {recruitmentUiText.filesSelected(uploadFiles.length)}
@@ -11232,12 +11232,12 @@ export default function RecruitmentAutomationContainer({
                                             ? (isZh ? "上传中" : "Uploading")
                                             : (isZh ? "待上传" : "Pending");
                                         return (
-                                            <div key={`${file.name}-${file.lastModified}-${index}`} className="flex items-center gap-2.5 rounded-[6px] border border-[#EBEEF5] bg-white px-3.5 py-2.5 dark:border-[#EBEEF5] dark:bg-white">
+                                            <div key={`${file.name}-${file.lastModified}-${index}`} className="flex w-full min-w-0 max-w-full items-center gap-2.5 overflow-hidden rounded-[6px] border border-[#EBEEF5] bg-white px-3.5 py-2.5 dark:border-[#EBEEF5] dark:bg-white">
                                                 <FileText className="h-[15px] w-[15px] shrink-0 text-[#86888F] dark:text-[#86888F]" strokeWidth={1.8}/>
                                                 <div className="min-w-0 flex-1">
                                                     <div className="flex items-center justify-between gap-3">
-                                                        <div className="flex min-w-0 items-center gap-2">
-                                                            <span className="truncate text-[12px] leading-4 text-[#0F1014] dark:text-[#0F1014]">{file.name}</span>
+                                                        <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
+                                                            <span title={file.name} className="block min-w-0 flex-1 truncate text-[12px] leading-4 text-[#0F1014] dark:text-[#0F1014]">{file.name}</span>
                                                             <span className="shrink-0 text-[10px] text-[#B0B2B8] dark:text-[#B0B2B8]">{formatUploadFileSize(file.size)}</span>
                                                         </div>
                                                         <span className={cn(
