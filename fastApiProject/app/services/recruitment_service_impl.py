@@ -2067,6 +2067,14 @@ def sanitize_screening_payload(
                 normalized_final_suggested_status = "talent_pool"
                 sanitized_payload["score"] = sanitized_score
 
+    # 显式复核标记：相关性存疑/注入拦截导致的 talent_pool 与普通"分数不够进人才库"不同，
+    # 打上 review_required 供落库时写入专属 talent_pool_reason（前端可区分展示）。
+    if str(sanitized_score.get("suggested_status") or "") == "talent_pool" and any(
+        ("需人工复核" in str(w)) or ("已阻止自动通过" in str(w)) for w in repair_warnings
+    ):
+        sanitized_score["review_required"] = True
+        sanitized_payload["score"] = sanitized_score
+
     warnings = _normalize_score_warning_items(
         [
             *(sanitize_meta.get("dimension_warnings") or []),
@@ -6718,6 +6726,20 @@ class RecruitmentService:
                     self._send_batch_auto_resume_mail_for_batch(batch_id, batch_root_tasks)
                 except Exception:
                     logger.exception("Failed to send batch auto resume mail batch_id=%s", batch_id)
+                    # P1 可靠性：发送前/整体失败 → 释放抢占旗标，让下一次终态事件重试。
+                    # （每岗位的局部失败在内层已捕获记录，整批重发会重复打扰收件人，不在此释放。）
+                    try:
+                        self.db.query(RecruitmentAITaskLog).filter(
+                            RecruitmentAITaskLog.id.in_(root_task_ids),
+                        ).update(
+                            {RecruitmentAITaskLog.batch_email_sent: False},
+                            synchronize_session=False,
+                        )
+                        self.db.commit()
+                        logger.warning("Batch email claim released for retry batch_id=%s", batch_id)
+                    except Exception:
+                        self.db.rollback()
+                        logger.exception("Failed to release batch email claim batch_id=%s", batch_id)
                 return True
             except OperationalError as exc:
                 self.db.rollback()
@@ -7702,6 +7724,20 @@ class RecruitmentService:
                 input_summary=str(request_context.get("input_summary") or "") or None,
                 emit_sse=False,
             )
+            # P1 审计一致性：多模型轮换下，入队时 peek 冻结的模型与实际调用（resolve 轮换）
+            # 可能不同——把"实际使用"的模型/供应商回写到 run，run 才是可信的执行记录。
+            run_row = self._get_screening_run_for_root_task(root_task_id)
+            if run_row is not None and run_row.status not in {"promoted", "success", "superseded", "cancelled", "failed", "invalid_result", "timeout"}:
+                changed = False
+                if provider and run_row.provider != provider:
+                    run_row.provider = provider
+                    changed = True
+                if model_name and run_row.model_name != model_name:
+                    run_row.model_name = model_name
+                    changed = True
+                if changed:
+                    self.db.add(run_row)
+                    self.db.commit()
         except Exception:
             self.db.rollback()
             logger.debug("Failed to sync screening root runtime root_task_id=%s", root_task_id, exc_info=True)
@@ -17022,7 +17058,8 @@ class RecruitmentService:
                 # 岗位匹配 CAS：入队后若候选人被删或岗位已被改动（HR 手动指派等），本次 AI 结果过期，
                 # 直接作废，绝不覆盖人工指派。
                 stale_reason = callback_service._ai_match_stale_reason(
-                    candidate, getattr(task, "expected_before_position_id", None)
+                    candidate, getattr(task, "expected_before_position_id", None),
+                    getattr(task, "expected_candidate_revision", None),
                 )
                 if stale_reason:
                     logger.warning(
@@ -17329,7 +17366,8 @@ class RecruitmentService:
                         candidate_org_code = normalize_org_code(getattr(candidate, "org_code", None))
                         # 人工决策优先：运行期间 HR 已改岗/已推进状态则只留审计，不把候选人改回 unmatched。
                         stale_reason = self._ai_match_stale_reason(
-                            candidate, getattr(task, "expected_before_position_id", None)
+                            candidate, getattr(task, "expected_before_position_id", None),
+                            getattr(task, "expected_candidate_revision", None),
                         )
                         if stale_reason or str(getattr(candidate, "status", "") or "") not in {"matching", "unmatched", "talent_pool"}:
                             logger.warning(
@@ -17343,6 +17381,8 @@ class RecruitmentService:
                             candidate.talent_pool_reason = "ai_error"
                             candidate.talent_pool_moved_at = datetime.now()
                             candidate.updated_by = actor_id
+                            # 跨进程持久化取消：写入即自增业务版本，别的实例上迟到的匹配结果按 revision 判过期。
+                            self._bump_candidate_business_revision_on_session(db, candidate)
                             db.commit()
                         candidate_snapshot = self._serialize_realtime_candidate_item(candidate)
 
@@ -17448,7 +17488,8 @@ class RecruitmentService:
                     candidate_org_code = normalize_org_code(getattr(candidate, "org_code", None))
                     # 人工决策优先：运行期间 HR 已改岗/已推进状态则只留审计，不把候选人改回 unmatched。
                     stale_reason = self._ai_match_stale_reason(
-                        candidate, getattr(task, "expected_before_position_id", None)
+                        candidate, getattr(task, "expected_before_position_id", None),
+                        getattr(task, "expected_candidate_revision", None),
                     )
                     if stale_reason or str(getattr(candidate, "status", "") or "") not in {"matching", "unmatched", "talent_pool"}:
                         logger.warning(
@@ -17463,6 +17504,7 @@ class RecruitmentService:
                         candidate.talent_pool_reason = "ai_error"
                         candidate.talent_pool_moved_at = now
                         candidate.updated_by = actor_id
+                        self._bump_candidate_business_revision_on_session(db, candidate)
                         db.commit()
                     candidate_snapshot = self._serialize_realtime_candidate_item(candidate)
 
@@ -18284,11 +18326,25 @@ class RecruitmentService:
             except (TypeError, ValueError):
                 pass
 
-    def _ai_match_stale_reason(self, candidate: Any, expected_before_position_id: Optional[int]) -> Optional[str]:
-        """AI 岗位匹配落库前的 CAS 判定：候选人不存在/被删/岗位相对入队快照已改动 → 结果过期。
+    def _bump_candidate_business_revision_on_session(self, db: Any, candidate: Any) -> None:
+        """在指定 session 上原子自增业务版本（匹配回调自建短生命周期 session 使用）。"""
+        candidate_id = getattr(candidate, "id", None)
+        if not candidate_id:
+            return
+        try:
+            db.query(RecruitmentCandidate).filter(
+                RecruitmentCandidate.id == candidate_id,
+            ).update(
+                {RecruitmentCandidate.business_revision: RecruitmentCandidate.business_revision + 1},
+                synchronize_session=False,
+            )
+        except Exception:
+            logger.debug("bump business_revision on session failed candidate_id=%s", candidate_id, exc_info=True)
 
-        返回过期原因（供日志），无过期返回 None。用于挡"模型运行期间 HR 手动改岗、
-        迟到的 AI 结果仍覆盖人工指派"的竞态。调用方须已对候选人加锁（FOR UPDATE）。
+    def _ai_match_stale_reason(self, candidate: Any, expected_before_position_id: Optional[int], expected_candidate_revision: Optional[int] = None) -> Optional[str]:
+        """AI 岗位匹配落库前的 CAS 判定：候选人不存在/被删/岗位或业务版本相对入队快照已改动
+        → 结果过期。业务版本比对使"任意实例上的人工修改/取消写入"都能作废迟到结果
+        （跨进程持久化取消）。调用方须已对候选人加锁（FOR UPDATE）。
         """
         if candidate is None:
             return "not_found"
@@ -18304,6 +18360,12 @@ class RecruitmentService:
             expected = None
         if current_position_id != expected:
             return "position_changed"
+        if expected_candidate_revision is not None:
+            try:
+                if int(getattr(candidate, "business_revision", 0) or 0) != int(expected_candidate_revision):
+                    return "revision_changed"
+            except (TypeError, ValueError):
+                pass
         return None
 
     def _detect_run_cancellation_block(self, run_id: Optional[int]) -> Optional[str]:
@@ -18565,6 +18627,9 @@ class RecruitmentService:
                 candidate.match_percent = match_percent
                 candidate.ai_recommended_status = normalized_status
                 self._auto_advance_candidate_after_screening(candidate, actor_id=actor_id)
+                # 显式复核语义：相关性存疑/注入拦截的 talent_pool 打专属 reason，前端可区分。
+                if raw_score.get("review_required") is True and str(getattr(candidate, "status", "") or "") in {"unmatched", "talent_pool"}:
+                    candidate.talent_pool_reason = "evidence_review_required"
                 self._mark_screening_run_status(self._current_screening_run_id, status="promoted", parse_result_id=getattr(parse_row, "id", None), score_result_id=score_row.id, promote_candidate=candidate)
             elif normalized_status:
                 candidate.ai_recommended_status = normalized_status
@@ -22722,13 +22787,36 @@ class RecruitmentService:
             # 为本次新初筛在候选人 FOR UPDATE 下开一个 generation run，并把候选人的
             # active_screening_run_id 指向它——晚发起的初筛会 bump generation 抢占 active，
             # 从而使先前 run 在晋级 CAS 时被判 generation_changed（乱序完成只让最新 run 晋级）。
-            self._open_screening_run(
+            _opened_run = self._open_screening_run(
                 candidate=candidate,
                 root_task_id=log_row.id,
                 screening_run_key=log_row.screening_run_id,
                 request_meta=request_meta,
                 actor_id=actor_id,
             )
+            # P1 跨进程去重：进程内锁挡不住多实例并发 enqueue。_open_screening_run 已持有
+            # 候选人行锁（若另一实例先入队，我们会等它提交后才拿到锁）——锁内复查存活任务：
+            # autoflush=False 下查询看不到本会话 pending 的 task，只会看到其他实例已提交的；
+            # 命中即整体回滚（本会话 task+run 均为 pending，丢弃干净），复用对方任务，不重复烧模型。
+            if _opened_run is not None:
+                _cross_process_live = self._find_live_screening_task(candidate.id)
+                if _cross_process_live is not None:
+                    self.db.rollback()
+                    logger.info(
+                        "[SCREENING_ENQUEUE] cross-process duplicate suppressed candidate_id=%s reuse_task_id=%s",
+                        candidate.id, _cross_process_live.id,
+                    )
+                    return {
+                        "task_id": _cross_process_live.id,
+                        "status": _cross_process_live.status,
+                        "task_type": SCREENING_FLOW_TASK_TYPE,
+                        "related_candidate_id": candidate.id,
+                        "related_position_id": candidate.position_id,
+                        "screening_run_id": _cross_process_live.screening_run_id,
+                        "reused_existing_task": True,
+                        "reused_existing_result": False,
+                        "batch_id": getattr(_cross_process_live, "batch_id", None) or batch_id,
+                    }
             # 单次提交：task + run + 候选人 active 指针一起对其他事务可见（原子）。
             self.db.commit()
             # 提交后补发入队 SSE（defer_commit 期间已抑制）。

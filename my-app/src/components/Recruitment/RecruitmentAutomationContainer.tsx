@@ -1072,7 +1072,7 @@ function deduplicateCandidates(candidates: CandidateSummary[]): CandidateSummary
     return Array.from(seen.values());
 }
 
-const TALENT_POOL_PIPELINE_REASONS = new Set(["auto_archived", "moved_by_hr"]);
+const TALENT_POOL_PIPELINE_REASONS = new Set(["auto_archived", "moved_by_hr", "evidence_review_required"]);
 const TALENT_POOL_LIST_STATUSES = new Set(["matching", "unmatched", "talent_pool"]);
 
 function isPositionPipelineTalentPoolCandidate(candidate: CandidateSummary) {
@@ -9238,6 +9238,7 @@ export default function RecruitmentAutomationContainer({
             if (reason === "unmatched_by_ai") return isZh ? "AI 未识别岗位" : "AI unmatched";
             if (reason === "ai_error") return isZh ? "AI 识别异常" : "AI error";
             if (reason === "auto_archived") return isZh ? "初筛完成后入库" : "Archived after screening";
+            if (reason === "evidence_review_required") return isZh ? "证据待人工复核" : "Evidence review required";
             if (reason === "moved_by_hr") {
                 return c.talent_pool_source_status
                     ? labelForCandidateStatus(c.talent_pool_source_status)

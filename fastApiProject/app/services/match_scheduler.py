@@ -218,6 +218,9 @@ class MatchTask:
     # CAS 快照：入队时候选人的岗位。回调落库前加锁比对，若期间 HR 手动改岗（当前岗位 != 该值）
     # 则本次 AI 匹配结果作废，绝不覆盖人工指派。
     expected_before_position_id: Optional[int] = None
+    # CAS 快照：入队时候选人的业务版本。任何人工修改（含另一实例上的取消写入）都会自增版本，
+    # 使迟到的匹配结果在任意实例上被判过期——这就是跨进程持久化取消。
+    expected_candidate_revision: Optional[int] = None
     # 0.1-C：错误回调重新入队重试时置 True，worker 的 finally 据此保留 live 标记，
     # 避免重试延迟窗口内同一候选人被新一次 trigger 误判为"不在飞行中"而重复匹配。
     requeued_for_retry: bool = False
@@ -380,6 +383,10 @@ class FairMatchScheduler:
                     expected_before_position_id = int(getattr(candidate, "position_id", 0) or 0) or None
                 except (TypeError, ValueError):
                     expected_before_position_id = None
+                try:
+                    expected_candidate_revision = int(getattr(candidate, "business_revision", 0) or 0)
+                except (TypeError, ValueError):
+                    expected_candidate_revision = None
                 task = MatchTask(
                     user_id=user_id,
                     batch_id=batch_id,
@@ -389,6 +396,7 @@ class FairMatchScheduler:
                     session_token=session_token,
                     task_type=task_type,
                     expected_before_position_id=expected_before_position_id,
+                    expected_candidate_revision=expected_candidate_revision,
                 )
                 self._user_queues[user_id].append(task)
                 with self._state_lock:

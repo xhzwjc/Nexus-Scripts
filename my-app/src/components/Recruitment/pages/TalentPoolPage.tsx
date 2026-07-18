@@ -318,6 +318,7 @@ function talentPoolSourceStageLabel(candidate: CandidateSummary, tr: ReturnType<
     if (reason === "unmatched_by_ai") return tr.sourceAiUnmatched;
     if (reason === "ai_error") return tr.sourceAiError;
     if (reason === "auto_archived") return tr.sourceScreeningArchived;
+    if (reason === "evidence_review_required") return "证据待人工复核";
     if (reason === "moved_by_hr") {
         return STATUS_LABEL_MAP[candidate.talent_pool_source_status || ""]
             || candidate.talent_pool_source_status

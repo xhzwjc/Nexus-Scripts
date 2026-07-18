@@ -1407,7 +1407,7 @@ export function resolveCandidateDisplayStatus(candidate?: CandidateSummary | nul
     if (
         normalizedStatus === "unmatched"
         && Boolean(candidate.position_id)
-        && (talentPoolReason === "auto_archived" || talentPoolReason === "moved_by_hr")
+        && (talentPoolReason === "auto_archived" || talentPoolReason === "moved_by_hr" || talentPoolReason === "evidence_review_required")
     ) {
         return "talent_pool";
     }
@@ -1435,7 +1435,7 @@ export function resolveTalentPoolDisplayStatus(candidate?: CandidateSummary | nu
     if (normalizedStatus === "talent_pool") {
         return "talent_pool";
     }
-    if (reason === "auto_archived" || reason === "moved_by_hr") {
+    if (reason === "auto_archived" || reason === "moved_by_hr" || reason === "evidence_review_required") {
         return "talent_pool";
     }
     return normalizedStatus || "talent_pool";
