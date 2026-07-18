@@ -707,6 +707,46 @@ def test_resume_manipulation_text_blocks_auto_pass():
     assert any("注入" in w or "操纵" in w for w in meta["warnings"])
 
 
+def test_verbatim_gate_tolerates_punctuation_and_merged_lines():
+    """真实用户复现回归：模型引用时会全角标点转半角、把相邻要点合并成一条证据——
+    这类"非语义改写"不得判为伪造（曾致 4 份简历几乎全维度归零、总分 5.2→1.2）；
+    真正的伪造/改写片段仍必须整条拒绝。"""
+    schema_config = {
+        "parsed_resume": SCREENING_PAYLOAD_SCHEMA_CONFIG["parsed_resume"],
+        "score": {
+            **SCREENING_PAYLOAD_SCHEMA_CONFIG["score"],
+            "required_dimension_labels": ("测试用例设计", "问题定位"),
+            "required_dimension_rules": (
+                {"label": "测试用例设计", "max_score": 5.0, "is_core": False, "note": "测试计划与用例"},
+                {"label": "问题定位", "max_score": 5.0, "is_core": False, "note": "缺陷定位"},
+            ),
+            "max_possible_score": 10.0,
+            "status_thresholds": {"pass_threshold": 75.0, "pool_threshold": 55.0},
+        },
+    }
+    payload = {
+        "parsed_resume": _empty_parsed_resume(),
+        "score": {
+            "total_score": 10, "match_percent": 100,
+            "advantages": ["强"], "concerns": [],
+            "recommendation": "建议面试", "suggested_status": "screening_passed",
+            "dimensions": [
+                # 全角→半角 + 两条相邻要点合并成一条证据 → 必须通过
+                {"label": "测试用例设计", "score": 5.0, "max_score": 5.0, "reason": "命中",
+                 "evidence": ["制定测试计划,编写测试用例。搭建测试环境并执行测试用例"], "is_inferred": False},
+                # 混入一个伪造片段（原文不存在）→ 整条拒绝归零
+                {"label": "问题定位", "score": 5.0, "max_score": 5.0, "reason": "命中",
+                 "evidence": ["对项目阻碍性问题进行定位,主导过千万级并发架构设计"], "is_inferred": False},
+            ],
+        },
+    }
+    raw = "候选人简历：制定测试计划，编写测试用例；搭建测试环境并执行测试用例。对项目阻碍性问题进行定位及跟踪处理。"
+    sanitized, meta = sanitize_screening_payload(payload, schema_config, raw_resume_text=raw)
+    dims = {d["label"]: d for d in sanitized["score"]["dimensions"]}
+    assert dims["测试用例设计"]["score"] == 5.0, f"标点/合并类引用不得误杀：{meta['warnings']}"
+    assert dims["问题定位"]["score"] == 0.0, "混入伪造片段的证据必须整条拒绝"
+
+
 def test_preclean_keeps_phone_product_content_but_strips_contact_noise():
     """输入正确性回归：联系方式清洗的"手机/电话"标签必须带冒号才整段删——
     否则手机测试工程师简历的正文（小米手机基带测试/手机传感器/马达呼吸灯）会被绞碎，

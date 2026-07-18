@@ -4745,30 +4745,52 @@ def _evidence_text_is_negative_statement(item: Any) -> bool:
     return any(pattern.search(text) for pattern in _NEGATIVE_STATEMENT_PATTERNS)
 
 
+# 逐字比对前剥离的字符：空白 + 中英文标点（模型普遍把全角标点写成半角、合并相邻要点，
+# 标点宽度差异不构成"改写"；内容字符仍必须逐字连续存在）。
+_QUOTE_MATCH_STRIP_RE = re.compile(r"[\s，。、；：！？“”‘’·—…∙•,.;:!?\"'()（）\[\]【】<>《》/|\\_\-~～]+")
+
+
+def _normalize_quote_for_match(value: Any) -> str:
+    return _QUOTE_MATCH_STRIP_RE.sub("", str(value or "")).lower()
+
+
+def _quote_segment_is_phrase_level(segment: str) -> bool:
+    if re.search(r"[一-鿿]", segment):
+        return len(segment) >= 4
+    return len(segment) >= 12
+
+
 def _evidence_verbatim_quote_in_resume(item: Any, raw_text: str) -> bool:
-    """P0-1 引用式证据核验：evidence 必须是简历原文的逐字摘录（去空白小写比对），
+    """P0-1 引用式证据核验：evidence 的内容字符必须逐字连续存在于简历原文（剥标点/空白后比对），
     且达到"短语级"长度——含中文 ≥4 字符、纯英文/数字 ≥12 字符。
 
-    这从根上消灭两类伪造：①改写/编造的证据（非逐字→拒）；②裸关键词撑维度
-    （简历里有 "Python" 一个词就给"银行经验"满分——关键词过短→拒，模型只能引用
-    完整原句，而完整原句配错维度时在审计里一眼可见，且被唯一占用规则限制只能撑一个维度）。
+    整段命中即通过；未命中时按标点分段（模型常把相邻要点合并成一条证据），
+    要求**每个短语级片段都逐字存在**——伪造/改写的片段一个都不许混入。
+    这消灭两类伪造：①改写/编造的证据（内容字符对不上→拒）；②裸关键词撑维度
+    （"Python" 过短→拒）。真实用户复现教训：模型会做全角→半角、要点合并这类
+    "非语义改写"，纯字节级比对会把合法引用全部误杀（4 份简历几乎全维度归零）。
     """
     text = _resume_item_to_report_text(item)
     if not text:
         return False
-    normalized = re.sub(r"\s+", "", text).lower()
-    if not normalized:
+    normalized = _normalize_quote_for_match(text)
+    if not normalized or not _quote_segment_is_phrase_level(normalized):
         return False
-    has_cjk = bool(re.search(r"[一-鿿]", normalized))
-    if has_cjk:
-        if len(normalized) < 4:
-            return False
-    elif len(normalized) < 12:
-        return False
-    haystack = re.sub(r"\s+", "", str(raw_text or "")).lower()
+    haystack = _normalize_quote_for_match(raw_text)
     if not haystack:
         return False
-    return normalized in haystack
+    if normalized in haystack:
+        return True
+    # 分段核验：每个短语级片段仍须逐字存在（合并/重排可容，伪造不可容）。
+    segments = [
+        _normalize_quote_for_match(part)
+        for part in re.split(r"[，。、；：！？,.;:!?\n\r]+", text)
+        if str(part).strip()
+    ]
+    qualified = [seg for seg in segments if seg and _quote_segment_is_phrase_level(seg)]
+    if not qualified:
+        return False
+    return all(seg in haystack for seg in qualified)
 
 
 # 通用/无区分度的中文片段：语义去重签名里剔除它们，避免"经验/能力"等把不同证据误判成同一条。
