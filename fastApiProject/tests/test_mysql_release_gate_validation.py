@@ -460,6 +460,77 @@ def test_business_revision_bump_is_atomic_across_stale_sessions(mysql_db):
         fresh.close()
 
 
+def test_real_enqueue_creates_visible_task_and_run(mysql_db):
+    """回归（自动初筛静默失效）：真实 enqueue_screen_candidate 全链路——跨进程去重复查
+    不得把自己 flush 的任务当撞车回滚（flush 行同事务可见，必须 exclude 自身）。
+    断言：入队后全新会话能看到 queued 根任务 + 绑定 run + active 指针。"""
+    from app.recruitment_models import (
+        RecruitmentAITaskLog, RecruitmentCandidate, RecruitmentCandidateScreeningRun,
+        RecruitmentPosition, RecruitmentSkill,
+    )
+    from app.services.recruitment_service_impl import SCREENING_FLOW_TASK_TYPE, RecruitmentService, json_dumps_safe
+
+    # 独立岗位 + 初筛评估方案（不依赖库中现有数据，自建自清理）
+    skill = RecruitmentSkill(
+        skill_code=f"{MARKER_PREFIX}-skill", name=f"{MARKER_PREFIX}-初筛规则", org_code="group",
+        description="gate", content="---\ntask_type: screening\n---\n| 维度 | 权重 | 满分 | 说明 |\n| --- | --- | --- | --- |\n| 自动化测试 | 100% | 10 | 需要自动化脚本经验 |",
+        is_enabled=True, deleted=False,
+    )
+    mysql_db.add(skill)
+    mysql_db.flush()
+    position = RecruitmentPosition(
+        position_code=f"{MARKER_PREFIX}-POS", title=f"{MARKER_PREFIX}-岗位", org_code="group",
+        status="recruiting", deleted=False,
+        screening_skill_ids_json=json_dumps_safe([skill.id]), created_by="mysqlgate",
+    )
+    mysql_db.add(position)
+    mysql_db.flush()
+    candidate, parse = _seed_candidate(mysql_db, f"{MARKER_PREFIX}-ENQ", position_id=position.id)
+    # pending 候选人走 force_fresh 会重新提取简历原文——给个真实存在的 txt 文件（≥50 字）
+    import os
+    import tempfile
+    from app.recruitment_models import RecruitmentResumeFile
+    _tmp = tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False, encoding="utf-8")
+    _tmp.write("候选人简历：三年物联网测试经验，负责 IoT 协议联调与自动化测试，使用 Python 编写自动化测试脚本与测试平台，熟悉智能家居生态与设备联动测试。")
+    _tmp.close()
+    resume_row = mysql_db.query(RecruitmentResumeFile).filter(RecruitmentResumeFile.candidate_id == candidate.id).first()
+    resume_row.storage_path = _tmp.name
+    resume_row.file_ext = ".txt"
+    mysql_db.add(resume_row)
+    mysql_db.commit()
+    try:
+        service = RecruitmentService(mysql_db)
+        result = service.enqueue_screen_candidate(candidate.id, "mysqlgate", dispatch=False)
+        mysql_db.commit()
+        assert result.get("status") == "queued", f"入队应返回 queued，实际 {result}"
+        assert result.get("reused_existing_task") is False, "首次入队不得被误判为复用"
+
+        fresh = _new_session()
+        try:
+            task = fresh.query(RecruitmentAITaskLog).filter(
+                RecruitmentAITaskLog.related_candidate_id == candidate.id,
+                RecruitmentAITaskLog.task_type == SCREENING_FLOW_TASK_TYPE,
+            ).first()
+            assert task is not None and task.status == "queued", "入队后必须存在 queued 根任务（回归会静默丢弃）"
+            run = fresh.query(RecruitmentCandidateScreeningRun).filter(
+                RecruitmentCandidateScreeningRun.root_task_id == task.id,
+            ).first()
+            fresh_candidate = fresh.query(RecruitmentCandidate).filter(RecruitmentCandidate.id == candidate.id).first()
+            assert run is not None and run.generation == 1
+            assert fresh_candidate.active_screening_run_id == run.id
+        finally:
+            fresh.close()
+    finally:
+        mysql_db.rollback()
+        mysql_db.query(RecruitmentPosition).filter(RecruitmentPosition.id == position.id).delete()
+        mysql_db.query(RecruitmentSkill).filter(RecruitmentSkill.id == skill.id).delete()
+        mysql_db.commit()
+        try:
+            os.unlink(_tmp.name)
+        except OSError:
+            pass
+
+
 def test_failed_batch_never_emails_even_with_historical_pass(mysql_db):
     """P0-5：本批根任务失败时，即使候选人有历史通过分（latest_score_id 有值）也绝不发信；
     正控：success 根任务 + promoted run + run 评分==latest 才发。"""

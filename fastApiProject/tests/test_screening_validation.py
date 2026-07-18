@@ -707,6 +707,28 @@ def test_resume_manipulation_text_blocks_auto_pass():
     assert any("注入" in w or "操纵" in w for w in meta["warnings"])
 
 
+def test_preclean_keeps_phone_product_content_but_strips_contact_noise():
+    """输入正确性回归：联系方式清洗的"手机/电话"标签必须带冒号才整段删——
+    否则手机测试工程师简历的正文（小米手机基带测试/手机传感器/马达呼吸灯）会被绞碎，
+    送给模型的匹配与解析输入残缺（真实用户简历复现）。"""
+    from app.services.recruitment_service_impl import _deterministic_preclean_resume_text
+
+    raw = (
+        "工作经历\n"
+        "小米手机（基带测试） 硬件+软件 2019.05- 2021.04\n"
+        "1. 测试手机硬件及软件性能有无缺陷并进行刷机\n"
+        "2. 手机传感器相关测试，如环境光，接近光传感器等\n"
+        "3. 手机小器件相关测试，如马达，呼吸灯等\n"
+        "联系方式\n"
+        "手机：15934556776 邮箱: guo@example.com\n"
+    )
+    cleaned = _deterministic_preclean_resume_text(raw)
+    for keep in ("小米手机（基带测试）", "测试手机硬件及软件性能", "手机传感器相关测试", "马达", "呼吸灯"):
+        assert keep in cleaned, f"正文被误删：{keep!r}\n{cleaned}"
+    assert "15934556776" not in cleaned, "真实手机号必须清除"
+    assert "guo@example.com" not in cleaned, "真实邮箱必须清除"
+
+
 def test_recommendation_rewritten_when_final_status_is_reject():
     """P0-6：证据归零导致确定性拒绝时，模型残留的"建议面试"推进措辞被改写为一致结论，
     消除"0 分拒绝却建议面试"的矛盾。"""

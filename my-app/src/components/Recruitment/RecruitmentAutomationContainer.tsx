@@ -11593,8 +11593,8 @@ export default function RecruitmentAutomationContainer({
                 });
                 toast.success(
                     isZh
-                        ? `已按当前岗位最新规则重新初筛 ${response.queued_count || 0} 位候选人`
-                        : `Queued fresh screening for ${response.queued_count || 0} candidate(s).`,
+                        ? `已按当前岗位最新规则发起 ${response.queued_count || 0} 位候选人的初筛`
+                        : `Queued screening for ${response.queued_count || 0} candidate(s).`,
                 );
                 removeCandidateIdsFromSelection(candidateIds);
                 void refreshActiveCandidateListAndStats({ silent: true }).catch(() => {});
@@ -11618,7 +11618,7 @@ export default function RecruitmentAutomationContainer({
                     suppressFinishToast: false,
                 });
             }
-            toast.success(isZh ? "已按当前岗位最新规则重新初筛" : "Fresh screening queued.");
+            toast.success(isZh ? "已按当前岗位最新规则发起初筛" : "Screening queued.");
             removeCandidateIdsFromSelection([candidateId]);
             void refreshActiveCandidateListAndStats({ silent: true }).catch(() => {});
         } catch (error) {

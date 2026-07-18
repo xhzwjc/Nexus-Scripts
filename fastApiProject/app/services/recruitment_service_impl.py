@@ -900,7 +900,10 @@ RESUME_SECTION_HEADING_ALIASES = {
 RESUME_SECTION_SPLIT_RE = re.compile(
     r"(基本信息|个人信息|教育背景|教育经历|教育信息|工作经验|工作经历|项目经历|项目经验|技能特长|专业技能|技能标签|荣誉证书)\s*[:：]?"
 )
-RESUME_CONTACT_FIELD_RE = re.compile(r"(?:邮箱|email|e-mail|联系电话|联系方式|电话|手机)[:：]?\s*[^\s]+", re.IGNORECASE)
+# 联系方式噪声：标签后必须跟冒号才整段删除——冒号可选时，"小米手机（基带测试）"、
+# "手机小器件相关测试"等正文（手机测试类简历全是）会被当联系方式绞掉，
+# 导致送给模型的匹配/解析输入残缺（裸手机号/邮箱由下面两个专用正则兜底）。
+RESUME_CONTACT_FIELD_RE = re.compile(r"(?:邮箱|email|e-mail|联系电话|联系方式|电话|手机)\s*[:：]\s*[^\s]+", re.IGNORECASE)
 RESUME_EMAIL_RE = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
 RESUME_PHONE_RE = re.compile(r"(?:(?:\+?86[-\s]?)?1[3-9]\d[-\s]?\d{4}[-\s]?\d{4})")
 RESUME_ENTITY_HINT_RE = re.compile(r"(大学|学院|学校|研究生|公司|集团|科技|有限|股份|研究院)")
@@ -8235,13 +8238,18 @@ class RecruitmentService:
         candidate_id: int,
         *,
         settle_orphans: bool = True,
+        exclude_task_id: Optional[int] = None,
     ) -> Optional[RecruitmentAITaskLog]:
         while True:
-            row = self.db.query(RecruitmentAITaskLog).filter(
+            builder = self.db.query(RecruitmentAITaskLog).filter(
                 RecruitmentAITaskLog.related_candidate_id == candidate_id,
                 self._screening_root_task_filter(),
                 RecruitmentAITaskLog.status.in_(SCREENING_LIVE_TASK_STATUSES),
-            ).order_by(
+            )
+            if exclude_task_id:
+                # 跨进程去重复查场景：flush 过的自建任务在同一事务内可见，必须排除自身。
+                builder = builder.filter(RecruitmentAITaskLog.id != exclude_task_id)
+            row = builder.order_by(
                 RecruitmentAITaskLog.updated_at.desc(),
                 RecruitmentAITaskLog.id.desc(),
             ).first()
@@ -22795,11 +22803,14 @@ class RecruitmentService:
                 actor_id=actor_id,
             )
             # P1 跨进程去重：进程内锁挡不住多实例并发 enqueue。_open_screening_run 已持有
-            # 候选人行锁（若另一实例先入队，我们会等它提交后才拿到锁）——锁内复查存活任务：
-            # autoflush=False 下查询看不到本会话 pending 的 task，只会看到其他实例已提交的；
-            # 命中即整体回滚（本会话 task+run 均为 pending，丢弃干净），复用对方任务，不重复烧模型。
+            # 候选人行锁（若另一实例先入队，我们会等它提交后才拿到锁）——锁内复查存活任务。
+            # 注意：本会话的 task 已 flush（defer_commit 只是不提交），同一事务内查询看得到它，
+            # 必须 exclude 自身 id，否则会误判撞车、回滚掉自己（自动初筛变成空操作的回归根因）。
+            # 持锁期间不做孤儿整理副作用（settle_orphans=False）。
             if _opened_run is not None:
-                _cross_process_live = self._find_live_screening_task(candidate.id)
+                _cross_process_live = self._find_live_screening_task(
+                    candidate.id, settle_orphans=False, exclude_task_id=log_row.id,
+                )
                 if _cross_process_live is not None:
                     self.db.rollback()
                     logger.info(
