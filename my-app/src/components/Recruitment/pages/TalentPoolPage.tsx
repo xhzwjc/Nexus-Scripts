@@ -125,6 +125,7 @@ function getTalentPoolLocale(language = getCurrentLanguage()) {
             : "AI could not match an existing position. Please assign manually.",
         aiErrorDesc: isZh ? "AI 识别异常，请重新识别" : "AI error, please re-identify",
         sourceStage: isZh ? "来源阶段" : "Source Stage",
+        sourceAiMatching: isZh ? "AI 岗位识别中" : "AI Position Matching",
         sourceAiUnmatched: isZh ? "未匹配系统岗位" : "No System Position Match",
         sourceAiError: isZh ? "AI 识别异常" : "AI Error",
         sourceScreeningArchived: isZh ? "初筛完成后入库" : "Archived After Screening",
@@ -314,6 +315,7 @@ function matchesTalentPoolStatFilter(candidate: CandidateSummary, filter: Talent
 }
 
 function talentPoolSourceStageLabel(candidate: CandidateSummary, tr: ReturnType<typeof getTalentPoolLocale>) {
+    if (isTalentPoolMatching(candidate)) return tr.sourceAiMatching;
     const reason = talentPoolReason(candidate);
     if (reason === "unmatched_by_ai") return tr.sourceAiUnmatched;
     if (reason === "ai_error") return tr.sourceAiError;
