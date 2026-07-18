@@ -2395,6 +2395,9 @@ export const zhCN: Translations = {
         // Common Actions
         refresh: '刷新',
         refreshing: '刷新中...',
+        candidateIdentity: {
+            namePending: '姓名待识别',
+        },
         candidateComparison: {
             title: '候选人对比',
             subtitle: '基于同一岗位和同一评估口径，优先呈现可验证的关键差异。',

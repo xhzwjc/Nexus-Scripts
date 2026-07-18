@@ -127,6 +127,8 @@ export interface CandidateSummary {
   position_interview_skill_ids?: number[];
   position_interview_skills?: RecruitmentSkill[];
   name: string;
+  name_source?: "filename_untrusted" | "filename_high_confidence" | "resume_text_explicit" | "resume_parsed" | "hr_manual" | "legacy_unknown" | null;
+  name_confidence?: number | null;
   phone?: string | null;
   email?: string | null;
   current_company?: string | null;
@@ -365,6 +367,8 @@ export interface CandidateComparisonScreening {
 export interface CandidateComparisonMemberCandidate {
   id: number;
   name: string;
+  name_source?: CandidateSummary["name_source"];
+  name_confidence?: number | null;
   status: string;
   display_status: string;
   position_id: number;

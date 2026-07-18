@@ -2239,8 +2239,8 @@ def test_parse_data_lands_on_candidate_only_at_promotion():
         candidate.latest_resume_file_id = resume.id
         candidate.status = "pending_screening"
         parse_row = RecruitmentResumeParseResult(
-            candidate_id=candidate.id, resume_file_id=resume.id, org_code="chunmiao-rd", raw_text="raw",
-            basic_info_json=json_dumps_safe({"name": "解析出的新名字", "education": "硕士"}), status="success",
+            candidate_id=candidate.id, resume_file_id=resume.id, org_code="chunmiao-rd", raw_text="姓名：王欢\n学历：硕士",
+            basic_info_json=json_dumps_safe({"name": "王欢", "education": "硕士"}), status="success",
         )
         db.add(parse_row)
         db.flush()
@@ -2261,7 +2261,7 @@ def test_parse_data_lands_on_candidate_only_at_promotion():
         service._save_score_result(cand_ok, parse_ok, "rd-user", content, allow_status_advance=True)
         db.commit()
         db.refresh(cand_ok)
-        assert cand_ok.name == "解析出的新名字", "晋级时应落地解析姓名"
+        assert cand_ok.name == "王欢", "晋级时应落地有原文证据的解析姓名"
         assert cand_ok.latest_parse_result_id == parse_ok.id
         assert cand_ok.education == "硕士"
 

@@ -230,6 +230,8 @@ import {
 } from "./components/RecruitmentForm";
 import {StructuredSkillEditor} from "./components/StructuredSkillEditor";
 import {SettingsPageLayout, type RecruitmentSettingsPage} from "./components/SettingsPageLayout";
+import {CandidateAvatar} from "./components/CandidateAvatar";
+import {resolveCandidateIdentity} from "./candidateIdentity";
 import {AssistantPage} from "./pages/AssistantPage";
 import {PositionsListPage} from "./pages/PositionsListPage";
 import {WorkspacePage} from "./pages/WorkspacePage";
@@ -1262,17 +1264,8 @@ function compactText(value: unknown) {
     return String(value ?? "").trim();
 }
 
-function looksLikeGeneratedCandidateName(value: unknown) {
-    const text = compactText(value);
-    return /^【[^】]+】/.test(text) || /^岗位[:：]/.test(text);
-}
-
-function formatPositionCandidateName(candidate: CandidateSummary, isZh: boolean) {
-    const name = compactText(candidate.name);
-    if (!name || looksLikeGeneratedCandidateName(name)) {
-        return isZh ? "姓名待补全" : "Name needed";
-    }
-    return name;
+function formatPositionCandidateName(candidate: CandidateSummary) {
+    return resolveCandidateIdentity(candidate).displayName;
 }
 
 function formatMaskedContact(candidate: CandidateSummary, isZh: boolean) {
@@ -1460,7 +1453,7 @@ const PositionCandidateRow = React.memo(function PositionCandidateRow({
     isZh: boolean;
 }) {
     const displayStatus = resolveCandidateDisplayStatus(candidate);
-    const candidateName = formatPositionCandidateName(candidate, isZh);
+    const candidateName = formatPositionCandidateName(candidate);
     const contactText = formatMaskedContact(candidate, isZh);
     const resumeState = formatResumeState(candidate, isZh);
     const tags = (candidate.tags || []).filter(Boolean).slice(0, 5);
@@ -3305,7 +3298,10 @@ export default function RecruitmentAutomationContainer({
         if (!chatContext.candidate_id) {
             return recruitmentUiText.unspecifiedCandidate;
         }
-        return candidateMap.get(chatContext.candidate_id)?.name || recruitmentUiText.candidateWithId(chatContext.candidate_id);
+        const candidate = candidateMap.get(chatContext.candidate_id);
+        return candidate
+            ? resolveCandidateIdentity(candidate).displayName
+            : recruitmentUiText.candidateWithId(chatContext.candidate_id);
     }, [candidateMap, chatContext.candidate_id, recruitmentUiText]);
     const assistantModelLabel = assistantActiveLLMConfig
         ? `${labelForProvider(assistantActiveLLMConfig.resolved_provider || assistantActiveLLMConfig.provider)} / ${assistantActiveLLMConfig.resolved_model_name || assistantActiveLLMConfig.model_name}`
@@ -9139,7 +9135,10 @@ export default function RecruitmentAutomationContainer({
         try {
             const result = await reidentifyTalentPoolCandidates([candidateId]);
             if ((result.total_candidates || 0) > 0) {
-                toast.success(isZh ? `已重新触发 AI 岗位识别：${candidateDetail?.candidate.name || "候选人"}` : `AI position matching restarted for ${candidateDetail?.candidate.name || "candidate"}`);
+                const candidateName = candidateDetail?.candidate
+                    ? resolveCandidateIdentity(candidateDetail.candidate).displayName
+                    : (isZh ? "候选人" : "candidate");
+                toast.success(isZh ? `已重新触发 AI 岗位识别：${candidateName}` : `AI position matching restarted for ${candidateName}`);
                 closeTalentPoolCandidateDetail();
             } else {
                 toast.info(result.message || (isZh ? "当前人才无需重新识别" : "This talent does not need re-identification"));
@@ -9231,6 +9230,7 @@ export default function RecruitmentAutomationContainer({
         }
 
         const c = candidateDetail.candidate;
+        const identity = resolveCandidateIdentity(c);
         const displayStatus = resolveTalentPoolDisplayStatus(c);
         const reason = String(c.talent_pool_reason || "").trim().toLowerCase();
         const sourceStage = (() => {
@@ -9325,12 +9325,10 @@ export default function RecruitmentAutomationContainer({
             <div className="flex h-full min-h-0 min-w-0 w-full max-w-full flex-col overflow-hidden bg-white font-[Inter,'PingFang_SC','Microsoft_YaHei',sans-serif] text-[#0E1114]">
                 <div className="flex shrink-0 items-start justify-between border-b border-[#F2F3F5] px-7 py-5">
                     <div className="flex min-w-0 flex-1 items-center gap-3.5">
-                        <span className="flex h-[46px] w-[46px] shrink-0 items-center justify-center rounded-full text-[15px] font-medium text-white" style={{backgroundColor: avatarColor}}>
-                            {String(c.name || "?").trim().slice(0, 1)}
-                        </span>
+                        <CandidateAvatar identity={identity} className="h-[46px] w-[46px] text-[15px] font-medium text-white" style={{backgroundColor: avatarColor}}/>
                         <div className="min-w-0">
                             <div className="flex min-w-0 items-center gap-2.5">
-                                <h2 className="truncate text-[18px] font-semibold leading-6 text-[#0E1114]">{c.name || `ID:${c.id}`}</h2>
+                                <h2 className="truncate text-[18px] font-semibold leading-6 text-[#0E1114]">{identity.displayName}</h2>
                                 <span className="inline-flex h-[22px] shrink-0 items-center rounded-[4px] px-2 text-[12px]" style={{backgroundColor: badge.background, color: badge.color}}>{badge.label}</span>
                             </div>
                             <p className="mt-1 truncate text-[12px] text-[#86888F]">{profileMeta} · {isZh ? "入库" : "Added"} {enteredAt ? formatDateTime(enteredAt) : "—"}</p>
@@ -16425,7 +16423,7 @@ export default function RecruitmentAutomationContainer({
                     <DialogHeader className="gap-1 border-b border-[#F2F3F5] px-6 pb-3.5 pr-14 pt-[18px] text-left">
                         <DialogTitle className="text-[16px] font-semibold text-[#0E1114]">{isZh ? "分配岗位" : "Assign Position"}</DialogTitle>
                         <DialogDescription className="text-[12px] leading-5 text-[#86888F]">
-                            {isZh ? `为「${candidateDetail?.candidate.name || "当前人才"}」选择目标岗位，确认后将进入该岗位的招聘流程。` : `Choose a target position for ${candidateDetail?.candidate.name || "this talent"}. The talent will enter that recruitment flow after confirmation.`}
+                            {isZh ? `为「${candidateDetail?.candidate ? resolveCandidateIdentity(candidateDetail.candidate).displayName : "当前人才"}」选择目标岗位，确认后将进入该岗位的招聘流程。` : `Choose a target position for ${candidateDetail?.candidate ? resolveCandidateIdentity(candidateDetail.candidate).displayName : "this talent"}. The talent will enter that recruitment flow after confirmation.`}
                         </DialogDescription>
                     </DialogHeader>
                     <div className="px-6 py-5">
@@ -16461,7 +16459,7 @@ export default function RecruitmentAutomationContainer({
                     <DialogHeader className="gap-1 border-b border-[#F2F3F5] px-6 pb-3.5 pr-14 pt-[18px] text-left">
                         <DialogTitle className="text-[16px] font-semibold text-[#0E1114]">{isZh ? "确认重新识别岗位" : "Confirm Re-identification"}</DialogTitle>
                         <DialogDescription className="text-[12px] leading-5 text-[#86888F]">
-                            {isZh ? `将重新识别「${candidateDetail?.candidate.name || "当前人才"}」与开放岗位的匹配关系。` : `AI will re-identify open-position matches for ${candidateDetail?.candidate.name || "this talent"}.`}
+                            {isZh ? `将重新识别「${candidateDetail?.candidate ? resolveCandidateIdentity(candidateDetail.candidate).displayName : "当前人才"}」与开放岗位的匹配关系。` : `AI will re-identify open-position matches for ${candidateDetail?.candidate ? resolveCandidateIdentity(candidateDetail.candidate).displayName : "this talent"}.`}
                         </DialogDescription>
                     </DialogHeader>
                     <div className="px-6 py-5">
@@ -16917,7 +16915,7 @@ export default function RecruitmentAutomationContainer({
                     </DialogHeader>
                     <div className="px-6 py-5">
                         <div className="rounded-[6px] border border-[#EBEEF5] bg-[#F7F8FA] px-4 py-3 text-[12px] leading-5 text-[#33353D] dark:border-[#EBEEF5] dark:bg-[#F7F8FA] dark:text-[#33353D]">
-                            <p className="text-[13px] font-medium text-[#0E1114] dark:text-[#0E1114]">{candidateDeleteTarget?.name || recruitmentUiText.currentCandidate}</p>
+                            <p className="text-[13px] font-medium text-[#0E1114] dark:text-[#0E1114]">{candidateDeleteTarget ? resolveCandidateIdentity(candidateDeleteTarget).displayName : recruitmentUiText.currentCandidate}</p>
                             <p className="mt-1 text-[11px] leading-[18px] text-[#86888F] dark:text-[#86888F]">
                                 {recruitmentUiText.candidateDeleteWarning}
                             </p>
@@ -17650,16 +17648,16 @@ export default function RecruitmentAutomationContainer({
                         <div className="space-y-5 px-6 py-5">
                             <Field label={recruitmentUiText.candidatesInThisSendLabel} className="space-y-2 [&>p]:text-[12px] [&>p]:font-normal [&>p]:text-[#33353D] [&>p]:dark:text-[#33353D]">
                                 <div className="grid gap-2">
-                                    {resumeMailTargetCandidates.length ? resumeMailTargetCandidates.map((candidate) => (
+                                    {resumeMailTargetCandidates.length ? resumeMailTargetCandidates.map((candidate) => {
+                                        const identity = resolveCandidateIdentity(candidate);
+                                        return (
                                         <div key={candidate.id}
                                              className="rounded-[8px] border border-[#EBEEF5] bg-white px-4 py-3 dark:border-[#EBEEF5] dark:bg-white">
                                             <div className="flex items-center justify-between gap-4">
                                                 <div className="flex min-w-0 items-center gap-2.5">
-                                                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#1E3BFA] text-[12px] font-medium text-white">
-                                                        {candidate.name.trim().slice(0, 1) || "-"}
-                                                    </div>
+                                                    <CandidateAvatar identity={identity} className="h-8 w-8 bg-[#1E3BFA] text-[12px] font-medium text-white"/>
                                                     <div className="min-w-0">
-                                                        <p className="truncate text-[13px] font-medium leading-5 text-[#0E1114] dark:text-[#0E1114]">{candidate.name}</p>
+                                                        <p className="truncate text-[13px] font-medium leading-5 text-[#0E1114] dark:text-[#0E1114]">{identity.displayName}</p>
                                                         <p className="truncate text-[11px] leading-[18px] text-[#86888F] dark:text-[#86888F]">{candidate.position_title || recruitmentUiText.resumeNoLinkedPosition}</p>
                                                         <p className={cn(
                                                             "truncate text-[11px] leading-[18px]",
@@ -17682,7 +17680,8 @@ export default function RecruitmentAutomationContainer({
                                                 </div>
                                             </div>
                                         </div>
-                                    )) : (
+                                        );
+                                    }) : (
                                         <p className="rounded-[6px] border border-[#EBEEF5] bg-[#F7F8FA] px-4 py-3 text-[12px] text-[#86888F] dark:border-[#EBEEF5] dark:bg-[#F7F8FA] dark:text-[#86888F]">{recruitmentUiText.noCandidateDetails}</p>
                                     )}
                                 </div>

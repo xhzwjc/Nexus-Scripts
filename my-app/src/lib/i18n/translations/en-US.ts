@@ -2396,6 +2396,9 @@ export const enUS: Translations = {
         // Common Actions
         refresh: 'Refresh',
         refreshing: 'Refreshing...',
+        candidateIdentity: {
+            namePending: 'Name pending',
+        },
         candidateComparison: {
             title: 'Candidate Comparison',
             subtitle: 'Compare verifiable differences under the same position and evaluation protocol.',

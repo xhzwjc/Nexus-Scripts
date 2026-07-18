@@ -32,6 +32,8 @@ import {Input} from "@/components/ui/input";
 
 import type {RecruitmentPage} from "../types";
 import {EmptyState} from "../components/SharedComponents";
+import {CandidateAvatar} from "../components/CandidateAvatar";
+import {resolveCandidateIdentity} from "../candidateIdentity";
 import {INTERVIEW_TODO_STATUS_VALUES} from "../workflowStages";
 import {
     formatDateTime,
@@ -554,6 +556,7 @@ export function WorkspacePage({
                         {recentCandidates.length ? (
                             <div>
                                 {recentCandidates.slice(0, 6).map((candidate, index) => {
+                                    const identity = resolveCandidateIdentity(candidate);
                                     const status = resolveCandidateDisplayStatus(candidate);
                                     const candidateMeta = [
                                         formatExperience(candidate.years_of_experience, isZh),
@@ -570,11 +573,9 @@ export function WorkspacePage({
                                                 setSelectedCandidateId(candidate.id);
                                             }}
                                         >
-                                            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[12px] font-medium text-white" style={{backgroundColor: AVATAR_COLORS[index % AVATAR_COLORS.length]}}>
-                                                {resolveAvatarLabel(candidate.name)}
-                                            </span>
+                                            <CandidateAvatar identity={identity} className="h-8 w-8 text-[12px] font-medium text-white" style={{backgroundColor: AVATAR_COLORS[index % AVATAR_COLORS.length]}}/>
                                             <span className="w-[180px] min-w-0 shrink-0">
-                                                <span className="block truncate text-[13px] font-medium text-[#0F23D9]">{candidate.name}</span>
+                                                <span className="block truncate text-[13px] font-medium text-[#0F23D9]">{identity.displayName}</span>
                                                 <span className="mt-0.5 block truncate text-[11px] text-[#B0B2B8]">{candidateMeta || candidate.candidate_code}</span>
                                             </span>
                                             <span className="min-w-0 flex-1 truncate text-[12px] text-[#33353D] dark:text-slate-300">

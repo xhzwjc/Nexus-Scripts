@@ -22,6 +22,8 @@ import {toast} from "@/lib/toast";
 import {cn} from "@/lib/utils";
 import {useI18n} from "@/lib/i18n";
 import {formatActionError, formatDateTime} from "../utils";
+import {resolveCandidateIdentity} from "../candidateIdentity";
+import {CandidateAvatar} from "../components/CandidateAvatar";
 
 type ReviewStatusFilter = "todo" | "completed" | "pending" | "deferred" | "passed" | "rejected";
 type ReviewResultFilter = "all" | "pending" | "deferred" | "passed" | "rejected";
@@ -442,6 +444,7 @@ export function ReviewWorkbenchPage({
     };
 
     const detailCandidate = detail?.candidate || detailTask?.candidate || null;
+    const detailIdentity = resolveCandidateIdentity(detailCandidate || {});
     const detailAssignment = detail?.department_review_context?.assignment || detailTask?.assignment || null;
     const detailBatch = detail?.department_review_context?.batch || detailTask?.batch || null;
     const detailPosition = detailTask?.position?.title || detailCandidate?.position_title || (isZh ? "未分配岗位" : "Unassigned");
@@ -557,6 +560,7 @@ export function ReviewWorkbenchPage({
                             </div>
                         ) : pagedTasks.length ? pagedTasks.map((task) => {
                             const {assignment, candidate, batch} = task;
+                            const identity = resolveCandidateIdentity(candidate);
                             const positionTitle = task.position?.title || candidate.position_title || (isZh ? "未分配岗位" : "Unassigned");
                             const comment = commentByAssignment[assignment.id] || "";
                             const actionable = canActReview && ["pending", "deferred"].includes(assignment.status);
@@ -565,13 +569,11 @@ export function ReviewWorkbenchPage({
                             return (
                                 <article key={assignment.id} className="grid min-h-[104px] grid-cols-[300px_minmax(300px,1fr)_280px_220px] items-center border-b border-[#EBEEF5] py-2.5 transition-colors hover:bg-[#F8F8F9]">
                                     <div className="flex min-w-0 items-center gap-3 pl-3 pr-5">
-                                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[13px] font-medium text-white" style={{background: AVATAR_COLORS[candidate.id % AVATAR_COLORS.length]}}>
-                                            {(candidate.name || "?").trim().charAt(0) || "?"}
-                                        </div>
+                                        <CandidateAvatar identity={identity} className="h-9 w-9 text-[13px] font-medium text-white" style={{background: AVATAR_COLORS[candidate.id % AVATAR_COLORS.length]}}/>
                                         <div className="min-w-0">
                                             <div className="flex min-w-0 items-center gap-2">
                                                 <button type="button" onClick={() => void openDetail(task)} className="truncate text-left text-[13px] font-medium text-[#0F23D9] hover:underline">
-                                                    {candidate.name}
+                                                    {identity.displayName}
                                                 </button>
                                                 <span className="shrink-0 rounded-[4px] px-1.5 py-0.5 text-[10px]" style={reviewBadgeStyle(assignment.status)}>
                                                     {labelForReviewAssignmentStatus(assignment.status, isZh)}
@@ -653,12 +655,10 @@ export function ReviewWorkbenchPage({
                     <button type="button" aria-label={isZh ? "关闭评审详情" : "Close review details"} onClick={closeDetail} className="absolute inset-0 h-full w-full bg-[rgba(14,17,20,0.45)]"/>
                     <aside className="absolute inset-y-0 right-0 flex w-[min(820px,100vw)] flex-col bg-white text-[#0E1114] shadow-[-8px_0_24px_rgba(14,17,20,0.12)]">
                         <header className="flex h-[88px] shrink-0 items-center gap-3 border-b border-[#F2F3F5] px-7">
-                            <div className="flex h-[46px] w-[46px] shrink-0 items-center justify-center rounded-full text-[15px] font-semibold text-white" style={{background: AVATAR_COLORS[detailCandidate.id % AVATAR_COLORS.length]}}>
-                                {(detailCandidate.name || "?").trim().charAt(0) || "?"}
-                            </div>
+                            <CandidateAvatar identity={detailIdentity} className="h-[46px] w-[46px] text-[15px] font-semibold text-white" style={{background: AVATAR_COLORS[detailCandidate.id % AVATAR_COLORS.length]}}/>
                             <div className="min-w-0 flex-1">
                                 <div className="flex flex-wrap items-center gap-2">
-                                    <h2 className="truncate text-[16px] font-semibold text-[#0E1114]">{detailCandidate.name}</h2>
+                                    <h2 className="truncate text-[16px] font-semibold text-[#0E1114]">{detailIdentity.displayName}</h2>
                                     <span className="rounded-[4px] px-1.5 py-0.5 text-[10px]" style={reviewBadgeStyle(detailAssignment.status)}>{labelForReviewAssignmentStatus(detailAssignment.status, isZh)}</span>
                                     <span className="rounded-[4px] bg-[rgba(30,59,250,0.08)] px-1.5 py-0.5 text-[10px] text-[#0F23D9]">{isZh ? "AI 匹配度" : "AI match"} {matchText(detailCandidate.match_percent)}</span>
                                 </div>

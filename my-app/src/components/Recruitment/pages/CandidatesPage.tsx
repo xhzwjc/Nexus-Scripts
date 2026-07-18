@@ -107,6 +107,8 @@ import {
 } from "../components/SharedComponents";
 import {CandidateRadarChart} from "../components/CandidateRadarChart";
 import {CandidateComparisonTray, CandidateComparisonWorkspace} from "./CandidateComparisonWorkspace";
+import {CandidateAvatar} from "../components/CandidateAvatar";
+import {resolveCandidateIdentity, type CandidateDisplayIdentity} from "../candidateIdentity";
 import {
     formatActionError,
     formatDateTime,
@@ -566,12 +568,9 @@ function structuredRecords(value: unknown): Record<string, unknown>[] {
     return value.filter((entry): entry is Record<string, unknown> => Boolean(entry && typeof entry === "object" && !Array.isArray(entry)));
 }
 
-function CandidateDetailAvatar({name}: {name: string}) {
-    const initial = (name || "?").trim().charAt(0) || "?";
+function CandidateDetailAvatar({identity}: {identity: CandidateDisplayIdentity}) {
     return (
-        <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#1E3BFA] text-[16px] font-semibold text-white">
-            {initial}
-        </div>
+        <CandidateAvatar identity={identity} className="h-12 w-12 overflow-hidden bg-[#1E3BFA] text-[16px] font-semibold text-white"/>
     );
 }
 
@@ -868,6 +867,7 @@ const CandidateRow = React.memo(function CandidateRow({
     tr,
     language,
 }: CandidateRowProps) {
+    const identity = resolveCandidateIdentity(candidate);
     const resumeMailSummary = getResumeMailSummary(candidate.id);
     const displayStatus = resolveCandidateDisplayStatus(candidate);
     const isZh = language !== "en-US";
@@ -914,7 +914,7 @@ const CandidateRow = React.memo(function CandidateRow({
                     type="checkbox"
                     checked={isChecked}
                     onChange={(event) => onToggleCheck(event.target.checked)}
-                    aria-label={tr.selectCandidate(candidate.name)}
+                    aria-label={tr.selectCandidate(identity.displayName)}
                 />
             </div>
             {columns.map((columnKey) => {
@@ -932,7 +932,7 @@ const CandidateRow = React.memo(function CandidateRow({
                         >
                             <div className="min-w-0 overflow-hidden">
                                 <div className="flex min-w-0 items-center gap-2 overflow-hidden">
-                                    <HoverRevealText text={candidate.name + (candidate.age ? ` (${candidate.age}${tr.ageSuffix})` : "")} className="font-medium text-[#0E1114] dark:text-[#F7F8FA]"/>
+                                    <HoverRevealText text={identity.displayName + (candidate.age ? ` (${candidate.age}${tr.ageSuffix})` : "")} className="font-medium text-[#0E1114] dark:text-[#F7F8FA]"/>
                                     {resumeMailSummary ? (
                                         <Badge className="shrink-0 rounded-full border border-[rgba(30,59,250,0.18)] bg-[rgba(30,59,250,0.06)] text-[#0F23D9] dark:border-[rgba(30,59,250,0.35)] dark:bg-[rgba(30,59,250,0.16)]/30 dark:text-[#AAB3FF]">
                                             {tr.resumeSent}
@@ -1249,10 +1249,10 @@ const CandidatePrototypeTableRow = React.memo(function CandidatePrototypeTableRo
     gridTemplateColumns,
 }: CandidatePrototypeTableRowProps) {
     const isZh = language !== "en-US";
+    const identity = resolveCandidateIdentity(candidate);
     const displayStatus = resolveCandidateDisplayStatus(candidate);
     const matchPercent = resolveCandidateSummaryMatchPercent(candidate);
     const matchColor = matchPercent == null ? "#B0B2B8" : matchPercent >= 70 ? "#0CC991" : matchPercent >= 40 ? "#FFAB24" : "#F53F3F";
-    const initials = (candidate.name || (isZh ? "候" : "C")).trim().slice(0, 1).toUpperCase();
     const avatarColors = ["#1E3BFA", "#2E9CFF", "#0CC991", "#FFAB24", "#7B61FF", "#F53F3F"];
     const avatarColor = avatarColors[Math.abs(candidate.id) % avatarColors.length];
     const profileMeta = [
@@ -1297,29 +1297,28 @@ const CandidatePrototypeTableRow = React.memo(function CandidatePrototypeTableRo
                     type="checkbox"
                     checked={isChecked}
                     onChange={(event) => toggleCandidateSelection(candidate.id, event.target.checked)}
-                    aria-label={isZh ? `选择候选人 ${candidate.name}` : `Select ${candidate.name}`}
+                    aria-label={isZh ? `选择候选人 ${identity.displayName}` : `Select ${identity.displayName}`}
                     className="h-3.5 w-3.5 rounded-[3px] border-[#D6D8DD] accent-[#1E3BFA] focus:ring-[#1E3BFA]"
                 />
             </div>
             <div role="cell" className="flex min-w-0 items-center gap-2.5 px-2.5">
-                <span
-                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[11px] font-medium text-white"
+                <CandidateAvatar
+                    identity={identity}
+                    className="h-7 w-7 text-[11px] font-medium text-white"
                     style={{backgroundColor: avatarColor}}
-                >
-                    {initials}
-                </span>
+                />
                 <span className="min-w-0">
                     <span className="flex min-w-0 items-center gap-1.5">
                     <button
                         type="button"
                         className="block min-w-0 max-w-full truncate text-left text-[13px] font-medium text-[#0F23D9] hover:text-[#1E3BFA]"
-                        title={candidate.age ? `${candidate.name} · ${candidate.age}${isZh ? "岁" : ""}` : candidate.name}
+                        title={candidate.age ? `${identity.displayName} · ${candidate.age}${isZh ? "岁" : ""}` : identity.displayName}
                         onClick={(event) => {
                             event.stopPropagation();
                             setSelectedCandidateId(candidate.id);
                         }}
                     >
-                        {candidate.name}{candidate.age ? <span className="ml-1 font-normal text-[#86888F]">{candidate.age}{isZh ? "岁" : ""}</span> : null}
+                        {identity.displayName}{candidate.age ? <span className="ml-1 font-normal text-[#86888F]">{candidate.age}{isZh ? "岁" : ""}</span> : null}
                     </button>
                     {resumeMailSummary ? <span className="shrink-0 rounded-[3px] bg-[rgba(30,59,250,0.07)] px-1.5 py-0.5 text-[10px] text-[#1E3BFA]">{isZh ? "已发送" : "Sent"}</span> : null}
                     </span>
@@ -1385,20 +1384,9 @@ const CandidateApplicantCard = React.memo(function CandidateApplicantCard({
     const resumeMailSummary = getResumeMailSummary(candidate.id);
     const contactText = candidate.phone || candidate.email || tr.noContact;
     const originalFileName = String(candidate.source_detail || "").trim();
-    const candidateNameText = String(candidate.name || "").trim();
-    const normalizeFileComparableText = (value: string) => value
-        .replace(/\.[a-z0-9]+$/i, "")
-        .replace(/[\s_\-—–()[\]【】{}·.]+/g, "")
-        .toLowerCase();
-    const originalFileStem = originalFileName.replace(/\.[^.]+$/, "");
-    const nameLooksLikeOriginalFile = Boolean(
-        originalFileName
-        && candidateNameText
-        && normalizeFileComparableText(candidateNameText) === normalizeFileComparableText(originalFileStem),
-    );
-    const displayCandidateName = nameLooksLikeOriginalFile
-        ? (isZh ? "未解析候选人" : "Unparsed Candidate")
-        : (candidateNameText || (isZh ? "未命名候选人" : "Unnamed Candidate"));
+    const identity = resolveCandidateIdentity(candidate);
+    const displayCandidateName = identity.displayName;
+    const nameLooksLikeOriginalFile = identity.reason === "generated_name" || identity.reason === "filename_name";
     // 学历/经验由中间栏（educationSummaryText/experienceSummaryText）展示，这里只保留身份与城市，避免同卡重复
     const profileText = [
         candidate.age ? `${candidate.age}${tr.ageSuffix}` : "",
@@ -1719,6 +1707,7 @@ const CandidateBoardColumn = React.memo(function CandidateBoardColumn({
                 <div className="relative" style={{ height: virtualizer.getTotalSize() }}>
                     {virtualizer.getVirtualItems().map((virtualItem) => {
                         const candidate = group.items[virtualItem.index];
+                        const identity = resolveCandidateIdentity(candidate);
                         const mailSummary = getCandidateResumeMailSummary(candidate.id);
                         return (
                             <div
@@ -1744,7 +1733,7 @@ const CandidateBoardColumn = React.memo(function CandidateBoardColumn({
                                         >
                                             <div className="flex flex-wrap items-center gap-2">
                                                 <p className="line-clamp-2 break-words text-sm font-medium leading-6">
-                                                    {candidate.name}
+                                                    {identity.displayName}
                                                 </p>
                                                 {mailSummary ? (
                                                     <Badge className="rounded-[4px] border border-[rgba(30,59,250,0.16)] bg-[rgba(30,59,250,0.06)] text-[#1E3BFA]">
@@ -1767,7 +1756,7 @@ const CandidateBoardColumn = React.memo(function CandidateBoardColumn({
                                             type="checkbox"
                                             checked={selectedCandidateIdSet.has(candidate.id)}
                                             onChange={(event) => toggleCandidateSelection(candidate.id, event.target.checked)}
-                                            aria-label={tr.selectCandidate(candidate.name)}
+                                            aria-label={tr.selectCandidate(identity.displayName)}
                                             className="h-3.5 w-3.5 rounded-[3px] border-[#D6D8DD] accent-[#1E3BFA] focus:ring-[#1E3BFA]"
                                         />
                                     </div>
@@ -4189,7 +4178,7 @@ export function CandidatesPage({
         }
         setDepartmentReviewTarget({
             id: candidate.id,
-            name: candidate.name || (isZh ? "当前候选人" : "Current candidate"),
+            name: resolveCandidateIdentity(candidate).displayName,
             positionTitle: candidate.position_title || candidate.screened_position_title || "",
             orgCode: candidate.org_code || null,
             replaceExisting: Boolean(activeDepartmentReviewBatch),
@@ -4340,10 +4329,11 @@ export function CandidatesPage({
         }
         const nextRoundIndex = Math.max(1, highestInterviewRoundIndex + 1);
         const nextRoundName = buildNextInterviewRoundName(nextRoundIndex);
+        const scheduleCandidateName = resolveCandidateIdentity(candidateDetail?.candidate || {}).displayName;
         openCandidateDetailPanel("interview");
         setScheduleDatePickerOpen(false);
         setScheduleForm({
-            subject: defaultInterviewSubject(candidateDetail?.candidate.name),
+            subject: defaultInterviewSubject(scheduleCandidateName),
             round_name: nextRoundName,
             round_index: String(interviewRoundIndexForName(nextRoundName, nextRoundIndex)),
             interview_method: "onsite",
@@ -4364,7 +4354,7 @@ export function CandidatesPage({
         setScheduleFormErrors({});
         setScheduleAvailabilitySlots([]);
         setScheduleFormOpen(true);
-    }, [buildNextInterviewRoundName, candidateDetail?.candidate.name, candidateDetail?.candidate.phone, highestInterviewRoundIndex, latestPassedDepartmentReviewAssignmentId, openCandidateDetailPanel, permissions.manageInterview]);
+    }, [buildNextInterviewRoundName, candidateDetail?.candidate, highestInterviewRoundIndex, latestPassedDepartmentReviewAssignmentId, openCandidateDetailPanel, permissions.manageInterview]);
     const lastAutoOpenedScheduleCandidateIdRef = React.useRef<number | null>(null);
     React.useEffect(() => {
         if (!autoOpenInterviewScheduleCandidateId) {
@@ -4597,6 +4587,7 @@ export function CandidatesPage({
         const match = selectedCandidateResumeMailSummary.match(tr.sentCountRegex);
         return match ? tr.sentCountLabel(match[1]) : tr.sentLabel;
     }, [selectedCandidateResumeMailSummary, tr]);
+    const candidateDetailIdentity = resolveCandidateIdentity(candidateDetail?.candidate || {});
     const candidateDetailIdentityMeta = candidateDetail?.candidate.current_company || "";
     const resumeFiles = candidateDetail?.resume_files ?? [];
     const currentResumeFile = React.useMemo(() => {
@@ -5561,8 +5552,8 @@ export function CandidatesPage({
                         showCloseButton={false}
                     >
                         <DialogTitle className="sr-only">
-                            {candidateDetail?.candidate.name
-                                ? `${candidateDetail.candidate.name} · ${isZh ? "候选人详情" : "Candidate Details"}`
+                            {candidateDetail?.candidate
+                                ? `${candidateDetailIdentity.displayName} · ${isZh ? "候选人详情" : "Candidate Details"}`
                                 : (isZh ? "候选人详情" : "Candidate Details")}
                         </DialogTitle>
                     {candidateDetailLoading ? (
@@ -5584,7 +5575,7 @@ export function CandidatesPage({
                                         <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
                                             <div className="min-w-0">
                                                 <div className="flex min-w-0 flex-wrap items-center gap-2">
-                                                    <span className="truncate text-[18px] font-semibold leading-6 text-[#0E1114] dark:text-[#F7F8FA]">{candidateDetail.candidate.name}</span>
+                                                    <span className="truncate text-[18px] font-semibold leading-6 text-[#0E1114] dark:text-[#F7F8FA]">{candidateDetailIdentity.displayName}</span>
                                                     <span className="truncate text-[13px] text-[#86888F] dark:text-[#B0B2B8]">{candidateDetail.candidate.candidate_code || "-"}</span>
                                                     <span className="text-[13px] text-[#B0B2B8] dark:text-[#33353D]">|</span>
                                                     <span className="text-[13px] text-[#33353D] dark:text-[#D6D8DD]">{candidateDetail.candidate.age ? `${candidateDetail.candidate.age}${isZh ? "岁" : ""}` : "--"}</span>
@@ -5614,11 +5605,11 @@ export function CandidatesPage({
                                 <div className="sticky top-0 z-30 border-b border-[#F2F3F5] bg-white px-7 pb-0 pt-5 dark:border-[#202226] dark:bg-[#0E1114]">
                                     <div className="flex min-w-0 flex-nowrap items-start gap-2 pb-4">
                                         <div className="flex w-[292px] min-w-0 flex-none items-center gap-3.5 overflow-hidden">
-                                            <CandidateDetailAvatar name={candidateDetail.candidate.name}/>
+                                            <CandidateDetailAvatar identity={candidateDetailIdentity}/>
                                             <div className="min-w-0 flex-1">
                                                 <div className="flex min-w-0 flex-wrap items-center gap-2">
-                                                    <h3 className="min-w-0 flex-1 truncate text-[18px] font-semibold leading-6 text-[#0E1114] dark:text-[#F7F8FA]" title={candidateDetail.candidate.name}>
-                                                        {candidateDetail.candidate.name}
+                                                    <h3 className="min-w-0 flex-1 truncate text-[18px] font-semibold leading-6 text-[#0E1114] dark:text-[#F7F8FA]" title={candidateDetailIdentity.displayName}>
+                                                        {candidateDetailIdentity.displayName}
                                                     </h3>
                                                     <Badge className={cn("h-[22px] shrink-0 rounded-[4px] border-0 px-2 text-[12px]", prototypeStatusBadgeClass(candidateDetailDisplayStatus))}>
                                                         {labelForCandidateStatus(candidateDetailDisplayStatus)}
@@ -5698,8 +5689,8 @@ export function CandidatesPage({
                                                             type="button"
                                                             className="flex w-full items-center gap-2 rounded-[4px] px-3 py-2 text-left text-[12px] text-[#33353D] hover:bg-[#F2F3F5]"
                                                             aria-label={comparisonCandidateIdSet.has(candidateDetail.candidate.id)
-                                                                ? comparisonText.removeCandidateAria(candidateDetail.candidate.name || comparisonText.unknownCandidate)
-                                                                : comparisonText.compareCandidateAria(candidateDetail.candidate.name || comparisonText.unknownCandidate)}
+                                                                ? comparisonText.removeCandidateAria(candidateDetailIdentity.displayName)
+                                                                : comparisonText.compareCandidateAria(candidateDetailIdentity.displayName)}
                                                             onClick={() => {
                                                                 setCandidateHeaderMoreOpen(false);
                                                                 toggleCandidateInComparison(candidateDetail.candidate);
@@ -5794,11 +5785,11 @@ export function CandidatesPage({
                                     </div>
 
                                     <div className="flex items-start gap-5">
-                                        <CandidateDetailAvatar name={candidateDetail.candidate.name}/>
+                                        <CandidateDetailAvatar identity={candidateDetailIdentity}/>
                                         <div className="min-w-0 flex-1 pb-5">
                                             <div className="flex flex-wrap items-center gap-2">
                                                 <h3 data-no-zoom className="truncate text-[22px] font-semibold leading-8 text-[#0E1114] dark:text-[#F7F8FA]">
-                                                    {candidateDetail.candidate.name}
+                                                    {candidateDetailIdentity.displayName}
                                                 </h3>
                                                 <span className="text-[14px] text-[#86888F] dark:text-[#B0B2B8]">{candidateDetail.candidate.candidate_code}</span>
                                                 <span className="text-[14px] text-[#86888F] dark:text-[#33353D]">|</span>
@@ -6085,7 +6076,7 @@ export function CandidatesPage({
                                                 <h4 className="text-[14px] font-semibold text-[#0E1114]">{isZh ? "基础信息" : "Basic Information"}</h4>
                                                 <div className="grid grid-cols-3 gap-x-4 gap-y-3">
                                                     {[
-                                                        [isZh ? "姓名" : "Name", candidateDetail.candidate.name],
+                                                        [isZh ? "姓名" : "Name", candidateDetailIdentity.displayName],
                                                         [isZh ? "手机号" : "Phone", candidateDetail.candidate.phone || "-"],
                                                         [isZh ? "邮箱" : "Email", candidateDetail.candidate.email || "-"],
                                                         [isZh ? "当前公司" : "Company", candidateDetail.candidate.current_company || readStructuredText(parsedResumeWork, ["company", "company_name", "公司"]) || "-"],
@@ -6252,7 +6243,7 @@ export function CandidatesPage({
                                                                 className="h-6 rounded-[3px] border-[rgba(255,171,36,0.32)] bg-white px-2 text-[12px] text-[#D48806] shadow-none hover:bg-[rgba(255,171,36,0.10)]"
                                                                 onClick={() => setSelectedCandidateId(dup.id)}
                                                             >
-                                                                {dup.name} ({dup.candidate_code})
+                                                                {resolveCandidateIdentity(dup).displayName} ({dup.candidate_code})
                                                             </Button>
                                                         ))}
                                                     </div>
@@ -6334,10 +6325,10 @@ export function CandidatesPage({
                                             <>
                                             <div className="bg-white dark:bg-[#0E1114]">
                                                 <div className="hidden">
-                                                    <CandidateDetailAvatar name={candidateDetail.candidate.name}/>
+                                                    <CandidateDetailAvatar identity={candidateDetailIdentity}/>
                                                     <div className="min-w-0 flex-1">
                                                         <div className="flex flex-wrap items-center gap-4">
-                                                            <h4 className="text-[20px] font-semibold text-[#0E1114] dark:text-[#F7F8FA]">{candidateDetail.candidate.name}</h4>
+                                                            <h4 className="text-[20px] font-semibold text-[#0E1114] dark:text-[#F7F8FA]">{candidateDetailIdentity.displayName}</h4>
                                                             <span className="text-[14px] text-[#86888F] dark:text-[#B0B2B8]">{candidateDetail.candidate.age ? `${candidateDetail.candidate.age}${isZh ? "岁" : ""}` : "--"}</span>
                                                             <span className="text-[14px] text-[#86888F] dark:text-[#B0B2B8]">{candidateDetail.candidate.education || readStructuredText(parsedResumeEducation, ["degree", "education", "学历"]) || "-"}</span>
                                                         </div>
@@ -6353,7 +6344,7 @@ export function CandidatesPage({
                                                 <div className="space-y-5">
                                                     <ResumeSection title={isZh ? "个人信息" : "Personal Info"}>
                                                         <div className="grid gap-y-2.5 text-[12px] text-[#33353D] dark:text-[#D6D8DD] sm:grid-cols-2">
-                                                            <div><span className="inline-block w-14 text-[#B0B2B8] dark:text-[#86888F]">{isZh ? "姓名" : "Name"}</span>{candidateDetail.candidate.name}</div>
+                                                            <div><span className="inline-block w-14 text-[#B0B2B8] dark:text-[#86888F]">{isZh ? "姓名" : "Name"}</span>{candidateDetailIdentity.displayName}</div>
                                                             <div><span className="inline-block w-14 text-[#B0B2B8] dark:text-[#86888F]">{isZh ? "年龄" : "Age"}</span>{candidateDetail.candidate.age || "-"}</div>
                                                             <div><span className="inline-block w-14 text-[#B0B2B8] dark:text-[#86888F]">{isZh ? "手机" : "Phone"}</span>{candidateDetail.candidate.phone || "-"}</div>
                                                             <div><span className="inline-block w-14 text-[#B0B2B8] dark:text-[#86888F]">{isZh ? "邮箱" : "Email"}</span>{candidateDetail.candidate.email || "-"}</div>
@@ -8117,7 +8108,7 @@ export function CandidatesPage({
                     <div className={candidateDialogBodyClassName}>
                         <div className="rounded-[6px] bg-[#F7F8FA] px-4 py-3">
                             <p className="text-[13px] font-medium text-[#0E1114]">
-                                {departmentReviewTarget?.name || candidateDetail?.candidate.name || (isZh ? "当前候选人" : "Current candidate")}
+                                {departmentReviewTarget?.name || (candidateDetail?.candidate ? candidateDetailIdentity.displayName : (isZh ? "当前候选人" : "Current candidate"))}
                             </p>
                             <p className="mt-1 text-[11px] text-[#86888F]">
                                 {departmentReviewTarget?.positionTitle || candidateDetail?.candidate.position_title || candidateDetail?.candidate.screened_position_title || (isZh ? "未分配岗位" : "Unassigned")}
@@ -8271,7 +8262,7 @@ export function CandidatesPage({
                 raw={candidateAiOutputPayload.raw}
                 modelLabel={candidateAiModelLabel}
                 generatedAt={candidateAiGeneratedAt}
-                candidateName={candidateDetail?.candidate.name}
+                candidateName={candidateDetail?.candidate ? candidateDetailIdentity.displayName : undefined}
             />
             <Dialog open={exportDialogOpen} onOpenChange={setExportDialogOpen}>
                 <DialogContent aria-describedby={undefined} className={cn(candidateDialogClassName, "sm:max-w-[560px]")}>

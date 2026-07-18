@@ -54,6 +54,8 @@ import {toast} from "@/lib/toast";
 import {cn} from "@/lib/utils";
 import {useI18n} from "@/lib/i18n";
 import {formatActionError, formatDateTime} from "../utils";
+import {resolveCandidateIdentity} from "../candidateIdentity";
+import {CandidateAvatar} from "../components/CandidateAvatar";
 
 type InterviewFilter = "todo" | "today" | "completed" | "cancelled";
 type InterviewResult = "passed" | "next_round" | "hold" | "rejected" | "no_show";
@@ -689,9 +691,10 @@ function createScheduleForm(roundIndex = 1, candidateName?: string | null, candi
 
 function createScheduleFormFromTask(task: InterviewTask): ScheduleFormState {
     const schedule = task.schedule;
+    const candidateDisplayName = resolveCandidateIdentity(task.candidate).displayName;
     if (!schedule) {
         const nextRoundIndex = Math.max(1, Number(task.next_round_index || 1));
-        const fallback = createScheduleForm(nextRoundIndex, task.candidate.name, task.candidate.phone);
+        const fallback = createScheduleForm(nextRoundIndex, candidateDisplayName, task.candidate.phone);
         const nextRoundName = String(task.next_round_name || "").trim();
         return nextRoundName
             ? {
@@ -702,7 +705,7 @@ function createScheduleFormFromTask(task: InterviewTask): ScheduleFormState {
             : fallback;
     }
     const roundName = schedule.round_name || interviewRoundNameForIndex(Number(schedule.round_index || 1));
-    const fallback = createScheduleForm(Number(schedule.round_index || 1), task.candidate.name, task.candidate.phone);
+    const fallback = createScheduleForm(Number(schedule.round_index || 1), candidateDisplayName, task.candidate.phone);
     return {
         ...fallback,
         subject: String(schedule.subject || "").trim() || fallback.subject,
@@ -1606,7 +1609,7 @@ export function InterviewWorkbenchPage({
         setScheduleEditingId(null);
         setSelectedTask(null);
         setScheduleForm(task.schedule
-            ? createScheduleForm(Math.max(1, Number(task.schedule.round_index || 0) + 1), task.candidate.name, task.candidate.phone)
+            ? createScheduleForm(Math.max(1, Number(task.schedule.round_index || 0) + 1), resolveCandidateIdentity(task.candidate).displayName, task.candidate.phone)
             : createScheduleFormFromTask(task));
         setScheduleFormErrors({});
         setScheduleSubmitError(null);
@@ -1865,6 +1868,7 @@ export function InterviewWorkbenchPage({
     };
 
     const selectedDetailCandidate = selectedCandidateDetail?.candidate || selectedTask?.candidate || null;
+    const selectedDetailIdentity = resolveCandidateIdentity(selectedDetailCandidate || {});
     const selectedParseResult = selectedCandidateDetail?.parse_result || null;
     const selectedScore = selectedCandidateDetail?.score || null;
     const selectedBasicInfo = selectedParseResult?.basic_info || null;
@@ -2190,6 +2194,7 @@ export function InterviewWorkbenchPage({
                     ) : visibleTasks.map((task) => {
                         const schedule = task.schedule;
                         const candidate = task.candidate;
+                        const identity = resolveCandidateIdentity(candidate);
                         const positionTitle = candidateTitle(task, isZh);
                         const canSubmitResult = canSubmitTaskResult(task);
                         const lockMessage = canSubmitResult ? "" : resultLockMessage(task);
@@ -2213,12 +2218,10 @@ export function InterviewWorkbenchPage({
                             >
                                 <div className="flex min-w-0 items-start justify-between gap-5">
                                     <button type="button" onClick={() => openTaskDetail(task)} className="flex min-w-0 items-center gap-3 text-left">
-                                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[13px] font-medium text-white" style={{backgroundColor: avatarColor}}>
-                                            {(candidate.name || "?").trim().charAt(0) || "?"}
-                                        </span>
+                                        <CandidateAvatar identity={identity} className="h-9 w-9 text-[13px] font-medium text-white" style={{backgroundColor: avatarColor}}/>
                                         <span className="flex min-w-0 flex-col gap-[3px]">
                                             <span className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1">
-                                                <span className="truncate text-[15px] font-semibold text-[#0E1114]">{candidate.name || (isZh ? "未命名候选人" : "Unnamed")}</span>
+                                                <span className="truncate text-[15px] font-semibold text-[#0E1114]">{identity.displayName}</span>
                                                 <span className="truncate text-xs text-[#86888F]">{positionTitle}</span>
                                                 <Badge variant="outline" className={cn("h-[22px] rounded px-2 text-xs font-normal shadow-none", scheduleBadgeClass(schedule?.status || "needs_scheduling"))}>{labelForScheduleStatus(schedule?.status || "needs_scheduling", isZh)}</Badge>
                                             </span>
@@ -2309,7 +2312,7 @@ export function InterviewWorkbenchPage({
                                         <button key={schedule.id} type="button" onClick={() => openTaskDetail(task)} className={cn("flex items-center gap-2.5 rounded-md px-3 py-2.5 text-left", index % 2 === 0 ? "bg-[rgba(12,201,145,0.06)]" : "bg-[rgba(30,59,250,0.05)]")}>
                                             <span className={cn("h-[26px] w-[3px] shrink-0 rounded-sm", index % 2 === 0 ? "bg-[#0CC991]" : "bg-[#1E3BFA]")}/>
                                             <span className="min-w-0">
-                                                <span className="block truncate text-xs text-[#0E1114]">{timeFormatter.format(scheduledAt)} - {timeFormatter.format(endAt)} · {task.candidate.name} · {candidateTitle(task, isZh)}</span>
+                                                <span className="block truncate text-xs text-[#0E1114]">{timeFormatter.format(scheduledAt)} - {timeFormatter.format(endAt)} · {resolveCandidateIdentity(task.candidate).displayName} · {candidateTitle(task, isZh)}</span>
                                                 <span className="mt-0.5 block truncate text-[11px] text-[#86888F]">{schedule.round_name || "-"} · {methodLabel} · {schedule.meeting_room || schedule.location || schedule.video_tool || "-"}</span>
                                             </span>
                                         </button>
@@ -2524,13 +2527,11 @@ export function InterviewWorkbenchPage({
                             <div className="shrink-0 border-b border-[#F2F3F5] bg-white px-6 py-[18px]">
                                 <div className="flex items-start justify-between gap-4">
                                     <div className="flex min-w-0 items-center gap-3.5">
-                                        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#1E3BFA] text-[15px] font-medium text-white">
-                                            {(selectedDetailCandidate?.name || selectedTask.candidate.name || "?").trim().charAt(0) || "?"}
-                                        </div>
+                                        <CandidateAvatar identity={selectedDetailIdentity} className="h-11 w-11 bg-[#1E3BFA] text-[15px] font-medium text-white"/>
                                         <div className="min-w-0">
                                             <div className="flex flex-wrap items-center gap-2.5">
                                                 <h3 className="truncate text-[17px] font-semibold text-[#0E1114]">
-                                                    {selectedDetailCandidate?.name || selectedTask.candidate.name || (isZh ? "未命名候选人" : "Unnamed")}
+                                                    {selectedDetailIdentity.displayName}
                                                 </h3>
                                                 <span className="text-xs text-[#86888F]">{selectedDetailCandidate?.candidate_code || selectedTask.candidate.candidate_code}</span>
                                                 <Badge variant="outline" className={cn("h-[22px] rounded px-2 text-xs font-normal", scheduleBadgeClass(selectedTask.schedule?.status || "needs_scheduling"))}>
@@ -2774,7 +2775,7 @@ export function InterviewWorkbenchPage({
                                     <p className="text-base font-semibold text-[#0E1114]">
                                         {scheduleEditingId ? (isZh ? "编辑面试" : "Edit interview") : (isZh ? "安排面试" : "Schedule interview")}
                                     </p>
-                                    <p className="mt-1 text-xs text-[#86888F]">{scheduleTask.candidate.name} · {candidateTitle(scheduleTask, isZh)}</p>
+                                    <p className="mt-1 text-xs text-[#86888F]">{resolveCandidateIdentity(scheduleTask.candidate).displayName} · {candidateTitle(scheduleTask, isZh)}</p>
                                 </div>
                                 <button type="button" className="pt-0.5 text-[#86888F] hover:text-[#0E1114]" onClick={closeScheduleDrawer}>
                                     <X className="h-4 w-4"/>

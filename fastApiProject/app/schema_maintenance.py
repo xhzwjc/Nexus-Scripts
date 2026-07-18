@@ -970,6 +970,28 @@ def ensure_recruitment_schema() -> None:
                 logger.info("Added recruitment_resume_mail_dispatches.trigger_rule_json column")
     
             candidate_columns = {column["name"] for column in inspector.get_columns("recruitment_candidates")}
+            if "name_source" not in candidate_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_candidates ADD COLUMN name_source VARCHAR(40) NULL"))
+                logger.info("Added recruitment_candidates.name_source column")
+            if "name_confidence" not in candidate_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_candidates ADD COLUMN name_confidence FLOAT NULL"))
+                logger.info("Added recruitment_candidates.name_confidence column")
+            _add_index_if_missing(
+                inspector,
+                "recruitment_candidates",
+                "ix_recruitment_candidates_name_source",
+                "CREATE INDEX ix_recruitment_candidates_name_source ON recruitment_candidates (name_source)",
+                "Created index ix_recruitment_candidates_name_source",
+            )
+            _add_index_if_missing(
+                inspector,
+                "recruitment_candidates",
+                "ix_recruitment_candidates_source_detail",
+                "CREATE INDEX ix_recruitment_candidates_source_detail ON recruitment_candidates (source_detail)",
+                "Created index ix_recruitment_candidates_source_detail",
+            )
             if "age" not in candidate_columns:
                 with engine.begin() as connection:
                     connection.execute(text("ALTER TABLE recruitment_candidates ADD COLUMN age INTEGER NULL"))

@@ -26,6 +26,8 @@ import {getCurrentLanguage, useI18n} from "@/lib/i18n";
 import {cn} from "@/lib/utils";
 import {Button} from "@/components/ui/button";
 import {Input} from "@/components/ui/input";
+import {resolveCandidateIdentity} from "../candidateIdentity";
+import {CandidateAvatar} from "../components/CandidateAvatar";
 import {
     Dialog,
     DialogContent,
@@ -337,7 +339,7 @@ function talentPoolReidentifyGroupLabel(candidate: CandidateSummary, tr: ReturnT
 }
 
 function talentPoolCandidateName(candidate: CandidateSummary) {
-    const name = String(candidate.name || "").trim() || "ID:" + candidate.id;
+    const name = resolveCandidateIdentity(candidate).displayName || "ID:" + candidate.id;
     const code = String(candidate.candidate_code || "").trim();
     return code ? name + "（" + code + "）" : name;
 }
@@ -1377,6 +1379,7 @@ function CandidateRow({
     isMatching: boolean;
     isArchived: boolean;
 }) {
+    const identity = resolveCandidateIdentity(candidate);
     const enteredAt = resolveTalentPoolEnteredAt(candidate);
     const sourceStage = talentPoolSourceStageLabel(candidate, tr);
     const profile = [
@@ -1421,12 +1424,10 @@ function CandidateRow({
                 ) : null}
             </div>
             <div className="flex min-w-0 items-center gap-[11px] pr-3">
-                <span className={cn("flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-full text-[12px] text-white", avatarClass)}>
-                    {String(candidate.name || "?").trim().slice(0, 1)}
-                </span>
+                <CandidateAvatar identity={identity} className={cn("h-[30px] w-[30px] text-[12px] text-white", avatarClass)}/>
                 <div className="min-w-0">
                     <button type="button" className="block max-w-full truncate text-left text-[13px] font-medium text-[#0F23D9] hover:text-[#1E3BFA]" onClick={onView}>
-                        {candidate.name || "ID:" + candidate.id}
+                        {identity.displayName}
                     </button>
                     <p className="mt-0.5 truncate text-[11px] leading-4 text-[#B0B2B8]" title={profile}>{profile || sourceLabel(candidate.source, tr)}</p>
                 </div>

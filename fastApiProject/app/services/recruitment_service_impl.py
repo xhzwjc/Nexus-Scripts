@@ -74,7 +74,7 @@ from .recruitment_mailer import RecruitmentMailSenderRuntime, build_resume_email
 from .recruitment_prompts import INTERVIEW_QUESTION_STREAM_PREVIEW_SYSTEM_PROMPT, INTERVIEW_QUESTION_SYSTEM_PROMPT, JD_GENERATION_STREAM_PREVIEW_SYSTEM_PROMPT, JD_GENERATION_SYSTEM_PROMPT, RESUME_PARSE_SYSTEM_PROMPT, RESUME_SCORE_PROMPT_VERSION, RESUME_SCORE_SYSTEM_PROMPT, RESUME_SCREENING_PROMPT_VERSION, RESUME_SCREENING_SYSTEM_PROMPT, SKILL_GENERATION_SYSTEM_PROMPT
 from .recruitment_publish_adapters import build_publish_adapter
 from .recruitment_task_control import RecruitmentTaskCancelled, RecruitmentTaskControl, recruitment_task_registry
-from .recruitment_utils import CANDIDATE_STATUS_OPTIONS, DEFAULT_RULE_CONFIGS, POSITION_STATUS_OPTIONS, RECRUITMENT_UPLOAD_ROOT, build_jd_structured_fallback, detect_interview_rule_leakage, ensure_interview_html_document, extract_keywords, extract_resume_structured_data, extract_resume_text, extract_screening_dimension_rules, isoformat_or_none, json_dumps_safe, json_loads_safe, markdown_to_html, normalize_resume_fallback_name, normalize_structured_interview, normalize_structured_jd, render_interview_html, render_interview_markdown, render_jd_markdown_source, render_publish_ready_jd, safe_file_stem, score_candidate_fallback, strip_markdown, truncate_text, validate_structured_interview_payload
+from .recruitment_utils import CANDIDATE_STATUS_OPTIONS, DEFAULT_RULE_CONFIGS, POSITION_STATUS_OPTIONS, RECRUITMENT_UPLOAD_ROOT, build_jd_structured_fallback, detect_interview_rule_leakage, ensure_interview_html_document, extract_keywords, extract_resume_structured_data, extract_resume_text, extract_screening_dimension_rules, is_plausible_candidate_name, isoformat_or_none, json_dumps_safe, json_loads_safe, markdown_to_html, normalize_resume_fallback_name, normalize_structured_interview, normalize_structured_jd, render_interview_html, render_interview_markdown, render_jd_markdown_source, render_publish_ready_jd, resolve_high_confidence_candidate_name, safe_file_stem, score_candidate_fallback, strip_markdown, truncate_text, validate_structured_interview_payload
 from .llm_concurrency_limiter import shared_llm_limiter
 from .script_hub_auth_service import build_permission_map
 
@@ -12351,7 +12351,7 @@ class RecruitmentService:
             position_jd_skill_rows = self._get_position_task_skill_rows(position.id, "jd") if position and self._is_business_row_visible(position) else []
         screened_position_title = position.title if position else None
         ai_match_snapshot = self._resolve_candidate_ai_match_snapshot(row)
-        return {"id": row.id, "candidate_code": row.candidate_code, "org_code": normalize_org_code(getattr(row, "org_code", None)), "position_id": row.position_id, "position_title": position.title if position else None, "screened_position_title": screened_position_title, "position_auto_screen_on_upload": bool(position.auto_screen_on_upload) if position else False, "position_jd_skill_ids": [skill.id for skill in position_jd_skill_rows], "position_jd_skills": [self._serialize_skill(skill) for skill in position_jd_skill_rows], "position_screening_skill_ids": [skill.id for skill in position_screening_skill_rows], "position_screening_skills": [self._serialize_skill(skill) for skill in position_screening_skill_rows], "position_interview_skill_ids": [skill.id for skill in position_interview_skill_rows], "position_interview_skills": [self._serialize_skill(skill) for skill in position_interview_skill_rows], "name": row.name, "phone": row.phone, "email": row.email, "current_company": row.current_company, "years_of_experience": row.years_of_experience, "education": row.education, "age": getattr(row, "age", None), "city": getattr(row, "city", None), "expected_city": getattr(row, "expected_city", None), "source": row.source, "source_detail": row.source_detail, "status": row.status, "display_status": display_status, "display_status_reason": screening_state.get("display_status_reason"), "active_screening_run_id": screening_state.get("active_screening_run_id"), "active_screening_task_id": screening_state.get("active_screening_task_id"), "active_screening_task_type": screening_state.get("active_screening_task_type"), "active_screening_stage": screening_state.get("active_screening_stage"), "active_screening_status": screening_state.get("active_screening_status"), "active_screening_task_status": screening_state.get("active_screening_status"), "active_screening_auto_retry_scheduled": active_screening_auto_retry_scheduled, "active_screening_failure_code": screening_state.get("active_screening_failure_code"), "active_screening_started_at": screening_state.get("active_screening_started_at"), "latest_completed_parse_task_id": screening_state.get("latest_completed_parse_task_id"), "latest_completed_score_task_id": screening_state.get("latest_completed_score_task_id"), "ai_recommended_status": ai_recommended_status, "match_percent": display_match_percent, "tags": json_loads_safe(row.tags_json, []), "notes": row.notes, "latest_resume_file_id": row.latest_resume_file_id, "latest_parse_result_id": row.latest_parse_result_id, "latest_score_id": row.latest_score_id, "latest_total_score": display_total_score, "owner_id": row.owner_id, "ai_match_position_id": ai_match_snapshot.get("ai_match_position_id"), "ai_match_position_title": ai_match_snapshot.get("ai_match_position_title"), "ai_match_confidence": ai_match_snapshot.get("ai_match_confidence"), "ai_match_reason": ai_match_snapshot.get("ai_match_reason"), "ai_match_alternatives": ai_match_snapshot.get("ai_match_alternatives"), "ai_potential_position": ai_match_snapshot.get("ai_potential_position"), "ai_potential_reason": ai_match_snapshot.get("ai_potential_reason"), "created_by": row.created_by, "updated_by": row.updated_by, "created_at": isoformat_or_none(row.created_at), "updated_at": isoformat_or_none(row.updated_at), "talent_pool_reason": getattr(row, "talent_pool_reason", None), "talent_pool_source_status": getattr(row, "talent_pool_source_status", None), "talent_pool_moved_by": getattr(row, "talent_pool_moved_by", None), "talent_pool_moved_at": isoformat_or_none(getattr(row, "talent_pool_moved_at", None))}
+        return {"id": row.id, "candidate_code": row.candidate_code, "org_code": normalize_org_code(getattr(row, "org_code", None)), "position_id": row.position_id, "position_title": position.title if position else None, "screened_position_title": screened_position_title, "position_auto_screen_on_upload": bool(position.auto_screen_on_upload) if position else False, "position_jd_skill_ids": [skill.id for skill in position_jd_skill_rows], "position_jd_skills": [self._serialize_skill(skill) for skill in position_jd_skill_rows], "position_screening_skill_ids": [skill.id for skill in position_screening_skill_rows], "position_screening_skills": [self._serialize_skill(skill) for skill in position_screening_skill_rows], "position_interview_skill_ids": [skill.id for skill in position_interview_skill_rows], "position_interview_skills": [self._serialize_skill(skill) for skill in position_interview_skill_rows], "name": row.name, "name_source": getattr(row, "name_source", None), "name_confidence": getattr(row, "name_confidence", None), "phone": row.phone, "email": row.email, "current_company": row.current_company, "years_of_experience": row.years_of_experience, "education": row.education, "age": getattr(row, "age", None), "city": getattr(row, "city", None), "expected_city": getattr(row, "expected_city", None), "source": row.source, "source_detail": row.source_detail, "status": row.status, "display_status": display_status, "display_status_reason": screening_state.get("display_status_reason"), "active_screening_run_id": screening_state.get("active_screening_run_id"), "active_screening_task_id": screening_state.get("active_screening_task_id"), "active_screening_task_type": screening_state.get("active_screening_task_type"), "active_screening_stage": screening_state.get("active_screening_stage"), "active_screening_status": screening_state.get("active_screening_status"), "active_screening_task_status": screening_state.get("active_screening_status"), "active_screening_auto_retry_scheduled": active_screening_auto_retry_scheduled, "active_screening_failure_code": screening_state.get("active_screening_failure_code"), "active_screening_started_at": screening_state.get("active_screening_started_at"), "latest_completed_parse_task_id": screening_state.get("latest_completed_parse_task_id"), "latest_completed_score_task_id": screening_state.get("latest_completed_score_task_id"), "ai_recommended_status": ai_recommended_status, "match_percent": display_match_percent, "tags": json_loads_safe(row.tags_json, []), "notes": row.notes, "latest_resume_file_id": row.latest_resume_file_id, "latest_parse_result_id": row.latest_parse_result_id, "latest_score_id": row.latest_score_id, "latest_total_score": display_total_score, "owner_id": row.owner_id, "ai_match_position_id": ai_match_snapshot.get("ai_match_position_id"), "ai_match_position_title": ai_match_snapshot.get("ai_match_position_title"), "ai_match_confidence": ai_match_snapshot.get("ai_match_confidence"), "ai_match_reason": ai_match_snapshot.get("ai_match_reason"), "ai_match_alternatives": ai_match_snapshot.get("ai_match_alternatives"), "ai_potential_position": ai_match_snapshot.get("ai_potential_position"), "ai_potential_reason": ai_match_snapshot.get("ai_potential_reason"), "created_by": row.created_by, "updated_by": row.updated_by, "created_at": isoformat_or_none(row.created_at), "updated_at": isoformat_or_none(row.updated_at), "talent_pool_reason": getattr(row, "talent_pool_reason", None), "talent_pool_source_status": getattr(row, "talent_pool_source_status", None), "talent_pool_moved_by": getattr(row, "talent_pool_moved_by", None), "talent_pool_moved_at": isoformat_or_none(getattr(row, "talent_pool_moved_at", None))}
 
     def _serialize_candidate_list_item(
         self,
@@ -12385,6 +12385,8 @@ class RecruitmentService:
             "position_title": position.title if position else None,
             "screened_position_title": position.title if position else None,
             "name": row.name,
+            "name_source": getattr(row, "name_source", None),
+            "name_confidence": getattr(row, "name_confidence", None),
             "current_company": row.current_company,
             "phone": row.phone,
             "email": row.email,
@@ -12463,6 +12465,8 @@ class RecruitmentService:
             "position_title": position.title if position else None,
             "screened_position_title": position.title if position else None,
             "name": row.name,
+            "name_source": getattr(row, "name_source", None),
+            "name_confidence": getattr(row, "name_confidence", None),
             "phone": row.phone,
             "email": row.email,
             "current_company": row.current_company,
@@ -12528,6 +12532,8 @@ class RecruitmentService:
             "position_title": position.title if position else None,
             "screened_position_title": position.title if position else None,
             "name": row.name,
+            "name_source": getattr(row, "name_source", None),
+            "name_confidence": getattr(row, "name_confidence", None),
             "phone": row.phone,
             "email": row.email,
             "current_company": row.current_company,
@@ -13761,6 +13767,8 @@ class RecruitmentService:
             "candidate": {
                 "id": int(candidate.id),
                 "name": candidate.name,
+                "name_source": getattr(candidate, "name_source", None),
+                "name_confidence": getattr(candidate, "name_confidence", None),
                 "status": candidate.status,
                 "display_status": display_payload.get("display_status") or candidate.status,
                 "position_id": candidate.position_id,
@@ -14174,6 +14182,9 @@ class RecruitmentService:
         for field in ["name", "phone", "email", "current_company", "years_of_experience", "education", "age", "city", "expected_city", "notes", "owner_id"]:
             if field in payload:
                 setattr(candidate, field, payload.get(field))
+        if "name" in payload:
+            candidate.name_source = "hr_manual"
+            candidate.name_confidence = 1.0
         if "tags" in payload:
             candidate.tags_json = json_dumps_safe(payload.get("tags") or [])
         candidate.updated_by = actor_id
@@ -16193,12 +16204,99 @@ class RecruitmentService:
             ) if candidate else None,
         }
 
-    def _find_duplicate_candidate(self, name: str, org_code: str, position_id: Optional[int]) -> Optional["RecruitmentCandidate"]:
-        """查找重复候选人（按姓名+组织，可选岗位）"""
+    def _apply_resolved_candidate_name(
+        self,
+        candidate: RecruitmentCandidate,
+        *,
+        file_name: str = "",
+        raw_text: str = "",
+        proposed_name: Any = None,
+    ) -> bool:
+        """Promote only a trusted automatic name and never overwrite an HR name."""
+        current_name = str(getattr(candidate, "name", "") or "").strip()
+        current_source = str(getattr(candidate, "name_source", "") or "").strip()
+        current_confidence = _parse_score_number(getattr(candidate, "name_confidence", None))
+        candidate_id = getattr(candidate, "id", None)
+        if candidate_id:
+            try:
+                # Current read + row lock closes the parse-only TOCTOU window: if HR
+                # commits first we observe hr_manual; if parsing locks first HR writes
+                # afterwards and remains the final authority.
+                current_identity = self.db.query(
+                    RecruitmentCandidate.name,
+                    RecruitmentCandidate.name_source,
+                    RecruitmentCandidate.name_confidence,
+                ).filter(
+                    RecruitmentCandidate.id == candidate_id,
+                    RecruitmentCandidate.deleted.is_(False),
+                ).with_for_update().first()
+                if current_identity is not None:
+                    current_name = str(current_identity[0] or "").strip()
+                    current_source = str(current_identity[1] or "").strip()
+                    current_confidence = _parse_score_number(current_identity[2])
+            except Exception:
+                # Lightweight unit-test doubles may not support row locks; retain the
+                # conservative in-memory checks rather than failing resume parsing.
+                logger.debug("candidate name authority recheck unavailable candidate_id=%s", candidate_id, exc_info=True)
+
+        if current_source == "hr_manual":
+            return False
+
+        if current_confidence is None:
+            current_confidence = {
+                "filename_high_confidence": 0.94,
+                "resume_parsed": 0.96,
+                "resume_text_explicit": 0.99,
+            }.get(current_source)
+
+        current_file_name = file_name or str(getattr(candidate, "source_detail", "") or "")
+        # Historical rows predate provenance. Any already plausible name may have
+        # been curated by HR, including the valid ``张三.pdf`` shape, so never guess
+        # that it is safe to overwrite.
+        if not current_source and is_plausible_candidate_name(current_name):
+            return False
+
+        resolved = resolve_high_confidence_candidate_name(
+            file_name=current_file_name,
+            raw_text=raw_text,
+            proposed_name=proposed_name,
+        )
+        if not resolved:
+            return False
+        resolved_name = str(resolved.get("value") or "").strip()
+        if not resolved_name:
+            return False
+        resolved_confidence = float(resolved.get("confidence") or 0.0)
+        if current_name == resolved_name and current_confidence is not None and current_confidence >= resolved_confidence:
+            return False
+        if (
+            current_name
+            and current_name != resolved_name
+            and current_source in {"filename_high_confidence", "resume_parsed", "resume_text_explicit"}
+            and current_confidence is not None
+            and current_confidence >= resolved_confidence
+        ):
+            return False
+        candidate.name = resolved_name
+        candidate.name_source = str(resolved.get("source") or "resume_parsed")
+        candidate.name_confidence = resolved_confidence
+        return True
+
+    def _find_duplicate_candidate(
+        self,
+        legacy_name: str,
+        source_detail: str,
+        org_code: str,
+        position_id: Optional[int],
+    ) -> Optional["RecruitmentCandidate"]:
+        """查找重复候选人，兼容旧姓名键并优先复用同一来源文件。"""
         query = self.db.query(RecruitmentCandidate).filter(
-            RecruitmentCandidate.name == name,
             RecruitmentCandidate.org_code == org_code,
             RecruitmentCandidate.deleted.is_(False),
+            or_(
+                RecruitmentCandidate.source_detail == source_detail,
+                RecruitmentCandidate.name == legacy_name,
+            ),
         )
         if position_id:
             query = query.filter(RecruitmentCandidate.position_id == position_id)
@@ -16259,11 +16357,25 @@ class RecruitmentService:
                 "other": "other"
             }
             actual_source = source_mapping.get(source, "manual_upload")
-            candidate_name = safe_file_stem(file_name)
+            legacy_candidate_name = safe_file_stem(file_name)
+            resolved_candidate_name = resolve_high_confidence_candidate_name(file_name=file_name)
+            candidate_name = str((resolved_candidate_name or {}).get("value") or legacy_candidate_name)
+            candidate_name_source = str((resolved_candidate_name or {}).get("source") or "filename_untrusted")
+            candidate_name_confidence = (
+                float((resolved_candidate_name or {}).get("confidence") or 0.0)
+                if resolved_candidate_name
+                else None
+            )
 
-            # 重复检测（按姓名+组织+岗位）
+            # 重复检测沿用历史 filename stem，并补充 source_detail；不使用新提取出的姓名，
+            # 避免同名候选人在批量上传时被错误合并。
             if duplicate_strategy in ("skip", "overwrite"):
-                existing = self._find_duplicate_candidate(candidate_name, candidate_org_code, position.id if position else None)
+                existing = self._find_duplicate_candidate(
+                    legacy_candidate_name,
+                    file_name,
+                    candidate_org_code,
+                    position.id if position else None,
+                )
                 if existing:
                     if duplicate_strategy == "skip":
                         # 跳过重复，不创建新记录
@@ -16303,7 +16415,7 @@ class RecruitmentService:
                         results.append(payload)
                         continue
 
-            candidate = RecruitmentCandidate(candidate_code=f"TMP-{uuid.uuid4().hex[:8]}", org_code=candidate_org_code, position_id=position.id if position else None, name=candidate_name, source=actual_source, source_detail=file_name, status=initial_status, city=resolved_city, tags_json=json_dumps_safe([]), created_by=actor_id, updated_by=actor_id, deleted=False)
+            candidate = RecruitmentCandidate(candidate_code=f"TMP-{uuid.uuid4().hex[:8]}", org_code=candidate_org_code, position_id=position.id if position else None, name=candidate_name, name_source=candidate_name_source, name_confidence=candidate_name_confidence, source=actual_source, source_detail=file_name, status=initial_status, city=resolved_city, tags_json=json_dumps_safe([]), created_by=actor_id, updated_by=actor_id, deleted=False)
             self.db.add(candidate)
             upload_mime_type = str(item.get("content_type") or "").strip()
             if not upload_mime_type or upload_mime_type in {"application/octet-stream", "binary/octet-stream"}:
@@ -16612,7 +16724,34 @@ class RecruitmentService:
         normalized_text = re.sub(r"\n{3,}", "\n\n", normalized_text)
         meaningful_chars = len(re.findall(r"[A-Za-z0-9\u4e00-\u9fff]", normalized_text))
         if normalized_text and meaningful_chars > 0:
-            return self._build_ai_match_resume_evidence(candidate, evidence_parse_row, normalized_text)
+            evidence = self._build_ai_match_resume_evidence(candidate, evidence_parse_row, normalized_text)
+            try:
+                parsed_basic_info = json_loads_safe(
+                    getattr(evidence_parse_row, "basic_info_json", None) if evidence_parse_row else None,
+                    {},
+                )
+                proposed_name = parsed_basic_info.get("name") if isinstance(parsed_basic_info, dict) else None
+                if self._apply_resolved_candidate_name(
+                    candidate,
+                    file_name=str(getattr(candidate, "source_detail", "") or ""),
+                    raw_text=normalized_text,
+                    proposed_name=proposed_name,
+                ):
+                    self.db.add(candidate)
+                    self.db.commit()
+                    logger.info(
+                        "[AI_MATCH] Promoted trusted candidate name while reading resume candidate_id=%s source=%s",
+                        candidate.id,
+                        getattr(candidate, "name_source", None),
+                    )
+            except Exception:
+                self.db.rollback()
+                logger.warning(
+                    "[AI_MATCH] Candidate name promotion failed without blocking position matching candidate_id=%s",
+                    candidate.id,
+                    exc_info=True,
+                )
+            return evidence
 
         logger.warning(
             "[AI_MATCH] No usable resume text for candidate_id=%s after parse/file extraction; aborting smart match instead of using metadata fallback",
@@ -19888,7 +20027,16 @@ class RecruitmentService:
         )
         basic_info = parsed_resume.get("basic_info") or {}
         if not superseded_reason:
-            candidate.name = str(basic_info.get("name") or candidate.name).strip() or candidate.name
+            self._apply_resolved_candidate_name(
+                candidate,
+                file_name=str(
+                    getattr(resume_file, "original_name", "")
+                    or getattr(candidate, "source_detail", "")
+                    or ""
+                ),
+                raw_text=raw_text,
+                proposed_name=basic_info.get("name"),
+            )
             sanitized_phone = _sanitize_basic_info_value("phone", basic_info.get("phone"))
             candidate.phone = sanitized_phone or None
             candidate.email = str(basic_info.get("email") or "").strip() or None
@@ -20056,15 +20204,67 @@ class RecruitmentService:
         basic_info: Dict[str, Any],
         parse_row: Any,
         actor_id: str,
-    ) -> None:
+        *,
+        expected_candidate_revision: Optional[int] = None,
+        expected_resume_file_id: Optional[int] = None,
+    ) -> bool:
         """把解析出的 basic_info 落到候选人权威字段（姓名/联系方式/年限/学历/年龄/地区）并指向 parse_row。
 
         仅在两种情形调用：①标准 parse-only（无 screening run，用户直接解析该简历）；
         ②screening 流程晋级时（CAS 通过后）。screening 运行途中不得调用，否则过期/被取代的
         解析会先污染候选人权威数据（P0 #3）。
         """
+        if expected_candidate_revision is not None or expected_resume_file_id is not None:
+            try:
+                authority_row = self.db.query(
+                    RecruitmentCandidate.latest_resume_file_id,
+                    RecruitmentCandidate.business_revision,
+                    RecruitmentCandidate.deleted,
+                ).filter(
+                    RecruitmentCandidate.id == candidate.id,
+                ).with_for_update().first()
+            except Exception:
+                authority_row = None
+            if authority_row is not None:
+                try:
+                    current_resume_file_id, current_revision, deleted = authority_row
+                except (TypeError, ValueError):
+                    current_resume_file_id = current_revision = deleted = None
+                    authority_row = None
+            if authority_row is not None:
+                if deleted:
+                    logger.warning("[PARSE_CAS] Candidate deleted before parse promotion candidate_id=%s", candidate.id)
+                    return False
+                if (
+                    expected_resume_file_id is not None
+                    and int(current_resume_file_id or 0) != int(expected_resume_file_id or 0)
+                ):
+                    logger.warning(
+                        "[PARSE_CAS] Resume changed before parse promotion candidate_id=%s expected=%s current=%s",
+                        candidate.id,
+                        expected_resume_file_id,
+                        current_resume_file_id,
+                    )
+                    return False
+                if (
+                    expected_candidate_revision is not None
+                    and int(current_revision or 0) != int(expected_candidate_revision or 0)
+                ):
+                    logger.warning(
+                        "[PARSE_CAS] Candidate changed before parse promotion candidate_id=%s expected_rev=%s current_rev=%s",
+                        candidate.id,
+                        expected_candidate_revision,
+                        current_revision,
+                    )
+                    return False
+
         basic_info = basic_info or {}
-        candidate.name = str(basic_info.get("name") or candidate.name).strip() or candidate.name
+        self._apply_resolved_candidate_name(
+            candidate,
+            file_name=str(getattr(candidate, "source_detail", "") or ""),
+            raw_text=str(getattr(parse_row, "raw_text", "") or ""),
+            proposed_name=basic_info.get("name"),
+        )
         parsed_phone = _sanitize_basic_info_value("phone", basic_info.get("phone"))
         parsed_email = str(basic_info.get("email") or "").strip()
         if parsed_phone:
@@ -20081,6 +20281,7 @@ class RecruitmentService:
             candidate.latest_parse_result_id = parse_row.id
         candidate.updated_by = actor_id
         self.db.add(candidate)
+        return True
 
     def _promote_parse_artifacts_to_candidate(
         self,
@@ -20114,6 +20315,8 @@ class RecruitmentService:
         cancel_control: Optional[RecruitmentTaskControl] = None,
         deadline_at: Optional[datetime] = None,
     ) -> RecruitmentResumeParseResult:
+        parse_expected_candidate_revision = int(getattr(candidate, "business_revision", 0) or 0)
+        parse_expected_resume_file_id = int(getattr(candidate, "latest_resume_file_id", 0) or 0)
         if not candidate.latest_resume_file_id:
             raise ValueError(f"候选人 ID={candidate.id} 尚未上传简历，无法解析简历")
         resume_file = self._get_resume_file(candidate.latest_resume_file_id)
@@ -20241,7 +20444,14 @@ class RecruitmentService:
             # 延迟到晋级（_save_score_result 的 promoted 分支，CAS 通过后）再落地。
             # 标准 parse-only（无 run）保持即时写入语义。
             if self._current_screening_run_id is None:
-                self._apply_parse_basic_info_to_candidate(candidate, basic_info, parse_row, actor_id)
+                self._apply_parse_basic_info_to_candidate(
+                    candidate,
+                    basic_info,
+                    parse_row,
+                    actor_id,
+                    expected_candidate_revision=parse_expected_candidate_revision,
+                    expected_resume_file_id=parse_expected_resume_file_id,
+                )
             else:
                 logger.info(
                     "[SCREENING] defer candidate basic_info apply until promotion candidate_id=%s run_id=%s parse_id=%s",
@@ -20539,6 +20749,8 @@ class RecruitmentService:
         deadline_at: Optional[datetime] = None,
     ) -> Optional[RecruitmentResumeParseResult]:
         """Re-parse resume to extract basic_info when one-pass returned empty data."""
+        parse_expected_candidate_revision = int(getattr(candidate, "business_revision", 0) or 0)
+        parse_expected_resume_file_id = int(getattr(parse_row, "resume_file_id", 0) or 0)
         raw_text = str(getattr(parse_row, "raw_text", "") or "").strip()
         if not raw_text:
             return None
@@ -20590,7 +20802,14 @@ class RecruitmentService:
         # P0 #3：screening 运行途中（已绑定 run）不把补解析写入候选人权威字段，延迟到晋级。
         # parse_row 内容已更新（run-scoped 工件）；晋级时 _promote_parse_artifacts_to_candidate 从中落地。
         if self._current_screening_run_id is None:
-            self._apply_parse_basic_info_to_candidate(candidate, basic_info, parse_row, actor_id)
+            self._apply_parse_basic_info_to_candidate(
+                candidate,
+                basic_info,
+                parse_row,
+                actor_id,
+                expected_candidate_revision=parse_expected_candidate_revision,
+                expected_resume_file_id=parse_expected_resume_file_id,
+            )
         else:
             logger.info(
                 "[SCREENING] defer reparse basic_info apply until promotion candidate_id=%s run_id=%s parse_id=%s",

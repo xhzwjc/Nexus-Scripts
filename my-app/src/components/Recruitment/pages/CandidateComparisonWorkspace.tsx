@@ -26,6 +26,8 @@ import type {
     CandidateSummary,
 } from "@/lib/recruitment-api";
 import {cn} from "@/lib/utils";
+import {candidateIdentityPendingName, resolveCandidateIdentity} from "../candidateIdentity";
+import {CandidateAvatar} from "../components/CandidateAvatar";
 
 type CandidateComparisonText = Translations["recruitment"]["candidateComparison"];
 
@@ -94,11 +96,6 @@ const avatarPalette = ["#1E3BFA", "#2E9CFF", "#FF9F1C", "#7B61FF", "#0CC991", "#
 
 function avatarColor(candidateId: number) {
     return avatarPalette[Math.abs(candidateId) % avatarPalette.length];
-}
-
-function candidateInitial(name?: string | null) {
-    const normalized = String(name || "").trim();
-    return normalized ? normalized.slice(0, 1) : "?";
 }
 
 function formatComparisonNumber(value: number | null | undefined, maximumFractionDigits = 1) {
@@ -360,22 +357,23 @@ export function CandidateComparisonTray({candidates, text, onRemove, onClear, on
             </div>
             <span aria-hidden className="h-8 w-px shrink-0 bg-white/15"/>
             <div className="flex shrink-0 items-center gap-2" aria-live="polite">
-                {candidates.map((candidate) => (
+                {candidates.map((candidate) => {
+                    const identity = resolveCandidateIdentity(candidate);
+                    return (
                     <span key={candidate.id} className="inline-flex h-8 max-w-[170px] items-center gap-1.5 rounded-full bg-white/10 py-1 pl-1 pr-2 text-[12px] text-white">
-                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] text-white" style={{backgroundColor: avatarColor(candidate.id)}}>
-                            {candidateInitial(candidate.name)}
-                        </span>
-                        <span className="max-w-[100px] truncate">{candidate.name || text.unknownCandidate}</span>
+                        <CandidateAvatar identity={identity} className="h-6 w-6 text-[11px] text-white" style={{backgroundColor: avatarColor(candidate.id)}}/>
+                        <span className="max-w-[100px] truncate">{identity.displayName}</span>
                         <button
                             type="button"
                             className="flex h-4 w-4 shrink-0 items-center justify-center rounded text-white/60 transition hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40"
-                            aria-label={text.removeCandidateAria(candidate.name || text.unknownCandidate)}
+                            aria-label={text.removeCandidateAria(identity.displayName)}
                             onClick={() => onRemove(candidate.id)}
                         >
                             <X className="h-3 w-3"/>
                         </button>
                     </span>
-                ))}
+                    );
+                })}
             </div>
             <span aria-hidden className="h-8 w-px shrink-0 bg-white/15"/>
             <button type="button" className="shrink-0 text-[12px] text-white/55 transition hover:text-white" onClick={onClear}>
@@ -438,9 +436,13 @@ export function CandidateComparisonWorkspace({
         return () => window.removeEventListener("keydown", onKeyDown);
     }, [detailOpen, onBack]);
     const members = React.useMemo(() => preview?.members || [], [preview]);
+    const pendingCandidateName = candidateIdentityPendingName();
     const memberNameById = React.useMemo(
-        () => new Map(members.map((member) => [member.candidate.id, member.candidate.name || text.unknownCandidate])),
-        [members, text.unknownCandidate],
+        () => new Map(members.map((member) => [
+            member.candidate.id,
+            resolveCandidateIdentity(member.candidate, pendingCandidateName).displayName,
+        ])),
+        [members, pendingCandidateName],
     );
     const keyDimensions = React.useMemo(() => {
         if (!preview) return [];
@@ -567,7 +569,7 @@ export function CandidateComparisonWorkspace({
                 <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
                     <Loader2 className="h-7 w-7 animate-spin text-[#1E3BFA]"/>
                     <p className="text-[13px] text-[#33353D]">{text.loading}</p>
-                    <p className="text-[12px] text-[#86888F]">{selectedCandidates.map((candidate) => candidate.name).join(" · ")}</p>
+                    <p className="text-[12px] text-[#86888F]">{selectedCandidates.map((candidate) => resolveCandidateIdentity(candidate).displayName).join(" · ")}</p>
                 </div>
             ) : failed && !preview ? (
                 <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
@@ -648,6 +650,7 @@ export function CandidateComparisonWorkspace({
                                 <div role="row" className="sticky top-0 z-30 grid w-full border-b border-[#E6E7EB] bg-white" style={comparisonGridStyle(members.length)}>
                                     <div role="columnheader" className="sticky left-0 z-40 flex items-end border-r border-[#F2F3F5] bg-white px-4 py-4 text-[12px] text-[#86888F]">{text.comparisonDimension}</div>
                                     {members.map((member) => {
+                                        const identity = resolveCandidateIdentity(member.candidate);
                                         const displayStatus = member.candidate.display_status || member.candidate.status;
                                         const aiScore = normalizedAiScore(member);
                                         const rawScore = member.screening?.ai.total_score;
@@ -656,14 +659,14 @@ export function CandidateComparisonWorkspace({
                                         const manualScore = member.manual_review?.score;
                                         return (
                                             <div role="columnheader" key={member.candidate.id} className="relative flex min-w-0 flex-col gap-2.5 border-r border-[#F2F3F5] px-4 py-4 last:border-r-0">
-                                                <button type="button" className="absolute right-3 top-3 flex h-5 w-5 items-center justify-center rounded text-[#B0B2B8] transition hover:bg-[#F2F3F5] hover:text-[#F53F3F]" aria-label={text.removeCandidateAria(member.candidate.name || text.unknownCandidate)} onClick={() => onRemoveCandidate(member.candidate.id)}>
+                                                <button type="button" className="absolute right-3 top-3 flex h-5 w-5 items-center justify-center rounded text-[#B0B2B8] transition hover:bg-[#F2F3F5] hover:text-[#F53F3F]" aria-label={text.removeCandidateAria(identity.displayName)} onClick={() => onRemoveCandidate(member.candidate.id)}>
                                                     <X className="h-3.5 w-3.5"/>
                                                 </button>
                                                 <div className="flex min-w-0 items-center gap-2.5 pr-6">
-                                                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[14px] font-normal text-white" style={{backgroundColor: avatarColor(member.candidate.id)}}>{candidateInitial(member.candidate.name)}</span>
+                                                    <CandidateAvatar identity={identity} className="h-9 w-9 text-[14px] font-normal text-white" style={{backgroundColor: avatarColor(member.candidate.id)}}/>
                                                     <div className="min-w-0">
                                                         <div className="flex min-w-0 items-center gap-1.5">
-                                                            <span className="truncate text-[14px] font-semibold text-[#0E1114]">{member.candidate.name || text.unknownCandidate}</span>
+                                                            <span className="truncate text-[14px] font-semibold text-[#0E1114]">{identity.displayName}</span>
                                                             {isBest ? <span className="shrink-0 rounded-[4px] bg-[rgba(30,59,250,0.1)] px-1.5 py-0.5 text-[10px] text-[#1E3BFA]">{text.totalScoreHighest}</span> : null}
                                                         </div>
                                                         <p className="truncate text-[11px] font-normal text-[#86888F]">{preview.target_context.position_title}</p>

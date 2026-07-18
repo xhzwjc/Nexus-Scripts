@@ -907,6 +907,197 @@ def safe_file_stem(file_name: str) -> str:
     return stem or "未命名候选人"
 
 
+_CANDIDATE_NAME_BLOCKED_VALUES = {
+    "北京", "上海", "天津", "重庆", "深圳", "广州", "杭州", "南京", "苏州", "成都",
+    "武汉", "西安", "长沙", "郑州", "济南", "青岛", "厦门", "福州", "合肥", "昆明",
+    "南昌", "沈阳", "大连", "哈尔滨", "长春", "石家庄", "太原", "呼和浩特", "乌鲁木齐",
+    "拉萨", "海口", "三亚", "兰州", "西宁", "银川", "贵阳", "南宁", "简历", "候选人",
+    "个人简历", "我的简历", "个人资料", "求职简历", "个人", "资料", "附件",
+}
+_CANDIDATE_NAME_BLOCKED_PARTS = (
+    "工程师", "设计师", "经理", "主管", "总监", "顾问", "专员", "助理", "实习", "兼职",
+    "全职", "岗位", "职位", "招聘", "求职", "应聘", "城市", "全国", "远程", "测试",
+    "开发", "产品", "销售", "运营", "财务", "行政", "人事", "法务", "算法", "前端", "后端",
+    "简历", "资料", "附件", "程序员", "研发", "分析", "项目", "教育", "经历", "技能", "自我",
+    "本科", "大专", "硕士", "博士", "专业", "联系方式", "个人介绍",
+)
+_CANDIDATE_NAME_BLOCKED_ENGLISH_PARTS = (
+    "engineer", "developer", "manager", "director", "designer", "consultant", "specialist",
+    "assistant", "intern", "product", "software", "hardware", "frontend", "backend", "fullstack",
+    "analyst", "sales", "marketing", "operation", "operations", "finance", "accountant", "resume",
+    "curriculum vitae", "candidate", "recruitment", "position", "job",
+)
+_CANDIDATE_NAME_BLOCKED_REGIONS = {
+    "河北", "山西", "辽宁", "吉林", "黑龙江", "江苏", "浙江", "安徽", "福建", "江西", "山东",
+    "河南", "湖北", "湖南", "广东", "海南", "四川", "贵州", "云南", "陕西", "甘肃", "青海",
+    "台湾", "内蒙古", "广西", "西藏", "宁夏", "新疆", "香港", "澳门", "中国",
+}
+_COMMON_CHINESE_SURNAME_CHARS = frozenset(
+    "赵钱孙李周吴郑王冯陈褚卫蒋沈韩杨朱秦尤许何吕施张孔曹严华金魏陶姜戚谢邹喻柏水窦章云"
+    "苏潘葛奚范彭郎鲁韦昌马苗凤花方俞任袁柳鲍史唐费廉岑薛雷贺倪汤滕殷罗毕郝邬安常乐于"
+    "时傅皮卞齐康伍余元卜顾孟平黄和穆萧尹姚邵湛汪祁毛禹狄米贝明臧计伏成戴谈宋茅庞熊纪"
+    "舒屈项祝董梁杜阮蓝闵席季麻强贾路娄危江童颜郭梅盛林刁钟徐邱骆高夏蔡田樊胡凌霍虞万"
+    "支柯管卢莫房解应宗宣丁邓郁单杭洪包诸左石崔吉龚程邢裴陆荣翁荀羊甄曲家封芮储靳段富"
+    "巫乌焦巴弓牧山谷车侯全班秋仲伊宫宁仇栾甘祖武符刘景詹束龙叶幸司黎乔党翟谭劳申冉牛"
+    "通边燕冀浦尚农温庄晏柴瞿阎慕连茹习艾容向古易廖耿满弘匡国文寇广聂晁敖冷辛那简饶曾"
+    "沙鞠丰巢关相查后荆红游竺权盖益桓"
+)
+_COMMON_CHINESE_COMPOUND_SURNAMES = (
+    "欧阳", "太史", "端木", "上官", "司马", "东方", "独孤", "南宫", "万俟", "闻人", "夏侯",
+    "诸葛", "尉迟", "公羊", "赫连", "澹台", "皇甫", "宗政", "濮阳", "公冶", "太叔", "申屠",
+    "公孙", "慕容", "仲孙", "钟离", "长孙", "宇文", "司徒", "鲜于", "司空", "令狐", "轩辕",
+)
+_CANDIDATE_NAME_DELIMITER_PATTERN = re.compile(r"[\s_\-—–|,，;；/]")
+_CANDIDATE_IDENTITY_SIGNAL_PATTERN = re.compile(
+    r"(?:1[3-9]\d{9}|[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}|"
+    r"(?:手机|电话|邮箱|性别|年龄|出生|Phone|Mobile|Email|Gender|Age)\s*[:：]?)",
+    re.IGNORECASE,
+)
+
+
+def is_plausible_candidate_name(value: Any, *, allow_middle_dot: bool = True) -> bool:
+    """Return whether ``value`` is structurally plausible as a person's name.
+
+    This intentionally errs on the conservative side. It is used only for automatic
+    identity promotion; uncertain values remain available as source metadata instead
+    of being persisted as an asserted person name.
+    """
+    text = re.sub(r"\s+", " ", str(value or "").strip())
+    folded = text.casefold()
+    if not text or text in _CANDIDATE_NAME_BLOCKED_VALUES:
+        return False
+    if any(part in text for part in _CANDIDATE_NAME_BLOCKED_PARTS):
+        return False
+    if any(part in folded for part in _CANDIDATE_NAME_BLOCKED_ENGLISH_PARTS):
+        return False
+    region_name = text.removesuffix("省").removesuffix("市").removesuffix("自治区")
+    if region_name in _CANDIDATE_NAME_BLOCKED_REGIONS or region_name in CHINESE_CITY_NAMES:
+        return False
+    if text.endswith(("省", "市", "县", "区")):
+        return False
+    if re.fullmatch(r"[\u3400-\u4dbf\u4e00-\u9fff]{2,4}", text):
+        return True
+    if allow_middle_dot and re.fullmatch(
+        r"[\u3400-\u4dbf\u4e00-\u9fff]{1,4}[·•][\u3400-\u4dbf\u4e00-\u9fff]{1,8}",
+        text,
+    ):
+        return True
+    return bool(re.fullmatch(r"[A-Za-z][A-Za-z'’-]*(?:\s+[A-Za-z][A-Za-z'’-]*){1,3}", text))
+
+
+def _has_common_chinese_surname(value: str) -> bool:
+    text = str(value or "").strip()
+    return bool(
+        text
+        and (
+            any(text.startswith(surname) for surname in _COMMON_CHINESE_COMPOUND_SURNAMES)
+            or text[0] in _COMMON_CHINESE_SURNAME_CHARS
+        )
+    )
+
+
+def _is_high_confidence_filename_candidate_name(value: str) -> bool:
+    text = str(value or "").strip()
+    if not is_plausible_candidate_name(text):
+        return False
+    if re.fullmatch(r"[\u3400-\u4dbf\u4e00-\u9fff]{2,4}", text):
+        return _has_common_chinese_surname(text)
+    if re.fullmatch(r"[\u3400-\u4dbf\u4e00-\u9fff]{1,4}[·•][\u3400-\u4dbf\u4e00-\u9fff]{1,8}", text):
+        return True
+    # An unlabelled English filename cannot be reliably distinguished from a job title.
+    return False
+
+
+def extract_high_confidence_candidate_name_from_filename(file_name: str) -> str:
+    """Extract a name only from conservative, unambiguous resume filename shapes."""
+    stem = Path(str(file_name or "").strip()).stem.strip()
+    if not stem:
+        return ""
+
+    # Common recruitment export shape: ``【position metadata】Person Name 5 years``.
+    if "】" in stem:
+        suffix = stem.rsplit("】", 1)[-1].strip()
+        if not suffix:
+            return ""
+        first_segment = _CANDIDATE_NAME_DELIMITER_PATTERN.split(suffix, maxsplit=1)[0].strip()
+        first_segment = re.sub(r"(?<=\D)\d.*$", "", first_segment).strip()
+        if _is_high_confidence_filename_candidate_name(first_segment):
+            return first_segment
+        return ""
+
+    # A filename that is exactly a plausible name (for example ``张三.pdf``) is safe.
+    normalized_stem = re.sub(r"\s+", " ", stem).strip()
+    return normalized_stem if _is_high_confidence_filename_candidate_name(normalized_stem) else ""
+
+
+def extract_explicit_candidate_name_from_resume(raw_text: str) -> str:
+    """Extract an explicitly labelled resume name without swallowing adjacent fields."""
+    match = re.search(
+        r"(?:^|[\r\n])\s*(?:姓名|Name)\s*(?:[:：]\s*|\s+)([^\r\n]{1,80})",
+        str(raw_text or ""),
+        re.IGNORECASE,
+    )
+    if not match:
+        return ""
+    candidate = re.split(
+        r"\s+(?=(?:性别|手机|电话|邮箱|年龄|出生|求职意向|应聘岗位|Gender|Phone|Mobile|Email|Age)\s*[:：])",
+        match.group(1).strip(),
+        maxsplit=1,
+        flags=re.IGNORECASE,
+    )[0].strip(" ,，;；|_")
+    return candidate if is_plausible_candidate_name(candidate) else ""
+
+
+def _resume_has_high_confidence_name_evidence(raw_text: str, proposed_name: str) -> bool:
+    """Require an unlabelled model name to appear in the resume header with identity evidence."""
+    name = str(proposed_name or "").strip()
+    if not name or not is_plausible_candidate_name(name):
+        return False
+    if re.fullmatch(r"[\u3400-\u4dbf\u4e00-\u9fff]{2,4}", name) and not _has_common_chinese_surname(name):
+        return False
+
+    header = str(raw_text or "")[:2000]
+    if not header:
+        return False
+    pattern = re.compile(
+        rf"(?<![A-Za-z\u3400-\u4dbf\u4e00-\u9fff]){re.escape(name)}(?![A-Za-z\u3400-\u4dbf\u4e00-\u9fff])",
+        re.IGNORECASE,
+    )
+    for match in pattern.finditer(header):
+        line_start = header.rfind("\n", 0, match.start()) + 1
+        line_end = header.find("\n", match.end())
+        if line_end < 0:
+            line_end = len(header)
+        line = header[line_start:line_end].strip(" \t|,，;；:_-—–")
+        if line.casefold() == name.casefold() and line_start <= 500:
+            return True
+        nearby = header[line_start:min(len(header), line_end + 500)]
+        if line.casefold().startswith(name.casefold()) and _CANDIDATE_IDENTITY_SIGNAL_PATTERN.search(nearby):
+            return True
+    return False
+
+
+def resolve_high_confidence_candidate_name(
+    *,
+    file_name: str = "",
+    raw_text: str = "",
+    proposed_name: Any = None,
+) -> Optional[Dict[str, Any]]:
+    """Resolve a trusted candidate name and provenance without making an AI call."""
+    explicit_name = extract_explicit_candidate_name_from_resume(raw_text)
+    if explicit_name:
+        return {"value": explicit_name, "source": "resume_text_explicit", "confidence": 0.99}
+
+    proposed = re.sub(r"\s+", " ", str(proposed_name or "").strip())
+    if proposed and _resume_has_high_confidence_name_evidence(raw_text, proposed):
+        return {"value": proposed, "source": "resume_parsed", "confidence": 0.96}
+
+    filename_name = extract_high_confidence_candidate_name_from_filename(file_name)
+    if filename_name:
+        return {"value": filename_name, "source": "filename_high_confidence", "confidence": 0.94}
+    return None
+
+
 def extract_text_from_docx(file_path: Path) -> str:
     with zipfile.ZipFile(file_path) as archive:
         xml_bytes = archive.read("word/document.xml")
@@ -1418,19 +1609,13 @@ def extract_keywords(text: str) -> List[str]:
 
 
 def normalize_resume_fallback_name(fallback_name: str) -> str:
-    text = Path(str(fallback_name or "").strip()).stem.strip()
-    if not text:
+    filename_name = extract_high_confidence_candidate_name_from_filename(fallback_name)
+    if filename_name:
+        return filename_name
+    text = re.sub(r"\s+", " ", str(fallback_name or "").strip())
+    if not text or Path(text).suffix:
         return ""
-    if "】" in text:
-        text = text.split("】")[-1].strip() or text
-    text = re.sub(r"\b\d+\s*(?:k|K)\b", " ", text)
-    text = re.sub(r"\d+\s*[-~到]\s*\d+\s*(?:k|K)", " ", text)
-    text = re.sub(r"\d+\s*(?:年|年以上)$", "", text).strip()
-    text = re.sub(r"\s+", " ", text).strip(" -_·|")
-    chinese_names = re.findall(r"[\u4e00-\u9fff]{2,4}", text)
-    if chinese_names:
-        return chinese_names[-1]
-    return text[:32]
+    return text if is_plausible_candidate_name(text) else ""
 
 
 RESUME_NOISE_LINE_PATTERN = re.compile(r"^[A-Za-z0-9]{18,}(?:\s+[A-Za-z0-9]{18,})*$")
@@ -2006,7 +2191,7 @@ def extract_basic_info(
 ) -> Dict[str, Any]:
     phone_match = re.search(r"(?<!\d)1[3-9]\d{9}(?!\d)", raw_text)
     email_match = re.search(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", raw_text)
-    name_match = re.search(r"(?:姓名|Name)[:：\s]+([^\n]{2,20})", raw_text, re.IGNORECASE)
+    explicit_name = extract_explicit_candidate_name_from_resume(raw_text)
     years_match = re.search(r"(\d{1,2})\s*年", raw_text)
     age_match = re.search(r"(?:年龄|Age|岁数)[:：\s]*(\d{1,3})", raw_text, re.IGNORECASE)
     if not age_match:
@@ -2029,7 +2214,7 @@ def extract_basic_info(
                 break
     normalized_fallback_name = normalize_resume_fallback_name(fallback_name)
     return {
-        "name": (name_match.group(1).strip() if name_match else "") or normalized_fallback_name,
+        "name": explicit_name or normalized_fallback_name,
         "phone": phone_match.group(0) if phone_match else "",
         "email": email_match.group(0) if email_match else "",
         "age": age_value,

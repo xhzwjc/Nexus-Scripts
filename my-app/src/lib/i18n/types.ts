@@ -2364,6 +2364,9 @@ export interface Translations {
     // Common Actions
     refresh: string;
     refreshing: string;
+    candidateIdentity: {
+      namePending: string;
+    };
     candidateComparison: {
       title: string;
       subtitle: string;
