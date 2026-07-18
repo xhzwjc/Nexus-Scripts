@@ -1,0 +1,49 @@
+# AI 初筛 Release Gate：SQLite 全量（-W error 双顺序）+ 真实 MySQL 双会话验收。
+# MySQL gate 不再是"默认跳过的摆设"——CI 起 MySQL 服务容器强制执行。
+name: recruitment-release-gate
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "fastApiProject/**"
+  pull_request:
+    paths:
+      - "fastApiProject/**"
+
+jobs:
+  release-gate:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: gate_ci_pw
+          MYSQL_DATABASE: db_fwos_gate
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -pgate_ci_pw"
+          --health-interval=5s --health-timeout=5s --health-retries=20
+    defaults:
+      run:
+        working-directory: fastApiProject
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: fastApiProject/requirements.txt
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run release gate (SQLite full + MySQL dual-session)
+        env:
+          PYTHON_BIN: python
+          ENVIRONMENT: local
+          DB_LOCAL_HOST: 127.0.0.1
+          DB_LOCAL_PORT: "3306"
+          DB_LOCAL_USER: root
+          DB_LOCAL_PASSWORD: gate_ci_pw
+          DB_LOCAL_DATABASE: db_fwos_gate
+        run: bash scripts/run_release_gate.sh

@@ -1613,23 +1613,27 @@ def _derive_deterministic_suggested_status(
             or actual_by_label[label].get("is_inferred") is True
         )
     ]
-    # P0-1 相关性门（fail-to-human）：核心维度有正分证据、但证据与"标签+规则说明"完全
-    # 不沾边（如银行维度引用 Python 原句）→ 不扣分，但阻止自动通过、转人工复核。
-    core_note_by_label = {
+    # P0-1 相关性门（fail-to-human）：任何维度（不只核心）有正分证据、但证据与"标签+规则说明"
+    # 完全不沾边（如银行维度引用 Python 原句）→ 不扣分，但阻止自动通过、转人工复核——
+    # 非核心维度同样能用无关原句抬总分，必须一并拦。
+    note_by_label = {
         str(rule.get("label") or "").strip(): str(rule.get("note") or "")
         for rule in ((schema_config.get("score") or {}).get("required_dimension_rules") or [])
-        if isinstance(rule, dict) and bool(rule.get("is_core"))
+        if isinstance(rule, dict)
     }
-    for label in required_core_labels:
-        dim = actual_by_label.get(label)
+    for label, dim in actual_by_label.items():
         if not isinstance(dim, dict) or label in missing_core_evidence:
+            continue
+        # 仅对权威规则快照里的维度做相关性判定（有规则说明作语境）；
+        # 旧式仅传 labels 的调用方缺乏语境，不做无据拦截。
+        if label not in note_by_label:
             continue
         dim_score = _parse_score_number(dim.get("score")) or 0.0
         if float(dim_score) <= 0:
             continue
         if not _dimension_has_effective_evidence(dim.get("evidence")):
             continue
-        if not _evidence_relevant_to_criterion(label, core_note_by_label.get(label, ""), dim.get("evidence")):
+        if not _evidence_relevant_to_criterion(label, note_by_label.get(label, ""), dim.get("evidence")):
             missing_core_evidence.append(f"{label}（证据与维度相关性无法确认，需人工复核）")
     if match_percent >= pass_threshold:
         status = "screening_passed"
@@ -1761,6 +1765,9 @@ def _rebuild_dimensions_against_authoritative_rules(
             else:
                 for item in fresh_evidence:
                     used_evidence_signatures.add(_evidence_semantic_signature(item))
+                # P0：只持久化通过全部核验的证据——原始列表里混着的伪造/否定/复用条目
+                # 不得随"有一条真证据"一起存活（后续展示与审计只能看到已验证证据）。
+                existing["evidence"] = list(fresh_evidence)
         existing["score"] = round(score, 2)
         existing["max_score"] = authoritative_max
         rebuilt_dimensions.append(existing)
@@ -1907,12 +1914,22 @@ def _rebuild_derived_score_texts(score_payload: Any) -> Tuple[Dict[str, Any], Li
         bucket = category_totals.setdefault(category, [0.0, 0.0])
         bucket[0] += score
         bucket[1] += max_score
-    if category_totals and isinstance(payload.get("radar_scores"), list) and payload.get("radar_scores"):
-        overall_ratio = 0.0
-        total_score_sum = sum(bucket[0] for bucket in category_totals.values())
-        total_max_sum = sum(bucket[1] for bucket in category_totals.values())
-        if total_max_sum > 0:
-            overall_ratio = total_score_sum / total_max_sum
+    if isinstance(payload.get("radar_scores"), list) and payload.get("radar_scores"):
+        # radar_category 缺失时（category_totals 为空）按全维度总比例兜底——
+        # 0 分淘汰的候选人绝不能保留模型给的满格雷达。
+        overall_score_sum = 0.0
+        overall_max_sum = 0.0
+        for dim in dims:
+            raw_max = _parse_score_number(dim.get("max_score"))
+            dim_max = float(raw_max) if raw_max is not None and math.isfinite(float(raw_max)) else 0.0
+            if dim_max <= 0:
+                continue
+            raw_score = _parse_score_number(dim.get("score"))
+            overall_score_sum += float(raw_score) if raw_score is not None and math.isfinite(float(raw_score)) else 0.0
+            overall_max_sum += dim_max
+        if overall_max_sum <= 0:
+            return payload, rebuild_warnings
+        overall_ratio = overall_score_sum / overall_max_sum
         rebuilt_radar: List[Dict[str, Any]] = []
         radar_changed = False
         for item in payload.get("radar_scores") or []:
@@ -2038,6 +2055,17 @@ def sanitize_screening_payload(
             sanitized_score, derived_warnings = _rebuild_derived_score_texts(sanitized_score)
             repair_warnings.extend(derived_warnings)
         sanitized_payload["score"] = sanitized_score
+
+    # P0 安全拦截：简历文本含注入/操纵内容（伪造定界符、覆盖指令、满分诱导）→
+    # 不自动拒绝（可能是误粘贴），但绝不允许自动通过，转人工复核。
+    if str(raw_resume_text or "").strip():
+        manipulation_hit = _detect_resume_manipulation_text(raw_resume_text)
+        if manipulation_hit:
+            repair_warnings.append(f"{manipulation_hit}，已阻止自动通过并转人工复核")
+            if sanitized_score.get("suggested_status") == "screening_passed":
+                sanitized_score["suggested_status"] = "talent_pool"
+                normalized_final_suggested_status = "talent_pool"
+                sanitized_payload["score"] = sanitized_score
 
     warnings = _normalize_score_warning_items(
         [
@@ -4618,6 +4646,7 @@ _CRITERION_GENERIC_FRAGMENTS = {
     "基础", "程度", "要求", "方面", "情况", "应用", "使用", "负责", "参与", "具备", "以上",
     "年限", "岗位", "职位", "任职", "从业", "评估", "考察", "维度", "标准", "综合", "整体",
     "必须", "提供", "简历", "原文", "证据", "需要", "体现", "优先", "核心", "第一", "说明",
+    "匹配", "符合", "契合", "达标",
 }
 
 
@@ -4661,10 +4690,37 @@ _NEGATIVE_STATEMENT_PATTERNS = (
     re.compile(r"(没有|不具备|缺乏|从未|未曾|并未|尚未|暂无|不熟悉|不了解|不会使用|无法胜任|不曾)"),
     re.compile(r"(?:^|[，。；、：\s(（])无(?!线|人|缝|损|源|数)[^，。；、\s]{0,12}(经验|经历|背景|接触)"),
     re.compile(r"未[^，。；、\s]{0,10}(使用过|接触过|参与过|从事过)"),
+    re.compile(r"(零经验|经验为零|经验缺失|经验空白|0\s*年经验)"),
     re.compile(r"\bno\s+[a-z][^,.;]{0,40}\bexperience\b", re.IGNORECASE),
     re.compile(r"\bnever\s+(used|worked)\b", re.IGNORECASE),
     re.compile(r"\bwithout\s+[^,.;]{0,30}\bexperience\b", re.IGNORECASE),
+    re.compile(r"\b(none|lacks?|lacking|missing)\b[^,.;]{0,30}\bexperience\b", re.IGNORECASE),
+    re.compile(r"\bexperience\s*:\s*(none|n/?a|0)\b", re.IGNORECASE),
+    re.compile(r"\b0\s*(years?|yrs?)\b[^,.;]{0,20}\bexperience\b", re.IGNORECASE),
 )
+
+# 简历文本注入/操纵拦截（P0）：出现我们自己的定界符或"覆盖指令"式句式 → 安全拦截，
+# 阻止自动通过并转人工复核（不自动拒绝——文本可能是误粘贴）。
+_RESUME_MANIPULATION_PATTERNS = (
+    re.compile(r"<<<\s*/?\s*(END_)?RAW_RESUME(_TEXT)?\s*>>>", re.IGNORECASE),
+    re.compile(r"(忽略|无视)(以上|之前|上述|前面)?(的)?(所有)?(指令|规则|要求|提示)"),
+    re.compile(r"(请|必须)?(给|打)(所有维度)?满分"),
+    re.compile(r"ignore\s+(all\s+)?(previous|above|prior)\s+(instructions|rules)", re.IGNORECASE),
+    re.compile(r"\bsystem\s*prompt\b", re.IGNORECASE),
+    re.compile(r"(你是|you\s+are)\s*(一个)?\s*(ats|评分引擎|screening\s+engine)", re.IGNORECASE),
+)
+
+
+def _detect_resume_manipulation_text(raw_text: Any) -> Optional[str]:
+    """检测简历原文中的注入/操纵内容（定界符伪造、覆盖指令、满分诱导等）。命中返回描述。"""
+    text = str(raw_text or "")
+    if not text:
+        return None
+    for pattern in _RESUME_MANIPULATION_PATTERNS:
+        matched = pattern.search(text)
+        if matched:
+            return f"简历文本包含疑似注入/操纵内容（{matched.group(0)[:30]}）"
+    return None
 
 
 def _evidence_text_is_negative_statement(item: Any) -> bool:
@@ -7801,10 +7857,8 @@ class RecruitmentService:
                     RecruitmentCandidateScore.candidate_id == candidate.id,
                     RecruitmentCandidateScore.id == ref_score_id,
                 ).first()
-            if not score_row and candidate:
-                score_row = self.db.query(RecruitmentCandidateScore).filter(
-                    RecruitmentCandidateScore.candidate_id == candidate.id,
-                ).order_by(RecruitmentCandidateScore.id.desc()).first()
+            # P0：绝不回退到"候选人任意最新历史评分"——孤儿恢复只认本任务留下的
+            # 持久化引用或候选人当前权威指针，历史分不得被拿来推进候选人。
         source_log = score_log or parse_log or latest_child
         source_meta = _decode_ai_task_json_text(getattr(source_log, "validation_meta_json", None), None) if source_log else None
         source_meta_record = dict(source_meta) if isinstance(source_meta, dict) else {}
@@ -7863,16 +7917,44 @@ class RecruitmentService:
             screening_result_valid = False
             screening_result_state = "failed"
 
-        if candidate and final_status == "success" and score_row:
+        # P0：孤儿恢复推进候选人的前提——该评分必须已是候选人当前权威评分
+        # （latest_score_id 相等）。持久化引用找回的"未晋级"评分只能留档，不得借恢复通道晋级。
+        orphan_score_authoritative = bool(
+            candidate is not None
+            and score_row is not None
+            and candidate.latest_score_id
+            and int(candidate.latest_score_id) == int(getattr(score_row, "id", 0) or 0)
+        )
+        if candidate and final_status == "success" and score_row and orphan_score_authoritative:
             normalized_status = _normalize_suggested_status(getattr(score_row, "suggested_status", None))
             if normalized_status and candidate.status in {"pending_screening", "screening_failed", "matching"} and normalized_status != candidate.status:
-                if not candidate.latest_score_id:
-                    candidate.latest_score_id = score_row.id
                 if not candidate.ai_recommended_status:
                     candidate.ai_recommended_status = normalized_status
                 self._auto_advance_candidate_after_screening(candidate, actor_id="system")
                 self.db.add(candidate)
                 self.db.commit()
+        # P0：孤儿恢复必须同时终结绑定的 run 并清 active——只关 Task 会把 run 永久留在
+        # running（复审 Case：Task=failed / Run=running / active 残留）。
+        orphan_run = self._get_screening_run_for_root_task(row.id)
+        if orphan_run is not None:
+            _prev_run_id = self._current_screening_run_id
+            self._current_screening_run_id = orphan_run.id
+            try:
+                self._finalize_bound_screening_run(
+                    final_status if (final_status != "success" or orphan_score_authoritative) else "invalid_result",
+                    candidate_ref=candidate,
+                    parse_row=parse_row,
+                    score_row=score_row if orphan_score_authoritative else None,
+                )
+                self.db.commit()
+            except Exception:
+                try:
+                    self.db.rollback()
+                except Exception:
+                    pass
+                logger.exception("Failed to finalize orphan screening run root_task_id=%s", row.id)
+            finally:
+                self._current_screening_run_id = _prev_run_id
 
         validation_warnings = _normalize_score_warning_items(
             source_meta_record.get("validation_warnings") or current_validation_record.get("validation_warnings"),
@@ -8386,7 +8468,17 @@ class RecruitmentService:
 
     def _mark_screening_run_cancelled_for_task(self, root_task_id: Optional[int], actor_id: str) -> None:
         """Commit 2：取消 screening_flow 根任务时，同步在其 run 上打取消请求标记（审计/追溯）。"""
-        run = self._get_screening_run_for_root_task(root_task_id)
+        if not root_task_id:
+            return
+        # P1：加锁读——检查与改写必须原子，否则与并发晋级竞态时，
+        # 陈旧取消可能把刚 promoted 的 run 改回 cancelled。
+        try:
+            self.db.flush()
+            run = self.db.query(RecruitmentCandidateScreeningRun).filter(
+                RecruitmentCandidateScreeningRun.root_task_id == root_task_id,
+            ).order_by(RecruitmentCandidateScreeningRun.id.desc()).populate_existing().with_for_update().first()
+        except Exception:
+            run = self._get_screening_run_for_root_task(root_task_id)
         if not run or run.status in {"promoted", "success", "superseded", "cancelled"}:
             return
         run.status = "cancelled"
@@ -8398,6 +8490,7 @@ class RecruitmentService:
         # 取消同时清空候选人 active 指针（若仍指向本 run），让 generation CAS 也能兜住取消：
         # 后到的评分即使跑到晋级点，也会因 active 不再等于本 run 而判过期。
         try:
+            self.db.flush()  # autoflush=False：刷新前先落 pending，防止吞写
             locked_candidate = self.db.query(RecruitmentCandidate).filter(
                 RecruitmentCandidate.id == run.candidate_id,
             ).populate_existing().with_for_update().first()
@@ -9096,6 +9189,9 @@ class RecruitmentService:
             raise ValueError(f"无效候选人状态: {normalized_status or '-'}")
 
         from_status = str(candidate.status or "").strip()
+        # P0 中心化：一切人工状态迁移（含移入人才库）原子自增业务版本，作废在途 run。
+        if source == "manual":
+            self._bump_candidate_business_revision(candidate)
         self._create_status_history(candidate, normalized_status, reason, actor_id, source)
         if normalized_status == "talent_pool":
             candidate.talent_pool_reason = "moved_by_hr"
@@ -14016,8 +14112,24 @@ class RecruitmentService:
             candidate.tags_json = json_dumps_safe(payload.get("tags") or [])
         candidate.updated_by = actor_id
         _score_related_keys = {"manual_override_score", "manual_override_reason", "hr_feedback", "hr_feedback_reason"}
-        if _score_related_keys & set(payload) and candidate.latest_score_id:
-            score_row = self.db.query(RecruitmentCandidateScore).filter(RecruitmentCandidateScore.id == candidate.latest_score_id).first()
+        if _score_related_keys & set(payload):
+            # P1：人工改分必须写入"当前"权威评分——旧会话内存里的 latest_score_id 可能已过期，
+            # 加锁重读后再定位评分行。
+            fresh_latest_score_id = candidate.latest_score_id
+            try:
+                _fresh = self.db.query(RecruitmentCandidate.latest_score_id).filter(
+                    RecruitmentCandidate.id == candidate.id,
+                ).with_for_update().first()
+                if _fresh is not None:
+                    (fresh_latest_score_id,) = _fresh
+            except (TypeError, ValueError):
+                pass
+            except Exception:
+                logger.debug("manual score fresh-read failed, fallback to in-memory", exc_info=True)
+        else:
+            fresh_latest_score_id = None
+        if _score_related_keys & set(payload) and fresh_latest_score_id:
+            score_row = self.db.query(RecruitmentCandidateScore).filter(RecruitmentCandidateScore.id == fresh_latest_score_id).first()
             if score_row:
                 if "manual_override_score" in payload:
                     score_row.manual_override_score = payload.get("manual_override_score")
@@ -14061,7 +14173,6 @@ class RecruitmentService:
         for candidate_id in candidate_ids:
             candidate = self._get_candidate(candidate_id)
             self._apply_candidate_status_transition(candidate, status, reason, actor_id, "manual")
-            self._bump_candidate_business_revision(candidate)
             self.db.add(candidate)
             updated += 1
         self.db.commit()
@@ -15211,7 +15322,6 @@ class RecruitmentService:
     def update_candidate_status(self, candidate_id: int, status: str, reason: str, actor_id: str) -> Dict[str, Any]:
         candidate = self._get_candidate(candidate_id)
         self._apply_candidate_status_transition(candidate, status, reason, actor_id, "manual")
-        self._bump_candidate_business_revision(candidate)
         self.db.add(candidate)
         self.db.commit()
         self.db.refresh(candidate)
@@ -18138,13 +18248,41 @@ class RecruitmentService:
         return "\n".join(position_list_lines) if position_list_lines else "暂无系统岗位"
 
     def _bump_candidate_business_revision(self, candidate: Any) -> None:
-        """人工决策优先（P0）：HR 的每次人工修改（状态/岗位/档案）自增业务版本号。
+        """人工决策优先（P0）：HR 的每次人工修改（状态/岗位/档案/人才库）自增业务版本号。
         运行中的初筛 run 冻结了入队时的版本，晋级时不一致即判过期——不再靠状态值猜测
-        "是否人工改过"，初筛域内的人工改动（如手动淘汰）同样受保护。"""
-        try:
-            candidate.business_revision = int(getattr(candidate, "business_revision", 0) or 0) + 1
-        except (TypeError, ValueError):
-            pass
+        "是否人工改过"，初筛域内的人工改动（如手动淘汰）同样受保护。
+
+        必须用数据库端原子自增（SET rev = rev + 1），绝不能读 ORM 旧值 +1——
+        旧会话的 stale 对象会算出与 run 冻结值相同的版本（ABA/丢失自增），放行迟到 AI。
+        """
+        candidate_id = getattr(candidate, "id", None)
+        bumped_in_db = False
+        if candidate_id:
+            try:
+                self.db.query(RecruitmentCandidate).filter(
+                    RecruitmentCandidate.id == candidate_id,
+                ).update(
+                    {RecruitmentCandidate.business_revision: RecruitmentCandidate.business_revision + 1},
+                    synchronize_session=False,
+                )
+                bumped_in_db = True
+                # 同步内存对象：从 DB 读回真实值（不叠加本地旧值）。
+                fresh = self.db.query(RecruitmentCandidate.business_revision).filter(
+                    RecruitmentCandidate.id == candidate_id,
+                ).first()
+                if fresh is not None:
+                    try:
+                        (candidate.business_revision,) = fresh
+                    except (TypeError, ValueError):
+                        pass
+            except Exception:
+                bumped_in_db = False
+        if not bumped_in_db:
+            # 非真实 DB（单测 Mock/SimpleNamespace）退回内存自增。
+            try:
+                candidate.business_revision = int(getattr(candidate, "business_revision", 0) or 0) + 1
+            except (TypeError, ValueError):
+                pass
 
     def _ai_match_stale_reason(self, candidate: Any, expected_before_position_id: Optional[int]) -> Optional[str]:
         """AI 岗位匹配落库前的 CAS 判定：候选人不存在/被删/岗位相对入队快照已改动 → 结果过期。
@@ -18859,6 +18997,8 @@ class RecruitmentService:
             # populate_existing() 关键：不加它时同一 session 的身份映射会返回旧对象、
             # 不刷新 screening_generation，导致并发下两个事务都读到旧代次、抢占失败
             # （真实 MySQL 才暴露；靠唯一约束兜底也只是报错而非正确串行）。
+            # autoflush=False：刷新前先 flush，防止吞掉调用方 pending 的候选人字段。
+            self.db.flush()
             locked = self.db.query(RecruitmentCandidate).filter(
                 RecruitmentCandidate.id == candidate.id,
             ).populate_existing().with_for_update().first()
@@ -18995,6 +19135,10 @@ class RecruitmentService:
         if run is None or not getattr(run, "candidate_id", None):
             return
         try:
+            # P0：Session 是 autoflush=False——populate_existing 刷新前必须先 flush，
+            # 否则调用方刚写的候选人权威字段（latest_score_id/match_percent/状态等）
+            # 还在 pending，会被刷新静默吞掉（run promoted 但候选人指向旧分/无分）。
+            self.db.flush()
             locked = self.db.query(RecruitmentCandidate).filter(
                 RecruitmentCandidate.id == run.candidate_id,
             ).populate_existing().with_for_update().first()
@@ -21070,12 +21214,14 @@ class RecruitmentService:
         # P0：权威指针必须加锁从数据库重读——旧 Session 的内存对象可能仍是过期值
         # （DB 已是 latest=2、旧会话内存还是 1），拿内存值比对会放行旧 run 覆盖工作流指针。
         current_latest_score_id = getattr(candidate, "latest_score_id", None)
+        current_position_id = getattr(candidate, "position_id", None)
         try:
             fresh_row = self.db.query(
                 RecruitmentCandidate.latest_score_id,
+                RecruitmentCandidate.position_id,
             ).filter(RecruitmentCandidate.id == candidate.id).with_for_update().first()
             if fresh_row is not None:
-                (current_latest_score_id,) = fresh_row
+                current_latest_score_id, current_position_id = fresh_row
         except (TypeError, ValueError):
             pass  # 非真实 DB 行（单测 Mock）退回内存值
         except Exception:
@@ -21088,7 +21234,9 @@ class RecruitmentService:
             )
             return
         workflow = self._get_or_create_workflow_memory(candidate, actor_id)
-        workflow.position_id = candidate.position_id
+        # P0：岗位用加锁重读的最新值——旧会话内存里的 position_id 可能已被 HR 改掉，
+        # 拿旧值写会把工作流指回旧岗位。
+        workflow.position_id = current_position_id
         workflow.screening_skill_ids_json = json_dumps_safe(list(related_skill_ids))
         workflow.screening_memory_source = memory_source
         workflow.screening_rule_snapshot_json = json_dumps_safe(

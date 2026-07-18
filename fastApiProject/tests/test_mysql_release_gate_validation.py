@@ -383,6 +383,83 @@ def test_workflow_gate_rejects_stale_session_pointer(mysql_db):
         fresh.close()
 
 
+def test_same_state_rescreen_updates_candidate_pointer(mysql_db):
+    """re2 P0-1 复现：候选人已 screening_passed（旧分），重筛出新分且建议状态相同
+    （auto-advance 无操作、无中途 flush）→ autoflush=False 下 populate_existing 刷新
+    不得吞掉 pending 的 latest_score_id：run promoted 后候选人必须指向新分。"""
+    from app.recruitment_models import RecruitmentCandidate, RecruitmentCandidateScore, RecruitmentCandidateScreeningRun
+    from app.services.recruitment_service_impl import RecruitmentService, json_dumps_safe
+
+    candidate, parse = _seed_candidate(mysql_db, f"{MARKER_PREFIX}-SAMEST", status="screening_passed")
+    old_score = RecruitmentCandidateScore(
+        org_code="group", candidate_id=candidate.id, parse_result_id=parse.id,
+        score_json=json_dumps_safe({"score": {"total_score": 7.0}}), total_score=7.0, match_percent=70,
+        suggested_status="screening_passed",
+    )
+    mysql_db.add(old_score)
+    mysql_db.flush()
+    candidate.latest_score_id = old_score.id
+    candidate.ai_recommended_status = "screening_passed"
+    mysql_db.commit()
+
+    service = RecruitmentService(mysql_db)
+    run = service._open_screening_run(candidate=candidate, root_task_id=990008, screening_run_key="k", request_meta={}, actor_id="mysqlgate")
+    run.status = "running"
+    mysql_db.add(run)
+    mysql_db.commit()
+    service._current_screening_run_id = run.id
+
+    new_score = service._save_score_result(candidate, parse, "mysqlgate", _score_content(), allow_status_advance=True)
+    mysql_db.commit()
+
+    fresh = _new_session()
+    try:
+        fresh_candidate = fresh.query(RecruitmentCandidate).filter(RecruitmentCandidate.id == candidate.id).first()
+        fresh_run = fresh.query(RecruitmentCandidateScreeningRun).filter(RecruitmentCandidateScreeningRun.id == run.id).first()
+        assert fresh_run.status == "promoted"
+        assert fresh_run.score_result_id == new_score.id
+        assert fresh_candidate.latest_score_id == new_score.id, "重开会话后候选人必须指向新分（不得被刷新吞掉）"
+        assert float(fresh_candidate.match_percent or 0) == 80.0
+    finally:
+        fresh.close()
+
+
+def test_business_revision_bump_is_atomic_across_stale_sessions(mysql_db):
+    """re2 P0-2 复现：旧会话持有 stale 对象再 bump，不得算出与已有版本相同的值（ABA）——
+    bump 必须是数据库端原子自增，两次并发 bump 后版本必须是 2。"""
+    from app.recruitment_models import RecruitmentCandidate
+    from app.services.recruitment_service_impl import RecruitmentService
+
+    candidate, _parse = _seed_candidate(mysql_db, f"{MARKER_PREFIX}-ABA")
+
+    # 旧会话先加载（rev=0 的 stale 对象）
+    stale_db = _new_session()
+    stale_candidate = stale_db.query(RecruitmentCandidate).filter(RecruitmentCandidate.id == candidate.id).first()
+    assert int(stale_candidate.business_revision or 0) == 0
+
+    # 新会话先 bump 到 1
+    service = RecruitmentService(mysql_db)
+    service._bump_candidate_business_revision(candidate)
+    mysql_db.commit()
+
+    # 旧会话再 bump：若按 stale 值 0+1=1 就与 run 冻结值撞车（ABA）；原子自增必须得到 2
+    try:
+        stale_service = RecruitmentService(stale_db)
+        stale_service._bump_candidate_business_revision(stale_candidate)
+        stale_db.commit()
+    finally:
+        stale_db.close()
+
+    fresh = _new_session()
+    try:
+        final_rev = fresh.query(RecruitmentCandidate.business_revision).filter(
+            RecruitmentCandidate.id == candidate.id,
+        ).scalar()
+        assert int(final_rev or 0) == 2, f"两次 bump 后版本必须为 2（原子自增），实际 {final_rev}"
+    finally:
+        fresh.close()
+
+
 def test_failed_batch_never_emails_even_with_historical_pass(mysql_db):
     """P0-5：本批根任务失败时，即使候选人有历史通过分（latest_score_id 有值）也绝不发信；
     正控：success 根任务 + promoted run + run 评分==latest 才发。"""
