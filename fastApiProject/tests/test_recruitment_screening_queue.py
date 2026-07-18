@@ -165,6 +165,48 @@ def test_screening_provider_slot_releases_clean_db_connection_before_model_wait(
     assert fake_db.rollback_count == 1
 
 
+def test_batch_mail_partial_failure_bubbles_for_retry():
+    class FakeQuery:
+        def __init__(self, rows):
+            self.rows = rows
+
+        def filter(self, *_args):
+            return self
+
+        def first(self):
+            return self.rows.pop(0)
+
+    class FakeDb:
+        def __init__(self, rows):
+            self.rows = rows
+
+        def query(self, *_args):
+            return FakeQuery(self.rows)
+
+    candidates = [
+        SimpleNamespace(id=1, position_id=101, latest_score_id=201),
+        SimpleNamespace(id=2, position_id=102, latest_score_id=202),
+    ]
+    scores = [SimpleNamespace(id=201), SimpleNamespace(id=202)]
+    service = RecruitmentService.__new__(RecruitmentService)
+    service.db = FakeDb([candidates[0], scores[0], candidates[1], scores[1], *candidates])
+    runs = {
+        301: SimpleNamespace(id=401, status="promoted", score_result_id=201),
+        302: SimpleNamespace(id=402, status="promoted", score_result_id=202),
+    }
+    service._get_screening_run_for_root_task = lambda task_id: runs[task_id]
+    service._send_batch_auto_mail_for_position = Mock(side_effect=[None, RuntimeError("smtp unavailable")])
+    tasks = [
+        SimpleNamespace(id=301, status="success", related_candidate_id=1),
+        SimpleNamespace(id=302, status="success", related_candidate_id=2),
+    ]
+
+    with pytest.raises(RuntimeError, match="position failures"):
+        service._send_batch_auto_resume_mail_for_batch("batch-partial", tasks)
+
+    assert service._send_batch_auto_mail_for_position.call_count == 2
+
+
 def test_ai_match_callback_does_not_hold_db_session_during_model_call(monkeypatch):
     from app import database
 

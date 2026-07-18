@@ -2,6 +2,7 @@ import json
 from datetime import datetime
 from typing import Callable, TypeVar
 
+import pytest
 from sqlalchemy import create_engine, event
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import sessionmaker
@@ -18,6 +19,7 @@ from app.services.recruitment_service_impl import RecruitmentService
 
 
 T = TypeVar("T")
+_OPEN_TEST_DATABASES = []
 
 
 def _build_test_db():
@@ -33,7 +35,18 @@ def _build_test_db():
         bind=engine,
     )
     Base.metadata.create_all(bind=engine)
-    return engine, testing_session_local()
+    db = testing_session_local()
+    _OPEN_TEST_DATABASES.append((engine, db))
+    return engine, db
+
+
+@pytest.fixture(autouse=True)
+def _close_test_databases():
+    yield
+    while _OPEN_TEST_DATABASES:
+        engine, db = _OPEN_TEST_DATABASES.pop()
+        db.close()
+        engine.dispose()
 
 
 def _capture_sql(engine: Engine, operation: Callable[[], T]) -> tuple[T, list[str]]:

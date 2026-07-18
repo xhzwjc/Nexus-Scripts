@@ -4747,9 +4747,9 @@ def _apply_screening_security_finalization(
         manipulation_hit = _detect_resume_manipulation_text(raw_resume_text)
         if manipulation_hit:
             repair_warnings.append(f"{manipulation_hit}，已阻止自动通过并转人工复核")
-            if sanitized_score.get("suggested_status") == "screening_passed":
-                sanitized_score["suggested_status"] = "talent_pool"
-                normalized_final_suggested_status = "talent_pool"
+            # 疑似注入可能来自误粘贴：既不能自动通过，也不能按低分自动拒绝，统一进入人工复核。
+            sanitized_score["suggested_status"] = "talent_pool"
+            normalized_final_suggested_status = "talent_pool"
     if str(sanitized_score.get("suggested_status") or "") == "talent_pool" and any(
         ("需人工复核" in str(w)) or ("已阻止自动通过" in str(w)) for w in repair_warnings
     ):
@@ -6919,11 +6919,12 @@ class RecruitmentService:
                     "Failed to send batch auto mail position_id=%s batch_id=%s",
                     position_id, batch_id,
                 )
-        # P1 可靠重试：一封都没发出去（全部失败）→ 向上抛出，由外层释放
-        # batch_email_sent 抢占旗标，下一次终态事件重试。部分成功不重发（防重复打扰）。
-        if failed_positions and not sent_positions:
+        # P1 可靠重试：任一岗位失败都向上抛出，由外层释放 batch_email_sent 抢占旗标。
+        # 已成功岗位拥有 batch+position 去重键，重试时会跳过，只补发失败岗位，不会重复打扰。
+        if failed_positions:
             raise RuntimeError(
-                f"batch auto mail all positions failed batch_id={batch_id} failed={failed_positions}"
+                f"batch auto mail position failures batch_id={batch_id} "
+                f"sent_or_skipped={sent_positions} failed={failed_positions}"
             )
 
     def _send_batch_auto_mail_for_position(
@@ -13977,6 +13978,8 @@ class RecruitmentService:
             RecruitmentCandidate.org_code,
             RecruitmentCandidate.position_id,
             RecruitmentCandidate.name,
+            RecruitmentCandidate.name_source,
+            RecruitmentCandidate.name_confidence,
             RecruitmentCandidate.phone,
             RecruitmentCandidate.email,
             RecruitmentCandidate.current_company,
