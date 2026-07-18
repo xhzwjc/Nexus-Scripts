@@ -357,7 +357,7 @@ CANDIDATE_DETAIL_JSON_PREVIEW_BYTES = max(2048, int(os.getenv("CANDIDATE_DETAIL_
 CANDIDATE_DETAIL_COLLECTION_LIMIT = max(5, int(os.getenv("CANDIDATE_DETAIL_COLLECTION_LIMIT", "24")))
 TERMINAL_AI_TASK_STATUSES = {"success", "fallback", "failed", "invalid_result", "json_parse_failed", "invalid_json_variant_conflict", "timeout", "retry_exhausted", "cancelled", "rate_limited", "upstream_timeout", "request_failed", "screening_total_timeout", "quota_exceeded", "superseded", "screening_rule_invalid", "resume_text_unavailable"}
 # 过期原因归类（P0 控制流：superseded 是独立终态，不伪装成 invalid_result）
-SCREENING_SUPERSEDED_REASONS = {"resume_changed", "position_changed", "candidate_deleted", "generation_changed", "protocol_changed", "cancelled", "already_promoted", "candidate_status_advanced"}
+SCREENING_SUPERSEDED_REASONS = {"resume_changed", "position_changed", "candidate_deleted", "generation_changed", "protocol_changed", "cancelled", "already_promoted", "candidate_status_advanced", "candidate_revision_changed"}
 
 # 人工决策优先（P0）：AI 初筛晋级只允许写仍处于"初筛域"的候选人；HR 已推进到部门评审/
 # 面试/Offer/入职等阶段后，迟到的 AI 结果只能留档，绝不回写状态/权威指针。
@@ -1592,8 +1592,12 @@ def _derive_deterministic_suggested_status(
         return None, []
 
     thresholds = (schema_config.get("score") or {}).get("status_thresholds") or {}
-    pass_threshold = _parse_score_number(thresholds.get("pass_threshold")) or 75.0
-    pool_threshold = _parse_score_number(thresholds.get("pool_threshold")) or 55.0
+    # P0：状态判定与审计快照同源——阈值在判定点也走同一 fail-closed 归一化（幂等），
+    # 直接传裸 schema 的调用方同样不会被非法阈值（负数/超界/NaN）放行零分候选人。
+    pass_threshold = _normalize_threshold_value(thresholds.get("pass_threshold"), 75.0)
+    pool_threshold = _normalize_threshold_value(thresholds.get("pool_threshold"), 55.0)
+    if pool_threshold > pass_threshold:
+        pool_threshold = pass_threshold
     required_core_labels = [
         str(item or "").strip()
         for item in ((schema_config.get("score") or {}).get("required_core_dimension_labels") or [])
@@ -1609,6 +1613,24 @@ def _derive_deterministic_suggested_status(
             or actual_by_label[label].get("is_inferred") is True
         )
     ]
+    # P0-1 相关性门（fail-to-human）：核心维度有正分证据、但证据与"标签+规则说明"完全
+    # 不沾边（如银行维度引用 Python 原句）→ 不扣分，但阻止自动通过、转人工复核。
+    core_note_by_label = {
+        str(rule.get("label") or "").strip(): str(rule.get("note") or "")
+        for rule in ((schema_config.get("score") or {}).get("required_dimension_rules") or [])
+        if isinstance(rule, dict) and bool(rule.get("is_core"))
+    }
+    for label in required_core_labels:
+        dim = actual_by_label.get(label)
+        if not isinstance(dim, dict) or label in missing_core_evidence:
+            continue
+        dim_score = _parse_score_number(dim.get("score")) or 0.0
+        if float(dim_score) <= 0:
+            continue
+        if not _dimension_has_effective_evidence(dim.get("evidence")):
+            continue
+        if not _evidence_relevant_to_criterion(label, core_note_by_label.get(label, ""), dim.get("evidence")):
+            missing_core_evidence.append(f"{label}（证据与维度相关性无法确认，需人工复核）")
     if match_percent >= pass_threshold:
         status = "screening_passed"
     elif match_percent >= pool_threshold:
@@ -1701,7 +1723,7 @@ def _rebuild_dimensions_against_authoritative_rules(
         # ④未被其他维度（含改写措辞）占用，否则回退为 0 分。
         if verify_evidence and score > 0:
             evidence_items = _normalize_score_text_items(existing.get("evidence"), limit=4)
-            supporting_evidence = [
+            verbatim_evidence = [
                 item for item in evidence_items
                 if item
                 and item != "简历未提及"
@@ -1709,6 +1731,14 @@ def _rebuild_dimensions_against_authoritative_rules(
                 # P0-1 引用式核验：必须为原文逐字摘录（短语级），取代旧的模糊 token 匹配——
                 # 模糊匹配正是"简历有 Python 一词→随便撑任意维度"漏过去的地方。
                 and _evidence_verbatim_quote_in_resume(item, raw_resume_text)
+            ]
+            # P0-1 整句否定：证据自身是"能力缺失"陈述（"不具备X经验"逐字引用）→ 不是正向证据。
+            negative_statement_hit = any(
+                _evidence_text_is_negative_statement(item) for item in verbatim_evidence
+            )
+            supporting_evidence = [
+                item for item in verbatim_evidence
+                if not _evidence_text_is_negative_statement(item)
                 and not _evidence_negated_in_resume(item, raw_resume_text)
             ]
             fresh_evidence = [
@@ -1716,7 +1746,10 @@ def _rebuild_dimensions_against_authoritative_rules(
                 if _evidence_semantic_signature(item) not in used_evidence_signatures
             ]
             if not supporting_evidence:
-                warnings.append(f"维度[{label}]的 evidence 无法在简历原文中证实为逐字摘录（须为原文短语级引用），已按 0 分回退")
+                if negative_statement_hit:
+                    warnings.append(f"维度[{label}]的 evidence 为否定性陈述（原文表明该能力缺失），已按 0 分回退")
+                else:
+                    warnings.append(f"维度[{label}]的 evidence 无法在简历原文中证实为逐字摘录（须为原文短语级引用），已按 0 分回退")
                 score = 0.0
                 existing["reason"] = "简历未提及"
                 existing["evidence"] = []
@@ -1856,9 +1889,51 @@ def _rebuild_derived_score_texts(score_payload: Any) -> Tuple[Dict[str, Any], Li
     new_concerns = _normalize_score_text_items(concerns, limit=5)
     payload["advantages"] = new_advantages
     payload["concerns"] = new_concerns
+    rebuild_warnings: List[str] = []
     if new_advantages != old_advantages or new_concerns != old_concerns:
-        return payload, ["score.advantages/concerns 已按最终维度重建（模型原始文案仅留档）"]
-    return payload, []
+        rebuild_warnings.append("score.advantages/concerns 已按最终维度重建（模型原始文案仅留档）")
+    # P1：radar_scores 同样按最终维度推导——归零后模型的高分雷达不得残留（0 分淘汰却满格雷达）。
+    category_totals: Dict[str, List[float]] = {}
+    for dim in dims:
+        category = str(dim.get("radar_category") or "").strip()
+        if not category:
+            continue
+        raw_max = _parse_score_number(dim.get("max_score"))
+        max_score = float(raw_max) if raw_max is not None and math.isfinite(float(raw_max)) else 0.0
+        if max_score <= 0:
+            continue
+        raw_score = _parse_score_number(dim.get("score"))
+        score = float(raw_score) if raw_score is not None and math.isfinite(float(raw_score)) else 0.0
+        bucket = category_totals.setdefault(category, [0.0, 0.0])
+        bucket[0] += score
+        bucket[1] += max_score
+    if category_totals and isinstance(payload.get("radar_scores"), list) and payload.get("radar_scores"):
+        overall_ratio = 0.0
+        total_score_sum = sum(bucket[0] for bucket in category_totals.values())
+        total_max_sum = sum(bucket[1] for bucket in category_totals.values())
+        if total_max_sum > 0:
+            overall_ratio = total_score_sum / total_max_sum
+        rebuilt_radar: List[Dict[str, Any]] = []
+        radar_changed = False
+        for item in payload.get("radar_scores") or []:
+            if not isinstance(item, dict):
+                continue
+            category = str(item.get("category") or "").strip()
+            bucket = category_totals.get(category)
+            ratio = (bucket[0] / bucket[1]) if bucket and bucket[1] > 0 else overall_ratio
+            derived = round(min(2.0, max(0.0, ratio * 2.0)), 1)
+            original = _parse_score_number(item.get("score"))
+            if original is None or abs(float(original) - derived) > 0.05:
+                radar_changed = True
+            rebuilt = dict(item)
+            rebuilt["score"] = derived
+            rebuilt["max_score"] = 2.0
+            rebuilt_radar.append(rebuilt)
+        if rebuilt_radar:
+            payload["radar_scores"] = rebuilt_radar
+            if radar_changed:
+                rebuild_warnings.append("score.radar_scores 已按最终维度得分推导（模型原始雷达仅留档）")
+    return payload, rebuild_warnings
 
 
 def _reconcile_recommendation_with_final_status(
@@ -1876,10 +1951,13 @@ def _reconcile_recommendation_with_final_status(
     if not rec:
         return payload, []
     lowered = rec.lower()
-    if any(cue in rec or cue in lowered for cue in _POSITIVE_RECOMMENDATION_CUES):
-        payload["recommendation"] = replacement
-        return payload, ["score.recommendation 与确定性拒绝结论矛盾（原为推进类措辞），已按最终状态改写"]
-    return payload, []
+    # 拒绝结论下：与拒绝一致的措辞（淘汰/不建议/未达等）可保留（模型给的具体理由有价值）；
+    # 其余一律改写为一致结论——不只推进类措辞，任何褒扬性文案都不得配 0 分淘汰。
+    _REJECT_CONSISTENT_CUES = ("淘汰", "不建议", "不推荐", "暂不", "不匹配", "未达", "不通过", "拒绝", "不符合", "reject", "not recommend", "below threshold")
+    if any(cue in rec or cue in lowered for cue in _REJECT_CONSISTENT_CUES):
+        return payload, []
+    payload["recommendation"] = replacement
+    return payload, ["score.recommendation 与确定性拒绝结论矛盾，已按最终状态改写"]
 
 
 def sanitize_screening_payload(
@@ -2247,12 +2325,14 @@ def _build_screening_schema_config(
         if isinstance(item, dict) and str(item.get("label") or "").strip() and bool(item.get("is_core"))
     )
     normalized_status_rules = status_rules if isinstance(status_rules, dict) else {}
-    # P0-1：权威维度规则（label + 权威满分 + 是否核心），评分重建的唯一事实来源。
+    # P0-1：权威维度规则（label + 权威满分 + 是否核心 + 规则说明），评分重建的唯一事实来源；
+    # note 供核心维度"证据-维度相关性"判定使用（规则说明常含 BLE 等领域词）。
     required_dimension_rules = tuple(
         {
             "label": str(item.get("label") or "").strip(),
             "max_score": round(float(_parse_score_number(item.get("max_score")) or 0.0), 1),
             "is_core": bool(item.get("is_core")),
+            "note": str(item.get("note") or "").strip(),
         }
         for item in dimension_rules
         if isinstance(item, dict) and str(item.get("label") or "").strip()
@@ -2270,10 +2350,10 @@ def _build_screening_schema_config(
                 for item in dimension_rules
                 if isinstance(item, dict) and str(item.get("note") or "").strip()
             ),
-            "status_thresholds": {
-                "pass_threshold": _parse_score_number(normalized_status_rules.get("pass_threshold")) or 75.0,
-                "pool_threshold": _parse_score_number(normalized_status_rules.get("pool_threshold")) or 55.0,
-            },
+            # P0：阈值只有一个归一化入口（_build_status_threshold_payload，fail-closed 校验），
+            # 评分判定与 request_hash/run 快照/审计必须用同一份值——否则审计记录 75/55、
+            # 实际却按非法配置（如 -10/-20）判定，零分候选人会被放行。
+            "status_thresholds": _build_status_threshold_payload(normalized_status_rules),
         },
     }
 
@@ -4530,6 +4610,72 @@ def _evidence_negated_in_resume(item: Any, raw_text: str) -> bool:
                 # 该 token 至少有一次出现在非否定语境 → 证据可成立，不判否定。
                 return False
     return any_token_located
+
+
+# 通用词（无区分度）：不能凭它们判定证据与维度相关。
+_CRITERION_GENERIC_FRAGMENTS = {
+    "经验", "能力", "相关", "水平", "工作", "技能", "知识", "熟悉", "掌握", "了解", "理解",
+    "基础", "程度", "要求", "方面", "情况", "应用", "使用", "负责", "参与", "具备", "以上",
+    "年限", "岗位", "职位", "任职", "从业", "评估", "考察", "维度", "标准", "综合", "整体",
+    "必须", "提供", "简历", "原文", "证据", "需要", "体现", "优先", "核心", "第一", "说明",
+}
+
+
+def _criterion_distinctive_fragments(label: Any, note: Any = "") -> set:
+    """从维度标签+规则说明抽取有区分度的片段：英文 token + 中文 2-gram，剔除通用词。"""
+    fragments: set = set()
+    for source in (label, note):
+        text = str(source or "")
+        for tok in re.findall(r"[a-zA-Z][a-zA-Z0-9+_.\-]{1,24}", text.lower()):
+            if len(tok) >= 2:
+                fragments.add(tok)
+        for run in re.findall(r"[一-鿿]{2,}", text):
+            if len(run) == 2:
+                fragments.add(run)
+            else:
+                for i in range(len(run) - 1):
+                    fragments.add(run[i:i + 2])
+    return {f for f in fragments if f not in _CRITERION_GENERIC_FRAGMENTS}
+
+
+def _evidence_relevant_to_criterion(label: Any, note: Any, evidence_items: Any) -> bool:
+    """P0-1 维度相关性（fail-to-human，不 fail-to-zero）：证据文本须与"标签+规则说明"的
+    某个区分度片段沾边。判不了相关的**不扣分**，只阻止自动通过、转人工复核——
+    确定性字符串匹配存在误判空间，误判的代价必须是"人工看一眼"而不是"错杀真实候选人"。
+    标签+说明没有任何区分度片段时不拦截。
+    """
+    fragments = _criterion_distinctive_fragments(label, note)
+    if not fragments:
+        return True
+    haystack = " ".join(
+        str(item or "") for item in (evidence_items if isinstance(evidence_items, (list, tuple)) else [evidence_items])
+    ).lower()
+    if not haystack.strip():
+        return False
+    return any(fragment in haystack for fragment in fragments)
+
+
+# 整句否定句式（高精度）：证据文本自身就是"能力缺失"的陈述。"无X经验"排除无线/无人/
+# 无缝/无损/无源等复合词；"未X使用/参与"避免误伤"未来"。
+_NEGATIVE_STATEMENT_PATTERNS = (
+    re.compile(r"(没有|不具备|缺乏|从未|未曾|并未|尚未|暂无|不熟悉|不了解|不会使用|无法胜任|不曾)"),
+    re.compile(r"(?:^|[，。；、：\s(（])无(?!线|人|缝|损|源|数)[^，。；、\s]{0,12}(经验|经历|背景|接触)"),
+    re.compile(r"未[^，。；、\s]{0,10}(使用过|接触过|参与过|从事过)"),
+    re.compile(r"\bno\s+[a-z][^,.;]{0,40}\bexperience\b", re.IGNORECASE),
+    re.compile(r"\bnever\s+(used|worked)\b", re.IGNORECASE),
+    re.compile(r"\bwithout\s+[^,.;]{0,30}\bexperience\b", re.IGNORECASE),
+)
+
+
+def _evidence_text_is_negative_statement(item: Any) -> bool:
+    """P0-1：证据文本本身是否定性陈述（如逐字引用"不具备银行核心系统经验"）——
+    原文确实存在、逐字也能核验，但它证明的是"没有"而不是"有"，不得作为正向证据。
+    窗口式否定检测（_evidence_negated_in_resume）只看 token 前文，检测不了这种情况。
+    """
+    text = _resume_item_to_report_text(item)
+    if not text:
+        return False
+    return any(pattern.search(text) for pattern in _NEGATIVE_STATEMENT_PATTERNS)
 
 
 def _evidence_verbatim_quote_in_resume(item: Any, raw_text: str) -> bool:
@@ -9148,6 +9294,8 @@ class RecruitmentService:
             self._sync_candidate_related_org_code(candidate, getattr(position, "org_code", None))
         candidate.position_id = next_position_id
         candidate.updated_by = actor_id
+        # 任何权威改岗（人工或 AI 指派）都自增业务版本——在途初筛 run 的评分口径已失效。
+        self._bump_candidate_business_revision(candidate)
         workflow = self._get_workflow_memory(candidate.id)
         if workflow:
             workflow.position_id = candidate.position_id
@@ -12624,6 +12772,8 @@ class RecruitmentService:
             or request_temperature is None
             or total_score_scale is None
             or total_score_scale <= 0
+            # P1：状态阈值属于评估协议——没有阈值口径的旧工件降级为不可严格对比（fail-closed）。
+            or not str(request_meta.get("status_thresholds_hash") or "").strip()
         ):
             return None, "artifact_legacy"
         expected_parse_strategy = {
@@ -12686,6 +12836,8 @@ class RecruitmentService:
             "score_rule_snapshot": score_rule_snapshot,
             "position_snapshot": position_snapshot,
             "temporary_requirements": custom_requirements,
+            # 阈值不同的两次初筛不可严格对比（同分不同判），纳入协议指纹。
+            "status_thresholds_hash": str(request_meta.get("status_thresholds_hash") or "").strip(),
             "prompt": {
                 "version": prompt_version,
                 "system_prompt": system_prompt,
@@ -13876,6 +14028,8 @@ class RecruitmentService:
                 if "hr_feedback_reason" in payload:
                     score_row.hr_feedback_reason = payload.get("hr_feedback_reason")
                 self.db.add(score_row)
+        # 人工编辑档案/人工改分都自增业务版本，作废在途初筛 run 的晋级资格。
+        self._bump_candidate_business_revision(candidate)
         self.db.add(candidate)
         self.db.commit()
         self.db.refresh(candidate)
@@ -13907,6 +14061,7 @@ class RecruitmentService:
         for candidate_id in candidate_ids:
             candidate = self._get_candidate(candidate_id)
             self._apply_candidate_status_transition(candidate, status, reason, actor_id, "manual")
+            self._bump_candidate_business_revision(candidate)
             self.db.add(candidate)
             updated += 1
         self.db.commit()
@@ -15056,6 +15211,7 @@ class RecruitmentService:
     def update_candidate_status(self, candidate_id: int, status: str, reason: str, actor_id: str) -> Dict[str, Any]:
         candidate = self._get_candidate(candidate_id)
         self._apply_candidate_status_transition(candidate, status, reason, actor_id, "manual")
+        self._bump_candidate_business_revision(candidate)
         self.db.add(candidate)
         self.db.commit()
         self.db.refresh(candidate)
@@ -17981,6 +18137,15 @@ class RecruitmentService:
             position_list_lines.append(line)
         return "\n".join(position_list_lines) if position_list_lines else "暂无系统岗位"
 
+    def _bump_candidate_business_revision(self, candidate: Any) -> None:
+        """人工决策优先（P0）：HR 的每次人工修改（状态/岗位/档案）自增业务版本号。
+        运行中的初筛 run 冻结了入队时的版本，晋级时不一致即判过期——不再靠状态值猜测
+        "是否人工改过"，初筛域内的人工改动（如手动淘汰）同样受保护。"""
+        try:
+            candidate.business_revision = int(getattr(candidate, "business_revision", 0) or 0) + 1
+        except (TypeError, ValueError):
+            pass
+
     def _ai_match_stale_reason(self, candidate: Any, expected_before_position_id: Optional[int]) -> Optional[str]:
         """AI 岗位匹配落库前的 CAS 判定：候选人不存在/被删/岗位相对入队快照已改动 → 结果过期。
 
@@ -18108,11 +18273,13 @@ class RecruitmentService:
             RecruitmentCandidate.deleted,
             RecruitmentCandidate.active_screening_run_id,
             RecruitmentCandidate.status,
+            RecruitmentCandidate.business_revision,
+            RecruitmentCandidate.screening_generation,
         ).filter(RecruitmentCandidate.id == candidate.id).with_for_update().first()
         if row is None:
             return "candidate_deleted"
         try:
-            current_resume_file_id, current_position_id, deleted, current_active_run_id, current_status = row
+            current_resume_file_id, current_position_id, deleted, current_active_run_id, current_status, current_business_revision, current_generation = row
         except (TypeError, ValueError):
             # 非真实 DB 行（如单测 Mock）无法判定，按未过期处理，不阻断晋级。
             return None
@@ -18127,6 +18294,40 @@ class RecruitmentService:
                 candidate.id, normalized_status,
             )
             return "candidate_status_advanced"
+        # P0：业务版本 + 代次 CAS——run 冻结了入队时的 business_revision 与自身 generation。
+        # 任何人工修改（含初筛域内的手动淘汰/改岗/改档案/人工改分）自增版本 → 过期留档；
+        # 候选人当前代次已超过本 run 的代次（有更新的 run，无论其在途还是已完成）→ 过期。
+        # 代次比较不依赖 active 指针存活（晋级/终态会清 active），乱序保护不因此失效。
+        if expected_run_id is not None:
+            try:
+                run_meta_row = self.db.query(
+                    RecruitmentCandidateScreeningRun.expected_candidate_revision,
+                    RecruitmentCandidateScreeningRun.generation,
+                ).filter(RecruitmentCandidateScreeningRun.id == expected_run_id).first()
+            except Exception:
+                run_meta_row = None
+            expected_revision = run_meta_row[0] if run_meta_row is not None else None
+            run_generation = run_meta_row[1] if run_meta_row is not None else None
+            if expected_revision is not None:
+                try:
+                    if int(current_business_revision or 0) != int(expected_revision):
+                        logger.warning(
+                            "[SCREENING_CAS] Superseded (candidate_revision_changed) candidate_id=%s expected_rev=%s current_rev=%s",
+                            candidate.id, expected_revision, current_business_revision,
+                        )
+                        return "candidate_revision_changed"
+                except (TypeError, ValueError):
+                    pass
+            if run_generation is not None and current_generation is not None:
+                try:
+                    if int(run_generation) < int(current_generation):
+                        logger.warning(
+                            "[SCREENING_CAS] Superseded (generation_changed) candidate_id=%s run_generation=%s current_generation=%s",
+                            candidate.id, run_generation, current_generation,
+                        )
+                        return "generation_changed"
+                except (TypeError, ValueError):
+                    pass
         # 取消屏障：本 run 已取消/已终态则立即判过期，绝不覆盖候选人权威结果或触发通知。
         run_block_reason = self._detect_run_cancellation_block(expected_run_id)
         if run_block_reason:
@@ -18682,6 +18883,7 @@ class RecruitmentService:
             request_hash=str(meta.get("request_hash") or "").strip() or None,
             expected_resume_file_id=int(getattr(candidate, "latest_resume_file_id", 0) or 0) or None,
             expected_position_id=int(getattr(candidate, "position_id", 0) or 0) or None,
+            expected_candidate_revision=int(getattr(target, "business_revision", 0) or 0),
             resume_hash=str(meta.get("raw_resume_text_hash") or "").strip() or None,
             position_snapshot_hash=str(meta.get("position_snapshot_hash") or "").strip() or None,
             score_rule_snapshot_hash=str(meta.get("score_rule_snapshot_hash") or "").strip() or None,
@@ -18777,6 +18979,10 @@ class RecruitmentService:
         if target_status in {"promoted", "success"}:
             run.promoted_at = now
             run.completed_at = now
+            # P1：晋级后 run 不再"在途"，active 指针一并清空（与其他终态一致）。
+            # 必须先清（内部 populate_existing 会刷新候选人行）、后写 latest 指针，
+            # 否则刷新会吞掉尚未 flush 的 latest_screening_run_id。
+            self._clear_active_run_pointer_if_matches(run)
             if promote_candidate is not None:
                 promote_candidate.latest_screening_run_id = run.id
                 self.db.add(promote_candidate)
@@ -18823,9 +19029,8 @@ class RecruitmentService:
         if run is None:
             return
         if run.status in {"promoted", "success", "superseded", "cancelled", "failed", "invalid_result", "timeout"}:
-            # 已终态：不覆盖，但确保非晋级终态不残留 active 指针。
-            if run.status not in {"promoted", "success"}:
-                self._clear_active_run_pointer_if_matches(run)
+            # 已终态：不覆盖，但确保任何终态都不残留 active 指针（run 已不在途）。
+            self._clear_active_run_pointer_if_matches(run)
             return
         parse_result_id = getattr(parse_row, "id", None)
         score_result_id = getattr(score_row, "id", None)
@@ -20862,7 +21067,19 @@ class RecruitmentService:
                 getattr(candidate, "id", None), getattr(score_row, "id", None), getattr(score_row, "_superseded_reason", None),
             )
             return
+        # P0：权威指针必须加锁从数据库重读——旧 Session 的内存对象可能仍是过期值
+        # （DB 已是 latest=2、旧会话内存还是 1），拿内存值比对会放行旧 run 覆盖工作流指针。
         current_latest_score_id = getattr(candidate, "latest_score_id", None)
+        try:
+            fresh_row = self.db.query(
+                RecruitmentCandidate.latest_score_id,
+            ).filter(RecruitmentCandidate.id == candidate.id).with_for_update().first()
+            if fresh_row is not None:
+                (current_latest_score_id,) = fresh_row
+        except (TypeError, ValueError):
+            pass  # 非真实 DB 行（单测 Mock）退回内存值
+        except Exception:
+            logger.debug("workflow gate fresh-read failed, fallback to in-memory value", exc_info=True)
         score_row_id = getattr(score_row, "id", None)
         if score_row_id and current_latest_score_id and int(current_latest_score_id) != int(score_row_id):
             logger.warning(
@@ -22249,7 +22466,25 @@ class RecruitmentService:
                     force_fallback=force_fallback,
                     allow_reuse_parse=allow_reuse_parse,
                     allow_score_only_rerun=allow_score_only_rerun,
+                    defer_commit=True,
                 )
+                # P1：缓存命中同样必须留下不可变 Run——"成功初筛却无 Run"破坏权威口径的
+                # 完整审计链；defer + 单次提交（在 _finish 内）同时堵住"有 task 无 run"窗口。
+                cache_run = self._open_screening_run(
+                    candidate=candidate,
+                    root_task_id=log_row.id,
+                    screening_run_key=log_row.screening_run_id,
+                    request_meta=request_meta,
+                    actor_id=actor_id,
+                )
+                if cache_run is not None:
+                    self._mark_screening_run_status(
+                        cache_run.id,
+                        status="promoted",
+                        parse_result_id=getattr(reusable_parse_row, "id", None),
+                        score_result_id=getattr(reusable_score_row, "id", None),
+                        promote_candidate=candidate,
+                    )
                 self._finish_ai_task_log(
                     log_row,
                     status="success",
@@ -22444,7 +22679,7 @@ class RecruitmentService:
         )
         visible_org_codes = [normalize_org_code(code) for code in (context.visible_org_codes or ())]
         query = query.filter(
-            RecruitmentAITaskLog.related_candidate_id.in_(visible_candidate_ids.subquery()),
+            RecruitmentAITaskLog.related_candidate_id.in_(visible_candidate_ids.scalar_subquery()),
             RecruitmentAITaskLog.org_code.in_(visible_org_codes) if visible_org_codes else False,
         )
         if context.is_self_scope:

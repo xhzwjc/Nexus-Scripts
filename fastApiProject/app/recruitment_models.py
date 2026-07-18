@@ -107,6 +107,9 @@ class RecruitmentCandidate(Base):
     screening_generation = Column(Integer, default=0, nullable=False)
     active_screening_run_id = Column(Integer, index=True)
     latest_screening_run_id = Column(Integer, index=True)
+    # 人工决策优先（P0）：HR 对状态/岗位/档案的每次人工修改自增此版本号；
+    # 初筛 run 在入队时冻结 expected_candidate_revision，晋级时不一致即过期留档。
+    business_revision = Column(Integer, default=0, nullable=False)
     owner_id = Column(String(100), index=True)
     created_by = Column(String(100))
     updated_by = Column(String(100))
@@ -305,6 +308,7 @@ class RecruitmentCandidateScreeningRun(Base):
     expected_resume_file_id = Column(Integer)
     expected_position_id = Column(Integer)
     resume_hash = Column(String(120))
+    expected_candidate_revision = Column(Integer)
     position_snapshot_hash = Column(String(120))
     score_rule_snapshot_hash = Column(String(120))
     status_thresholds_hash = Column(String(120))

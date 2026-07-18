@@ -547,6 +547,101 @@ def test_advantages_rebuilt_from_final_dimensions_after_zeroing():
     assert any("已按最终维度重建" in w for w in meta["warnings"])
 
 
+def test_invalid_thresholds_fail_closed_in_real_scoring_chain():
+    """P0（re2 复现）：配置 pass=-10/pool=-20 时，真实评分链（schema 构建→状态推导）
+    必须回退默认阈值——0 分候选人绝不能 screening_passed，且判定与审计口径同源。"""
+    from app.services.recruitment_service_impl import _build_screening_schema_config
+
+    skills = [{"id": 1, "name": "初筛规则", "content": "| 维度 | 权重 | 满分 | 说明 |\n| --- | --- | --- | --- |\n| IoT协议 | 100% | 10 | 核心 |"}]
+    schema_config = _build_screening_schema_config(skills, status_rules={"pass_threshold": -10, "pool_threshold": -20})
+    assert schema_config["score"]["status_thresholds"] == {"pass_threshold": 75.0, "pool_threshold": 55.0}
+    payload = {
+        "parsed_resume": _empty_parsed_resume(),
+        "score": {
+            "total_score": 0, "match_percent": 0,
+            "advantages": [], "concerns": ["无相关经验"],
+            "recommendation": "建议面试", "suggested_status": "screening_passed",
+            "dimensions": [
+                {"label": "IoT协议", "score": 0.0, "max_score": 10.0, "reason": "简历未提及", "evidence": [], "is_inferred": False},
+            ],
+        },
+    }
+    sanitized, meta = sanitize_screening_payload(payload, schema_config, raw_resume_text="候选人简历：无相关经验，仅了解基础办公软件操作。")
+    assert sanitized["score"]["suggested_status"] == "screening_rejected", "非法阈值下 0 分必须拒绝"
+
+
+def test_full_sentence_negative_evidence_is_rejected():
+    """P0-1（re2 复现）：证据逐字引用了原文的否定句（"不具备银行核心系统经验"）——
+    原文确实存在、逐字核验能过，但它证明"没有"，不得作为正向证据。"""
+    schema_config = {
+        "parsed_resume": SCREENING_PAYLOAD_SCHEMA_CONFIG["parsed_resume"],
+        "score": {
+            **SCREENING_PAYLOAD_SCHEMA_CONFIG["score"],
+            "required_dimension_labels": ("银行核心系统经验", "容器编排"),
+            "required_dimension_rules": (
+                {"label": "银行核心系统经验", "max_score": 5.0, "is_core": True},
+                {"label": "容器编排", "max_score": 5.0, "is_core": False},
+            ),
+            "max_possible_score": 10.0,
+            "status_thresholds": {"pass_threshold": 75.0, "pool_threshold": 55.0},
+        },
+    }
+    payload = {
+        "parsed_resume": _empty_parsed_resume(),
+        "score": {
+            "total_score": 10, "match_percent": 100,
+            "advantages": ["背景全面"], "concerns": [],
+            "recommendation": "建议面试", "suggested_status": "screening_passed",
+            "dimensions": [
+                {"label": "银行核心系统经验", "score": 5.0, "max_score": 5.0, "reason": "命中", "evidence": ["不具备银行核心系统经验"], "is_inferred": False},
+                {"label": "容器编排", "score": 5.0, "max_score": 5.0, "reason": "命中", "evidence": ["没有在生产环境使用过 Kubernetes"], "is_inferred": False},
+            ],
+        },
+    }
+    raw = "候选人简历：不具备银行核心系统经验；没有在生产环境使用过 Kubernetes。"
+    sanitized, meta = sanitize_screening_payload(payload, schema_config, raw_resume_text=raw)
+    dims = {d["label"]: d for d in sanitized["score"]["dimensions"]}
+    assert dims["银行核心系统经验"]["score"] == 0.0
+    assert dims["容器编排"]["score"] == 0.0
+    assert sanitized["score"]["total_score"] == 0.0
+    assert any("否定性陈述" in w for w in meta["warnings"])
+
+
+def test_irrelevant_full_sentence_blocks_auto_pass_routes_to_review():
+    """P0-1（re2 复现）：核心维度引用了真实但无关的完整原句（Python 句子撑银行维度）——
+    不归零（避免错杀），但阻止自动通过、转人才库人工复核。"""
+    schema_config = {
+        "parsed_resume": SCREENING_PAYLOAD_SCHEMA_CONFIG["parsed_resume"],
+        "score": {
+            **SCREENING_PAYLOAD_SCHEMA_CONFIG["score"],
+            "required_dimension_labels": ("银行核心系统经验",),
+            "required_core_dimension_labels": ("银行核心系统经验",),
+            "required_dimension_rules": (
+                {"label": "银行核心系统经验", "max_score": 10.0, "is_core": True, "note": "需十年以上银行核心系统建设经验"},
+            ),
+            "max_possible_score": 10.0,
+            "status_thresholds": {"pass_threshold": 75.0, "pool_threshold": 55.0},
+        },
+    }
+    payload = {
+        "parsed_resume": _empty_parsed_resume(),
+        "score": {
+            "total_score": 10, "match_percent": 100,
+            "advantages": ["经验丰富"], "concerns": [],
+            "recommendation": "建议面试", "suggested_status": "screening_passed",
+            "dimensions": [
+                {"label": "银行核心系统经验", "score": 10.0, "max_score": 10.0, "reason": "命中", "evidence": ["使用 Python 编写自动化测试脚本"], "is_inferred": False},
+            ],
+        },
+    }
+    raw = "候选人简历：使用 Python 编写自动化测试脚本，参与测试平台建设。"
+    sanitized, meta = sanitize_screening_payload(payload, schema_config, raw_resume_text=raw)
+    score = sanitized["score"]
+    assert score["dimensions"][0]["score"] == 10.0, "相关性存疑不扣分（避免错杀）"
+    assert score["suggested_status"] == "talent_pool", "但绝不允许自动通过，转人工复核"
+    assert any("相关性无法确认" in w for w in meta["warnings"])
+
+
 def test_recommendation_rewritten_when_final_status_is_reject():
     """P0-6：证据归零导致确定性拒绝时，模型残留的"建议面试"推进措辞被改写为一致结论，
     消除"0 分拒绝却建议面试"的矛盾。"""
@@ -579,4 +674,4 @@ def test_recommendation_rewritten_when_final_status_is_reject():
     assert score["total_score"] == 0.0                       # 伪造证据归零
     assert score["suggested_status"] == "screening_rejected"  # 确定性拒绝
     assert "建议面试" not in str(score.get("recommendation") or "")  # 矛盾措辞已改写
-    assert any("推进类措辞" in w for w in meta["warnings"])
+    assert any("已按最终状态改写" in w for w in meta["warnings"])

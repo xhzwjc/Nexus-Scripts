@@ -264,6 +264,8 @@ def _add_strict_candidate(
         "position_snapshot": position_payload,
         "score_rule_snapshot_hash": _build_json_content_hash(rules),
         "custom_requirements_hash": _build_resume_content_hash("Must have production Python experience."),
+        # P1：阈值口径纳入严格可比协议（同分不同判的两次初筛不可对比）
+        "status_thresholds_hash": _build_json_content_hash({"pass_threshold": 75.0, "pool_threshold": 55.0}),
         "prompt_version": "screening-v3",
         "provider": "openai-compatible",
         "model_name": model_name,

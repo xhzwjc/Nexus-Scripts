@@ -2282,6 +2282,53 @@ def test_parse_data_lands_on_candidate_only_at_promotion():
         db.close()
 
 
+def test_hr_manual_reject_inside_screening_domain_blocks_late_promotion():
+    """P0（re2 复现）：HR 在 AI 运行期间手动把候选人改为 screening_rejected（初筛域内）——
+    business_revision 自增使迟到 AI 结果过期留档，绝不改回 screening_passed。"""
+    from app.recruitment_models import RecruitmentResumeFile, RecruitmentResumeParseResult, RecruitmentCandidateScreeningRun
+    from app.services.recruitment_service_impl import RAW_SCREENING_SCORE_STORAGE_FORMAT
+    db = _build_test_db()
+    try:
+        _seed_org_tree(db)
+        candidate = _add_candidate(db, org_code="chunmiao-rd", position_id=None, name="人工淘汰候选人", created_by="rd-user")
+        resume = RecruitmentResumeFile(candidate_id=candidate.id, org_code="chunmiao-rd", original_name="r.pdf", stored_name="r.pdf", storage_path="/tmp/r.pdf", parse_status="success", uploaded_by="rd-user")
+        db.add(resume)
+        db.flush()
+        candidate.latest_resume_file_id = resume.id
+        candidate.status = "pending_screening"
+        parse_row = RecruitmentResumeParseResult(candidate_id=candidate.id, resume_file_id=resume.id, org_code="chunmiao-rd", raw_text="raw", status="success")
+        db.add(parse_row)
+        db.flush()
+        db.commit()
+        service = RecruitmentService(db)
+        run = service._open_screening_run(candidate=candidate, root_task_id=601, screening_run_key="k", request_meta={"request_hash": "h"}, actor_id="rd-user")
+        db.commit()
+        assert run.expected_candidate_revision == 0
+
+        # HR 在运行期间手动淘汰（走真实服务方法 → business_revision 自增）
+        service.update_candidate_status(candidate.id, "screening_rejected", "人工判断不合适", "hr-user")
+        db.refresh(candidate)
+        assert candidate.business_revision == 1
+        assert candidate.status == "screening_rejected"
+
+        # 迟到的 AI 结果尝试晋级 → revision CAS 判过期
+        content = {
+            "_storage_format": RAW_SCREENING_SCORE_STORAGE_FORMAT,
+            "score": {"total_score": 9.0, "match_percent": 90, "advantages": ["强"], "concerns": [], "recommendation": "建议面试", "suggested_status": "screening_passed", "dimensions": []},
+        }
+        service._current_screening_run_id = run.id
+        score_row = service._save_score_result(candidate, parse_row, "rd-user", content, allow_status_advance=True)
+        db.commit()
+        db.refresh(candidate)
+        db.refresh(run)
+        assert getattr(score_row, "_superseded_reason", None) == "candidate_revision_changed"
+        assert candidate.status == "screening_rejected", "人工淘汰不得被迟到 AI 改回通过"
+        assert candidate.latest_score_id is None
+        assert run.status == "superseded"
+    finally:
+        db.close()
+
+
 def test_ai_match_result_discarded_when_position_changed_during_run():
     """P0 #5：AI 职位匹配 CAS——模型运行期间 HR 手动改岗，则迟到的 AI 结果作废，
     绝不覆盖人工指派。重新识别场景（expected==current）仍可落库。"""

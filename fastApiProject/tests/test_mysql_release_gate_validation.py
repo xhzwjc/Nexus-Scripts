@@ -294,6 +294,95 @@ def test_atomic_enqueue_dispatcher_cannot_see_runless_task(mysql_db):
         dispatcher.close()
 
 
+def test_hr_reject_inside_screening_domain_blocks_late_ai(mysql_db):
+    """re2 P0-3 复现：HR 双会话在 AI 运行期间手动 screening_rejected（初筛域内）——
+    business_revision CAS 使迟到 AI 结果过期，绝不改回 screening_passed。"""
+    from app.recruitment_models import RecruitmentCandidate, RecruitmentCandidateScreeningRun
+    from app.services.recruitment_service_impl import RecruitmentService
+
+    candidate, parse = _seed_candidate(mysql_db, f"{MARKER_PREFIX}-HRREJ")
+    service = RecruitmentService(mysql_db)
+    run = service._open_screening_run(candidate=candidate, root_task_id=990007, screening_run_key="k", request_meta={}, actor_id="mysqlgate")
+    run.status = "running"
+    mysql_db.add(run)
+    mysql_db.commit()
+    assert run.expected_candidate_revision is not None
+
+    # HR 会话：手动淘汰（走真实服务方法 → business_revision 自增）
+    hr_db = _new_session()
+    try:
+        hr_service = RecruitmentService(hr_db)
+        hr_service.update_candidate_status(candidate.id, "screening_rejected", "人工判断不合适", "hr-user")
+    finally:
+        hr_db.close()
+
+    service._current_screening_run_id = run.id
+    score_row = service._save_score_result(candidate, parse, "mysqlgate", _score_content(), allow_status_advance=True)
+    mysql_db.commit()
+
+    fresh = _new_session()
+    try:
+        fresh_candidate = fresh.query(RecruitmentCandidate).filter(RecruitmentCandidate.id == candidate.id).first()
+        fresh_run = fresh.query(RecruitmentCandidateScreeningRun).filter(RecruitmentCandidateScreeningRun.id == run.id).first()
+        assert getattr(score_row, "_superseded_reason", None) == "candidate_revision_changed"
+        assert fresh_candidate.status == "screening_rejected", "人工淘汰不得被迟到 AI 改回通过"
+        assert fresh_candidate.latest_score_id is None
+        assert fresh_run.status == "superseded"
+    finally:
+        fresh.close()
+
+
+def test_workflow_gate_rejects_stale_session_pointer(mysql_db):
+    """re2 P0-4 复现：旧会话内存里 latest_score_id 仍是旧值，DB 已被新会话更新——
+    工作流门控必须加锁重读 DB，旧 run 不得把工作流指针写回旧评分。"""
+    from app.recruitment_models import RecruitmentCandidate, RecruitmentCandidateScore, RecruitmentCandidateWorkflowMemory
+    from app.services.recruitment_service_impl import RecruitmentService, json_dumps_safe
+
+    candidate, parse = _seed_candidate(mysql_db, f"{MARKER_PREFIX}-WFSTALE")
+    old_score = RecruitmentCandidateScore(
+        org_code="group", candidate_id=candidate.id, parse_result_id=parse.id,
+        score_json=json_dumps_safe({"score": {"total_score": 6.0}}), total_score=6.0, match_percent=60,
+    )
+    mysql_db.add(old_score)
+    mysql_db.flush()
+    candidate.latest_score_id = old_score.id
+    mysql_db.commit()
+
+    # 新会话：写入新评分并把权威指针推进到新值
+    new_db = _new_session()
+    try:
+        fresh_candidate = new_db.query(RecruitmentCandidate).filter(RecruitmentCandidate.id == candidate.id).with_for_update().first()
+        new_score = RecruitmentCandidateScore(
+            org_code="group", candidate_id=candidate.id, parse_result_id=parse.id,
+            score_json=json_dumps_safe({"score": {"total_score": 9.0}}), total_score=9.0, match_percent=90,
+        )
+        new_db.add(new_score)
+        new_db.flush()
+        fresh_candidate.latest_score_id = new_score.id
+        new_db.commit()
+        new_score_id = new_score.id
+    finally:
+        new_db.close()
+
+    # 旧会话（内存 latest 仍指旧评分）尝试用旧评分写工作流 → 门控加锁重读 DB 后拒绝
+    service = RecruitmentService(mysql_db)
+    assert candidate.latest_score_id == old_score.id  # 旧会话内存确实是旧值
+    service._save_screening_workflow_memory(
+        candidate=candidate, actor_id="mysqlgate", parse_row=parse, score_row=old_score,
+        memory_source="test", related_skill_ids=[], custom_requirements="",
+    )
+    mysql_db.commit()
+
+    fresh = _new_session()
+    try:
+        workflow = fresh.query(RecruitmentCandidateWorkflowMemory).filter(RecruitmentCandidateWorkflowMemory.candidate_id == candidate.id).first()
+        fresh_candidate = fresh.query(RecruitmentCandidate).filter(RecruitmentCandidate.id == candidate.id).first()
+        assert fresh_candidate.latest_score_id == new_score_id, "权威指针必须保持新评分"
+        assert workflow is None or getattr(workflow, "latest_score_id", None) != old_score.id, "旧 run 不得把工作流指针写回旧评分"
+    finally:
+        fresh.close()
+
+
 def test_failed_batch_never_emails_even_with_historical_pass(mysql_db):
     """P0-5：本批根任务失败时，即使候选人有历史通过分（latest_score_id 有值）也绝不发信；
     正控：success 根任务 + promoted run + run 评分==latest 才发。"""
