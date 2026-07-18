@@ -2059,24 +2059,13 @@ def sanitize_screening_payload(
             repair_warnings.extend(derived_warnings)
         sanitized_payload["score"] = sanitized_score
 
-    # P0 安全拦截：简历文本含注入/操纵内容（伪造定界符、覆盖指令、满分诱导）→
-    # 不自动拒绝（可能是误粘贴），但绝不允许自动通过，转人工复核。
-    if str(raw_resume_text or "").strip():
-        manipulation_hit = _detect_resume_manipulation_text(raw_resume_text)
-        if manipulation_hit:
-            repair_warnings.append(f"{manipulation_hit}，已阻止自动通过并转人工复核")
-            if sanitized_score.get("suggested_status") == "screening_passed":
-                sanitized_score["suggested_status"] = "talent_pool"
-                normalized_final_suggested_status = "talent_pool"
-                sanitized_payload["score"] = sanitized_score
-
-    # 显式复核标记：相关性存疑/注入拦截导致的 talent_pool 与普通"分数不够进人才库"不同，
-    # 打上 review_required 供落库时写入专属 talent_pool_reason（前端可区分展示）。
-    if str(sanitized_score.get("suggested_status") or "") == "talent_pool" and any(
-        ("需人工复核" in str(w)) or ("已阻止自动通过" in str(w)) for w in repair_warnings
-    ):
-        sanitized_score["review_required"] = True
-        sanitized_payload["score"] = sanitized_score
+    # P0 安全终局（fast/full 共用）：注入拦截阻止自动通过 + 待人工复核标记。
+    sanitized_score, normalized_final_suggested_status = _apply_screening_security_finalization(
+        sanitized_score, repair_warnings,
+        raw_resume_text=raw_resume_text,
+        normalized_final_suggested_status=normalized_final_suggested_status,
+    )
+    sanitized_payload["score"] = sanitized_score
 
     warnings = _normalize_score_warning_items(
         [
@@ -2308,6 +2297,14 @@ def sanitize_screening_payload_fast(
             sanitized_score, derived_warnings = _rebuild_derived_score_texts(sanitized_score)
             repair_warnings.extend(derived_warnings)
         sanitized_payload["score"] = sanitized_score
+
+    # P0 安全终局（fast/full 共用）：生产 one-pass 默认走本链，注入拦截必须在此生效。
+    sanitized_score, normalized_final_suggested_status = _apply_screening_security_finalization(
+        sanitized_score, repair_warnings,
+        raw_resume_text=raw_resume_text,
+        normalized_final_suggested_status=normalized_final_suggested_status,
+    )
+    sanitized_payload["score"] = sanitized_score
 
     return sanitized_payload, {
         "warnings": repair_warnings,
@@ -4642,7 +4639,7 @@ def _evidence_negated_in_resume(item: Any, raw_text: str) -> bool:
             continue
         any_token_located = True
         for pos in occurrences:
-            window = searchable[max(0, pos - 8):pos]
+            window = searchable[max(0, pos - 16):pos]
             cjk_negated = any(cue in window for cue in _EVIDENCE_NEGATION_CUES_CJK)
             en_negated = any(cue in (window + " ") for cue in _EVIDENCE_NEGATION_CUES_EN)
             if not (cjk_negated or en_negated):
@@ -4692,7 +4689,13 @@ def _evidence_relevant_to_criterion(label: Any, note: Any, evidence_items: Any) 
     ).lower()
     if not haystack.strip():
         return False
-    return any(fragment in haystack for fragment in fragments)
+    # 单个二元片段（如"系统"级泛词切片）命中不足以证明相关（复审反例：
+    # "负责企业业务系统升级"撑起"银行核心系统经验"）——须 ≥2 个不同片段命中，
+    # 或命中一个 ≥3 长度的强片段（如 ble/iot/具体术语）。
+    hits = {fragment for fragment in fragments if fragment in haystack}
+    if not hits:
+        return False
+    return len(hits) >= 2 or any(len(h) >= 3 for h in hits)
 
 
 # 整句否定句式（高精度）：证据文本自身就是"能力缺失"的陈述。"无X经验"排除无线/无人/
@@ -4702,6 +4705,12 @@ _NEGATIVE_STATEMENT_PATTERNS = (
     re.compile(r"(?:^|[，。；、：\s(（])无(?!线|人|缝|损|源|数)[^，。；、\s]{0,12}(经验|经历|背景|接触)"),
     re.compile(r"未[^，。；、\s]{0,10}(使用过|接触过|参与过|从事过)"),
     re.compile(r"(零经验|经验为零|经验缺失|经验空白|0\s*年经验)"),
+    re.compile(r"经验[:：]\s*(无|没有|暂无|none|n/?a|0)\b", re.IGNORECASE),
+    # 求职意向/目标不是能力事实：引用"银行核心系统岗位是我的求职方向"不构成银行经验证据。
+    re.compile(r"(求职方向|求职意向|期望岗位|意向岗位|目标岗位|应聘方向|期望从事|希望从事|职业目标|职业规划)"),
+    re.compile(r"\b(career\s+objective|job\s+objective|desired\s+position|target\s+(role|position))\b", re.IGNORECASE),
+    # JD/招聘要求语境：引用岗位职责文本不构成候选人自身经历证据。
+    re.compile(r"(岗位职责|任职要求|招聘要求|任职资格)"),
     re.compile(r"\bno\s+[a-z][^,.;]{0,40}\bexperience\b", re.IGNORECASE),
     re.compile(r"\bnever\s+(used|worked)\b", re.IGNORECASE),
     re.compile(r"\bwithout\s+[^,.;]{0,30}\bexperience\b", re.IGNORECASE),
@@ -4720,6 +4729,32 @@ _RESUME_MANIPULATION_PATTERNS = (
     re.compile(r"\bsystem\s*prompt\b", re.IGNORECASE),
     re.compile(r"(你是|you\s+are)\s*(一个)?\s*(ats|评分引擎|screening\s+engine)", re.IGNORECASE),
 )
+
+
+def _apply_screening_security_finalization(
+    sanitized_score: Dict[str, Any],
+    repair_warnings: List[str],
+    *,
+    raw_resume_text: str,
+    normalized_final_suggested_status: Optional[str],
+) -> Tuple[Dict[str, Any], Optional[str]]:
+    """安全终局（fast/full 两条链共用，P0）：注入/操纵拦截阻止自动通过 + 待人工复核标记。
+
+    生产 one-pass 默认走 fast 链——安全逻辑只在 full 链等于没有（复审复现：
+    简历携带定界符+覆盖指令仍 10/10 通过）。任何链路的最终输出都必须过这一层。
+    """
+    if str(raw_resume_text or "").strip():
+        manipulation_hit = _detect_resume_manipulation_text(raw_resume_text)
+        if manipulation_hit:
+            repair_warnings.append(f"{manipulation_hit}，已阻止自动通过并转人工复核")
+            if sanitized_score.get("suggested_status") == "screening_passed":
+                sanitized_score["suggested_status"] = "talent_pool"
+                normalized_final_suggested_status = "talent_pool"
+    if str(sanitized_score.get("suggested_status") or "") == "talent_pool" and any(
+        ("需人工复核" in str(w)) or ("已阻止自动通过" in str(w)) for w in repair_warnings
+    ):
+        sanitized_score["review_required"] = True
+    return sanitized_score, normalized_final_suggested_status
 
 
 def _detect_resume_manipulation_text(raw_text: Any) -> Optional[str]:
@@ -6867,6 +6902,8 @@ class RecruitmentService:
         logger.info("Batch auto mail batch_id=%s position_count=%s positions=%s", batch_id, len(position_candidates), list(position_candidates.keys()))
 
         # 为每个岗位发送邮件
+        sent_positions = 0
+        failed_positions = 0
         for position_id, candidates in position_candidates.items():
             try:
                 self._send_batch_auto_mail_for_position(
@@ -6875,11 +6912,19 @@ class RecruitmentService:
                     score_rows=position_scores[position_id],
                     batch_id=batch_id,
                 )
+                sent_positions += 1
             except Exception:
+                failed_positions += 1
                 logger.exception(
                     "Failed to send batch auto mail position_id=%s batch_id=%s",
                     position_id, batch_id,
                 )
+        # P1 可靠重试：一封都没发出去（全部失败）→ 向上抛出，由外层释放
+        # batch_email_sent 抢占旗标，下一次终态事件重试。部分成功不重发（防重复打扰）。
+        if failed_positions and not sent_positions:
+            raise RuntimeError(
+                f"batch auto mail all positions failed batch_id={batch_id} failed={failed_positions}"
+            )
 
     def _send_batch_auto_mail_for_position(
         self,
@@ -7978,13 +8023,19 @@ class RecruitmentService:
             screening_result_valid = False
             screening_result_state = "failed"
 
-        # P0：孤儿恢复推进候选人的前提——该评分必须已是候选人当前权威评分
-        # （latest_score_id 相等）。持久化引用找回的"未晋级"评分只能留档，不得借恢复通道晋级。
+        # P0：孤儿恢复推进候选人的前提——该评分必须①已是候选人当前权威评分（latest 相等）
+        # 且②属于本次孤儿 run（score.screening_run_id == run.id）。复审反例：候选人挂着
+        # 历史通过分时，新 run 的孤儿恢复会拿历史分晋级当前 run——run 归属校验挡住它。
+        orphan_run = self._get_screening_run_for_root_task(row.id)
         orphan_score_authoritative = bool(
             candidate is not None
             and score_row is not None
             and candidate.latest_score_id
             and int(candidate.latest_score_id) == int(getattr(score_row, "id", 0) or 0)
+            and (
+                orphan_run is None
+                or (getattr(score_row, "screening_run_id", None) or 0) == orphan_run.id
+            )
         )
         if candidate and final_status == "success" and score_row and orphan_score_authoritative:
             normalized_status = _normalize_suggested_status(getattr(score_row, "suggested_status", None))
@@ -7996,7 +8047,6 @@ class RecruitmentService:
                 self.db.commit()
         # P0：孤儿恢复必须同时终结绑定的 run 并清 active——只关 Task 会把 run 永久留在
         # running（复审 Case：Task=failed / Run=running / active 残留）。
-        orphan_run = self._get_screening_run_for_root_task(row.id)
         if orphan_run is not None:
             _prev_run_id = self._current_screening_run_id
             self._current_screening_run_id = orphan_run.id
@@ -8536,15 +8586,23 @@ class RecruitmentService:
         """Commit 2：取消 screening_flow 根任务时，同步在其 run 上打取消请求标记（审计/追溯）。"""
         if not root_task_id:
             return
-        # P1：加锁读——检查与改写必须原子，否则与并发晋级竞态时，
-        # 陈旧取消可能把刚 promoted 的 run 改回 cancelled。
+        # P1：加锁读且锁序与晋级一致（候选人 → run）——晋级链先锁候选人再锁 run，
+        # 取消链若反序（run → 候选人）在 MySQL 下有死锁风险。先无锁定位 candidate_id，
+        # 再按 候选人 → run 顺序加锁；检查与改写在锁内原子完成。
+        probe = self._get_screening_run_for_root_task(root_task_id)
+        if not probe:
+            return
         try:
             self.db.flush()
+            if getattr(probe, "candidate_id", None):
+                self.db.query(RecruitmentCandidate).filter(
+                    RecruitmentCandidate.id == probe.candidate_id,
+                ).populate_existing().with_for_update().first()
             run = self.db.query(RecruitmentCandidateScreeningRun).filter(
                 RecruitmentCandidateScreeningRun.root_task_id == root_task_id,
             ).order_by(RecruitmentCandidateScreeningRun.id.desc()).populate_existing().with_for_update().first()
         except Exception:
-            run = self._get_screening_run_for_root_task(root_task_id)
+            run = probe
         if not run or run.status in {"promoted", "success", "superseded", "cancelled"}:
             return
         run.status = "cancelled"
@@ -8572,6 +8630,15 @@ class RecruitmentService:
         # P0-2：取消任务与查看任务详情同口径，越权任务 ID 直接拒绝。
         self._assert_business_row_visible(row)
         if row.task_type == SCREENING_FLOW_TASK_TYPE and row.parent_task_id is None:
+            # P1 终态一致性：run 已晋级则拒绝取消——否则出现 Root=cancelled / Run=promoted /
+            # 候选人=screening_passed 的矛盾三体。晋级即完成，取消无意义。
+            _cancel_run = self._get_screening_run_for_root_task(row.id)
+            if _cancel_run is not None and str(getattr(_cancel_run, "status", "") or "") in {"promoted", "success"}:
+                logger.info(
+                    "[SCREENING] cancel refused: run already promoted root_task_id=%s run_id=%s",
+                    row.id, _cancel_run.id,
+                )
+                return self._serialize_ai_task_log(row, include_full_request_snapshot=True)
             self._mark_screening_run_cancelled_for_task(row.id, actor_id)
             try:
                 self.db.commit()
@@ -9419,6 +9486,9 @@ class RecruitmentService:
             candidate = self._get_candidate(candidate.id, for_update=True)
         next_position_id = position.id if position else None
         self._assert_candidate_position_rebind_allowed(candidate, next_position_id)
+        # P0 人工决策优先：任何权威岗位指派（含同岗重派）都原子自增业务版本——
+        # 在途初筛 run 的评分口径随指派动作作废，旧 run 不得再晋级。
+        self._bump_candidate_business_revision(candidate)
         if position:
             self._sync_candidate_related_org_code(candidate, getattr(position, "org_code", None))
         candidate.position_id = next_position_id
@@ -17830,6 +17900,9 @@ class RecruitmentService:
         candidate.talent_pool_reason = "ai_error"
         candidate.talent_pool_moved_at = now
         candidate.updated_by = actor_id
+        # P0 跨进程持久化取消：用户取消是人工决策，原子自增业务版本——
+        # 另一实例上迟到的匹配结果按 revision 判过期，不得覆盖取消。
+        self._bump_candidate_business_revision(candidate)
 
         # 审计日志
         log_row = RecruitmentAITaskLog(
@@ -24776,7 +24849,9 @@ class RecruitmentService:
             return False
         row = self.db.query(RecruitmentResumeMailDispatch).filter(
             RecruitmentResumeMailDispatch.send_mode == "automatic",
-            RecruitmentResumeMailDispatch.trigger_type == "screening_completed",
+            # P1：批量链路记录的是 batch_screening_completed——去重必须两种触发都认，
+            # 否则批量发过的候选人在单发链路查重不到，会被重复打扰。
+            RecruitmentResumeMailDispatch.trigger_type.in_(["screening_completed", "batch_screening_completed"]),
             RecruitmentResumeMailDispatch.dedup_key == dedup_key,
             RecruitmentResumeMailDispatch.status.in_(["pending", "sent"]),
         ).order_by(RecruitmentResumeMailDispatch.id.desc()).first()

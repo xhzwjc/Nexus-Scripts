@@ -131,6 +131,7 @@ function getTalentPoolLocale(language = getCurrentLanguage()) {
         sourceAiUnmatched: isZh ? "未匹配系统岗位" : "No System Position Match",
         sourceAiError: isZh ? "AI 识别异常" : "AI Error",
         sourceScreeningArchived: isZh ? "初筛完成后入库" : "Archived After Screening",
+        sourceEvidenceReview: isZh ? "证据待人工复核" : "Evidence review required",
         sourceLegacyArchived: isZh ? "历史人才库数据" : "Legacy Talent Pool Record",
         archived: isZh ? "人才库中" : "In Talent Pool",
         matching: isZh ? "匹配中" : "Matching",
@@ -322,7 +323,7 @@ function talentPoolSourceStageLabel(candidate: CandidateSummary, tr: ReturnType<
     if (reason === "unmatched_by_ai") return tr.sourceAiUnmatched;
     if (reason === "ai_error") return tr.sourceAiError;
     if (reason === "auto_archived") return tr.sourceScreeningArchived;
-    if (reason === "evidence_review_required") return "证据待人工复核";
+    if (reason === "evidence_review_required") return tr.sourceEvidenceReview;
     if (reason === "moved_by_hr") {
         return STATUS_LABEL_MAP[candidate.talent_pool_source_status || ""]
             || candidate.talent_pool_source_status

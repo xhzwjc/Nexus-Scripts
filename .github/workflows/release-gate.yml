@@ -36,7 +36,9 @@ jobs:
           cache: pip
           cache-dependency-path: fastApiProject/requirements.txt
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: |
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
       - name: Run release gate (SQLite full + MySQL dual-session)
         env:
           PYTHON_BIN: python

@@ -19,8 +19,9 @@ echo "=== [2/3] SQLite 全量（随机顺序，检测顺序依赖） ==="
 echo "=== [3/3] 真实 MySQL 双会话验收（Release Gate） ==="
 : "${DB_LOCAL_HOST:?需要 DB_LOCAL_HOST（本地/CI MySQL，绝不可指向生产库）}"
 : "${DB_LOCAL_DATABASE:?需要 DB_LOCAL_DATABASE}"
-echo "--- 迁移执行两次（幂等验证） ---"
-ENVIRONMENT=local PYTHONPATH=. "$PY" -c "from app.schema_maintenance import ensure_recruitment_schema; ensure_recruitment_schema(); ensure_recruitment_schema(); print('migration idempotent OK')"
+echo "--- 迁移执行两次（幂等验证：必须两个独立进程——进程内全局 flag 会短路第二次） ---"
+ENVIRONMENT=local PYTHONPATH=. "$PY" -c "from app.schema_maintenance import ensure_recruitment_schema; ensure_recruitment_schema(); print('migration pass 1 OK')"
+ENVIRONMENT=local PYTHONPATH=. "$PY" -c "from app.schema_maintenance import ensure_recruitment_schema; ensure_recruitment_schema(); print('migration pass 2 (idempotent) OK')"
 RECRUITMENT_MYSQL_VALIDATION=1 ENVIRONMENT=local PYTHONPATH=. \
   "$PY" -m pytest tests/test_mysql_release_gate_validation.py -p no:randomly -q -W error::Warning
 
