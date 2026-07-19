@@ -2233,6 +2233,8 @@ function getCandidatesLocale(language = getCurrentLanguage()) {
         aiRecommendationLine: (recommendation: string, status: string) => (isZh ? `AI 建议：${recommendation} · 推荐状态 ${status}` : `AI recommendation: ${recommendation} · Suggested status ${status}`),
         scoreValidationWarnings: isZh ? "评分有校验警告" : "Score validation warnings",
         viewScoreWarnings: isZh ? "查看评分校验警告" : "View Score Validation Warnings",
+        viewScoreAutoFixLog: isZh ? "查看自动校正记录" : "View Auto-correction Log",
+        evidenceReviewRequired: isZh ? "证据待人工复核" : "Evidence review required",
         strengths: isZh ? "优势" : "Strengths",
         risks: isZh ? "风险点" : "Risks",
         dimensionScores: isZh ? "维度评分" : "Dimension Scores",
@@ -6995,6 +6997,11 @@ export function CandidatesPage({
                                                                     {isZh ? "AI 建议" : "AI recommendation"}：{labelForCandidateStatus(candidateScoreDecisionValues.suggestedStatus) || "-"}
                                                                 </p>
                                                                 <div className="flex shrink-0 items-center gap-2">
+                                                                    {candidateDetail.score?.review_required === true ? (
+                                                                        <Badge variant="outline" className="h-[22px] rounded-[4px] border-[rgba(233,84,32,0.32)] bg-[rgba(233,84,32,0.10)] px-2 text-[11px] text-[#D4380D]">
+                                                                            {tr.evidenceReviewRequired}
+                                                                        </Badge>
+                                                                    ) : null}
                                                                     {candidateDetail.score?.score_validation_passed === false ? (
                                                                         <Badge variant="outline" className="h-[22px] rounded-[4px] border-[rgba(255,171,36,0.32)] bg-[rgba(255,171,36,0.10)] px-2 text-[11px] text-[#D48806]">
                                                                             {tr.scoreValidationWarnings}
@@ -7021,16 +7028,36 @@ export function CandidatesPage({
                                                     </div>
                                                 </section>
 
-                                                {Array.isArray(candidateDetail.score?.validation_warnings) && candidateDetail.score.validation_warnings.length > 0 ? (
-                                                    <details className="rounded-[8px] border border-[rgba(255,171,36,0.30)] bg-[rgba(255,171,36,0.08)] px-3 py-2 text-[12px] text-[#D48806]">
-                                                        <summary className="cursor-pointer font-medium">{tr.viewScoreWarnings}</summary>
-                                                        <ul className="mt-2 space-y-1">
-                                                            {candidateDetail.score.validation_warnings.map((item, index) => (
-                                                                <li key={`score-warning-${index}`} className="break-words leading-6">{index + 1}. {item}</li>
-                                                            ))}
-                                                        </ul>
-                                                    </details>
-                                                ) : null}
+                                                {(() => {
+                                                    const rawWarnings = Array.isArray(candidateDetail.score?.validation_warnings) ? candidateDetail.score.validation_warnings : [];
+                                                    const warningLevels = Array.isArray(candidateDetail.score?.validation_warning_levels) ? candidateDetail.score.validation_warning_levels : null;
+                                                    const riskWarnings = warningLevels ? warningLevels.filter((item) => item.level === "risk").map((item) => item.text) : rawWarnings;
+                                                    const infoWarnings = warningLevels ? warningLevels.filter((item) => item.level === "info").map((item) => item.text) : [];
+                                                    return (
+                                                        <>
+                                                            {riskWarnings.length > 0 ? (
+                                                                <details className="rounded-[8px] border border-[rgba(255,171,36,0.30)] bg-[rgba(255,171,36,0.08)] px-3 py-2 text-[12px] text-[#D48806]">
+                                                                    <summary className="cursor-pointer font-medium">{tr.viewScoreWarnings}</summary>
+                                                                    <ul className="mt-2 space-y-1">
+                                                                        {riskWarnings.map((item, index) => (
+                                                                            <li key={`score-warning-${index}`} className="break-words leading-6">{index + 1}. {item}</li>
+                                                                        ))}
+                                                                    </ul>
+                                                                </details>
+                                                            ) : null}
+                                                            {infoWarnings.length > 0 ? (
+                                                                <details className="rounded-[8px] border border-[#EBEEF5] bg-[#F7F8FA] px-3 py-2 text-[12px] text-[#86888F] dark:border-[#33353D] dark:bg-[#16181B] dark:text-[#B0B2B8]">
+                                                                    <summary className="cursor-pointer font-medium">{tr.viewScoreAutoFixLog}</summary>
+                                                                    <ul className="mt-2 space-y-1">
+                                                                        {infoWarnings.map((item, index) => (
+                                                                            <li key={`score-autofix-${index}`} className="break-words leading-6">{index + 1}. {item}</li>
+                                                                        ))}
+                                                                    </ul>
+                                                                </details>
+                                                            ) : null}
+                                                        </>
+                                                    );
+                                                })()}
 
                                                 <div className="grid gap-4 text-[12px] text-[#33353D] dark:text-[#D6D8DD] sm:grid-cols-2">
                                                     <section className="space-y-2.5 rounded-[8px] border border-[#EBEEF5] p-4 dark:border-[#33353D]">

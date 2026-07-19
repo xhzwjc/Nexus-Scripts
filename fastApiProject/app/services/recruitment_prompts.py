@@ -88,8 +88,8 @@ Rules:
 - Extract factual information only.
 - If a field is missing, use an empty string or empty list.
 - Keep list items short, deduplicated, and resume-grounded.
-- For basic_info.location, only return a city/location when the resume explicitly states the candidate's current residence / current city / regular city of stay / 籍贯. Never infer from work location, school location, project location, company location, or indirect clues. If not explicit, return an empty string.
-- For basic_info.expected_city, only return a value when the resume explicitly states 期望城市 / 期望工作地点 / 意向城市 / 期望地点 or equivalent intent wording. Do not infer. If multiple cities are explicitly listed, join them with commas. If not explicit, return an empty string.
+- For basic_info.location, only return a city/location when the resume explicitly states the candidate's current residence (现居住地 / 现居 / 目前所在城市 / 常驻城市). Priority when multiple exist: 现居住地 first, then 常驻城市. 籍贯 / 户籍 / hometown is NOT a residence — never use it for location, and never infer from work location, school location, project location, company location, or indirect clues. If not explicit, return an empty string.
+- For basic_info.expected_city, only return a value when the resume explicitly states 期望城市 / 期望工作地点 / 意向城市 / 期望地点 or equivalent intent wording. Do not infer, and do not fall back to location or 籍贯. If multiple cities are explicitly listed, join them with commas. If not explicit, return an empty string.
 - Do not output the same work experience twice in different granularities. If one work experience is already captured as a complete object, do not repeat it again as a simplified duplicate row.
 - Use one unified time-field contract only:
   - start_date
@@ -154,7 +154,8 @@ SCREENING_OUTPUT_SCHEMA = """{
         "score": 0.0,
         "max_score": 0.0,
         "reason": "",
-        "evidence": "",
+        "evidence": [""],
+        "evidence_refs": [""],
         "is_inferred": false,
         "radar_category": "专业能力|学习潜力|工作经验|综合素质|岗位匹配度"
       }
@@ -191,7 +192,8 @@ SCORE_ONLY_OUTPUT_SCHEMA = """{
       "score": 0.0,
       "max_score": 0.0,
       "reason": "",
-      "evidence": "",
+      "evidence": [""],
+      "evidence_refs": [""],
       "is_inferred": false,
       "radar_category": "专业能力|学习潜力|工作经验|综合素质|岗位匹配度"
     }
@@ -293,23 +295,28 @@ RESUME_SCORE_SYSTEM_PROMPT_V3 = """你是 ATS 评分引擎。基于已有 parsed
 输出 schema：
 """ + SCORE_ONLY_OUTPUT_SCHEMA_V3
 
-# v7/v8：引用式证据契约（P0-1）——evidence 必须是简历原文的逐字摘录（短语级，非裸关键词），
-# 且必须与所在维度直接相关；后端做逐字核验，改写/缩写/无关引用一律按 0 分处理。
+# v8/v9：段落引用式证据契约（jg 复审短期+中期方案合并落地）——
+# ①简历原文按行编号（[R0001]…），每个正分维度必须返回 evidence_refs（行号数组），后端按行号
+#   解回原文作为权威证据，不再信任模型抄写的文本；
+# ②evidence 改为"多条短引用数组"：每条 ≤40 字符、单一子句、禁止跨行/跨要点拼接与改写——
+#   9 份真实简历复盘证实模型长引用必发生拼接/省略/字段重排，短引用才能稳定逐字命中；
+# ③禁止改动能力等级词（了解/熟悉/精通），抬格会被后端判定并转人工复核。
 # 与旧结果不等价，版本号上调以使 request_hash 变化、旧缓存结果失效、强制按新契约重跑。
-RESUME_SCREENING_PROMPT_VERSION = "resume_screening_one_pass_v7"
-RESUME_SCORE_PROMPT_VERSION = "resume_score_with_position_match_v8"
+RESUME_SCREENING_PROMPT_VERSION = "resume_screening_one_pass_v8"
+RESUME_SCORE_PROMPT_VERSION = "resume_score_with_position_match_v9"
 # V3 versions — activate by changing the above two lines
 RESUME_SCREENING_PROMPT_VERSION_V3 = "resume_screening_one_pass_v3"
 RESUME_SCORE_PROMPT_VERSION_V3 = "resume_score_with_position_match_v3"
 
-_COMMON_EVIDENCE_RULES = """- The only valid evidence source is the raw resume text in the user prompt.
-- Every evidence item MUST be a character-for-character verbatim excerpt copied from the raw resume text (a phrase or sentence, not a bare keyword). The backend verifies this mechanically: any paraphrased, shortened, reworded, or invented evidence is automatically treated as no evidence and the dimension is scored 0.
+_COMMON_EVIDENCE_RULES = """- The only valid evidence source is the raw resume text in the user prompt. Each resume line is prefixed with a system-assigned line ID like [R0012]. These IDs are for citation only — they are NOT resume content and must never appear inside evidence text.
+- For every positive-scoring dimension you MUST return "evidence_refs": a JSON array of 1-3 line IDs (e.g. ["R0012", "R0031"]) pointing to the exact resume lines that directly support the dimension. The backend resolves these IDs back to the original resume text and treats that original text as the authoritative evidence — evidence_refs are more important than your copied text.
+- "evidence" MUST be a JSON array of 1-3 SHORT verbatim excerpts, each copied character-for-character from ONE single referenced resume line. Each excerpt must be one continuous clause (≤40 characters). Never merge or splice text from different lines, bullets, or fields into one excerpt; never reorder fields; never add, remove, or substitute any word; never change capability-level words (了解/掌握/熟悉/熟练/精通) — write exactly what the resume says.
+- The backend verifies every excerpt mechanically against the referenced lines: paraphrased, spliced, reworded, or invented text is treated as no evidence (dimension scored 0) or routed to human review. Copying short exact excerpts is always safer than long merged quotes.
 - Every evidence item MUST be directly and specifically relevant to the dimension it supports. Quoting a real but unrelated resume sentence (e.g. quoting a Python sentence as evidence for banking experience) counts as fabricated evidence — set that dimension to score 0 instead.
 - Never use JD text, screening skills, rule notes, system text, helper fields, or your own paraphrases as evidence.
-- evidence may be a string or a list of strings, but every item must be a verbatim resume excerpt.
 - Evidence must not use judgment phrases such as “简历中提及…”, “候选人具备…”, “体现了…”, or “说明其…”.
-- If a dimension has no directly relevant verbatim resume evidence, set score to 0, reason to “简历未提及”, and leave evidence empty. Doing this honestly is always better than forcing evidence.
-- Do not reuse the same evidence (verbatim or reworded) as support for multiple dimensions — each excerpt supports at most one dimension."""
+- If a dimension has no directly relevant verbatim resume evidence, set score to 0, reason to “简历未提及”, and leave evidence and evidence_refs empty. Doing this honestly is always better than forcing evidence.
+- Do not reuse the same excerpt or the same line ID as support for multiple dimensions. One resume line may genuinely prove different abilities (e.g. one project covering installation, debugging, and client communication) — in that case cite DIFFERENT sub-facts: different short excerpts, each directly supporting its own dimension only."""
 
 
 RESUME_SCREENING_SYSTEM_PROMPT = """You are an ATS screening engine for recruitment.
@@ -327,11 +334,11 @@ Evidence Rules:
 Scoring Rules:
 - All textual output fields must be written in Simplified Chinese unless quoting an English proper noun from the resume.
 - Extract parsed_resume factually from the raw resume text; use empty strings or empty lists for missing fields.
-- For parsed_resume.basic_info.location, only return a value when the resume explicitly states current residence / current city / regular city of stay / 籍贯. Never infer from work location, school location, project location, or indirect clues.
-- For parsed_resume.basic_info.expected_city, only return a value when the resume explicitly states 期望城市 / 期望工作地点 / 意向城市 / 期望地点 or equivalent intent wording. If multiple cities are explicit, join them with commas. Do not infer.
+- For parsed_resume.basic_info.location, only return a value when the resume explicitly states current residence (现居住地 / 现居 / 目前所在城市 / 常驻城市). Priority: 现居住地 first, then 常驻城市. 籍贯 / 户籍 / hometown is NOT a residence — never use it for location. Never infer from work location, school location, project location, or indirect clues.
+- For parsed_resume.basic_info.expected_city, only return a value when the resume explicitly states 期望城市 / 期望工作地点 / 意向城市 / 期望地点 or equivalent intent wording. If multiple cities are explicit, join them with commas. Do not infer, and do not fall back to location or 籍贯.
 - Score only against the provided position, DIMENSION_RULES, screening skills, and custom hard requirements. Do not add dimensions or extra rubric.
 - Treat screening skills and custom hard requirements as mandatory high-priority constraints.
-- Every dimension must include label, score, max_score, reason, evidence, and is_inferred.
+- Every dimension must include label, score, max_score, reason, evidence, evidence_refs, and is_inferred.
 - Every dimension must include a "radar_category" field, one of: "专业能力", "学习潜力", "工作经验", "综合素质", "岗位匹配度". Classification: 专业能力=technical skills/professional expertise/tool proficiency/testing ability/protocol knowledge; 学习潜力=education/growth trajectory/learning ability/project complexity; 工作经验=years of experience/industry match/position relevance/career progression; 综合素质=communication/teamwork/stability/leadership/soft skills/cultural fit; 岗位匹配度=overall JD fit/domain knowledge/ecosystem familiarity/requirement coverage.
 - Must output "radar_scores" with exactly 5 categories (专业能力, 学习潜力, 工作经验, 综合素质, 岗位匹配度), each max_score=2.0, total 10.0. This is a holistic assessment based on the full resume and all dimension scores — not a simple average. reason: one sentence with core justification. evidence: key resume excerpt. Must not contradict individual dimension scores.
 - Every dimension listed in DIMENSION_RULES must appear in your output dimensions array; missing any dimension results in invalid output.
@@ -376,7 +383,7 @@ Scoring Rules:
 - All textual output fields must be written in Simplified Chinese unless quoting an English proper noun from the resume.
 - Score only against the provided position, DIMENSION_RULES, screening skills, and custom hard requirements. Review every provided dimension one by one and do not add dimensions or extra rubric.
 - Treat screening skills and custom hard requirements as mandatory hard constraints with the highest priority.
-- Every dimension must include label, score, max_score, reason, evidence, and is_inferred.
+- Every dimension must include label, score, max_score, reason, evidence, evidence_refs, and is_inferred.
 - Every dimension must include a "radar_category" field, one of: "专业能力", "学习潜力", "工作经验", "综合素质", "岗位匹配度". Classification: 专业能力=technical skills/professional expertise/tool proficiency/testing ability/protocol knowledge; 学习潜力=education/growth trajectory/learning ability/project complexity; 工作经验=years of experience/industry match/position relevance/career progression; 综合素质=communication/teamwork/stability/leadership/soft skills/cultural fit; 岗位匹配度=overall JD fit/domain knowledge/ecosystem familiarity/requirement coverage.
 - Must output "radar_scores" with exactly 5 categories (专业能力, 学习潜力, 工作经验, 综合素质, 岗位匹配度), each max_score=2.0, total 10.0. This is a holistic assessment based on the full resume and all dimension scores — not a simple average. reason: one sentence with core justification. evidence: key resume excerpt. Must not contradict individual dimension scores.
 - Every dimension listed in DIMENSION_RULES must appear in your output dimensions array; missing any dimension results in invalid output.

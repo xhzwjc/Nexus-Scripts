@@ -293,8 +293,9 @@ def test_screening_prompt_wraps_resume_in_untrusted_delimiters():
         custom_requirements="",
         status_rules={},
     )
-    # 注入文本仍在（作为数据），但被定界符包裹成不可信段（builder 以 \n\n 连接）。
-    assert f"<<<RAW_RESUME_TEXT>>>\n\n{injected}\n\n<<<END_RAW_RESUME_TEXT>>>" in screening_prompt
+    # 注入文本仍在（作为数据），但被定界符包裹成不可信段（builder 以 \n\n 连接；
+    # v8 起简历行带 [R编号] 引用行号前缀）。
+    assert f"<<<RAW_RESUME_TEXT>>>\n\n[R0001] {injected}\n\n<<<END_RAW_RESUME_TEXT>>>" in screening_prompt
 
 
 def test_forged_evidence_is_zeroed_against_raw_resume():
@@ -371,7 +372,9 @@ def test_negative_rule_max_score_does_not_inflate_match_percent():
 
 
 def test_same_evidence_cannot_score_multiple_unrelated_dimensions():
-    """P0-3：同一条 evidence 只能撑起一个维度；被复用到第二个维度时该维度回退 0 分。"""
+    """P0-3（jg 复审后新契约）：同一条 evidence 只能撑起一个维度；被复用到第二个维度时
+    该维度不再归零（可能只是模型引用偷懒误杀真实候选人），而是得分保留转人工复核——
+    强制 talent_pool + review_required，既不自动通过也不自动拒绝。"""
     schema_config = {
         "parsed_resume": SCREENING_PAYLOAD_SCHEMA_CONFIG["parsed_resume"],
         "score": {
@@ -400,10 +403,15 @@ def test_same_evidence_cannot_score_multiple_unrelated_dimensions():
     raw = "候选人简历：负责 BLE 协议联调与测试。"
     sanitized, meta = sanitize_screening_payload(payload, schema_config, raw_resume_text=raw)
     dims = {d["label"]: d for d in sanitized["score"]["dimensions"]}
-    assert dims["维度A"]["score"] == 5.0        # 首次占用该证据 → 保留
-    assert dims["维度B"]["score"] == 0.0        # 复用同一证据 → 回退
-    assert sanitized["score"]["total_score"] == 5.0
-    assert any("已被其他维度占用" in w for w in meta["warnings"])
+    assert dims["维度A"]["score"] == 5.0        # 择优归属：持有方保留证据与得分
+    assert dims["维度A"]["evidence"]
+    assert dims["维度B"]["score"] == 5.0        # 复用方得分保留，但证据清空转人工复核
+    assert dims["维度B"]["evidence"] == []
+    assert sanitized["score"]["evidence_review_labels"] == ["维度B"]
+    assert sanitized["score"]["review_required"] is True
+    # 复核终局：不自动通过（也不自动拒绝）
+    assert sanitized["score"]["suggested_status"] == "talent_pool"
+    assert any("同一证据不得撑起多个维度" in w and "待人工复核" in w for w in meta["warnings"])
 
 
 def test_negated_capability_is_not_counted_as_positive_evidence():

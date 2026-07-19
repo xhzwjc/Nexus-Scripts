@@ -181,6 +181,17 @@
 
 ---
 
+## M018｜用同一个长事务会话轮询 MySQL 后台任务状态，被 REPEATABLE READ 快照误导
+- 🧠 AI 行为：脚本里先用 session 发起任务（enqueue），再用**同一个 session** 循环查询任务/结果行，等待后台线程完成
+- 💥 后果：MySQL 默认 REPEATABLE READ——首次读之后事务快照固定，后台线程在其他连接提交的更新永远读不到，任务明明已完成却被判定"未执行/卡队列"（SQLite 或 autocommit 下不复现）
+- 🛑 禁止行为：
+  - ❌ 在发起写操作的同一事务会话里做跨会话状态轮询
+- ✅ 解决策略：
+  - 轮询前 `db.commit()`/`db.rollback()` 结束当前事务，或每次轮询新开 session
+  - 判定"任务没跑"前，先用全新连接复查一次再下结论
+
+---
+
 ## M017｜跑测试/应用后未核对 git diff，遗漏副作用文件
 - 🧠 AI 行为：完成代码改动后直接汇报，未先看 `git diff --stat`
 - 💥 后果：运行后端全量测试会触发 `team_resource_service.py` 重写 `my-app/data/team-resources.enc.json`（重新加密→密文变化），在工作区留下我未授权、未认领的改动，易被误提交

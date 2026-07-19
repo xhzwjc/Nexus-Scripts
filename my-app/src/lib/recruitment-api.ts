@@ -246,6 +246,9 @@ export interface CandidateScore {
   radar_scores?: RadarScore[];
   score_validation_passed?: boolean | null;
   validation_warnings?: string[];
+  validation_warning_levels?: { text: string; level: "info" | "risk" }[] | null;
+  review_required?: boolean | null;
+  evidence_review_labels?: string[] | null;
   manual_override_score?: number | null;
   manual_override_reason?: string | null;
   hr_feedback?: string | null;

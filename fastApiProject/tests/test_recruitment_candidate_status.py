@@ -238,3 +238,27 @@ def test_list_candidates_applies_match_source_and_time_filters_before_pagination
 
     assert result["total"] == 1
     assert [item["candidate_code"] for item in result["items"]] == ["C-HIGH"]
+
+
+def test_auto_archive_to_talent_pool_writes_status_history():
+    """jg 复审 P1：初筛建议入池的自动归档（unmatched + auto_archived）此前不写状态历史，
+    审计链断在"为什么进了人才库"。现在必须留 pending_screening → unmatched 的历史记录。"""
+    db = _build_test_db()
+    candidate = _add_candidate(db, code="C-POOL", name="入池候选人", status="pending_screening")
+    candidate.ai_recommended_status = "talent_pool"
+    db.commit()
+    service = RecruitmentService(db)
+
+    service._auto_advance_candidate_after_screening(candidate, actor_id="ai-runner")
+    db.commit()
+    db.refresh(candidate)
+
+    assert candidate.status == "unmatched"
+    assert candidate.talent_pool_reason == "auto_archived"
+    assert candidate.talent_pool_moved_at is not None
+    history = _status_history_rows(db, candidate.id)
+    assert len(history) == 1
+    assert history[0].from_status == "pending_screening"
+    assert history[0].to_status == "unmatched"
+    assert history[0].source == "ai_screening"
+    assert "人才库" in (history[0].reason or "")
