@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
 from .llm_concurrency_limiter import shared_llm_limiter
+from .recruitment_task_control import RecruitmentTaskControl
 
 logger = logging.getLogger(__name__)
 
@@ -221,6 +222,7 @@ class MatchTask:
     # CAS 快照：入队时候选人的业务版本。任何人工修改（含另一实例上的取消写入）都会自增版本，
     # 使迟到的匹配结果在任意实例上被判过期——这就是跨进程持久化取消。
     expected_candidate_revision: Optional[int] = None
+    cancel_control: Optional[RecruitmentTaskControl] = field(default=None, repr=False)
     # 0.1-C：错误回调重新入队重试时置 True，worker 的 finally 据此保留 live 标记，
     # 避免重试延迟窗口内同一候选人被新一次 trigger 误判为"不在飞行中"而重复匹配。
     requeued_for_retry: bool = False
@@ -248,6 +250,7 @@ class FairMatchScheduler:
         self._queue_lock = asyncio.Lock()
         self._live_candidate_ids: set[int] = set()
         self._running_candidate_ids: set[int] = set()
+        self._task_controls: Dict[int, RecruitmentTaskControl] = {}
         self._state_lock = threading.Lock()
         self._has_tasks = asyncio.Event()
         self._workers: List[asyncio.Task] = []
@@ -263,14 +266,31 @@ class FairMatchScheduler:
         }
 
     def cancel_match(self, candidate_id: int):
-        """标记候选人为已取消，worker 执行前会检查"""
-        self._cancelled_ids.add(candidate_id)
+        """标记候选人为已取消，并中断正在进行的模型 HTTP 请求。"""
+        normalized_id = int(candidate_id)
+        with self._state_lock:
+            self._cancelled_ids.add(normalized_id)
+            control = self._task_controls.get(normalized_id)
+        if control is not None:
+            control.cancel()
 
     def is_cancelled(self, candidate_id: int) -> bool:
-        return candidate_id in self._cancelled_ids
+        with self._state_lock:
+            return int(candidate_id) in self._cancelled_ids
 
     def clear_cancelled(self, candidate_id: int):
-        self._cancelled_ids.discard(candidate_id)
+        with self._state_lock:
+            self._cancelled_ids.discard(int(candidate_id))
+
+    def register_task_control(self, candidate_id: int, control: RecruitmentTaskControl) -> None:
+        with self._state_lock:
+            self._task_controls[int(candidate_id)] = control
+
+    def clear_task_control(self, candidate_id: int, control: RecruitmentTaskControl) -> None:
+        with self._state_lock:
+            normalized_id = int(candidate_id)
+            if self._task_controls.get(normalized_id) is control:
+                self._task_controls.pop(normalized_id, None)
 
     def is_candidate_live(self, candidate_id: int) -> bool:
         with self._state_lock:
@@ -457,8 +477,15 @@ class FairMatchScheduler:
             task.requeued_for_retry = False
 
             slot = None
+            cancel_control = None
             try:
                 slot = await self.key_rotator.acquire_slot()
+                cancel_control = RecruitmentTaskControl(task.candidate_id)
+                task.cancel_control = cancel_control
+                self.register_task_control(task.candidate_id, cancel_control)
+                if self.is_cancelled(task.candidate_id):
+                    cancel_control.cancel()
+                cancel_control.raise_if_cancelled()
                 self.mark_candidate_running(task.candidate_id)
                 logger.debug(
                     "MatchWorker-%d executing candidate=%d key=%s user=%s",
@@ -486,6 +513,9 @@ class FairMatchScheduler:
                 if self._error_callback:
                     await self._error_callback(task, e)
             finally:
+                if cancel_control is not None:
+                    self.clear_task_control(task.candidate_id, cancel_control)
+                task.cancel_control = None
                 # 0.1-C：错误回调把任务重新入队重试时保留 live 标记，不在此清除，
                 # 否则重试延迟窗口内该候选人会被新一次 trigger 视为可再次入队。
                 if not task.requeued_for_retry:

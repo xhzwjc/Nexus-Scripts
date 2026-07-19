@@ -23,6 +23,7 @@ JSON_REPAIR_MAX_ROUNDS = 2
 JSON_RETRYABLE_MIN_EMPTY_LENGTH = 32
 SCREENING_TOTAL_TIMEOUT_SECONDS = 300
 SCREENING_STAGE_MIN_TIMEOUT_SECONDS = 20
+POSITION_MATCH_REQUEST_TIMEOUT_SECONDS = 60
 REQUEST_HEADER_SNAPSHOT_LIMIT = 20
 OPENAI_STREAM_JSON_TASK_WHITELIST: frozenset[str] = frozenset({
     "resume_screening_one_pass",
@@ -3554,7 +3555,16 @@ class RecruitmentAIGateway:
         fallback = fallback_builder()
         return {"content": fallback, "provider": config.provider, "model_name": config.model_name, "source": config.source, "used_fallback": True, "prompt_snapshot": prompt_snapshot, "full_request_snapshot": full_request_snapshot, "input_summary": _truncate(user_prompt, 600), "output_summary": _truncate(fallback, 600), "token_usage": None, "error_message": _format_http_error(last_error or RuntimeError("Unknown AI task failure"))}
 
-    def match_position(self, candidate_id: int, resume_content: str, positions: List[Dict[str, Any]], *, key_id: Optional[str] = None, runtime_config: Optional[RecruitmentLLMRuntimeConfig] = None) -> Dict[str, Any]:
+    def match_position(
+        self,
+        candidate_id: int,
+        resume_content: str,
+        positions: List[Dict[str, Any]],
+        *,
+        key_id: Optional[str] = None,
+        runtime_config: Optional[RecruitmentLLMRuntimeConfig] = None,
+        cancel_control: Optional[RecruitmentTaskControl] = None,
+    ) -> Dict[str, Any]:
         """
         使用 AI 匹配最合适的岗位。
 
@@ -3564,6 +3574,7 @@ class RecruitmentAIGateway:
             positions: 候选岗位列表
             key_id: 指定使用哪个 key（由调度器传入），为 None 时使用默认 round-robin
             runtime_config: 预解析的运行时配置（由调度器传入），为 None 时自动解析
+            cancel_control: 在途请求取消控制器
         """
         if not positions:
             return {
@@ -3658,7 +3669,9 @@ class RecruitmentAIGateway:
                 task_type="ai_position_match",
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
+                cancel_control=cancel_control,
                 runtime_config=effective_runtime_config,
+                timeout_seconds_override=POSITION_MATCH_REQUEST_TIMEOUT_SECONDS,
                 max_tokens_override=2500,
             )
         except RecruitmentAIJSONParseError as exc:

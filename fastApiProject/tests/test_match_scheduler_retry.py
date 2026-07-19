@@ -1,6 +1,7 @@
 import asyncio
 
 from app.services.match_scheduler import FairMatchScheduler, KeyRotator, MatchTask
+from app.services.recruitment_task_control import RecruitmentTaskCancelled
 
 
 def _make_task(candidate_id=1, user_id="u1"):
@@ -62,5 +63,58 @@ def test_enqueue_and_next_task_roundtrip():
         assert task.session_token == "tok"
         assert task.task_type == "ai_position_match"
         assert task.position_summaries == [{"id": 1, "title": "岗位"}]
+
+    asyncio.run(scenario())
+
+
+def test_cancel_match_interrupts_running_task_control():
+    async def scenario():
+        rotator = KeyRotator()
+        rotator.reload([
+            {
+                "key_id": "config_1",
+                "config_id": 1,
+                "source_key": "db:test",
+                "max_concurrent": 1,
+                "max_qps": 0,
+            }
+        ])
+        scheduler = FairMatchScheduler(rotator)
+        started = asyncio.Event()
+        closer_called = []
+        errors = []
+
+        async def match_callback(task, slot):
+            assert task.cancel_control is not None
+            task.cancel_control.register_closer(lambda: closer_called.append(task.candidate_id))
+            started.set()
+            while not task.cancel_control.is_cancelled():
+                await asyncio.sleep(0.01)
+            task.cancel_control.raise_if_cancelled()
+
+        async def error_callback(task, error):
+            errors.append(error)
+
+        scheduler.set_callbacks(match_callback=match_callback, error_callback=error_callback)
+        await scheduler.start()
+        await scheduler.enqueue_batch(
+            user_id="u1",
+            batch_id="b1",
+            candidates=[type("C", (), {"id": 42})()],
+            position_summaries=[],
+        )
+        await asyncio.wait_for(started.wait(), timeout=1)
+
+        scheduler.cancel_match(42)
+        for _ in range(100):
+            if not scheduler.is_candidate_live(42):
+                break
+            await asyncio.sleep(0.01)
+        await scheduler.stop()
+
+        assert closer_called == [42]
+        assert len(errors) == 1
+        assert isinstance(errors[0], RecruitmentTaskCancelled)
+        assert scheduler.is_candidate_live(42) is False
 
     asyncio.run(scenario())

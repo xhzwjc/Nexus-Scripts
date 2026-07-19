@@ -17570,13 +17570,12 @@ class RecruitmentService:
         live_candidate_ids = {c.id for c in candidates if scheduler.is_candidate_live(c.id)}
         candidates_to_enqueue = [c for c in candidates if c.id not in live_candidate_ids]
 
-        # 将候选人状态设为 matching（持久化到数据库，刷新页面后仍保持）
-        # 清除之前的取消标记，允许重新识别
-        for c in candidates:
+        # 只有实际成功进入本轮队列的候选人才写 matching。
+        # 旧任务仍在退出时，重复触发不得把已取消的 unmatched 状态重新写回 matching。
+        for c in candidates_to_enqueue:
             if c.status != "matching":
                 c.status = "matching"
-            if c.id not in live_candidate_ids:
-                scheduler.clear_cancelled(c.id)
+            scheduler.clear_cancelled(c.id)
         self.db.commit()
 
         if live_candidate_ids:
@@ -17740,7 +17739,13 @@ class RecruitmentService:
             finally:
                 config_db.close()
 
-        def _run_match_position_in_thread(candidate_id: int, resume_content: str, positions: List[Dict[str, Any]], runtime_config: Any) -> Dict[str, Any]:
+        def _run_match_position_in_thread(
+            candidate_id: int,
+            resume_content: str,
+            positions: List[Dict[str, Any]],
+            runtime_config: Any,
+            cancel_control: Optional[RecruitmentTaskControl],
+        ) -> Dict[str, Any]:
             from ..database import SessionLocal
 
             # 用一次性 session 构造网关后立即关闭：显式 runtime_config 下 match_position
@@ -17754,6 +17759,7 @@ class RecruitmentService:
                 resume_content,
                 positions,
                 runtime_config=runtime_config,
+                cancel_control=cancel_control,
             )
 
         def _build_ai_match_resume_text_in_thread(candidate_id: int) -> str:
@@ -17854,6 +17860,7 @@ class RecruitmentService:
                         str(task.resume_content or ""),
                         position_summaries,
                         runtime_config,
+                        getattr(task, "cancel_control", None),
                     )
                 if scheduler.is_cancelled(task.candidate_id):
                     scheduler.clear_cancelled(task.candidate_id)

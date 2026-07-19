@@ -11,7 +11,12 @@ from sqlalchemy.exc import OperationalError, SQLAlchemyError, TimeoutError as SQ
 import app.services.recruitment_service_impl as recruitment_impl
 from app.recruitment_models import RecruitmentSkill
 from app.services.recruitment_ai_gateway import RecruitmentAIGateway, RecruitmentAIJSONParseError, RecruitmentLLMRuntimeConfig, _compose_json_user_prompt, _parse_llm_json_response, _parse_strict_json_response
-from app.services.recruitment_ai_gateway import RecruitmentAIScreeningTotalTimeoutError, SCREENING_TOTAL_TIMEOUT_SECONDS
+from app.services.recruitment_ai_gateway import (
+    POSITION_MATCH_REQUEST_TIMEOUT_SECONDS,
+    RecruitmentAIScreeningTotalTimeoutError,
+    SCREENING_TOTAL_TIMEOUT_SECONDS,
+)
+from app.services.recruitment_task_control import RecruitmentTaskControl
 from app.services.recruitment_prompts import (
     RESUME_SCREENING_SYSTEM_PROMPT,
     RESUME_PARSE_SYSTEM_PROMPT,
@@ -279,7 +284,16 @@ def test_ai_match_callback_does_not_hold_db_session_during_model_call(monkeypatc
     def resolve_config_by_id(self, config_id):
         return runtime_config
 
-    def match_position(self, candidate_id, resume_content, positions, *, runtime_config=None, key_id=None):
+    def match_position(
+        self,
+        candidate_id,
+        resume_content,
+        positions,
+        *,
+        runtime_config=None,
+        key_id=None,
+        cancel_control=None,
+    ):
         nonlocal model_call_open_session_count
         model_call_open_session_count = open_session_count
         return {
@@ -1875,6 +1889,7 @@ def test_ai_position_match_corrects_copied_example_id_by_title():
         }
     )
 
+    cancel_control = RecruitmentTaskControl(1472)
     result = gateway.match_position(
         1472,
         "岳珊珊 8年测试经验 小米智能门锁 IOT 全功能测试",
@@ -1884,6 +1899,7 @@ def test_ai_position_match_corrects_copied_example_id_by_title():
             {"id": 24, "title": "硬件测试工程师", "department": "研发部", "key_requirements": ""},
         ],
         runtime_config=config,
+        cancel_control=cancel_control,
     )
 
     assert result["position_id"] == 19
@@ -1892,6 +1908,8 @@ def test_ai_position_match_corrects_copied_example_id_by_title():
     assert "岗位ID=19" in user_prompt
     assert "岗位名称=税务会计" not in user_prompt
     assert '"position_id": 17' not in user_prompt
+    assert gateway.generate_json.call_args.kwargs["cancel_control"] is cancel_control
+    assert gateway.generate_json.call_args.kwargs["timeout_seconds_override"] == POSITION_MATCH_REQUEST_TIMEOUT_SECONDS
 
 
 def test_ai_position_match_maps_product_subtype_to_noisy_product_position():

@@ -592,6 +592,47 @@ def test_smart_match_enqueues_visible_positions_without_auto_screen(monkeypatch)
         db.close()
 
 
+def test_smart_match_does_not_restore_matching_for_cancelled_live_candidate(monkeypatch):
+    db = _build_test_db()
+
+    class FakeMatchScheduler:
+        def is_candidate_live(self, candidate_id):
+            return True
+
+        def clear_cancelled(self, candidate_id):
+            raise AssertionError("live candidate cancellation must remain active")
+
+    try:
+        _seed_org_tree(db)
+        _seed_catalog(db)
+        candidate = _add_candidate(
+            db,
+            org_code="group",
+            position_id=None,
+            name="已取消但旧任务仍退出中的候选人",
+            created_by="group-user",
+        )
+        candidate.status = "unmatched"
+        candidate.business_revision = 1
+        db.add(candidate)
+        db.commit()
+
+        import app.services.match_scheduler as match_scheduler_module
+
+        monkeypatch.setattr(match_scheduler_module, "scheduler", FakeMatchScheduler())
+
+        service = _service(db, _session("group-user", "group", DATA_SCOPE_ORG_ONLY))
+        result = asyncio.run(service.trigger_ai_position_match([candidate.id], "group-user"))
+
+        db.refresh(candidate)
+        assert result["total_candidates"] == 1
+        assert result["matched_count"] == 0
+        assert candidate.status == "unmatched"
+        assert candidate.business_revision == 1
+    finally:
+        db.close()
+
+
 def test_smart_match_uses_visible_positions_and_prefers_primary_org_duplicate_titles(monkeypatch):
     db = _build_test_db()
 

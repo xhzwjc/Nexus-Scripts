@@ -1435,6 +1435,15 @@ def _is_low_signal_pdf_text(text: str) -> bool:
         return True
     if _is_truncated_image_text(value):
         return True
+    lines = [line.strip() for line in value.splitlines() if line.strip()]
+    opaque_token_pattern = re.compile(r"^[A-Za-z0-9_~=\-]{32,}$")
+    opaque_token_lines = [line for line in lines if opaque_token_pattern.fullmatch(line)]
+    if (
+        len(lines) >= 3
+        and len(opaque_token_lines) / len(lines) >= 0.8
+        and len(set(opaque_token_lines)) <= max(2, len(opaque_token_lines) // 5)
+    ):
+        return True
     cleaned = clean_resume_text(value)
     if not cleaned:
         return True
