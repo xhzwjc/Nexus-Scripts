@@ -103,6 +103,11 @@ SCREENING_FLOW_TASK_TYPE = "screening_flow"
 SCREENING_DEBUG_TASK_TYPE = "resume_screening_debug"
 SCREENING_ONE_PASS_TASK_TYPE = "resume_screening_one_pass"
 SCREENING_SCORE_TASK_TYPES = ("resume_score", SCREENING_ONE_PASS_TASK_TYPE)
+POSITION_PIPELINE_TALENT_POOL_REASONS = (
+    "auto_archived",
+    "moved_by_hr",
+    "evidence_review_required",
+)
 _UNSET = object()
 DEPARTMENT_REVIEW_DEFAULT_VISIBLE_SECTIONS = ("original_resume", "standard_resume", "screening_result", "assessment_result")
 DEPARTMENT_REVIEW_ALLOWED_VISIBLE_SECTIONS = (
@@ -8372,6 +8377,15 @@ class RecruitmentService:
                 if next_retry_at and now <= next_retry_at + timedelta(seconds=SCREENING_ROOT_RECOVERY_GRACE_SECONDS):
                     return False
         parse_log, score_log = self._get_screening_flow_child_logs(row)
+        # 根 worker 或降级链子任务仍在执行时，不得根据已经失败的 one-pass 子任务提前收口。
+        # 否则 fallback parse/score 的迟到结果会因 active run 被清空而误判 generation_changed。
+        if recruitment_task_registry.get(row.id) is not None:
+            return False
+        if any(
+            child is not None and child.status in SCREENING_LIVE_TASK_STATUSES
+            for child in (parse_log, score_log)
+        ):
+            return False
         current_output = _decode_ai_task_json_text(getattr(row, "output_snapshot", None), None)
         current_output_record = dict(current_output) if isinstance(current_output, dict) else {}
         current_validation = _decode_ai_task_json_text(getattr(row, "validation_meta_json", None), None)
@@ -8641,8 +8655,10 @@ class RecruitmentService:
     def _settle_orphaned_live_task(self, row: RecruitmentAITaskLog) -> bool:
         if self._settle_orphaned_cancelling_task(row):
             return True
-        if self._settle_orphaned_screening_flow_root(row):
-            return True
+        if row.task_type == SCREENING_FLOW_TASK_TYPE and row.parent_task_id is None:
+            # screening_flow 根任务由专用恢复逻辑完整裁决；专用逻辑因活跃 worker/子任务
+            # 拒绝收口时，不能再落入通用孤儿判定绕过保护。
+            return self._settle_orphaned_screening_flow_root(row)
         if not self._is_orphaned_live_task(row):
             return False
         row.status = "failed"
@@ -11135,7 +11151,7 @@ class RecruitmentService:
             and_(
                 RecruitmentCandidate.status == "unmatched",
                 RecruitmentCandidate.position_id.isnot(None),
-                RecruitmentCandidate.talent_pool_reason.in_(["auto_archived", "moved_by_hr"]),
+                RecruitmentCandidate.talent_pool_reason.in_(POSITION_PIPELINE_TALENT_POOL_REASONS),
             ),
         )
 
@@ -11146,7 +11162,7 @@ class RecruitmentService:
             return False
         if status == "unmatched":
             reason = str(getattr(row, "talent_pool_reason", "") or "").strip().lower()
-            return bool(getattr(row, "position_id", None)) and reason in {"auto_archived", "moved_by_hr"}
+            return bool(getattr(row, "position_id", None)) and reason in POSITION_PIPELINE_TALENT_POOL_REASONS
         return True
 
     @staticmethod
@@ -11311,7 +11327,7 @@ class RecruitmentService:
                 and_(
                     RecruitmentCandidate.status == "unmatched",
                     RecruitmentCandidate.position_id.isnot(None),
-                    RecruitmentCandidate.talent_pool_reason.in_(["auto_archived", "moved_by_hr"]),
+                    RecruitmentCandidate.talent_pool_reason.in_(POSITION_PIPELINE_TALENT_POOL_REASONS),
                 ),
                 literal_column("'talent_pool'"),
             ),
@@ -12842,7 +12858,7 @@ class RecruitmentService:
         elif (
             row.status == "unmatched"
             and row.position_id
-            and str(getattr(row, "talent_pool_reason", "") or "").strip() in {"auto_archived", "moved_by_hr"}
+            and str(getattr(row, "talent_pool_reason", "") or "").strip() in POSITION_PIPELINE_TALENT_POOL_REASONS
         ):
             display_status = "talent_pool"
         else:
@@ -13242,7 +13258,7 @@ class RecruitmentService:
             and_(
                 RecruitmentCandidate.status == "unmatched",
                 RecruitmentCandidate.position_id.isnot(None),
-                RecruitmentCandidate.talent_pool_reason.in_(["auto_archived", "moved_by_hr"]),
+                RecruitmentCandidate.talent_pool_reason.in_(POSITION_PIPELINE_TALENT_POOL_REASONS),
             ),
         )).count()
 

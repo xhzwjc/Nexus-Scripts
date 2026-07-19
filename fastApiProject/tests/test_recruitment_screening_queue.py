@@ -3536,6 +3536,47 @@ def test_settle_orphaned_screening_flow_marks_stale_running_root_failed():
     assert "长时间未完成" in kwargs["output_summary"]
 
 
+def test_settle_orphaned_screening_flow_keeps_root_while_fallback_parse_is_live():
+    service = RecruitmentService(Mock())
+    root_log = SimpleNamespace(
+        id=191,
+        task_type=SCREENING_FLOW_TASK_TYPE,
+        parent_task_id=None,
+        status="running",
+    )
+    fallback_parse = SimpleNamespace(status="running")
+    failed_one_pass = SimpleNamespace(status="failed")
+    recruitment_impl.recruitment_task_registry.pop(root_log.id)
+    service._get_screening_flow_child_logs = Mock(return_value=(fallback_parse, failed_one_pass))
+    service._finish_ai_task_log = Mock()
+
+    settled = service._settle_orphaned_live_task(root_log)
+
+    assert settled is False
+    service._finish_ai_task_log.assert_not_called()
+
+
+def test_settle_orphaned_screening_flow_keeps_root_while_worker_is_registered():
+    service = RecruitmentService(Mock())
+    root_log = SimpleNamespace(
+        id=192,
+        task_type=SCREENING_FLOW_TASK_TYPE,
+        parent_task_id=None,
+        status="running",
+    )
+    failed_one_pass = SimpleNamespace(status="failed")
+    service._get_screening_flow_child_logs = Mock(return_value=(None, failed_one_pass))
+    service._finish_ai_task_log = Mock()
+    recruitment_impl.recruitment_task_registry.register(root_log.id, Mock())
+    try:
+        settled = service._settle_orphaned_live_task(root_log)
+    finally:
+        recruitment_impl.recruitment_task_registry.pop(root_log.id)
+
+    assert settled is False
+    service._finish_ai_task_log.assert_not_called()
+
+
 def test_rate_limited_parse_task_is_requeued_not_failed():
     service = RecruitmentService(Mock())
     db = Mock()

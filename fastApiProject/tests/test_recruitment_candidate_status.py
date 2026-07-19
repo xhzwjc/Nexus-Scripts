@@ -192,6 +192,34 @@ def test_position_candidate_compact_item_displays_auto_archived_talent_pool_stat
     assert result["items"][0]["talent_pool_reason"] == "auto_archived"
 
 
+def test_position_candidate_keeps_evidence_review_talent_pool_score_in_list_and_realtime_snapshot():
+    db = _build_test_db()
+    candidate = _add_candidate(
+        db,
+        code="C-EVIDENCE-REVIEW",
+        name="证据待复核候选人",
+        status="unmatched",
+        position_id=1001,
+    )
+    candidate.ai_recommended_status = "talent_pool"
+    candidate.match_percent = 69
+    candidate.talent_pool_reason = "evidence_review_required"
+    db.add(candidate)
+    db.commit()
+
+    service = RecruitmentService(db)
+    result = service.list_candidates(position_id=1001, compact=True)
+    realtime_item = service._serialize_realtime_candidate_item(candidate)
+
+    assert result["total"] == 1
+    assert result["items"][0]["display_status"] == "talent_pool"
+    assert result["items"][0]["match_percent"] == 69
+    assert result["items"][0]["talent_pool_reason"] == "evidence_review_required"
+    assert realtime_item["display_status"] == "talent_pool"
+    assert realtime_item["match_percent"] == 69
+    assert realtime_item["ai_recommended_status"] == "talent_pool"
+
+
 def test_list_candidates_supports_multiple_display_status_filter_values():
     db = _build_test_db()
     _add_candidate(db, code="C-SCREEN-REJECT", name="初筛淘汰候选人", status="screening_rejected", position_id=1001)
