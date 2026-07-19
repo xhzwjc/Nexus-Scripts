@@ -7776,6 +7776,7 @@ class RecruitmentService:
         runtime = self.ai_gateway.peek_config(task_type)
         return {
             "provider": str(getattr(runtime, "provider", "") or "").strip() or None,
+            "runtime_provider": str(getattr(runtime, "runtime_provider", "") or "").strip() or None,
             "model_name": str(getattr(runtime, "model_name", "") or "").strip() or None,
             "source": str(getattr(runtime, "source", "") or "").strip() or None,
             "temperature": 0,
@@ -7833,6 +7834,8 @@ class RecruitmentService:
             "prompt_version": prompt_version,
             "model_name": runtime_signature.get("model_name") or "",
             "provider": runtime_signature.get("provider") or "",
+            "runtime_provider": runtime_signature.get("runtime_provider") or "",
+            "source": runtime_signature.get("source") or "",
             # 段落引用协议口径（行号分段规则）也是评估协议的一部分：分段口径变更即协议变更。
             "evidence_ref_protocol": EVIDENCE_REF_PROTOCOL_VERSION,
         })
@@ -7846,7 +7849,10 @@ class RecruitmentService:
             custom_requirements_hash,
             prompt_version,
             status_thresholds_hash,
+            runtime_signature.get("provider") or "",
+            runtime_signature.get("runtime_provider") or "",
             runtime_signature.get("model_name") or "",
+            runtime_signature.get("source") or "",
             runtime_signature.get("temperature") or 0,
         )
         return {
@@ -7865,10 +7871,73 @@ class RecruitmentService:
             "evidence_ref_protocol": EVIDENCE_REF_PROTOCOL_VERSION,
             "prompt_version": prompt_version,
             "provider": runtime_signature.get("provider"),
+            "runtime_provider": runtime_signature.get("runtime_provider"),
             "model_name": runtime_signature.get("model_name"),
             "source": runtime_signature.get("source"),
             "temperature": runtime_signature.get("temperature"),
         }
+
+    def _align_screening_request_meta_with_request_context(
+        self,
+        request_meta: Optional[Dict[str, Any]],
+        request_context: Optional[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        meta = dict(request_meta or {})
+        context = dict(request_context or {})
+        runtime = context.get("runtime_config")
+
+        def _runtime_text(context_key: str, runtime_key: str) -> str:
+            direct_value = context.get(context_key)
+            if isinstance(direct_value, str) and direct_value.strip():
+                return direct_value.strip()
+            runtime_value = getattr(runtime, runtime_key, None)
+            return runtime_value.strip() if isinstance(runtime_value, str) else ""
+
+        provider = _runtime_text("provider", "provider")
+        runtime_provider = _runtime_text("runtime_provider", "runtime_provider")
+        model_name = _runtime_text("model_name", "model_name")
+        source = _runtime_text("source", "source")
+        if not (meta and provider and model_name and source):
+            return meta
+
+        meta.update({
+            "provider": provider,
+            "runtime_provider": runtime_provider or provider,
+            "model_name": model_name,
+            "source": source,
+            "temperature": 0,
+        })
+        meta["evaluation_protocol_hash"] = _build_json_content_hash({
+            "position_snapshot_hash": str(meta.get("position_snapshot_hash") or ""),
+            "score_rule_snapshot_hash": str(meta.get("score_rule_snapshot_hash") or ""),
+            "status_thresholds_hash": str(meta.get("status_thresholds_hash") or ""),
+            "prompt_version": str(meta.get("prompt_version") or ""),
+            "model_name": model_name,
+            "provider": provider,
+            "runtime_provider": runtime_provider or provider,
+            "source": source,
+            "evidence_ref_protocol": str(meta.get("evidence_ref_protocol") or EVIDENCE_REF_PROTOCOL_VERSION),
+        })
+        meta["request_hash"] = self._build_request_hash(
+            meta.get("request_scope"),
+            meta.get("resume_file_id"),
+            meta.get("raw_resume_text_hash"),
+            meta.get("position_id"),
+            meta.get("position_snapshot_hash"),
+            meta.get("score_rule_snapshot_hash"),
+            meta.get("custom_requirements_hash"),
+            meta.get("prompt_version"),
+            meta.get("status_thresholds_hash"),
+            provider,
+            runtime_provider or provider,
+            model_name,
+            source,
+            meta.get("temperature") or 0,
+        )
+        if isinstance(request_meta, dict):
+            request_meta.clear()
+            request_meta.update(meta)
+        return meta
 
     def _extract_screening_request_meta_from_task(self, row: Optional[RecruitmentAITaskLog]) -> Dict[str, Any]:
         if not row:
@@ -7972,7 +8041,10 @@ class RecruitmentService:
             "raw_resume_text_hash",
             "position_id",
             "position_snapshot_hash",
+            "provider",
+            "runtime_provider",
             "model_name",
+            "source",
             "temperature",
         )
         if any(current_request_meta.get(key) != previous_request_meta.get(key) for key in stable_keys):
@@ -8228,6 +8300,7 @@ class RecruitmentService:
         *,
         root_task_id: Optional[int],
         request_context: Dict[str, Any],
+        request_meta: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Write the actual runtime source to the root task before the model call.
 
@@ -8241,7 +8314,7 @@ class RecruitmentService:
         runtime_config = request_context.get("runtime_config")
         provider = str(request_context.get("provider") or getattr(runtime_config, "provider", "") or "").strip() or None
         model_name = str(request_context.get("model_name") or getattr(runtime_config, "model_name", "") or "").strip() or None
-        model_source = str(getattr(runtime_config, "source", "") or "").strip() or None
+        model_source = str(request_context.get("source") or getattr(runtime_config, "source", "") or "").strip() or None
         if not (provider or model_name or model_source):
             return
         try:
@@ -8251,6 +8324,32 @@ class RecruitmentService:
             ).first()
             if not root_log or root_log.status not in SCREENING_LIVE_TASK_STATUSES:
                 return
+            aligned_request_meta = self._align_screening_request_meta_with_request_context(
+                request_meta,
+                request_context,
+            ) if isinstance(request_meta, dict) else {}
+            root_output_snapshot = _decode_ai_task_json_text(getattr(root_log, "output_snapshot", None), {})
+            if not isinstance(root_output_snapshot, dict):
+                root_output_snapshot = {}
+            root_validation_meta = _decode_ai_task_json_text(getattr(root_log, "validation_meta_json", None), {})
+            if not isinstance(root_validation_meta, dict):
+                root_validation_meta = {}
+            if aligned_request_meta:
+                root_log.request_hash = str(aligned_request_meta.get("request_hash") or "").strip() or root_log.request_hash
+                root_output_snapshot["request_meta"] = dict(aligned_request_meta)
+                if root_validation_meta:
+                    root_validation_meta["request_meta"] = dict(aligned_request_meta)
+
+            run_row = self._get_screening_run_for_root_task(root_task_id)
+            if run_row is not None and run_row.status not in {"promoted", "success", "superseded", "cancelled", "failed", "invalid_result", "timeout"}:
+                if provider:
+                    run_row.provider = provider
+                if model_name:
+                    run_row.model_name = model_name
+                if aligned_request_meta:
+                    run_row.request_hash = str(aligned_request_meta.get("request_hash") or "").strip() or run_row.request_hash
+                    run_row.evaluation_protocol_hash = str(aligned_request_meta.get("evaluation_protocol_hash") or "").strip() or run_row.evaluation_protocol_hash
+                self.db.add(run_row)
             self._update_ai_task_log(
                 root_log,
                 provider=provider,
@@ -8259,22 +8358,10 @@ class RecruitmentService:
                 prompt_snapshot=str(request_context.get("prompt_snapshot") or "") or None,
                 full_request_snapshot=request_context.get("full_request_snapshot"),
                 input_summary=str(request_context.get("input_summary") or "") or None,
+                output_snapshot=root_output_snapshot if aligned_request_meta else None,
+                validation_meta=root_validation_meta if aligned_request_meta and root_validation_meta else None,
                 emit_sse=False,
             )
-            # P1 审计一致性：多模型轮换下，入队时 peek 冻结的模型与实际调用（resolve 轮换）
-            # 可能不同——把"实际使用"的模型/供应商回写到 run，run 才是可信的执行记录。
-            run_row = self._get_screening_run_for_root_task(root_task_id)
-            if run_row is not None and run_row.status not in {"promoted", "success", "superseded", "cancelled", "failed", "invalid_result", "timeout"}:
-                changed = False
-                if provider and run_row.provider != provider:
-                    run_row.provider = provider
-                    changed = True
-                if model_name and run_row.model_name != model_name:
-                    run_row.model_name = model_name
-                    changed = True
-                if changed:
-                    self.db.add(run_row)
-                    self.db.commit()
         except Exception:
             self.db.rollback()
             logger.debug("Failed to sync screening root runtime root_task_id=%s", root_task_id, exc_info=True)
@@ -20342,6 +20429,12 @@ class RecruitmentService:
                 screening_total_timeout_seconds=SCREENING_TOTAL_TIMEOUT_SECONDS,
                 remaining_budget_seconds=remaining_budget_seconds,
             )
+            resolved_request_meta = self._align_screening_request_meta_with_request_context(
+                request_meta if isinstance(request_meta, dict) else resolved_request_meta,
+                request_context,
+            )
+            resolved_request_hash = str(resolved_request_meta.get("request_hash") or "").strip() or resolved_request_hash
+            log_row.request_hash = resolved_request_hash
             self._update_ai_task_log(
                 log_row,
                 status="running",
@@ -20377,6 +20470,7 @@ class RecruitmentService:
             self._sync_screening_root_runtime_for_dispatch(
                 root_task_id=root_task_id or parent_task_id,
                 request_context=request_context,
+                request_meta=resolved_request_meta,
             )
             score_started_at = time.perf_counter()
             task = self._run_screening_provider_json_request(
@@ -21410,6 +21504,7 @@ class RecruitmentService:
         reused_existing_parse: bool = True,
         deadline_at: Optional[datetime] = None,
         batch_id: Optional[str] = None,
+        request_meta: Optional[Dict[str, Any]] = None,
     ) -> RecruitmentCandidateScore:
         parsed_payload = self._serialize_parse_result(parse_row)
         parse_quality_warnings = _extract_parse_quality_warnings(parsed_payload)
@@ -21501,6 +21596,14 @@ class RecruitmentService:
                 screening_total_timeout_seconds=SCREENING_TOTAL_TIMEOUT_SECONDS,
                 remaining_budget_seconds=remaining_budget_seconds,
             )
+            aligned_request_meta = self._align_screening_request_meta_with_request_context(
+                request_meta,
+                request_context,
+            )
+            if aligned_request_meta:
+                request_hash = str(aligned_request_meta.get("request_hash") or "").strip() or request_hash
+                log_row.request_hash = request_hash
+                score_task_snapshot_base["request_meta"] = dict(aligned_request_meta)
             score_task_snapshot_base.update({
                 "endpoint": request_context.get("endpoint"),
                 "timeout_seconds": request_context.get("timeout_seconds"),
@@ -21541,6 +21644,7 @@ class RecruitmentService:
             self._sync_screening_root_runtime_for_dispatch(
                 root_task_id=root_task_id or parent_task_id,
                 request_context=request_context,
+                request_meta=aligned_request_meta or None,
             )
             score_started_at = time.perf_counter()
             authoritative_payload: Dict[str, Any] = {}
@@ -23006,6 +23110,7 @@ class RecruitmentService:
                                     reused_existing_parse=True,
                                     deadline_at=screening_deadline_at,
                                     batch_id=batch_id,
+                                    request_meta=request_meta,
                                 )
                                 flow_state["score_result_id"] = score_row.id
                                 score_log_for_root = self._get_latest_screening_score_run_task(
@@ -23212,6 +23317,7 @@ class RecruitmentService:
                 reused_existing_parse=reused_existing_parse_for_score,
                 deadline_at=screening_deadline_at,
                 batch_id=batch_id,
+                request_meta=request_meta,
             )
             flow_state["score_result_id"] = score_row.id
             score_log_for_root = self._get_latest_screening_run_task(

@@ -1461,7 +1461,9 @@ def test_prepare_json_request_context_uses_remaining_budget_as_effective_timeout
     )
 
     assert context["provider"] == "glm"
+    assert context["runtime_provider"] == "openai-compatible"
     assert context["model_name"] == "glm-5"
+    assert context["source"] == "test"
     assert context["timeout_seconds"] == 280.0
     assert context["configured_read_timeout_seconds"] == 300.0
     assert context["effective_timeout_seconds"] == 280.0
@@ -2706,7 +2708,9 @@ def test_one_pass_task_type_is_not_resume_score():
     service._create_ai_task_log = Mock(return_value=log_row)
     service.ai_gateway.prepare_json_request_context = Mock(return_value={
         "provider": "openai-compatible",
+        "runtime_provider": "openai-compatible",
         "model_name": "gpt-4o-mini",
+        "source": "db:actual-model",
         "prompt_snapshot": "snapshot",
         "full_request_snapshot": "{}",
         "input_summary": "summary",
@@ -2764,11 +2768,39 @@ def test_one_pass_task_type_is_not_resume_score():
     service._finish_ai_task_log = Mock(return_value=log_row)
     service._build_screening_persisted_result_refs = Mock(return_value={"parse_result_id": 31, "score_result_id": 41})
     service._maybe_send_auto_resume_mail_after_screening = Mock()
+    request_meta = {
+        "request_hash": "preview-hash",
+        "request_scope": "screening_one_pass",
+        "resume_file_id": 12,
+        "raw_resume_text_hash": "resume-hash",
+        "position_id": 9,
+        "position_snapshot_hash": "position-hash",
+        "score_rule_snapshot_hash": "rule-hash",
+        "custom_requirements_hash": "",
+        "prompt_version": "resume_screening_one_pass_v8",
+        "status_thresholds_hash": "threshold-hash",
+        "evidence_ref_protocol": "line_refs_v1",
+        "provider": "openai-compatible",
+        "runtime_provider": "openai-compatible",
+        "model_name": "MiniMax-M2.7-highspeed",
+        "source": "db:MINIMAX",
+        "temperature": 0,
+    }
 
-    service._screen_candidate_with_single_ai_call(candidate, "tester", [], "position", raw_text_override="候选人简历")
+    service._screen_candidate_with_single_ai_call(
+        candidate,
+        "tester",
+        [],
+        "position",
+        request_meta=request_meta,
+        raw_text_override="候选人简历",
+    )
 
     assert service.ai_gateway.prepare_json_request_context.call_args.kwargs["task_type"] == SCREENING_ONE_PASS_TASK_TYPE
     assert service._run_screening_provider_json_request.call_args.kwargs["task_type"] == SCREENING_ONE_PASS_TASK_TYPE
+    assert request_meta["model_name"] == "gpt-4o-mini"
+    assert request_meta["source"] == "db:actual-model"
+    assert service._update_ai_task_log.call_args_list[0].kwargs["output_snapshot"]["request_meta"]["model_name"] == "gpt-4o-mini"
 
 
 def test_one_pass_persists_normalized_total_score_and_match_percent():

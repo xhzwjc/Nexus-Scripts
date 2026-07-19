@@ -2275,7 +2275,9 @@ class RecruitmentAIGateway:
         return {
             "runtime_config": config,
             "provider": config.provider,
+            "runtime_provider": config.runtime_provider,
             "model_name": config.model_name,
+            "source": config.source,
             "endpoint": endpoint,
             "timeout_seconds": effective_timeout_seconds,
             "configured_read_timeout_seconds": configured_timeout_seconds,
