@@ -1033,14 +1033,16 @@ def extract_high_confidence_candidate_name_from_filename(file_name: str) -> str:
 def extract_explicit_candidate_name_from_resume(raw_text: str) -> str:
     """Extract an explicitly labelled resume name without swallowing adjacent fields."""
     match = re.search(
-        r"(?:^|[\r\n])\s*(?:姓名|Name)\s*(?:[:：]\s*|\s+)([^\r\n]{1,80})",
+        r"(?:^|[\r\n])\s*"
+        r"(?:(?:个\s*人\s*简\s*历|个\s*人\s*信\s*息|基\s*本\s*信\s*息)\s*)?"
+        r"(?:姓名|Name)\s*(?:[:：]\s*|\s+)([^\r\n]{1,80})",
         str(raw_text or ""),
         re.IGNORECASE,
     )
     if not match:
         return ""
     candidate = re.split(
-        r"\s+(?=(?:性别|手机|电话|邮箱|年龄|出生|求职意向|应聘岗位|Gender|Phone|Mobile|Email|Age)\s*[:：])",
+        r"\s+(?=(?:性别|手机|电话|邮箱|年龄|出生|籍贯|学校|身高|学历|专业|工作年限|求职意向|应聘岗位|Gender|Phone|Mobile|Email|Age)(?:\s*[:：]\s*|\s+))",
         match.group(1).strip(),
         maxsplit=1,
         flags=re.IGNORECASE,

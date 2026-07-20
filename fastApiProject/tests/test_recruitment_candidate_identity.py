@@ -85,6 +85,25 @@ def test_resume_identity_does_not_swallow_adjacent_fields():
     }
 
 
+def test_resume_identity_accepts_collapsed_table_pdf_header_only():
+    raw_text = "个 人 简 历姓名 罗仕豪 性别 男 年龄 29 岁籍贯 江西南昌 学校 南昌工学院"
+
+    assert extract_explicit_candidate_name_from_resume(raw_text) == "罗仕豪"
+    assert resolve_high_confidence_candidate_name(
+        file_name="18a0cbd1-e450-4608-bc30-3a00343d91c8.pdf",
+        raw_text=raw_text,
+        proposed_name="罗仕豪",
+    ) == {
+        "value": "罗仕豪",
+        "source": "resume_text_explicit",
+        "confidence": 0.99,
+    }
+
+    assert extract_explicit_candidate_name_from_resume(
+        "工作内容\n负责登记客户姓名 张三 性别 男"
+    ) == ""
+
+
 def test_legacy_fallback_no_longer_guesses_city_or_job_title():
     assert normalize_resume_fallback_name("【岗位】济南.pdf") == ""
     assert normalize_resume_fallback_name("南京市_张三_简历.pdf") == ""
