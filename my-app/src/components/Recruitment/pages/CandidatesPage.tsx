@@ -35,6 +35,7 @@ import {
     Search,
     Sparkles,
     Square,
+    Target,
     Trash2,
     UserCheck,
     Users,
@@ -2188,6 +2189,15 @@ function getCandidatesLocale(language = getCurrentLanguage()) {
         noCandidatesInStatus: isZh ? "当前状态暂无候选人" : "No candidates in this status",
         originalStatus: isZh ? "原状态" : "Original Status",
         matchBadge: isZh ? "匹配度" : "Match",
+        positionDecisionEvidence: isZh ? "岗位决策依据" : "Position Decision Evidence",
+        positionRecognition: isZh ? "岗位识别" : "Position Recognition",
+        screeningPositionRecommendation: isZh ? "初筛岗位建议" : "Screening Position Recommendation",
+        systemPositionRoute: isZh ? "系统岗位路由" : "System Position Route",
+        externalPositionSuggestion: isZh ? "非系统岗位建议" : "External Position Suggestion",
+        recognitionConfidence: (value: string) => (isZh ? `识别置信度 ${value}` : `Recognition confidence ${value}`),
+        screeningPositionConfidence: (value: string) => (isZh ? `建议置信度 ${value}` : `Recommendation confidence ${value}`),
+        screeningTransferSuggestion: isZh ? "初筛转岗建议" : "Screening Transfer Suggestion",
+        recognitionTransferSuggestion: isZh ? "识别转岗建议" : "Recognition Transfer Suggestion",
         sentBadge: isZh ? "发送" : "Sent",
         profileTab: isZh ? "档案" : "Profile",
         aiAssessmentTab: isZh ? "AI 评估" : "AI Review",
@@ -4733,15 +4743,39 @@ export function CandidatesPage({
     ]);
     const candidateDetailScreenedPositionTitle = String(candidateDetail?.candidate.screened_position_title || "").trim();
     const candidateDetailAiMatchPositionTitle = String(candidateDetail?.candidate.ai_match_position_title || "").trim();
+    const candidateDetailAiMatchConfidence = typeof candidateDetail?.candidate.ai_match_confidence === "number"
+        ? candidateDetail.candidate.ai_match_confidence
+        : null;
     const candidateDetailAiMatchReason = String(candidateDetail?.candidate.ai_match_reason || "").trim();
     const candidateDetailAiPotentialPosition = String(candidateDetail?.candidate.ai_potential_position || "").trim();
     const candidateDetailAiPotentialReason = String(candidateDetail?.candidate.ai_potential_reason || "").trim();
-    const candidateDetailPositionInsightVisible = Boolean(
-        candidateDetailScreenedPositionTitle
-        || candidateDetailAiMatchPositionTitle
+    const candidateDetailScreeningPositionMatch = candidateDetail?.score?.screening_position_match;
+    const candidateDetailScreeningPositionTitle = String(candidateDetailScreeningPositionMatch?.recommended_position || "").trim();
+    const candidateDetailScreeningPositionConfidence = typeof candidateDetailScreeningPositionMatch?.confidence === "number"
+        ? candidateDetailScreeningPositionMatch.confidence
+        : null;
+    const candidateDetailScreeningPositionReason = String(candidateDetailScreeningPositionMatch?.reason || "").trim();
+    const candidateDetailScreeningPotentialPosition = String(candidateDetailScreeningPositionMatch?.potential_position || "").trim();
+    const candidateDetailScreeningPotentialReason = String(candidateDetailScreeningPositionMatch?.potential_reason || "").trim();
+    const candidateDetailTransferPosition = candidateDetailScreeningPotentialPosition || candidateDetailAiPotentialPosition;
+    const candidateDetailTransferReason = candidateDetailScreeningPotentialPosition
+        ? candidateDetailScreeningPotentialReason
+        : candidateDetailAiPotentialReason;
+    const candidateDetailPositionRouteVisible = Boolean(
+        candidateDetailAiMatchPositionTitle
         || candidateDetailAiMatchReason
-        || candidateDetailAiPotentialPosition
-        || candidateDetailAiPotentialReason,
+        || candidateDetailAiMatchConfidence !== null,
+    );
+    const candidateDetailScreeningPositionVisible = Boolean(
+        candidateDetailScreeningPositionTitle
+        || candidateDetailScreeningPositionReason
+        || candidateDetailScreeningPositionConfidence !== null,
+    );
+    const candidateDetailPositionInsightVisible = Boolean(
+        candidateDetailPositionRouteVisible
+        || candidateDetailScreeningPositionVisible
+        || candidateDetailTransferPosition
+        || candidateDetailTransferReason,
     );
     const refreshCurrentCandidateDetail = React.useCallback(async () => {
         const candidateId = candidateDetail?.candidate.id;
@@ -6109,18 +6143,41 @@ export function CandidatesPage({
 
                                             {candidateDetailPositionInsightVisible ? (
                                                 <section className="space-y-3">
-                                                    <h4 className="text-[14px] font-semibold text-[#0E1114]">{isZh ? "AI 岗位识别" : "AI Position Insight"}</h4>
+                                                    <h4 className="text-[14px] font-semibold text-[#0E1114]">{tr.positionDecisionEvidence}</h4>
                                                     <div className="grid gap-3 sm:grid-cols-2">
-                                                        <div className="rounded-[8px] bg-[#F7F8FA] p-4">
-                                                            <div className="flex items-center gap-1.5 text-[12px] font-semibold text-[#1E3BFA]"><Sparkles className="h-3.5 w-3.5"/>{isZh ? "推荐岗位" : "Recommended"}</div>
-                                                            <p className="mt-2 text-[12px] font-medium text-[#0F1014]">{candidateDetailAiMatchPositionTitle || candidateDetailScreenedPositionTitle || tr.unassignedPosition}</p>
-                                                            {candidateDetailAiMatchReason ? <p className="mt-1 whitespace-pre-wrap text-[12px] leading-5 text-[#86888F]">{sanitizeCandidateFacingErrorText(candidateDetailAiMatchReason, {context: resolveCandidateFacingErrorContext("ai_position_match"), language})}</p> : null}
-                                                        </div>
-                                                        <div className="rounded-[8px] bg-[#F7F8FA] p-4">
-                                                            <div className="flex items-center gap-1.5 text-[12px] font-semibold text-[#1E3BFA]"><ArrowRightLeft className="h-3.5 w-3.5"/>{isZh ? "转岗建议" : "Transfer Suggestion"}</div>
-                                                            <p className="mt-2 text-[12px] font-medium text-[#0F1014]">{candidateDetailAiPotentialPosition || "-"}</p>
-                                                            {candidateDetailAiPotentialReason ? <p className="mt-1 whitespace-pre-wrap text-[12px] leading-5 text-[#86888F]">{sanitizeCandidateFacingErrorText(candidateDetailAiPotentialReason, {context: resolveCandidateFacingErrorContext("ai_position_match"), language})}</p> : null}
-                                                        </div>
+                                                        {candidateDetailPositionRouteVisible ? (
+                                                            <div className="rounded-[8px] bg-[#F7F8FA] p-4">
+                                                                <div className="flex flex-wrap items-center gap-1.5 text-[12px] font-semibold text-[#1E3BFA]">
+                                                                    <Sparkles className="h-3.5 w-3.5"/>
+                                                                    {tr.positionRecognition}
+                                                                    <span className="rounded-[3px] bg-white px-1.5 py-0.5 text-[10px] font-medium text-[#86888F]">
+                                                                        {candidateDetail.candidate.ai_match_position_id ? tr.systemPositionRoute : tr.externalPositionSuggestion}
+                                                                    </span>
+                                                                </div>
+                                                                <p className="mt-2 text-[12px] font-medium text-[#0F1014]">{candidateDetailAiMatchPositionTitle || tr.unassignedPosition}</p>
+                                                                {candidateDetailAiMatchConfidence !== null ? (
+                                                                    <p className="mt-1 text-[11px] tabular-nums text-[#86888F]">{tr.recognitionConfidence(formatPercent(candidateDetailAiMatchConfidence))}</p>
+                                                                ) : null}
+                                                                {candidateDetailAiMatchReason ? <p className="mt-1 whitespace-pre-wrap text-[12px] leading-5 text-[#86888F]">{sanitizeCandidateFacingErrorText(candidateDetailAiMatchReason, {context: resolveCandidateFacingErrorContext("ai_position_match"), language})}</p> : null}
+                                                            </div>
+                                                        ) : null}
+                                                        {candidateDetailScreeningPositionVisible ? (
+                                                            <div className="rounded-[8px] bg-[#F7F8FA] p-4">
+                                                                <div className="flex items-center gap-1.5 text-[12px] font-semibold text-[#1E3BFA]"><Target className="h-3.5 w-3.5"/>{tr.screeningPositionRecommendation}</div>
+                                                                <p className="mt-2 text-[12px] font-medium text-[#0F1014]">{candidateDetailScreeningPositionTitle || candidateDetailScreenedPositionTitle || tr.unassignedPosition}</p>
+                                                                {candidateDetailScreeningPositionConfidence !== null ? (
+                                                                    <p className="mt-1 text-[11px] tabular-nums text-[#86888F]">{tr.screeningPositionConfidence(formatPercent(candidateDetailScreeningPositionConfidence))}</p>
+                                                                ) : null}
+                                                                {candidateDetailScreeningPositionReason ? <p className="mt-1 whitespace-pre-wrap text-[12px] leading-5 text-[#86888F]">{sanitizeCandidateFacingErrorText(candidateDetailScreeningPositionReason, {context: resolveCandidateFacingErrorContext("ai_position_match"), language})}</p> : null}
+                                                            </div>
+                                                        ) : null}
+                                                        {candidateDetailTransferPosition || candidateDetailTransferReason ? (
+                                                            <div className="rounded-[8px] bg-[#F7F8FA] p-4 sm:col-span-2">
+                                                                <div className="flex items-center gap-1.5 text-[12px] font-semibold text-[#1E3BFA]"><ArrowRightLeft className="h-3.5 w-3.5"/>{candidateDetailScreeningPotentialPosition ? tr.screeningTransferSuggestion : tr.recognitionTransferSuggestion}</div>
+                                                                <p className="mt-2 text-[12px] font-medium text-[#0F1014]">{candidateDetailTransferPosition || "-"}</p>
+                                                                {candidateDetailTransferReason ? <p className="mt-1 whitespace-pre-wrap text-[12px] leading-5 text-[#86888F]">{sanitizeCandidateFacingErrorText(candidateDetailTransferReason, {context: resolveCandidateFacingErrorContext("ai_position_match"), language})}</p> : null}
+                                                            </div>
+                                                        ) : null}
                                                     </div>
                                                 </section>
                                             ) : null}

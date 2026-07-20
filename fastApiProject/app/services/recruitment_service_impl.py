@@ -1807,13 +1807,36 @@ def _rebuild_dimensions_against_authoritative_rules(
                 )
             # 每条确证证据 = (行身份, 文本)。行身份用于跨维度唯一性（refs/锚点自带；逐字引用现场定位）。
             confirmed_entries: List[Tuple[Tuple[int, ...], str]] = []
+            criterion_reference_facts: List[str] = []
             restored_used = False
             review_hit = False
             contested_hit = False
             for index in ref_indexes:
-                confirmed_entries.append(((index,), reference_paragraphs[index][:200]))
+                reference_text = reference_paragraphs[index][:200]
+                # PDF/表格抽取常把多个字段压到同一物理行，例如
+                # “年龄：39岁 ... 求职意向：采购经理”。若直接拿整行做否定语境判断，
+                # “求职意向”会把真实年龄事实一并误判为非正向证据。对可确定抽取的
+                # 结构化事实先收窄到当前维度对应的子事实；空行身份表示它只占用该
+                # 子事实，不阻止同一物理行里的其他独立事实服务其他维度。
+                criterion_fact = _extract_criterion_specific_structured_fact(
+                    label,
+                    rule.get("note"),
+                    reference_text,
+                )
+                if criterion_fact:
+                    confirmed_entries.append(((), criterion_fact))
+                    criterion_reference_facts.append(_normalize_quote_for_match(criterion_fact))
+                else:
+                    confirmed_entries.append(((index,), reference_text))
             for item in evidence_items:
                 if not item or item == "简历未提及":
+                    continue
+                normalized_item = _normalize_quote_for_match(item)
+                if normalized_item and any(
+                    normalized_item in fact or fact in normalized_item
+                    for fact in criterion_reference_facts
+                    if fact
+                ):
                     continue
                 item_signature = _evidence_semantic_signature(item)
                 signature_owner = evidence_signature_winner.get(item_signature)
@@ -4958,6 +4981,36 @@ _STRUCTURED_FACT_EVIDENCE_PATTERNS = (
     re.compile(r"^(?:本科|硕士|博士|大专|专科|高中|中专|研究生)(?:学历|学位)?$"),
     re.compile(r"^\d{1,2}年半?(?:以上)?(?:工作)?(?:经验)?$"),
 )
+
+
+_AGE_FACT_IN_REFERENCE_RE = re.compile(
+    r"(?:年龄\s*[:：]?\s*)?(?<!\d)(\d{1,2})\s*岁"
+)
+
+
+def _extract_criterion_specific_structured_fact(label: Any, note: Any, reference_text: Any) -> Optional[str]:
+    """从混合字段引用行中提取当前维度可确定的结构化子事实。
+
+    这里只处理能高精度验证的年龄事实。不要用通用分词把整行“猜”成多个证据，
+    否则会降低现有逐字证据门的防伪能力。
+    """
+    criterion = f"{str(label or '').strip()} {str(note or '').strip()}"
+    text = str(reference_text or "").strip()
+    if "年龄" not in criterion or not text:
+        return None
+    for match in _AGE_FACT_IN_REFERENCE_RE.finditer(text):
+        try:
+            age = int(match.group(1))
+        except (TypeError, ValueError):
+            continue
+        if not 14 <= age <= 80:
+            continue
+        nearby_prefix = text[max(0, match.start() - 8):match.start()]
+        if any(marker in nearby_prefix for marker in ("期望年龄", "年龄要求", "年龄限制")):
+            continue
+        matched_text = match.group(0).strip()
+        return matched_text if "年龄" in matched_text else f"{age}岁"
+    return None
 
 
 def _structured_fact_quote_in_resume(normalized: str, haystack: str) -> bool:
@@ -12306,6 +12359,15 @@ class RecruitmentService:
         payload = json_loads_safe(row.score_json, {})
         if isinstance(payload, dict) and payload.get("_storage_format") == RAW_SCREENING_SCORE_STORAGE_FORMAT:
             raw_score = payload.get("score") if isinstance(payload.get("score"), dict) else {}
+            authoritative_payload = payload.get("authoritative") if isinstance(payload.get("authoritative"), dict) else {}
+            authoritative_parsed_response = (
+                authoritative_payload.get("parsed_response")
+                if isinstance(authoritative_payload.get("parsed_response"), dict)
+                else {}
+            )
+            screening_position_match = _sanitize_position_match_payload(
+                raw_score.get("position_match") or authoritative_parsed_response.get("position_match")
+            )
             debug_payload = payload.get("debug") if isinstance(payload.get("debug"), dict) else {}
             row_total_score = _parse_score_number(row.total_score)
             row_match_percent = _parse_score_number(row.match_percent)
@@ -12322,6 +12384,9 @@ class RecruitmentService:
                 "suggested_status": _normalize_suggested_status(row.suggested_status or raw_score.get("suggested_status")) or row.suggested_status or raw_score.get("suggested_status"),
                 "dimensions": sanitize_dimensions(raw_score.get("dimensions"), SCREENING_PAYLOAD_SCHEMA_CONFIG.get("score") or {}),
                 "radar_scores": _sanitize_radar_scores(raw_score.get("radar_scores")),
+                # 岗位识别（candidate.ai_match_*）与初筛后的岗位建议是两种不同结论。
+                # 初筛建议随评分记录返回，不能再覆盖候选人的岗位识别快照。
+                "screening_position_match": screening_position_match or None,
                 "score_validation_passed": debug_payload.get("score_validation_passed"),
                 "validation_warnings": _normalize_score_warning_items(debug_payload.get("validation_warnings"), limit=12),
                 "validation_warning_levels": (
@@ -12383,6 +12448,9 @@ class RecruitmentService:
             "suggested_status": _normalize_suggested_status(row.suggested_status or compatibility_score.get("suggested_status")) or row.suggested_status or compatibility_score.get("suggested_status"),
             "dimensions": sanitize_dimensions(compatibility_score.get("dimensions"), SCREENING_PAYLOAD_SCHEMA_CONFIG.get("score") or {}),
             "radar_scores": _sanitize_radar_scores(compatibility_score.get("radar_scores") or payload.get("radar_scores")),
+            "screening_position_match": _sanitize_position_match_payload(
+                payload.get("position_match") or compatibility_score.get("position_match")
+            ) or None,
             "manual_override_score": row.manual_override_score,
             "manual_override_reason": row.manual_override_reason,
             "hr_feedback": row.hr_feedback,
@@ -12760,6 +12828,25 @@ class RecruitmentService:
             return False
         return not (snapshot["ai_match_position_title"] and snapshot["ai_potential_position"])
 
+    @staticmethod
+    def _candidate_ai_match_snapshot_was_overwritten_by_screening(
+        row: RecruitmentCandidate,
+        snapshot: Dict[str, Any],
+    ) -> bool:
+        """识别历史初筛覆盖留下的特征，供旧数据无写迁移恢复。
+
+        旧逻辑会清空 ai_match_position_id，同时写入初筛推荐标题/原因；人工改岗的
+        重置逻辑会把整组字段全部清空，因此不会命中这个恢复条件。
+        """
+        if not getattr(row, "position_id", None) or snapshot.get("ai_match_position_id") is not None:
+            return False
+        return bool(
+            str(snapshot.get("ai_match_position_title") or "").strip()
+            or snapshot.get("ai_match_confidence") is not None
+            or str(snapshot.get("ai_match_reason") or "").strip()
+            or str(snapshot.get("ai_potential_position") or "").strip()
+        )
+
     def _merge_candidate_ai_match_snapshot_from_log(
         self,
         row: RecruitmentCandidate,
@@ -12767,6 +12854,7 @@ class RecruitmentService:
         latest_match_log: Optional[RecruitmentAITaskLog],
         *,
         _preloaded_position: Any = _UNSET,
+        prefer_log: bool = False,
     ) -> Dict[str, Any]:
         if not latest_match_log:
             return snapshot
@@ -12797,14 +12885,33 @@ class RecruitmentService:
         if not isinstance(fallback_alternatives, list):
             fallback_alternatives = None
 
+        fallback_confidence = _parse_score_number(parsed_response.get("confidence"))
+        fallback_reason = str(parsed_response.get("reason") or "").strip() or str(getattr(latest_match_log, "output_summary", "") or "").strip() or None
+        fallback_potential_position = str(parsed_response.get("potential_position") or "").strip() or None
+        fallback_potential_reason = str(parsed_response.get("potential_reason") or "").strip() or None
+        if prefer_log:
+            try:
+                prefer_log = int(fallback_position_id or 0) == int(getattr(row, "position_id", None) or 0)
+            except (TypeError, ValueError):
+                prefer_log = False
+        if prefer_log:
+            return {
+                "ai_match_position_id": fallback_position_id if fallback_position_id is not None else snapshot["ai_match_position_id"],
+                "ai_match_position_title": fallback_position_title or snapshot["ai_match_position_title"],
+                "ai_match_confidence": fallback_confidence if fallback_confidence is not None else snapshot["ai_match_confidence"],
+                "ai_match_reason": fallback_reason or snapshot["ai_match_reason"],
+                "ai_match_alternatives": fallback_alternatives if fallback_alternatives is not None else snapshot["ai_match_alternatives"],
+                "ai_potential_position": fallback_potential_position or snapshot["ai_potential_position"],
+                "ai_potential_reason": fallback_potential_reason or snapshot["ai_potential_reason"],
+            }
         return {
             "ai_match_position_id": snapshot["ai_match_position_id"] if snapshot["ai_match_position_id"] is not None else fallback_position_id,
             "ai_match_position_title": snapshot["ai_match_position_title"] or fallback_position_title,
-            "ai_match_confidence": snapshot["ai_match_confidence"] if snapshot["ai_match_confidence"] is not None else _parse_score_number(parsed_response.get("confidence")),
-            "ai_match_reason": snapshot["ai_match_reason"] or (str(parsed_response.get("reason") or "").strip() or str(getattr(latest_match_log, "output_summary", "") or "").strip() or None),
+            "ai_match_confidence": snapshot["ai_match_confidence"] if snapshot["ai_match_confidence"] is not None else fallback_confidence,
+            "ai_match_reason": snapshot["ai_match_reason"] or fallback_reason,
             "ai_match_alternatives": snapshot["ai_match_alternatives"] if snapshot["ai_match_alternatives"] is not None else fallback_alternatives,
-            "ai_potential_position": snapshot["ai_potential_position"] or (str(parsed_response.get("potential_position") or "").strip() or None),
-            "ai_potential_reason": snapshot["ai_potential_reason"] or (str(parsed_response.get("potential_reason") or "").strip() or None),
+            "ai_potential_position": snapshot["ai_potential_position"] or fallback_potential_position,
+            "ai_potential_reason": snapshot["ai_potential_reason"] or fallback_potential_reason,
         }
 
     def _build_candidate_ai_match_snapshot_map(
@@ -12820,7 +12927,10 @@ class RecruitmentService:
         fallback_candidate_ids = [
             row.id
             for row in rows
-            if self._candidate_needs_ai_match_fallback(row, snapshot_map[row.id])
+            if (
+                self._candidate_needs_ai_match_fallback(row, snapshot_map[row.id])
+                or self._candidate_ai_match_snapshot_was_overwritten_by_screening(row, snapshot_map[row.id])
+            )
         ]
         if not fallback_candidate_ids:
             return snapshot_map
@@ -12896,12 +13006,17 @@ class RecruitmentService:
                 snapshot_map[row.id],
                 latest_match_log,
                 _preloaded_position=fallback_position_map.get(int(fallback_position_id)) if fallback_position_id else None,
+                prefer_log=self._candidate_ai_match_snapshot_was_overwritten_by_screening(
+                    row,
+                    snapshot_map[row.id],
+                ),
             )
         return snapshot_map
 
     def _resolve_candidate_ai_match_snapshot(self, row: RecruitmentCandidate) -> Dict[str, Any]:
         snapshot = self._build_direct_candidate_ai_match_snapshot(row)
-        if not self._candidate_needs_ai_match_fallback(row, snapshot):
+        overwritten_by_screening = self._candidate_ai_match_snapshot_was_overwritten_by_screening(row, snapshot)
+        if not self._candidate_needs_ai_match_fallback(row, snapshot) and not overwritten_by_screening:
             return snapshot
 
         latest_match_log = self.db.query(RecruitmentAITaskLog).filter(
@@ -12912,7 +13027,12 @@ class RecruitmentService:
             RecruitmentAITaskLog.created_at.desc(),
             RecruitmentAITaskLog.id.desc(),
         ).first()
-        return self._merge_candidate_ai_match_snapshot_from_log(row, snapshot, latest_match_log)
+        return self._merge_candidate_ai_match_snapshot_from_log(
+            row,
+            snapshot,
+            latest_match_log,
+            prefer_log=overwritten_by_screening,
+        )
 
     def _build_candidate_list_display_payload(
         self,
@@ -19804,7 +19924,7 @@ class RecruitmentService:
         if expected_city_value:
             candidate.expected_city = expected_city_value
 
-    def _apply_screening_position_match_payload(
+    def _audit_screening_position_match_payload(
         self,
         candidate: RecruitmentCandidate,
         position_match_payload: Dict[str, Any],
@@ -19814,19 +19934,12 @@ class RecruitmentService:
         sanitized_payload = _sanitize_position_match_payload(position_match_payload)
         if not sanitized_payload:
             return False
-        candidate.ai_match_position_id = None
-        candidate.ai_match_position_title = str(sanitized_payload.get("recommended_position") or "").strip() or None
-        candidate.ai_match_confidence = _parse_score_number(sanitized_payload.get("confidence"))
-        candidate.ai_match_reason = str(sanitized_payload.get("reason") or "").strip() or None
-        candidate.ai_match_at = datetime.now()
-        candidate.ai_potential_position = str(sanitized_payload.get("potential_position") or "").strip() or None
-        candidate.ai_potential_reason = str(sanitized_payload.get("potential_reason") or "").strip() or None
         logger.info(
-            "[SCREENING_POSITION_MATCH] candidate_id=%s source=%s recommended=%s potential=%s",
+            "[SCREENING_POSITION_MATCH] candidate_id=%s source=%s recommended=%s potential=%s route_snapshot_preserved=true",
             candidate.id,
             source,
-            candidate.ai_match_position_title,
-            candidate.ai_potential_position,
+            sanitized_payload.get("recommended_position"),
+            sanitized_payload.get("potential_position"),
         )
         return True
 
@@ -20565,15 +20678,18 @@ class RecruitmentService:
                     candidate.id,
                     " ".join(validation_warnings),
                 )
+            persisted_score_payload = dict(raw_score_payload)
+            if position_match_payload:
+                persisted_score_payload["position_match"] = position_match_payload
             storage_payload = _build_raw_screening_storage_payload(
-                score_payload=raw_score_payload,
+                score_payload=persisted_score_payload,
                 score_source="primary_screening_model",
                 primary_model_call_succeeded=True,
                 final_response_source="primary_screening_model",
                 validation_warnings=validation_warnings,
                 raw_response_text=task.get("raw_response_text"),
                 parsed_response_payload=authoritative_payload if isinstance(authoritative_payload, dict) else None,
-                sanitized_score_payload=raw_score_payload,
+                sanitized_score_payload=persisted_score_payload,
             )
         except RecruitmentTaskCancelled:
             self.db.rollback()
@@ -20719,7 +20835,7 @@ class RecruitmentService:
             self._apply_candidate_parsed_location_fields(candidate, basic_info)
             candidate.latest_parse_result_id = parse_row.id
             candidate.updated_by = actor_id
-            self._apply_screening_position_match_payload(candidate, position_match_payload, source="one_pass_screening")
+            self._audit_screening_position_match_payload(candidate, position_match_payload, source="one_pass_screening")
         else:
             candidate.updated_by = actor_id
             logger.warning(
@@ -21753,14 +21869,15 @@ class RecruitmentService:
                 ),
             )
             prev_ai_recommended_status = candidate.ai_recommended_status
-            # P0 控制流：score-only/fallback 晋级前统一 CAS——过期则不写岗位推荐、不晋级、不发邮件。
+            # P0 控制流：score-only/fallback 晋级前统一 CAS——过期则不晋级、不发邮件；
+            # 初筛岗位建议只随本次评分记录留档，任何情况下都不覆盖岗位识别快照。
             score_superseded_reason = self._detect_superseded_score_promotion(
                 candidate,
                 parse_row,
                 expected_position_id=candidate.position_id,
             )
             if not score_superseded_reason:
-                self._apply_screening_position_match_payload(candidate, position_match_payload, source="resume_score")
+                self._audit_screening_position_match_payload(candidate, position_match_payload, source="resume_score")
             effective_result_valid = screening_result_valid and not score_superseded_reason
             score_row = self._save_score_result(
                 candidate,

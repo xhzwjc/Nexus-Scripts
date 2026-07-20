@@ -3979,6 +3979,12 @@ def test_score_candidate_uses_gateway_strict_json_recovery_result_without_second
         status="pending_screening",
         match_percent=None,
         ai_recommended_status=None,
+        ai_match_position_id=9,
+        ai_match_position_title="岗位识别原始岗位",
+        ai_match_confidence=72.0,
+        ai_match_reason="岗位识别原始原因",
+        ai_potential_position="岗位识别转岗建议",
+        ai_potential_reason="岗位识别转岗原因",
     )
     parse_row = SimpleNamespace(id=31, resume_file_id=11, raw_text="候选人简历")
     log_row = SimpleNamespace(id=91, timing_breakdown_json="{}", stage="scoring", status="running")
@@ -4120,11 +4126,126 @@ def test_score_candidate_uses_gateway_strict_json_recovery_result_without_second
     assert final_validation_meta["score_model_retry_count"] == 1
     assert final_validation_meta["screening_result_valid"] is True
     assert final_validation_meta["position_match_returned"] is True
-    assert candidate.ai_match_position_title == "测试工程师"
-    assert candidate.ai_match_confidence == 86.0
-    assert candidate.ai_potential_position == "测试开发工程师"
+    assert candidate.ai_match_position_title == "岗位识别原始岗位"
+    assert candidate.ai_match_confidence == 72.0
+    assert candidate.ai_potential_position == "岗位识别转岗建议"
     saved_payload = service._save_score_result.call_args.args[3]
     assert saved_payload["score"]["position_match"]["recommended_position"] == "测试工程师"
+
+    serialized_score = service._serialize_score(SimpleNamespace(
+        id=41,
+        candidate_id=5,
+        parse_result_id=31,
+        score_json=json.dumps(saved_payload, ensure_ascii=False),
+        total_score=8.1,
+        match_percent=81.0,
+        recommendation="建议继续评估",
+        suggested_status="screening_passed",
+        manual_override_score=None,
+        manual_override_reason=None,
+        hr_feedback=None,
+        hr_feedback_reason=None,
+        created_at=None,
+        updated_at=None,
+    ))
+    assert serialized_score["screening_position_match"]["recommended_position"] == "测试工程师"
+
+
+def test_candidate_ai_match_snapshot_recovers_legacy_screening_overwrite_from_match_log():
+    service = RecruitmentService(Mock())
+    candidate = SimpleNamespace(
+        id=5,
+        position_id=9,
+        status="talent_pool",
+        talent_pool_reason="evidence_review_required",
+        ai_match_position_id=None,
+        ai_match_position_title="初筛覆盖岗位",
+        ai_match_confidence=5.0,
+        ai_match_reason="初筛覆盖原因",
+        ai_match_alternatives=None,
+        ai_potential_position="初筛转岗建议",
+        ai_potential_reason="初筛转岗原因",
+    )
+    match_log = SimpleNamespace(
+        related_position_id=9,
+        parsed_response_json=json.dumps({
+            "position_id": 9,
+            "position_title": "智能家居工程师",
+            "confidence": 75,
+            "reason": "岗位识别原始原因",
+            "potential_position": "项目交付经理",
+            "potential_reason": "具备项目交付经验",
+        }, ensure_ascii=False),
+        output_summary="岗位识别完成",
+    )
+
+    snapshot = service._build_direct_candidate_ai_match_snapshot(candidate)
+    assert service._candidate_ai_match_snapshot_was_overwritten_by_screening(candidate, snapshot) is True
+    recovered = service._merge_candidate_ai_match_snapshot_from_log(
+        candidate,
+        snapshot,
+        match_log,
+        prefer_log=True,
+    )
+
+    assert recovered["ai_match_position_id"] == 9
+    assert recovered["ai_match_position_title"] == "智能家居工程师"
+    assert recovered["ai_match_confidence"] == 75.0
+    assert recovered["ai_match_reason"] == "岗位识别原始原因"
+
+    manually_cleared = dict(snapshot)
+    manually_cleared.update({
+        "ai_match_position_title": None,
+        "ai_match_confidence": None,
+        "ai_match_reason": None,
+        "ai_potential_position": None,
+    })
+    assert service._candidate_ai_match_snapshot_was_overwritten_by_screening(candidate, manually_cleared) is False
+
+
+def test_serialize_score_recovers_legacy_one_pass_position_match_from_authoritative_payload():
+    service = RecruitmentService(Mock())
+    stored_payload = {
+        "_storage_format": RAW_SCREENING_SCORE_STORAGE_FORMAT,
+        "score": {
+            "total_score": 0.5,
+            "match_percent": 5,
+            "recommendation": "建议淘汰",
+            "suggested_status": "screening_rejected",
+            "dimensions": [],
+        },
+        "authoritative": {
+            "parsed_response": {
+                "position_match": {
+                    "recommended_position": "采购经理",
+                    "confidence": 20,
+                    "reason": "初筛后的岗位建议",
+                    "potential_position": "供应链专员",
+                    "potential_reason": "具备采购经验",
+                },
+            },
+        },
+        "debug": {},
+    }
+    serialized = service._serialize_score(SimpleNamespace(
+        id=42,
+        candidate_id=5,
+        parse_result_id=31,
+        score_json=json.dumps(stored_payload, ensure_ascii=False),
+        total_score=0.5,
+        match_percent=5.0,
+        recommendation="建议淘汰",
+        suggested_status="screening_rejected",
+        manual_override_score=None,
+        manual_override_reason=None,
+        hr_feedback=None,
+        hr_feedback_reason=None,
+        created_at=None,
+        updated_at=None,
+    ))
+
+    assert serialized["screening_position_match"]["recommended_position"] == "采购经理"
+    assert serialized["screening_position_match"]["confidence"] == 20.0
 
 
 def test_trigger_latest_parse_propagates_cancel_control():

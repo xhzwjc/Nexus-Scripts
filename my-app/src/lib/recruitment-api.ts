@@ -231,6 +231,14 @@ export interface RadarScore {
   evidence?: string | null;
 }
 
+export interface CandidateScreeningPositionMatch {
+  recommended_position?: string | null;
+  confidence?: number | null;
+  reason?: string | null;
+  potential_position?: string | null;
+  potential_reason?: string | null;
+}
+
 export interface CandidateScore {
   id: number;
   candidate_id: number;
@@ -244,6 +252,7 @@ export interface CandidateScore {
   suggested_status?: string | null;
   dimensions?: CandidateScoreDimension[];
   radar_scores?: RadarScore[];
+  screening_position_match?: CandidateScreeningPositionMatch | null;
   score_validation_passed?: boolean | null;
   validation_warnings?: string[];
   validation_warning_levels?: { text: string; level: "info" | "risk" }[] | null;

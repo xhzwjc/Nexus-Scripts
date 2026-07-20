@@ -83,6 +83,7 @@ function getTalentPoolLocale(language = getCurrentLanguage()) {
         clearStatFilter: isZh ? "再次点击指标恢复全部" : "Click again to show all",
         statFiltering: isZh ? "筛选中" : "Filtering",
         aiRecognized: isZh ? "AI 识别" : "AI Match",
+        recognitionConfidenceShort: (value: number) => isZh ? "识别置信度 " + Math.round(value) + "%" : "Recognition " + Math.round(value) + "%",
         aiRecognizedGroupDesc: isZh
             ? "AI 已识别匹配，可一键分配"
             : "AI identified a match and can assign the group in one click",
@@ -1446,6 +1447,11 @@ function CandidateRow({
                     {recognition.kind === "matched" && candidate.ai_match_position_title ? (
                         <span className="inline-flex h-[22px] min-w-0 max-w-[220px] items-center truncate rounded-[5px] bg-[rgba(30,59,250,0.07)] px-[9px] text-[11px] font-medium text-[#1E3BFA]" title={candidate.ai_match_position_title}>
                             {candidate.ai_match_position_title}
+                        </span>
+                    ) : null}
+                    {recognition.kind === "matched" && typeof candidate.ai_match_confidence === "number" ? (
+                        <span className="shrink-0 text-[10px] tabular-nums text-[#86888F]" title={tr.recognitionConfidenceShort(candidate.ai_match_confidence)}>
+                            {tr.recognitionConfidenceShort(candidate.ai_match_confidence)}
                         </span>
                     ) : null}
                 </div>

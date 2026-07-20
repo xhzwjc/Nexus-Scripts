@@ -187,6 +187,41 @@ def test_structured_short_facts_are_valid_evidence():
     assert by_label["年龄造假维度"]["score"] == 0.0, "原文不存在的短事实仍归零"
 
 
+def test_age_reference_isolated_from_job_intent_on_same_extracted_line():
+    """CAD-01826：表格抽取把年龄与求职意向压成一行时，求职意向不得误杀年龄事实。"""
+    raw = "年龄：39岁 现居地：上海 求职意向：采购经理/主管"
+    rules = [
+        {
+            "label": "年龄与健康条件",
+            "max_score": 0.5,
+            "is_core": False,
+            "note": "评估年龄是否在40岁以下及健康条件",
+        },
+    ]
+    dims = [
+        {
+            "label": "年龄与健康条件",
+            "score": 0.5,
+            "max_score": 0.5,
+            "reason": "年龄符合要求",
+            "evidence": ["39岁"],
+            "evidence_refs": ["R0001"],
+            "is_inferred": False,
+        },
+    ]
+
+    sanitized, meta = sanitize_screening_payload(
+        _payload(dims, total=0.5, match=100),
+        _schema(rules, max_possible=0.5),
+        raw_resume_text=raw,
+    )
+
+    dimension = sanitized["score"]["dimensions"][0]
+    assert dimension["score"] == 0.5
+    assert dimension["evidence"] == ["年龄：39岁"]
+    assert not any("否定性陈述" in warning for warning in meta["warnings"])
+
+
 def test_relevance_aware_contested_evidence_assignment():
     """jg IV：同一证据被多维度引用时不再"规则顺序先到先得"——相关维度优先持有，
     无关的先序维度转人工复核（不归零、不计入重复证据）。"""
