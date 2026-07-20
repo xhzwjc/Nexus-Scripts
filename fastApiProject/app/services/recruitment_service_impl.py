@@ -1923,6 +1923,14 @@ def _rebuild_dimensions_against_authoritative_rules(
         existing.pop("evidence_refs", None)
         existing["score"] = round(score, 2)
         existing["max_score"] = authoritative_max
+        existing["reason"] = _normalize_city_dimension_reason(
+            label,
+            rule.get("note"),
+            existing.get("reason"),
+            existing.get("evidence"),
+            score=existing["score"],
+            max_score=authoritative_max,
+        )
         rebuilt_dimensions.append(existing)
 
     # 规则外维度：不计入总分，仅告警留痕
@@ -4853,12 +4861,63 @@ def _criterion_distinctive_fragments(label: Any, note: Any = "") -> set:
     return {f for f in fragments if f not in _CRITERION_GENERIC_FRAGMENTS}
 
 
+_AGE_FACT_IN_TEXT_RE = re.compile(r"(?<!\d)\d{1,2}\s*岁")
+_CITY_FACT_IN_TEXT_RE = re.compile(
+    r"(?:期望城市|期望地点|期望工作地(?:点)?|意向城市|现居(?:地|住地)?|所在城市|常驻城市|居住地)"
+    r"\s*[:：]\s*[\u4e00-\u9fffA-Za-z0-9·/、\-]{1,24}",
+    re.IGNORECASE,
+)
+_DRIVER_FACT_IN_TEXT_RE = re.compile(r"(?:持有)?[A-E]\d(?:驾照|驾驶证)", re.IGNORECASE)
+_EDUCATION_FACT_IN_TEXT_RE = re.compile(
+    r"(?:(?:最高)?学历|学位)\s*[:：]?\s*(?:本科|硕士|博士|大专|专科|高中|中专|研究生)",
+)
+_EDUCATION_VALUE_IN_TEXT_RE = re.compile(r"(?:本科|硕士|博士|大专|专科|高中|中专|研究生)(?:学历|学位)?")
+_WORK_YEARS_FACT_IN_TEXT_RE = re.compile(r"\d{1,2}年半?(?:以上)?(?:工作|从业)?(?:经验|经历)")
+
+
+def _structured_fact_evidence_relevant_to_criterion(label: Any, note: Any, evidence_items: Any) -> bool:
+    """确定性结构化事实按字段类型确认相关性，避免再走通用中文片段猜测。
+
+    这里只放行年龄、明确标注的城市、驾照、学历和工作年限；公司所在地等
+    非候选人位置事实不会命中城市规则，仍由原相关性门审查。
+    """
+    criterion = f"{str(label or '').strip()} {str(note or '').strip()}"
+    texts = [
+        str(item or "").strip()
+        for item in (evidence_items if isinstance(evidence_items, (list, tuple)) else [evidence_items])
+        if str(item or "").strip()
+    ]
+    if not texts:
+        return False
+    if "年龄" in criterion and any(_AGE_FACT_IN_TEXT_RE.search(text) for text in texts):
+        return True
+    if any(marker in criterion for marker in ("城市", "地点", "居住地", "现居", "常驻", "地域")) and any(
+        _CITY_FACT_IN_TEXT_RE.search(text) for text in texts
+    ):
+        return True
+    if any(marker in criterion for marker in ("驾照", "驾驶", "车辆")) and any(
+        _DRIVER_FACT_IN_TEXT_RE.search(text) for text in texts
+    ):
+        return True
+    if any(marker in criterion for marker in ("学历", "教育", "学位", "院校")) and any(
+        _EDUCATION_VALUE_IN_TEXT_RE.search(text) for text in texts
+    ):
+        return True
+    if any(marker in criterion for marker in ("工作年限", "从业年限", "经验年限")) and any(
+        _WORK_YEARS_FACT_IN_TEXT_RE.search(text) for text in texts
+    ):
+        return True
+    return False
+
+
 def _evidence_relevant_to_criterion(label: Any, note: Any, evidence_items: Any) -> bool:
     """P0-1 维度相关性（fail-to-human，不 fail-to-zero）：证据文本须与"标签+规则说明"的
     某个区分度片段沾边。判不了相关的**不扣分**，只阻止自动通过、转人工复核——
     确定性字符串匹配存在误判空间，误判的代价必须是"人工看一眼"而不是"错杀真实候选人"。
     标签+说明没有任何区分度片段时不拦截。
     """
+    if _structured_fact_evidence_relevant_to_criterion(label, note, evidence_items):
+        return True
     fragments = _criterion_distinctive_fragments(label, note)
     if not fragments:
         return True
@@ -4983,34 +5042,108 @@ _STRUCTURED_FACT_EVIDENCE_PATTERNS = (
 )
 
 
-_AGE_FACT_IN_REFERENCE_RE = re.compile(
-    r"(?:年龄\s*[:：]?\s*)?(?<!\d)(\d{1,2})\s*岁"
-)
+_AGE_FACT_IN_REFERENCE_RE = re.compile(r"(?:年龄\s*[:：]?\s*)?(?<!\d)(\d{1,2})\s*岁")
 
 
 def _extract_criterion_specific_structured_fact(label: Any, note: Any, reference_text: Any) -> Optional[str]:
     """从混合字段引用行中提取当前维度可确定的结构化子事实。
 
-    这里只处理能高精度验证的年龄事实。不要用通用分词把整行“猜”成多个证据，
-    否则会降低现有逐字证据门的防伪能力。
+    只处理带明确字段语义、能高精度验证的事实。不要用通用分词把整行“猜”成
+    多个证据，否则会降低现有逐字证据门的防伪能力。
     """
     criterion = f"{str(label or '').strip()} {str(note or '').strip()}"
     text = str(reference_text or "").strip()
-    if "年龄" not in criterion or not text:
+    if not text:
         return None
-    for match in _AGE_FACT_IN_REFERENCE_RE.finditer(text):
-        try:
-            age = int(match.group(1))
-        except (TypeError, ValueError):
-            continue
-        if not 14 <= age <= 80:
-            continue
-        nearby_prefix = text[max(0, match.start() - 8):match.start()]
-        if any(marker in nearby_prefix for marker in ("期望年龄", "年龄要求", "年龄限制")):
-            continue
-        matched_text = match.group(0).strip()
-        return matched_text if "年龄" in matched_text else f"{age}岁"
+    if "年龄" in criterion:
+        for match in _AGE_FACT_IN_REFERENCE_RE.finditer(text):
+            try:
+                age = int(match.group(1))
+            except (TypeError, ValueError):
+                continue
+            if not 14 <= age <= 80:
+                continue
+            nearby_prefix = text[max(0, match.start() - 8):match.start()]
+            if any(marker in nearby_prefix for marker in ("期望年龄", "年龄要求", "年龄限制")):
+                continue
+            matched_text = match.group(0).strip()
+            return matched_text if "年龄" in matched_text else f"{age}岁"
+    if any(marker in criterion for marker in ("城市", "地点", "居住地", "现居", "常驻", "地域")):
+        city_match = _CITY_FACT_IN_TEXT_RE.search(text)
+        if city_match:
+            return city_match.group(0).strip()
+    if any(marker in criterion for marker in ("驾照", "驾驶", "车辆")):
+        driver_match = _DRIVER_FACT_IN_TEXT_RE.search(text)
+        if driver_match:
+            return driver_match.group(0).strip()
+    if any(marker in criterion for marker in ("学历", "教育", "学位", "院校")):
+        education_match = _EDUCATION_FACT_IN_TEXT_RE.search(text)
+        if education_match:
+            return education_match.group(0).strip()
+    if any(marker in criterion for marker in ("工作年限", "从业年限", "经验年限")):
+        years_match = _WORK_YEARS_FACT_IN_TEXT_RE.search(text)
+        if years_match:
+            return years_match.group(0).strip()
     return None
+
+
+def _normalize_city_dimension_reason(
+    label: Any,
+    note: Any,
+    reason: Any,
+    evidence_items: Any,
+    *,
+    score: float,
+    max_score: float,
+) -> str:
+    """城市维度使用已核验事实和最终得分生成说明，避免保留模型的冲突判断。
+
+    城市是否被岗位覆盖可能同时受到“全国范围”等概述和当前城市清单影响；评分
+    校验层缺少足够结构化信息去重判覆盖关系，因此只陈述已核验城市及最终规则得分，
+    不复述模型可能自相矛盾的“包含/不包含”结论。模型原始说明仍保留在任务日志中。
+    """
+    fallback = str(reason or "").strip()
+    criterion = f"{str(label or '').strip()} {str(note or '').strip()}"
+    if "城市" not in criterion or not any(marker in criterion for marker in ("覆盖", "匹配", "范围")):
+        return fallback
+    texts = evidence_items if isinstance(evidence_items, (list, tuple)) else [evidence_items]
+    for item in texts:
+        city_match = _CITY_FACT_IN_TEXT_RE.search(str(item or ""))
+        if not city_match:
+            continue
+        fact = city_match.group(0).strip()
+        parts = re.split(r"[:：]", fact, maxsplit=1)
+        if len(parts) != 2 or not parts[0].strip() or not parts[1].strip():
+            continue
+        field_name, city_value = (part.strip() for part in parts)
+        score_text = f"{float(score):g}"
+        max_score_text = f"{float(max_score):g}"
+        return (
+            f"候选人{field_name}为{city_value}；"
+            f"依据当前岗位城市覆盖规则，本维度得 {score_text}/{max_score_text} 分。"
+        )
+    return fallback
+
+
+def _normalize_city_dimension_reasons(dimensions: Any) -> List[Dict[str, Any]]:
+    """兼容历史评分：读取时也规范化城市覆盖说明，无需回写既有评分记录。"""
+    if not isinstance(dimensions, list):
+        return []
+    normalized: List[Dict[str, Any]] = []
+    for item in dimensions:
+        if not isinstance(item, dict):
+            continue
+        dimension = dict(item)
+        dimension["reason"] = _normalize_city_dimension_reason(
+            dimension.get("label"),
+            "",
+            dimension.get("reason"),
+            dimension.get("evidence"),
+            score=float(_parse_score_number(dimension.get("score")) or 0.0),
+            max_score=float(_parse_score_number(dimension.get("max_score")) or 0.0),
+        )
+        normalized.append(dimension)
+    return normalized
 
 
 def _structured_fact_quote_in_resume(normalized: str, haystack: str) -> bool:
@@ -12382,7 +12515,9 @@ class RecruitmentService:
                 "concerns": _normalize_score_text_items(raw_score.get("concerns"), limit=5),
                 "recommendation": row.recommendation if row.recommendation is not None else raw_score.get("recommendation"),
                 "suggested_status": _normalize_suggested_status(row.suggested_status or raw_score.get("suggested_status")) or row.suggested_status or raw_score.get("suggested_status"),
-                "dimensions": sanitize_dimensions(raw_score.get("dimensions"), SCREENING_PAYLOAD_SCHEMA_CONFIG.get("score") or {}),
+                "dimensions": _normalize_city_dimension_reasons(
+                    sanitize_dimensions(raw_score.get("dimensions"), SCREENING_PAYLOAD_SCHEMA_CONFIG.get("score") or {})
+                ),
                 "radar_scores": _sanitize_radar_scores(raw_score.get("radar_scores")),
                 # 岗位识别（candidate.ai_match_*）与初筛后的岗位建议是两种不同结论。
                 # 初筛建议随评分记录返回，不能再覆盖候选人的岗位识别快照。
@@ -12446,7 +12581,12 @@ class RecruitmentService:
             "concerns": _normalize_score_text_items(compatibility_score.get("concerns"), limit=5),
             "recommendation": row.recommendation or compatibility_score.get("recommendation"),
             "suggested_status": _normalize_suggested_status(row.suggested_status or compatibility_score.get("suggested_status")) or row.suggested_status or compatibility_score.get("suggested_status"),
-            "dimensions": sanitize_dimensions(compatibility_score.get("dimensions"), SCREENING_PAYLOAD_SCHEMA_CONFIG.get("score") or {}),
+            "dimensions": _normalize_city_dimension_reasons(
+                sanitize_dimensions(
+                    compatibility_score.get("dimensions"),
+                    SCREENING_PAYLOAD_SCHEMA_CONFIG.get("score") or {},
+                )
+            ),
             "radar_scores": _sanitize_radar_scores(compatibility_score.get("radar_scores") or payload.get("radar_scores")),
             "screening_position_match": _sanitize_position_match_payload(
                 payload.get("position_match") or compatibility_score.get("position_match")

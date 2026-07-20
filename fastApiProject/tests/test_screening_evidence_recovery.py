@@ -8,6 +8,7 @@
 from app.services.recruitment_service_impl import (
     SCREENING_PAYLOAD_SCHEMA_CONFIG,
     _build_raw_screening_storage_payload,
+    _normalize_city_dimension_reasons,
     _sanitize_candidate_education_value,
     _validate_primary_screening_response,
     sanitize_screening_payload,
@@ -220,6 +221,57 @@ def test_age_reference_isolated_from_job_intent_on_same_extracted_line():
     assert dimension["score"] == 0.5
     assert dimension["evidence"] == ["年龄：39岁"]
     assert not any("否定性陈述" in warning for warning in meta["warnings"])
+    assert not any("年龄与健康条件" in warning and "相关性" in warning for warning in meta["warnings"])
+
+
+def test_city_reference_isolated_from_job_intent_on_same_extracted_line():
+    """CAD-01831：期望城市与求职意向同处一行时，城市事实不得被整行否定。"""
+    raw = "左博男 | 年龄：39岁 | 求职意向：采购经理/主管 | 期望城市：南昌"
+    rules = [
+        {
+            "label": "城市覆盖范围",
+            "max_score": 0.5,
+            "is_core": False,
+            "note": "评估候选人的期望城市是否在岗位覆盖城市范围内",
+        },
+    ]
+    dims = [
+        {
+            "label": "城市覆盖范围",
+            "score": 0.2,
+            "max_score": 0.5,
+            "reason": "岗位覆盖列表包含南昌，匹配度较高；但南昌不在当前城市列表中。",
+            "evidence": ["期望城市:南昌"],
+            "evidence_refs": ["R0001"],
+            "is_inferred": False,
+        },
+    ]
+
+    sanitized, meta = sanitize_screening_payload(
+        _payload(dims, total=0.2, match=40),
+        _schema(rules, max_possible=0.5),
+        raw_resume_text=raw,
+    )
+
+    dimension = sanitized["score"]["dimensions"][0]
+    assert dimension["score"] == 0.2
+    assert dimension["evidence"] == ["期望城市：南昌"]
+    assert dimension["reason"] == "候选人期望城市为南昌；依据当前岗位城市覆盖规则，本维度得 0.2/0.5 分。"
+    assert not any("否定性陈述" in warning for warning in meta["warnings"])
+    assert not any("城市覆盖范围" in warning and "相关性" in warning for warning in meta["warnings"])
+
+    historical = _normalize_city_dimension_reasons(
+        [
+            {
+                "label": "城市覆盖范围",
+                "score": 0.2,
+                "max_score": 0.5,
+                "reason": "岗位列表包含南昌，但南昌不在当前城市列表中。",
+                "evidence": ["期望城市：南昌"],
+            }
+        ]
+    )
+    assert historical[0]["reason"] == dimension["reason"], "历史评分读取时也必须消除冲突说明"
 
 
 def test_relevance_aware_contested_evidence_assignment():
