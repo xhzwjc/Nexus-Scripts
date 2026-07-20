@@ -85,6 +85,166 @@ def test_resume_identity_does_not_swallow_adjacent_fields():
     }
 
 
+def test_single_latin_name_requires_resume_header_evidence():
+    file_name = "【测试工程师_南昌 8-12K】Alice 10年.pdf"
+    collapsed_header = "Alice 女 | 27岁联系方式电话：13072152762 求职信息\n工作时长：7年"
+
+    assert extract_high_confidence_candidate_name_from_filename(file_name) == ""
+    assert resolve_high_confidence_candidate_name(
+        file_name=file_name,
+        raw_text=collapsed_header,
+    ) == {
+        "value": "Alice",
+        "source": "resume_parsed",
+        "confidence": 0.96,
+    }
+    assert resolve_high_confidence_candidate_name(
+        raw_text=collapsed_header,
+        proposed_name="Alice",
+    ) == {
+        "value": "Alice",
+        "source": "resume_parsed",
+        "confidence": 0.96,
+    }
+
+    assert resolve_high_confidence_candidate_name(
+        file_name=file_name,
+        raw_text="工作经历\nAlice 负责自动化测试\n电话：13072152762",
+    ) is None
+    assert resolve_high_confidence_candidate_name(
+        file_name="【测试工程师】Software 10年.pdf",
+        raw_text="Software\n电话：13072152762",
+    ) is None
+
+
+def test_explicit_single_latin_name_is_trusted():
+    raw_text = "Name: Alice\nPhone: 13072152762"
+
+    assert extract_explicit_candidate_name_from_resume(raw_text) == "Alice"
+    assert resolve_high_confidence_candidate_name(raw_text=raw_text) == {
+        "value": "Alice",
+        "source": "resume_text_explicit",
+        "confidence": 0.99,
+    }
+
+
+def test_candidate_name_promotion_accepts_corroborated_single_latin_name(db):
+    file_name = "【测试工程师_南昌 8-12K】Alice 10年.pdf"
+    candidate = RecruitmentCandidate(
+        candidate_code="CAD-ALICE",
+        org_code="group",
+        name="【测试工程师_南昌 8 12K】Alice 10年",
+        name_source="filename_untrusted",
+        source="manual_upload",
+        source_detail=file_name,
+        status="matching",
+        created_by="tester",
+        updated_by="tester",
+        deleted=False,
+    )
+    db.add(candidate)
+    db.commit()
+    db.refresh(candidate)
+
+    promoted = RecruitmentService(db)._apply_resolved_candidate_name(
+        candidate,
+        file_name=file_name,
+        raw_text="Alice 女 | 27岁联系方式电话：13072152762 求职信息\n工作时长：7年",
+    )
+
+    assert promoted is True
+    assert candidate.name == "Alice"
+    assert candidate.name_source == "resume_parsed"
+    assert candidate.name_confidence == 0.96
+
+
+def test_zhaopin_filename_and_glued_header_accept_uncommon_surname(db):
+    file_name = "闫长生_39岁_AI产品经理_北京_智联简历_24797.pdf"
+    raw_text = (
+        "闫长生点击此处联系候选人\n"
+        "应聘职位：\nAI 产品经理\n"
+        "手机：\n185****8921\n"
+        "基本信息\n男｜39 岁｜16 年｜本科\n"
+        "工作经历"
+    )
+
+    assert extract_high_confidence_candidate_name_from_filename(file_name) == ""
+    assert resolve_high_confidence_candidate_name(file_name=file_name, raw_text=raw_text) == {
+        "value": "闫长生",
+        "source": "resume_parsed",
+        "confidence": 0.96,
+    }
+    assert resolve_high_confidence_candidate_name(
+        file_name=file_name,
+        raw_text=raw_text,
+        proposed_name="闫长生",
+    ) == {
+        "value": "闫长生",
+        "source": "resume_parsed",
+        "confidence": 0.96,
+    }
+
+    candidate = RecruitmentCandidate(
+        candidate_code="CAD-YAN",
+        org_code="group",
+        name="闫长生 39岁 AI产品经理 北京 智联简历 24797",
+        name_source="filename_untrusted",
+        source="manual_upload",
+        source_detail=file_name,
+        status="matching",
+        created_by="tester",
+        updated_by="tester",
+        deleted=False,
+    )
+    db.add(candidate)
+    db.commit()
+    db.refresh(candidate)
+
+    promoted = RecruitmentService(db)._apply_resolved_candidate_name(
+        candidate,
+        file_name=file_name,
+        raw_text=raw_text,
+    )
+
+    assert promoted is True
+    assert candidate.name == "闫长生"
+    assert candidate.name_source == "resume_parsed"
+    assert candidate.name_confidence == 0.96
+
+
+def test_recruitment_filename_variants_require_matching_header_identity():
+    raw_text = "闫长生\n手机：185****8921\n基本信息\n39岁"
+    for file_name in (
+        "闫长生_39岁_AI产品经理_北京_智联简历_24797.pdf",
+        "闫长生-39岁-AI产品经理-北京-智联简历.pdf",
+        "闫长生 39岁 智联简历.pdf",
+        "【AI产品经理】闫长生.pdf",
+        "闫长生.pdf",
+    ):
+        assert resolve_high_confidence_candidate_name(file_name=file_name, raw_text=raw_text) == {
+            "value": "闫长生",
+            "source": "resume_parsed",
+            "confidence": 0.96,
+        }
+
+    assert resolve_high_confidence_candidate_name(
+        file_name="闫长生_39岁_AI产品经理_北京_智联简历_24797.pdf",
+        raw_text="工作经历\n闫长生负责产品设计\n手机：185****8921",
+    ) is None
+    assert resolve_high_confidence_candidate_name(
+        file_name="AI产品经理_39岁_北京_智联简历.pdf",
+        raw_text="AI产品经理\n手机：185****8921",
+    ) is None
+    assert resolve_high_confidence_candidate_name(
+        file_name="闫长生.pdf",
+        raw_text="• 闫长生\n手机：185****8921\n基本信息\n39岁",
+    ) == {
+        "value": "闫长生",
+        "source": "resume_parsed",
+        "confidence": 0.96,
+    }
+
+
 def test_resume_identity_accepts_collapsed_table_pdf_header_only():
     raw_text = "个 人 简 历姓名 罗仕豪 性别 男 年龄 29 岁籍贯 江西南昌 学校 南昌工学院"
 

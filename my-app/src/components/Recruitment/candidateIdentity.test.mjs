@@ -69,6 +69,7 @@ test("纯岗位、城市和岗位词不会被伪装成候选人姓名", () => {
 test("可信姓名保留文字头像且英文姓名使用首尾缩写", () => {
     assert.equal(resolveCandidateIdentity({name: "张三", source_detail: "张三.pdf"}).avatarLabel, "张");
     assert.equal(resolveCandidateIdentity({name: "Alice Smith", name_source: "hr_manual"}).avatarLabel, "AS");
+    assert.equal(resolveCandidateIdentity({name: "Alice", name_source: "resume_parsed"}).avatarLabel, "A");
 });
 
 test("人工姓名优先于生成式外观规则", () => {

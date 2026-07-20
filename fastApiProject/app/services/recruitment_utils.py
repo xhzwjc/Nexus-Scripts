@@ -919,7 +919,8 @@ _CANDIDATE_NAME_BLOCKED_PARTS = (
     "全职", "岗位", "职位", "招聘", "求职", "应聘", "城市", "全国", "远程", "测试",
     "开发", "产品", "销售", "运营", "财务", "行政", "人事", "法务", "算法", "前端", "后端",
     "简历", "资料", "附件", "程序员", "研发", "分析", "项目", "教育", "经历", "技能", "自我",
-    "本科", "大专", "硕士", "博士", "专业", "联系方式", "个人介绍",
+    "本科", "大专", "硕士", "博士", "专业", "联系方式", "个人介绍", "软件", "硬件",
+    "科技", "数据", "网络", "运维", "架构",
 )
 _CANDIDATE_NAME_BLOCKED_ENGLISH_PARTS = (
     "engineer", "developer", "manager", "director", "designer", "consultant", "specialist",
@@ -950,12 +951,29 @@ _COMMON_CHINESE_COMPOUND_SURNAMES = (
 _CANDIDATE_NAME_DELIMITER_PATTERN = re.compile(r"[\s_\-—–|,，;；/]")
 _CANDIDATE_IDENTITY_SIGNAL_PATTERN = re.compile(
     r"(?:1[3-9]\d{9}|[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}|"
-    r"(?:手机|电话|邮箱|性别|年龄|出生|Phone|Mobile|Email|Gender|Age)\s*[:：]?)",
+    r"(?:手机|电话|邮箱|性别|年龄|出生|Phone|Mobile|Email|Gender|Age)\s*[:：]?|"
+    r"(?<!\d)\d{1,2}\s*岁(?!\d))",
+    re.IGNORECASE,
+)
+_CANDIDATE_NAME_HEADER_BOUNDARY_PATTERN = re.compile(
+    r"(?:^|[\r\n])\s*"
+    r"(?:工作经历|工作经验|项目经历|项目经验|教育经历|教育背景|技能特长|专业技能)"
+    r"\s*(?:[\r\n]|$)",
+    re.IGNORECASE,
+)
+_CANDIDATE_NAME_GLUE_MARKER_PATTERN = re.compile(
+    r"^(?:点击此处(?:联系候选人)?|联系候选人|基本信息|个人信息|应聘职位|"
+    r"手机|电话|邮箱|性别|年龄|出生|Phone|Mobile|Email|Gender|Age)",
     re.IGNORECASE,
 )
 
 
-def is_plausible_candidate_name(value: Any, *, allow_middle_dot: bool = True) -> bool:
+def is_plausible_candidate_name(
+    value: Any,
+    *,
+    allow_middle_dot: bool = True,
+    allow_single_latin: bool = False,
+) -> bool:
     """Return whether ``value`` is structurally plausible as a person's name.
 
     This intentionally errs on the conservative side. It is used only for automatic
@@ -981,6 +999,8 @@ def is_plausible_candidate_name(value: Any, *, allow_middle_dot: bool = True) ->
         r"[\u3400-\u4dbf\u4e00-\u9fff]{1,4}[·•][\u3400-\u4dbf\u4e00-\u9fff]{1,8}",
         text,
     ):
+        return True
+    if allow_single_latin and re.fullmatch(r"[A-Za-z][A-Za-z'’-]{1,39}", text):
         return True
     return bool(re.fullmatch(r"[A-Za-z][A-Za-z'’-]*(?:\s+[A-Za-z][A-Za-z'’-]*){1,3}", text))
 
@@ -1047,36 +1067,108 @@ def extract_explicit_candidate_name_from_resume(raw_text: str) -> str:
         maxsplit=1,
         flags=re.IGNORECASE,
     )[0].strip(" ,，;；|_")
-    return candidate if is_plausible_candidate_name(candidate) else ""
+    return candidate if is_plausible_candidate_name(candidate, allow_single_latin=True) else ""
 
 
 def _resume_has_high_confidence_name_evidence(raw_text: str, proposed_name: str) -> bool:
     """Require an unlabelled model name to appear in the resume header with identity evidence."""
     name = str(proposed_name or "").strip()
-    if not name or not is_plausible_candidate_name(name):
-        return False
-    if re.fullmatch(r"[\u3400-\u4dbf\u4e00-\u9fff]{2,4}", name) and not _has_common_chinese_surname(name):
+    if not name or not is_plausible_candidate_name(name, allow_single_latin=True):
         return False
 
     header = str(raw_text or "")[:2000]
     if not header:
         return False
-    pattern = re.compile(
-        rf"(?<![A-Za-z\u3400-\u4dbf\u4e00-\u9fff]){re.escape(name)}(?![A-Za-z\u3400-\u4dbf\u4e00-\u9fff])",
-        re.IGNORECASE,
+    pattern = re.compile(re.escape(name), re.IGNORECASE)
+    uncommon_chinese_name = bool(
+        re.fullmatch(r"[\u3400-\u4dbf\u4e00-\u9fff]{2,4}", name)
+        and not _has_common_chinese_surname(name)
     )
     for match in pattern.finditer(header):
         line_start = header.rfind("\n", 0, match.start()) + 1
         line_end = header.find("\n", match.end())
         if line_end < 0:
             line_end = len(header)
-        line = header[line_start:line_end].strip(" \t|,，;；:_-—–")
-        if line.casefold() == name.casefold() and line_start <= 500:
-            return True
+        line_prefix = header[line_start:match.start()].strip(" \t|,，;；:_-—–•●·☆★")
+        if line_start > 500 or line_prefix:
+            continue
+        if _CANDIDATE_NAME_HEADER_BOUNDARY_PATTERN.search(header[:line_start]):
+            continue
+        candidate_line = header[match.start():line_end].strip(" \t|,，;；:_-—–")
         nearby = header[line_start:min(len(header), line_end + 500)]
-        if line.casefold().startswith(name.casefold()) and _CANDIDATE_IDENTITY_SIGNAL_PATTERN.search(nearby):
+        identity_signal_found = bool(_CANDIDATE_IDENTITY_SIGNAL_PATTERN.search(nearby))
+        if candidate_line.casefold() == name.casefold():
+            if not uncommon_chinese_name or identity_signal_found:
+                return True
+            continue
+        remaining_line = header[match.end():line_end].lstrip()
+        next_character = header[match.end():match.end() + 1]
+        has_text_boundary = not next_character or not re.match(
+            r"[A-Za-z\u3400-\u4dbf\u4e00-\u9fff]",
+            next_character,
+        )
+        has_known_glue_marker = bool(_CANDIDATE_NAME_GLUE_MARKER_PATTERN.match(remaining_line))
+        if (
+            candidate_line.casefold().startswith(name.casefold())
+            and (has_text_boundary or has_known_glue_marker)
+            and identity_signal_found
+        ):
             return True
     return False
+
+
+def _looks_like_recruitment_filename_metadata(value: str) -> bool:
+    text = str(value or "").strip()
+    if not text:
+        return False
+    if re.search(r"(?:\d{1,2}\s*岁|\d{1,2}\s*年|\d+(?:\.\d+)?\s*[Kk万]|1[3-9]\d{9})", text):
+        return True
+    if any(marker.casefold() in text.casefold() for marker in ("简历", "智联", "猎聘", "BOSS", "resume", "cv")):
+        return True
+    if any(marker in text for marker in _CANDIDATE_NAME_BLOCKED_PARTS):
+        return True
+    return any(city in text for city in CHINESE_CITY_NAMES)
+
+
+def _extract_recruitment_filename_candidate_hint(file_name: str) -> str:
+    """Extract a format-tolerant name hint; raw resume header must corroborate it."""
+    stem = Path(str(file_name or "").strip()).stem.strip()
+    if not stem:
+        return ""
+
+    candidates: List[Tuple[str, str]] = []
+    if "】" in stem:
+        position_metadata, suffix = stem.rsplit("】", 1)
+        suffix = suffix.strip()
+        hint = re.split(r"(?=\d)", suffix, maxsplit=1)[0]
+        hint = re.split(r"[_|,，;；/]", hint, maxsplit=1)[0]
+        candidates.append((hint, f"{position_metadata} {suffix[len(hint):]}"))
+
+    if "_" in stem:
+        hint, metadata = stem.split("_", 1)
+        candidates.append((hint, metadata))
+
+    delimiter_positions = [match.start() for match in re.finditer(r"[-—–]", stem)]
+    for position in reversed(delimiter_positions):
+        candidates.append((stem[:position], stem[position + 1:]))
+
+    digit_match = re.search(r"\d", stem)
+    if digit_match:
+        candidates.append((stem[:digit_match.start()], stem[digit_match.start():]))
+
+    candidates.append((stem, "简历文件名"))
+
+    seen: set[str] = set()
+    for raw_hint, metadata in candidates:
+        hint = re.sub(r"\s+", " ", raw_hint).strip(" _-—–|,，;；/")
+        if not hint or hint in seen:
+            continue
+        seen.add(hint)
+        if not _looks_like_recruitment_filename_metadata(metadata):
+            continue
+        if is_plausible_candidate_name(hint, allow_single_latin=True):
+            return hint
+    return ""
 
 
 def resolve_high_confidence_candidate_name(
@@ -1093,6 +1185,10 @@ def resolve_high_confidence_candidate_name(
     proposed = re.sub(r"\s+", " ", str(proposed_name or "").strip())
     if proposed and _resume_has_high_confidence_name_evidence(raw_text, proposed):
         return {"value": proposed, "source": "resume_parsed", "confidence": 0.96}
+
+    filename_hint = _extract_recruitment_filename_candidate_hint(file_name)
+    if filename_hint and _resume_has_high_confidence_name_evidence(raw_text, filename_hint):
+        return {"value": filename_hint, "source": "resume_parsed", "confidence": 0.96}
 
     filename_name = extract_high_confidence_candidate_name_from_filename(file_name)
     if filename_name:
