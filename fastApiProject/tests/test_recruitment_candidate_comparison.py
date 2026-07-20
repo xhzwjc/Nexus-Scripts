@@ -413,6 +413,101 @@ def test_preview_builds_strict_aligned_dimensions_without_pii_or_writes(monkeypa
     commit_mock.assert_not_called()
 
 
+def test_same_position_different_models_still_show_comparable_dimensions():
+    db = _build_test_db()
+    position = _add_position(db)
+    first, _ = _add_strict_candidate(
+        db,
+        position,
+        index=1,
+        engineering_score=8,
+        delivery_score=2,
+        model_name="MiniMax-M2.7-highspeed",
+    )
+    second, second_task = _add_strict_candidate(
+        db,
+        position,
+        index=2,
+        engineering_score=7,
+        delivery_score=2,
+        model_name="mimo-v2-flash",
+    )
+    second_task.model_provider = "anthropic"
+    second_task.model_source = "db:MIMO"
+    second_output = json.loads(second_task.output_snapshot)
+    second_output["request_meta"]["provider"] = "anthropic"
+    second_output["request_meta"]["runtime_provider"] = "anthropic"
+    second_output["request_meta"]["source"] = "db:MIMO"
+    second_task.output_snapshot = json.dumps(second_output)
+    second_request = json.loads(second_task.full_request_snapshot)
+    second_request["provider"] = "anthropic"
+    second_request["runtime_provider"] = "anthropic"
+    second_request["source"] = "db:MIMO"
+    second_request["base_url"] = "https://mimo.example.test/v1"
+    second_request["endpoint"] = "https://mimo.example.test/v1/messages"
+    second_request["response_format"] = None
+    second_request["request_body"] = {
+        "model": "mimo-v2-flash",
+        "max_tokens": 16000,
+        "temperature": 0,
+        "system": "Return the historical screening JSON schema.",
+        "messages": [{"role": "user", "content": "PRIVATE RAW RESUME CONTENT 2"}],
+    }
+    second_task.full_request_snapshot = json.dumps(second_request)
+    db.commit()
+
+    result = RecruitmentService(db).preview_candidate_comparison([first.id, second.id], position.id)
+
+    assert result["comparability"]["level"] == "strict"
+    assert "protocol_mismatch" not in result["comparability"]["reasons"]
+    assert all(member["screening"] is not None for member in result["members"])
+    assert [member["screening"]["protocol"]["model_name"] for member in result["members"]] == [
+        "MiniMax-M2.7-highspeed",
+        "mimo-v2-flash",
+    ]
+    assert result["aligned_dimensions"]
+
+
+def test_review_warning_does_not_invalidate_complete_comparison_artifact():
+    db = _build_test_db()
+    position = _add_position(db)
+    first, _ = _add_strict_candidate(db, position, index=1, engineering_score=6, delivery_score=2)
+    second, _ = _add_strict_candidate(db, position, index=2, engineering_score=5, delivery_score=2)
+    score = db.query(RecruitmentCandidateScore).filter(
+        RecruitmentCandidateScore.id == first.latest_score_id
+    ).one()
+    stored = json.loads(score.score_json)
+    stored["debug"]["score_validation_passed"] = False
+    stored["debug"]["validation_warnings"] = ["维度证据与相关性需人工复核"]
+    score.score_json = json.dumps(stored, ensure_ascii=False)
+    db.commit()
+
+    result = RecruitmentService(db).preview_candidate_comparison([first.id, second.id], position.id)
+
+    assert result["comparability"]["level"] == "strict"
+    assert all(member["screening"] is not None for member in result["members"])
+    assert result["aligned_dimensions"]
+
+
+def test_historical_request_hash_mismatch_is_a_non_blocking_audit_warning():
+    db = _build_test_db()
+    position = _add_position(db)
+    first, first_task = _add_strict_candidate(db, position, index=1, engineering_score=6, delivery_score=2)
+    second, _ = _add_strict_candidate(db, position, index=2, engineering_score=5, delivery_score=2)
+    first_task.request_hash = "historical-stale-request-hash"
+    db.commit()
+
+    result = RecruitmentService(db).preview_candidate_comparison([first.id, second.id], position.id)
+
+    assert result["comparability"]["level"] == "strict"
+    assert result["comparability"]["ranking_allowed"] is True
+    assert "audit_request_hash_mismatch" in result["comparability"]["reasons"]
+    assert result["members"][0]["artifact_state"] == "strict"
+    assert "audit_request_hash_mismatch" in result["members"][0]["warnings"]
+    assert all(member["screening"] is not None for member in result["members"])
+    assert result["aligned_dimensions"]
+
+
 def test_preview_scope_is_all_or_nothing_for_self_scope():
     db = _build_test_db()
     position = _add_position(db)

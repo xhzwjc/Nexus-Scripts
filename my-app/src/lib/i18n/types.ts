@@ -2474,6 +2474,7 @@ export interface Translations {
       reasonProtocolMismatch: string;
       reasonDimensionMismatch: string;
       reasonScoreTotalMismatch: string;
+      reasonAuditRequestHashMismatch: string;
       reasonPositionContextMismatch: string;
       reasonManualOverrideMixed: string;
       reasonPossibleDuplicateContact: string;

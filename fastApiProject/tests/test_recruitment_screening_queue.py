@@ -638,6 +638,7 @@ def test_finish_ai_task_log_persists_full_request_snapshot_runtime():
     service._finish_ai_task_log(
         row,
         status="success",
+        request_hash="actual-runtime-hash",
         provider="Claude",
         model_name="qwen3.7-max",
         model_source="db:千问04",
@@ -648,6 +649,7 @@ def test_finish_ai_task_log_persists_full_request_snapshot_runtime():
     assert row.model_provider == "openai-compatible"
     assert row.model_name == "MiniMax-M2.7-highspeed"
     assert row.model_source == "db:MINIMAX"
+    assert row.request_hash == "actual-runtime-hash"
 
 
 def test_sanitize_dimensions_preserves_evidence_list():
@@ -2819,6 +2821,7 @@ def test_one_pass_task_type_is_not_resume_score():
     assert request_meta["model_name"] == "gpt-4o-mini"
     assert request_meta["source"] == "db:actual-model"
     assert service._update_ai_task_log.call_args_list[0].kwargs["output_snapshot"]["request_meta"]["model_name"] == "gpt-4o-mini"
+    assert service._update_ai_task_log.call_args_list[0].kwargs["request_hash"] == request_meta["request_hash"]
 
 
 def test_one_pass_persists_normalized_total_score_and_match_percent():

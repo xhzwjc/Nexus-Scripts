@@ -8538,6 +8538,7 @@ class RecruitmentService:
                 self.db.add(run_row)
             self._update_ai_task_log(
                 root_log,
+                request_hash=str(aligned_request_meta.get("request_hash") or "").strip() or None,
                 provider=provider,
                 model_name=model_name,
                 model_source=model_source,
@@ -10599,6 +10600,7 @@ class RecruitmentService:
         self,
         row: RecruitmentAITaskLog,
         *,
+        request_hash: Optional[str] = None,
         provider: Optional[str] = None,
         model_name: Optional[str] = None,
         model_source: Optional[str] = None,
@@ -10637,6 +10639,8 @@ class RecruitmentService:
         if row.status == "cancelled" and status not in {None, "cancelled"}:
             return row
         now = datetime.now()
+        if request_hash is not None:
+            row.request_hash = str(request_hash or "").strip() or None
         inferred_runtime = (
             _infer_model_runtime_from_snapshot(full_request_snapshot)
             if full_request_snapshot is not None
@@ -10726,6 +10730,7 @@ class RecruitmentService:
         row: RecruitmentAITaskLog,
         *,
         status: str,
+        request_hash: Optional[str] = None,
         stage: Optional[str] = None,
         provider: Optional[str] = None,
         model_name: Optional[str] = None,
@@ -10763,6 +10768,8 @@ class RecruitmentService:
         if row.status == "cancelled":
             return row
         now = datetime.now()
+        if request_hash is not None:
+            row.request_hash = str(request_hash or "").strip() or None
         row.status = status
         terminal_stage = str(stage or "").strip() or (
             "cancelled"
@@ -13870,8 +13877,12 @@ class RecruitmentService:
 
         expected_raw_text_hash = _build_resume_content_hash(parse_row.raw_text)
         custom_requirements = _extract_custom_requirements_from_skill_snapshots(skill_snapshots)
+        request_hash_mismatch = (
+            str(request_meta.get("request_hash") or "").strip()
+            != str(task_row.request_hash or "").strip()
+        )
+        audit_warnings = ["audit_request_hash_mismatch"] if request_hash_mismatch else []
         integrity_checks = (
-            str(request_meta.get("request_hash") or "").strip() == str(task_row.request_hash or "").strip(),
             self._candidate_comparison_int(request_meta.get("resume_file_id")) == int(resume_row.id),
             self._candidate_comparison_int(request_meta.get("position_id")) == expected_position_id,
             bool(expected_raw_text_hash),
@@ -13884,7 +13895,8 @@ class RecruitmentService:
             str(request_meta.get("source") or "").strip() == model_source,
             request_temperature == full_temperature,
             score_debug.get("primary_model_call_succeeded") is True,
-            score_debug.get("score_validation_passed") is True,
+            # 风险级评分告警只表示建议人工关注，不等于评分工件损坏。
+            # 工件完整性仍由结构、引用、来源和维度合计等其余检查保证。
             stored_final_response_source == score_source,
             final_response_source == stored_final_response_source,
             primary_model_call_succeeded is True,
@@ -13903,12 +13915,11 @@ class RecruitmentService:
         if task_row.model_source and str(task_row.model_source).strip() != model_source:
             return None, "artifact_invalid"
 
-        request_options = dict(request_body)
-        for prompt_key in ("messages", "contents", "system", "system_instruction"):
-            request_options.pop(prompt_key, None)
+        # 模型与供应商传输格式由任务级轮询决定，不属于候选人横向对比口径。
+        # 个体工件仍逐项核验实际 provider/model/source；跨候选人协议只比较岗位、
+        # 评分规则、Prompt、阈值、处理路径和分数量纲。
         schema_snapshot = {
             "score_storage_format": stored_score_payload.get("_storage_format"),
-            "response_format": full_request.get("response_format"),
             "response_mode": response_mode,
         }
         protocol_payload = {
@@ -13934,15 +13945,8 @@ class RecruitmentService:
                 "score_source": score_source,
             },
             "model": {
-                "provider": provider,
-                "runtime_provider": runtime_provider,
-                "model_name": model_name,
-                "source": model_source,
-                "base_url": full_request.get("base_url"),
-                "endpoint": full_request.get("endpoint"),
                 "response_mode": response_mode,
                 "temperature": full_temperature,
-                "request_options": request_options,
             },
             "score_scale": total_score_scale,
         }
@@ -13952,6 +13956,7 @@ class RecruitmentService:
             "position_snapshot_hash": _build_json_content_hash(position_snapshot),
             "score_rule_snapshot": score_rule_snapshot,
             "request_scope": request_scope,
+            "audit_warnings": audit_warnings,
             "public": {
                 "evaluation_protocol_hash": protocol_hash,
                 "screening_run_id": task_row.screening_run_id,
@@ -14395,6 +14400,8 @@ class RecruitmentService:
             comparison_reasons.append("dimension_mismatch")
         if "score_total_mismatch" in member_warning_codes:
             comparison_reasons.append("score_total_mismatch")
+        if "audit_request_hash_mismatch" in member_warning_codes:
+            comparison_reasons.append("audit_request_hash_mismatch")
         if (
             artifact_states.intersection({"processing", "failed", "stale", "invalid"})
             or protocol_mismatch
@@ -14611,6 +14618,7 @@ class RecruitmentService:
                         artifact_state = "invalid" if protocol_error == "artifact_invalid" else "legacy"
                         warnings.append(protocol_error or "artifact_legacy")
                     else:
+                        warnings.extend(protocol.get("audit_warnings") or [])
                         dimension_rows, dimensions_valid = self._build_candidate_comparison_dimensions(
                             score_payload=serialized_score or {},
                             protocol=protocol,
@@ -20388,6 +20396,7 @@ class RecruitmentService:
                 current_output_snapshot = {}
             return self._update_ai_task_log(
                 row,
+                request_hash=request_hash,
                 screening_run_id=screening_run_id,
                 batch_id=batch_id,
                 parent_task_id=None,
@@ -20697,6 +20706,7 @@ class RecruitmentService:
             log_row.request_hash = resolved_request_hash
             self._update_ai_task_log(
                 log_row,
+                request_hash=resolved_request_hash,
                 status="running",
                 stage="scoring",
                 provider=str(request_context.get("provider") or "").strip() or None,
@@ -21036,6 +21046,7 @@ class RecruitmentService:
         self._finish_ai_task_log(
             log_row,
             status=final_task_status,
+            request_hash=resolved_request_hash,
             provider=task.get("provider"),
             model_name=task.get("model_name"),
             model_source=task.get("source"),
@@ -21881,6 +21892,7 @@ class RecruitmentService:
             self._raise_if_cancelled(cancel_control)
             self._update_ai_task_log(
                 log_row,
+                request_hash=request_hash,
                 status="running",
                 stage="scoring",
                 prompt_snapshot=str(request_context.get("prompt_snapshot") or prompt),
@@ -23003,6 +23015,7 @@ class RecruitmentService:
             self._finish_ai_task_log(
                 root_log,
                 status=status,
+                request_hash=str(request_meta.get("request_hash") or "").strip() or None,
                 stage=stage,
                 provider=resolved_provider,
                 model_name=resolved_model_name,
@@ -23311,6 +23324,7 @@ class RecruitmentService:
                             flow_state["one_pass_salvage_attempted"] = True
                             self._update_ai_task_log(
                                 root_log,
+                                request_hash=request_hash,
                                 status="running",
                                 stage="scoring",
                                 batch_id=batch_id,
@@ -23481,6 +23495,7 @@ class RecruitmentService:
                             request_hash = str(request_meta.get("request_hash") or "").strip() or request_hash
                             self._update_ai_task_log(
                                 root_log,
+                                request_hash=request_hash,
                                 status="running",
                                 stage="running",
                                 batch_id=batch_id,

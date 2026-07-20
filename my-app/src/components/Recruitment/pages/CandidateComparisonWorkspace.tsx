@@ -155,6 +155,7 @@ function reasonLabel(code: CandidateComparisonReasonCode, text: CandidateCompari
         case "protocol_mismatch": return text.reasonProtocolMismatch;
         case "dimension_mismatch": return text.reasonDimensionMismatch;
         case "score_total_mismatch": return text.reasonScoreTotalMismatch;
+        case "audit_request_hash_mismatch": return text.reasonAuditRequestHashMismatch;
         case "position_context_mismatch": return text.reasonPositionContextMismatch;
         case "manual_override_mixed": return text.reasonManualOverrideMixed;
         case "possible_duplicate_contact": return text.reasonPossibleDuplicateContact;

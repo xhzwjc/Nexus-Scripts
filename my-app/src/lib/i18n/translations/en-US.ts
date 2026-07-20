@@ -2506,6 +2506,7 @@ export const enUS: Translations = {
             reasonProtocolMismatch: 'Candidates were evaluated with different models, prompts, or protocols.',
             reasonDimensionMismatch: 'Evaluation dimensions cannot be fully aligned.',
             reasonScoreTotalMismatch: 'Some AI totals do not match their dimension sums. Values are shown for review only.',
+            reasonAuditRequestHashMismatch: 'Some historical screening tasks have an unsynchronized request hash. Scores and dimensions are still shown from the actual response.',
             reasonPositionContextMismatch: 'A screening artifact does not match the current position context.',
             reasonManualOverrideMixed: 'Only some candidates use a manual score adjustment.',
             reasonPossibleDuplicateContact: 'Possible duplicate contact details exist among selected candidates.',

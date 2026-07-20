@@ -281,6 +281,7 @@ export type CandidateComparisonReasonCode =
   | "protocol_mismatch"
   | "dimension_mismatch"
   | "score_total_mismatch"
+  | "audit_request_hash_mismatch"
   | "position_context_mismatch"
   | "manual_override_mixed"
   | "possible_duplicate_contact";

@@ -2505,6 +2505,7 @@ export const zhCN: Translations = {
             reasonProtocolMismatch: '候选人使用的模型、提示词或评估协议不一致。',
             reasonDimensionMismatch: '候选人的评估维度无法完整对齐。',
             reasonScoreTotalMismatch: '部分候选人的 AI 总分与维度合计不一致，数据仅供核对。',
+            reasonAuditRequestHashMismatch: '部分历史初筛任务的请求哈希未同步，评分与维度仍按实际请求结果展示。',
             reasonPositionContextMismatch: '岗位上下文与当前对比岗位不一致。',
             reasonManualOverrideMixed: '仅部分候选人使用了人工修正分数。',
             reasonPossibleDuplicateContact: '所选候选人中存在可能重复的联系方式。',
