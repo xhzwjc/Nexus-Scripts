@@ -326,6 +326,15 @@ function removeCandidateFromComparisonPreview(
             .map((value) => value.normalized_score)
             .filter((score): score is number => score != null && Number.isFinite(score));
         const highestScore = normalizedScores.length ? Math.max(...normalizedScores) : null;
+        const highestCandidateIds = new Set(
+            highestScore == null
+                ? []
+                : values
+                    .filter((value) => value.normalized_score != null && Math.abs(value.normalized_score - highestScore) < 0.005)
+                    .map((value) => value.candidate_id),
+        );
+        const hasMeaningfulHighest = highestCandidateIds.size > 0 && highestCandidateIds.size < normalizedScores.length;
+        const isTiedHighest = hasMeaningfulHighest && highestCandidateIds.size > 1;
         const spread = normalizedScores.length
             ? Math.round((Math.max(...normalizedScores) - Math.min(...normalizedScores)) * 100) / 100
             : null;
@@ -335,10 +344,14 @@ function removeCandidateFromComparisonPreview(
             values: values.map((value) => ({
                 ...value,
                 is_highest: Boolean(
-                    preview.comparability.ranking_allowed
-                    && highestScore != null
-                    && value.normalized_score != null
-                    && Math.abs(value.normalized_score - highestScore) < 0.005
+                    preview.comparability.ranking_basis === "ai"
+                    && hasMeaningfulHighest
+                    && highestCandidateIds.has(value.candidate_id)
+                ),
+                is_tied_highest: Boolean(
+                    preview.comparability.ranking_basis === "ai"
+                    && isTiedHighest
+                    && highestCandidateIds.has(value.candidate_id)
                 ),
             })),
         };

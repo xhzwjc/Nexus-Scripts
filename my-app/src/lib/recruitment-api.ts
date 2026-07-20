@@ -404,6 +404,7 @@ export interface CandidateComparisonDimensionValue {
   reason: string | null;
   evidence: string[];
   is_highest: boolean;
+  is_tied_highest: boolean;
 }
 
 export interface CandidateComparisonAlignedDimension {

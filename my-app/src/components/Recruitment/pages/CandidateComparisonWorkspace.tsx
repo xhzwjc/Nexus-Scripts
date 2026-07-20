@@ -312,7 +312,7 @@ function DimensionComparisonRow({
                                     <span className="text-[14px] font-semibold tabular-nums text-[#0E1114]">
                                         {text.scoreValue(formatComparisonNumber(score) || "-", formatComparisonNumber(dimension.max_score) || "-")}
                                     </span>
-                                    {isBest ? <span className="rounded-[4px] bg-[rgba(30,59,250,0.1)] px-1.5 py-0.5 text-[10px] text-[#1E3BFA]">{text.highestScore}</span> : null}
+                                    {isBest ? <span className="rounded-[4px] bg-[rgba(30,59,250,0.1)] px-1.5 py-0.5 text-[10px] text-[#1E3BFA]">{value?.is_tied_highest ? text.tiedHighestScore : text.highestScore}</span> : null}
                                     {rankingAllowed && !isBest && delta != null && delta > 0 ? <span className="text-[11px] tabular-nums text-[#F53F3F]">-{formatComparisonNumber(delta)}</span> : null}
                                 </div>
                                 <div className="h-[5px] overflow-hidden rounded-full bg-[#F2F3F5]">
@@ -458,10 +458,20 @@ export function CandidateComparisonWorkspace({
     // 有限可比下，就绪成员的优势/风险与其总分同源、同样可背书，应与总分一并展示；
     // 仅当无任何可背书评分（不可比）时整节隐藏。
     const hasAnyScreening = React.useMemo(() => members.some((member) => member.screening != null), [members]);
-    const bestOverallScore = React.useMemo(() => {
-        if (!preview?.comparability.ranking_allowed || preview.manual_override_mode !== "none") return null;
-        const scores = members.map(normalizedAiScore).filter((score): score is number => score != null);
-        return scores.length ? Math.max(...scores) : null;
+    const overallHighest = React.useMemo(() => {
+        const emptyResult = {candidateIds: new Set<number>(), isTied: false};
+        if (!preview?.comparability.ranking_allowed || preview.manual_override_mode !== "none") return emptyResult;
+        const scoredCandidates = members
+            .map((member) => ({candidateId: member.candidate.id, score: normalizedAiScore(member)}))
+            .filter((item): item is {candidateId: number; score: number} => item.score != null);
+        if (!scoredCandidates.length) return emptyResult;
+        const highestScore = Math.max(...scoredCandidates.map((item) => item.score));
+        const highestCandidates = scoredCandidates.filter((item) => Math.abs(item.score - highestScore) < 0.005);
+        if (highestCandidates.length === scoredCandidates.length) return emptyResult;
+        return {
+            candidateIds: new Set(highestCandidates.map((item) => item.candidateId)),
+            isTied: highestCandidates.length > 1,
+        };
     }, [members, preview]);
     const protocolLabel = React.useMemo(() => {
         const protocol = members.find((member) => member.screening)?.screening?.protocol;
@@ -656,7 +666,7 @@ export function CandidateComparisonWorkspace({
                                         const aiScore = normalizedAiScore(member);
                                         const rawScore = member.screening?.ai.total_score;
                                         const rawScale = member.screening?.ai.total_score_scale;
-                                        const isBest = bestOverallScore != null && aiScore != null && Math.abs(bestOverallScore - aiScore) < 0.005;
+                                        const isBest = overallHighest.candidateIds.has(member.candidate.id);
                                         const manualScore = member.manual_review?.score;
                                         return (
                                             <div role="columnheader" key={member.candidate.id} className="relative flex min-w-0 flex-col gap-2.5 border-r border-[#F2F3F5] px-4 py-4 last:border-r-0">
@@ -668,7 +678,7 @@ export function CandidateComparisonWorkspace({
                                                     <div className="min-w-0">
                                                         <div className="flex min-w-0 items-center gap-1.5">
                                                             <span className="truncate text-[14px] font-semibold text-[#0E1114]">{identity.displayName}</span>
-                                                            {isBest ? <span className="shrink-0 rounded-[4px] bg-[rgba(30,59,250,0.1)] px-1.5 py-0.5 text-[10px] text-[#1E3BFA]">{text.totalScoreHighest}</span> : null}
+                                                            {isBest ? <span className="shrink-0 rounded-[4px] bg-[rgba(30,59,250,0.1)] px-1.5 py-0.5 text-[10px] text-[#1E3BFA]">{overallHighest.isTied ? text.totalScoreTiedHighest : text.totalScoreHighest}</span> : null}
                                                         </div>
                                                         <p className="truncate text-[11px] font-normal text-[#86888F]">{preview.target_context.position_title}</p>
                                                     </div>
@@ -722,15 +732,14 @@ export function CandidateComparisonWorkspace({
                                     label={<div><p>{text.aiScore}</p><p className="mt-0.5 text-[10px] font-normal text-[#B0B2B8]">{preview.manual_override_mode === "none" ? text.aiNormalizedScore : text.manualScoreIndependent}</p></div>}
                                     members={members}
                                     cellClassName={(member) => {
-                                        const score = normalizedAiScore(member);
-                                        return bestOverallScore != null && score != null && Math.abs(bestOverallScore - score) < 0.005 ? "bg-[rgba(30,59,250,0.05)]" : undefined;
+                                        return overallHighest.candidateIds.has(member.candidate.id) ? "bg-[rgba(30,59,250,0.05)]" : undefined;
                                     }}
                                 >
                                     {(member) => {
                                         const score = normalizedAiScore(member);
-                                        const isBest = bestOverallScore != null && score != null && Math.abs(bestOverallScore - score) < 0.005;
+                                        const isBest = overallHighest.candidateIds.has(member.candidate.id);
                                         if (score == null) return <span className="text-[#B0B2B8]">{text.noData}</span>;
-                                        return <div className="space-y-1.5"><div className="flex items-center gap-2"><span className="text-[14px] font-semibold tabular-nums text-[#0E1114]">{formatComparisonNumber(score, 0)} / 100</span>{isBest ? <span className="rounded-[4px] bg-[rgba(30,59,250,0.1)] px-1.5 py-0.5 text-[10px] text-[#1E3BFA]">{text.highestScore}</span> : null}</div><div className="h-[5px] overflow-hidden rounded-full bg-[#F2F3F5]"><div className="h-full rounded-full" style={{width: `${score}%`, backgroundColor: scoreBarTone(score)}}/></div></div>;
+                                        return <div className="space-y-1.5"><div className="flex items-center gap-2"><span className="text-[14px] font-semibold tabular-nums text-[#0E1114]">{formatComparisonNumber(score, 0)} / 100</span>{isBest ? <span className="rounded-[4px] bg-[rgba(30,59,250,0.1)] px-1.5 py-0.5 text-[10px] text-[#1E3BFA]">{overallHighest.isTied ? text.tiedHighestScore : text.highestScore}</span> : null}</div><div className="h-[5px] overflow-hidden rounded-full bg-[#F2F3F5]"><div className="h-full rounded-full" style={{width: `${score}%`, backgroundColor: scoreBarTone(score)}}/></div></div>;
                                     }}
                                 </ComparisonGridRow>
                                 <ComparisonGridRow label={<div><p>{text.manualScoreTitle}</p><p className="mt-0.5 text-[10px] font-normal text-[#B0B2B8]">{text.manualScoreIndependent}</p></div>} members={members} emphasized={preview.manual_override_mode !== "none"}>

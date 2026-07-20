@@ -403,6 +403,7 @@ def test_preview_builds_strict_aligned_dimensions_without_pii_or_writes(monkeypa
     assert delivery_values[1]["score"] == 1.6
     assert delivery_values[1]["normalized_score"] == 80.0
     assert delivery_values[1]["is_highest"] is True
+    assert delivery_values[1]["is_tied_highest"] is False
     serialized = json.dumps(result, ensure_ascii=False)
     assert "13800000000" not in serialized
     assert "first@example.test" not in serialized
@@ -411,6 +412,31 @@ def test_preview_builds_strict_aligned_dimensions_without_pii_or_writes(monkeypa
     assert '"email"' not in serialized
     assert len(serialized.encode("utf-8")) < 200_000
     commit_mock.assert_not_called()
+
+
+def test_highest_markers_distinguish_all_equal_unique_and_partial_ties():
+    db = _build_test_db()
+    position = _add_position(db)
+    first, _ = _add_strict_candidate(db, position, index=1, engineering_score=8, delivery_score=2)
+    second, _ = _add_strict_candidate(db, position, index=2, engineering_score=8, delivery_score=2)
+    third, _ = _add_strict_candidate(db, position, index=3, engineering_score=6, delivery_score=2)
+
+    result = RecruitmentService(db).preview_candidate_comparison(
+        [first.id, second.id, third.id],
+        position.id,
+    )
+
+    dimensions_by_label = {
+        dimension["label"]: dimension
+        for dimension in result["aligned_dimensions"]
+    }
+    engineering_values = dimensions_by_label["Engineering"]["values"]
+    delivery_values = dimensions_by_label["Delivery"]["values"]
+
+    assert [value["is_highest"] for value in engineering_values] == [True, True, False]
+    assert [value["is_tied_highest"] for value in engineering_values] == [True, True, False]
+    assert [value["is_highest"] for value in delivery_values] == [False, False, False]
+    assert [value["is_tied_highest"] for value in delivery_values] == [False, False, False]
 
 
 def test_same_position_different_models_still_show_comparable_dimensions():
@@ -899,7 +925,7 @@ def test_partial_manual_override_disables_ranking_and_highest_markers():
     assert result["members"][0]["manual_review"] == {"score": 90.0, "reason": None}
     assert result["members"][1]["manual_review"] is None
     assert all(
-        value["is_highest"] is False
+        value["is_highest"] is False and value["is_tied_highest"] is False
         for dimension in result["aligned_dimensions"]
         for value in dimension["values"]
     )
@@ -932,7 +958,7 @@ def test_complete_manual_override_ranks_by_manual_and_disables_ai_best():
     assert result["members"][1]["manual_review"]["is_highest"] is True
     # AI 维度最佳标记全部关闭
     assert all(
-        value["is_highest"] is False
+        value["is_highest"] is False and value["is_tied_highest"] is False
         for dimension in result["aligned_dimensions"]
         for value in dimension["values"]
     )

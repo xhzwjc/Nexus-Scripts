@@ -2450,6 +2450,7 @@ export interface Translations {
       aiNormalizedScore: string;
       rawScore: (score: string, maxScore: string) => string;
       totalScoreHighest: string;
+      totalScoreTiedHighest: string;
       manualScoreIndependent: string;
       manualScoreMissing: string;
       manualScoreValue: (value: string) => string;
@@ -2486,6 +2487,7 @@ export interface Translations {
       comparisonDimension: string;
       viewDetails: string;
       highestScore: string;
+      tiedHighestScore: string;
       differenceSpread: (value: string) => string;
       scoreValue: (score: string, maxScore: string) => string;
       maxScoreLabel: (value: string) => string;

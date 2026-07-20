@@ -14119,16 +14119,26 @@ class RecruitmentService:
                             for value in list(member_dimension.get("evidence") or [])[:2]
                         ],
                         "is_highest": False,
+                        "is_tied_highest": False,
                     }
                 )
             highest_score = max(float(value["normalized_score"]) for value in values)
-            for value in values:
-                value["is_highest"] = math.isclose(
+            highest_indexes = {
+                index
+                for index, value in enumerate(values)
+                if math.isclose(
                     float(value["normalized_score"]),
                     highest_score,
                     rel_tol=0,
                     abs_tol=0.005,
                 )
+            }
+            # 全员同分时不存在有意义的“最高”；只有部分成员并列第一时才标记“并列最高”。
+            has_meaningful_highest = 0 < len(highest_indexes) < len(values)
+            is_tied_highest = has_meaningful_highest and len(highest_indexes) > 1
+            for index, value in enumerate(values):
+                value["is_highest"] = has_meaningful_highest and index in highest_indexes
+                value["is_tied_highest"] = is_tied_highest and index in highest_indexes
             normalized_scores = [float(value["normalized_score"]) for value in values]
             aligned.append(
                 {
@@ -14455,6 +14465,7 @@ class RecruitmentService:
             for dimension in aligned_dimensions:
                 for value in dimension["values"]:
                     value["is_highest"] = False
+                    value["is_tied_highest"] = False
         if ranking_basis == "manual":
             manual_scores = [
                 (state, _parse_score_number((state["payload"].get("manual_review") or {}).get("score")))
