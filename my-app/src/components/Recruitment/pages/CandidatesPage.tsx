@@ -683,12 +683,12 @@ function InlineResumePdfPreview({
                 canvas.height = Math.ceil(viewport.height * pixelRatio);
                 canvas.style.width = `${Math.ceil(viewport.width)}px`;
                 canvas.style.height = `${Math.ceil(viewport.height)}px`;
-                canvas.className = "block bg-white";
+                canvas.className = "block rounded-[2px] border border-[#D6D8DD] bg-white shadow-[0_8px_24px_rgba(14,17,20,0.10)] dark:border-[#2E333C] dark:shadow-[0_12px_32px_rgba(0,0,0,0.34)]";
 
                 pageShell.className = cn(
-                    "flex justify-center bg-white py-6",
-                    pageNumber === 1 && "pt-0",
-                    pageNumber === pdf.numPages && "pb-0",
+                    "flex justify-center py-3",
+                    pageNumber === 1 && "pt-1",
+                    pageNumber === pdf.numPages && "pb-1",
                 );
                 const renderTask = page.render({
                     canvas,
@@ -737,11 +737,14 @@ function InlineResumePdfPreview({
     }, [blob, isZh, onError, onReady]);
 
     return (
-        <div className={cn("h-full overflow-auto bg-white", SMOOTH_VERTICAL_SCROLLBAR_CLASS)}>
+        <div
+            data-resume-preview-reader
+            className={cn("h-full overflow-auto bg-[#EEF0F3] dark:bg-[#15171C]", SMOOTH_VERTICAL_SCROLLBAR_CLASS)}
+        >
             <div
                 ref={hostRef}
                 aria-label={fileName}
-                className="mx-auto min-h-full w-full bg-white px-4 py-6"
+                className="mx-auto min-h-full w-full px-5 py-4"
             />
         </div>
     );
@@ -4533,7 +4536,7 @@ export function CandidatesPage({
         }
     }, [candidateDetail?.candidate.status, statusFlowSubmitting, updateCandidateStatus]);
 
-    React.useEffect(() => {
+    React.useLayoutEffect(() => {
         const requestedTarget = candidateDetailOpenTargetRef.current;
         if (requestedTarget?.candidateId === selectedCandidateId) {
             openCandidateDetailPanel(requestedTarget.panel);
@@ -4623,6 +4626,15 @@ export function CandidatesPage({
     const [inlineResumePreviewError, setInlineResumePreviewError] = React.useState<string | null>(null);
     const [inlineResumeFrameReady, setInlineResumeFrameReady] = React.useState(false);
     const inlineResumeFrameReadyTimerRef = React.useRef<number | null>(null);
+    const inlineResumePreviewPending = Boolean(
+        primaryResumeFile
+        && !inlineResumeFrameReady
+        && (
+            inlineResumePreviewLoading
+            || !inlineResumePreviewError
+            || Boolean(inlineResumePreviewBlob || inlineResumePreviewUrl)
+        )
+    );
     const latestInterviewQuestion = candidateDetail?.interview_questions[0] ?? null;
     const sortedInterviewSchedules = React.useMemo(() => (
         [...interviewSchedules].sort((left, right) => {
@@ -6335,17 +6347,20 @@ export function CandidatesPage({
                                                         </div>
                                                     ) : null}
                                                 </div>
-                                                <div className="relative h-[520px] min-h-[520px] overflow-hidden bg-white">
-                                                    {inlineResumePreviewLoading || ((inlineResumePreviewBlob || inlineResumePreviewUrl) && !inlineResumeFrameReady) ? (
-                                                        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-white text-[#86888F]">
-                                                            <Loader2 className="h-8 w-8 animate-spin text-[#0E1114]"/>
+                                                <div className="relative h-[520px] min-h-[520px] overflow-hidden bg-[#EEF0F3] dark:bg-[#15171C]">
+                                                    {inlineResumePreviewPending ? (
+                                                        <div
+                                                            data-resume-preview-loading
+                                                            className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-[#EEF0F3] text-[#686B73] transition-opacity duration-300 dark:bg-[#15171C] dark:text-[#9DA0A8]"
+                                                        >
+                                                            <Loader2 className="h-7 w-7 animate-spin text-[#1E3BFA] dark:text-[#8091FF]"/>
                                                             <span className="text-[14px]">{isZh ? "正在加载原始简历..." : "Loading original resume..."}</span>
                                                         </div>
                                                     ) : null}
                                                     {inlineResumePreviewBlob && !inlineResumePreviewFallback ? (
                                                         <div
                                                             className={cn(
-                                                                "absolute inset-0 bg-white transition-opacity duration-150",
+                                                                "absolute inset-0 bg-[#EEF0F3] transition-opacity duration-300 dark:bg-[#15171C]",
                                                                 inlineResumeFrameReady ? "opacity-100" : "opacity-0",
                                                             )}
                                                         >
@@ -6361,7 +6376,7 @@ export function CandidatesPage({
                                                         <iframe
                                                             src={`${inlineResumePreviewUrl}#toolbar=0&navpanes=0&view=FitH&scrollbar=0`}
                                                             className={cn(
-                                                                "absolute -left-7 -top-1 h-[calc(100%+8px)] w-[calc(100%+56px)] border-0 bg-white transition-opacity duration-150",
+                                                                "absolute inset-4 h-[calc(100%-32px)] w-[calc(100%-32px)] rounded-[2px] border border-[#D6D8DD] bg-white shadow-[0_8px_24px_rgba(14,17,20,0.10)] transition-opacity duration-300 dark:border-[#2E333C] dark:shadow-[0_12px_32px_rgba(0,0,0,0.34)]",
                                                                 inlineResumeFrameReady ? "opacity-100" : "opacity-0",
                                                             )}
                                                             style={{colorScheme: "light", backgroundColor: "#fff"}}
