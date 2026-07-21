@@ -78,6 +78,57 @@ POSITION_SKILL_BIND_FIELDS = {"jd_skill_ids", "screening_skill_ids", "interview_
 
 logger = logging.getLogger(__name__)
 
+
+def _resume_download_response(payload: Dict[str, Any], range_header: Optional[str] = None) -> Response:
+    content = bytes(payload.get("content") or b"")
+    file_name = payload.get("file_name") or "resume.bin"
+    file_extension = f".{file_name.rsplit('.', 1)[1]}" if "." in file_name and not file_name.endswith(".") else ".bin"
+    quoted_name = quote(file_name)
+    total = len(content)
+    headers = {
+        "Accept-Ranges": "bytes",
+        "Content-Disposition": f"inline; filename=\"resume{file_extension}\"; filename*=UTF-8''{quoted_name}",
+    }
+
+    requested_range = str(range_header or "").strip()
+    if not requested_range:
+        headers["Content-Length"] = str(total)
+        return Response(content=content, media_type=payload["media_type"], headers=headers)
+
+    if not requested_range.lower().startswith("bytes=") or "," in requested_range:
+        headers["Content-Range"] = f"bytes */{total}"
+        return Response(status_code=416, media_type=payload["media_type"], headers=headers)
+
+    range_spec = requested_range[6:].strip()
+    start_text, separator, end_text = range_spec.partition("-")
+    if separator != "-" or not total:
+        headers["Content-Range"] = f"bytes */{total}"
+        return Response(status_code=416, media_type=payload["media_type"], headers=headers)
+
+    try:
+        if not start_text:
+            suffix_length = int(end_text)
+            if suffix_length <= 0:
+                raise ValueError
+            start = max(total - suffix_length, 0)
+            end = total - 1
+        else:
+            start = int(start_text)
+            end = int(end_text) if end_text else total - 1
+            if start < 0 or start >= total or end < start:
+                raise ValueError
+            end = min(end, total - 1)
+    except (TypeError, ValueError):
+        headers["Content-Range"] = f"bytes */{total}"
+        return Response(status_code=416, media_type=payload["media_type"], headers=headers)
+
+    partial = content[start:end + 1]
+    headers.update({
+        "Content-Length": str(len(partial)),
+        "Content-Range": f"bytes {start}-{end}/{total}",
+    })
+    return Response(content=partial, status_code=206, media_type=payload["media_type"], headers=headers)
+
 RECRUITMENT_COMMON_VIEW_PERMISSIONS = [
     "recruitment-dashboard-view",
     "recruitment-position-manage",
@@ -1040,6 +1091,7 @@ async def list_my_department_review_assignment_history(
 async def download_my_department_review_resume_file(
     assignment_id: int,
     resume_file_id: int,
+    http_request: Request,
     _session: Dict[str, Any] = Depends(require_script_hub_any_permission(["recruitment-review-view", "recruitment-review-act"])),
     service: RecruitmentService = Depends(get_recruitment_service),
 ):
@@ -1049,11 +1101,7 @@ async def download_my_department_review_resume_file(
             resume_file_id,
             _session.get("id") or "unknown",
         )
-        file_name = payload["file_name"] or "resume.bin"
-        file_extension = f".{file_name.rsplit('.', 1)[1]}" if "." in file_name and not file_name.endswith(".") else ".bin"
-        quoted_name = quote(file_name)
-        headers = {"Content-Disposition": f"inline; filename=\"resume{file_extension}\"; filename*=UTF-8''{quoted_name}"}
-        return Response(content=payload["content"], media_type=payload["media_type"], headers=headers)
+        return _resume_download_response(payload, http_request.headers.get("range"))
     except ValueError as exc:
         raise HTTPException(status_code=403, detail=str(exc))
 
@@ -1798,6 +1846,7 @@ async def get_my_interview_candidate_detail(
 @recruitment_router.get("/interviews/resume-files/{resume_file_id}/download")
 async def download_my_interview_resume_file(
     resume_file_id: int,
+    http_request: Request,
     schedule_id: Optional[int] = Query(None, ge=1),
     _session: Dict[str, Any] = Depends(require_script_hub_any_permission(RECRUITMENT_INTERVIEW_SCOPED_PERMISSIONS)),
     service: RecruitmentService = Depends(get_recruitment_service),
@@ -1809,11 +1858,7 @@ async def download_my_interview_resume_file(
             schedule_id=schedule_id,
             can_manage=_session_has_permission(_session, "recruitment-interview-manage"),
         )
-        file_name = payload["file_name"] or "resume.bin"
-        file_extension = f".{file_name.rsplit('.', 1)[1]}" if "." in file_name and not file_name.endswith(".") else ".bin"
-        quoted_name = quote(file_name)
-        headers = {"Content-Disposition": f"inline; filename=\"resume{file_extension}\"; filename*=UTF-8''{quoted_name}"}
-        return Response(content=payload["content"], media_type=payload["media_type"], headers=headers)
+        return _resume_download_response(payload, http_request.headers.get("range"))
     except ValueError as exc:
         raise HTTPException(status_code=403, detail=str(exc))
 
@@ -1946,14 +1991,10 @@ async def delete_offer(offer_id: int, _session: Dict[str, Any] = Depends(require
 
 
 @recruitment_router.get("/resume-files/{resume_file_id}/download")
-async def download_resume_file(resume_file_id: int, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-dashboard-view")), service: RecruitmentService = Depends(get_recruitment_service)):
+async def download_resume_file(http_request: Request, resume_file_id: int, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-dashboard-view")), service: RecruitmentService = Depends(get_recruitment_service)):
     try:
         payload = service.get_resume_file_download(resume_file_id)
-        file_name = payload["file_name"] or "resume.bin"
-        file_extension = f".{file_name.rsplit('.', 1)[1]}" if "." in file_name and not file_name.endswith(".") else ".bin"
-        quoted_name = quote(file_name)
-        headers = {"Content-Disposition": f"inline; filename=\"resume{file_extension}\"; filename*=UTF-8''{quoted_name}"}
-        return Response(content=payload["content"], media_type=payload["media_type"], headers=headers)
+        return _resume_download_response(payload, http_request.headers.get("range"))
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
 

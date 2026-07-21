@@ -80,6 +80,7 @@ import {
 import {Input} from "@/components/ui/input";
 import {Popover, PopoverContent, PopoverTrigger} from "@/components/ui/popover";
 import {Textarea} from "@/components/ui/textarea";
+import {ResumeViewerAdapter} from "../components/ResumeViewerAdapter";
 
 import {
     type AssistantDisplayMode,
@@ -521,31 +522,6 @@ type CandidateDetailPanelKey = "resume" | "assessment" | "screening" | "review" 
 type CandidateDetailPrimaryTabKey = "profile" | "resume" | "ai" | "prep";
 type CandidateResumeViewKey = "original" | "standard" | "history";
 type DetailIcon = React.ComponentType<{className?: string}>;
-type PdfJsModule = typeof import("pdfjs-dist");
-type PdfLoadingTask = ReturnType<PdfJsModule["getDocument"]>;
-
-const PDF_RENDER_FIRST_PAGE_TIMEOUT_MS = 10000;
-
-class PdfRenderTimeoutError extends Error {
-    constructor(message: string) {
-        super(message);
-        this.name = "PdfRenderTimeoutError";
-    }
-}
-
-function withPdfRenderTimeout<T>(promise: Promise<T>, message: string): Promise<T> {
-    let timeoutId: number | null = null;
-    const timeoutPromise = new Promise<never>((_, reject) => {
-        timeoutId = window.setTimeout(() => {
-            reject(new PdfRenderTimeoutError(message));
-        }, PDF_RENDER_FIRST_PAGE_TIMEOUT_MS);
-    });
-    return Promise.race([promise, timeoutPromise]).finally(() => {
-        if (timeoutId !== null) {
-            window.clearTimeout(timeoutId);
-        }
-    });
-}
 
 function readStructuredText(source: unknown, keys: string[]): string | null {
     if (!source || typeof source !== "object" || Array.isArray(source)) {
@@ -587,166 +563,6 @@ function CandidateMetaItem({
             <Icon className="h-3.5 w-3.5 shrink-0 text-[#B0B2B8] dark:text-[#86888F]"/>
             <span className="truncate">{children}</span>
         </span>
-    );
-}
-
-function InlineResumePdfPreview({
-                                    blob,
-                                    fileName,
-                                    isZh,
-                                    onReady,
-                                    onError,
-                                }: {
-    blob: Blob;
-    fileName: string;
-    isZh: boolean;
-    onReady: () => void;
-    onError: (message: string) => void;
-}) {
-    const hostRef = React.useRef<HTMLDivElement | null>(null);
-
-    React.useEffect(() => {
-        const host = hostRef.current;
-        if (!host || !blob) return;
-
-        let cancelled = false;
-        let loadingTask: PdfLoadingTask | null = null;
-        let signaledReady = false;
-        const clearHost = () => {
-            while (host.firstChild) {
-                host.removeChild(host.firstChild);
-            }
-        };
-        const signalReady = () => {
-            if (!signaledReady && !cancelled) {
-                signaledReady = true;
-                onReady();
-            }
-        };
-        const measureHostWidth = () => Math.floor(host.clientWidth || host.parentElement?.clientWidth || 0);
-        const waitForHostWidth = async () => {
-            for (let attempt = 0; attempt < 10; attempt += 1) {
-                const width = measureHostWidth();
-                if (width > 0 || cancelled) {
-                    return width;
-                }
-                await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
-            }
-            return measureHostWidth();
-        };
-
-        clearHost();
-
-        const renderPdf = async () => {
-            const pdfjsLib = await import("pdfjs-dist/build/pdf.mjs") as PdfJsModule;
-            const arrayBuffer = await blob.arrayBuffer();
-            if (cancelled) return;
-            const measuredHostWidth = await waitForHostWidth();
-            if (cancelled) return;
-            if (measuredHostWidth <= 0) {
-                throw new Error(isZh ? "简历预览区域尚未准备好" : "Resume preview area is not ready");
-            }
-
-            const sourceBytes = new Uint8Array(arrayBuffer);
-            pdfjsLib.GlobalWorkerOptions.workerSrc = "/vendor/pdfjs/pdf.worker.min.mjs";
-            loadingTask = pdfjsLib.getDocument({
-                data: sourceBytes,
-                verbosity: 0,
-                useWorkerFetch: false,
-            });
-            const pdf = await withPdfRenderTimeout(
-                loadingTask.promise,
-                isZh ? "PDF 文档加载超时" : "PDF document loading timed out",
-            );
-            if (cancelled) {
-                await pdf.destroy();
-                return;
-            }
-
-            const pageHostWidth = Math.max(320, Math.min(measuredHostWidth - 8, 760));
-            const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
-
-            for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
-                if (cancelled) break;
-
-                const page = await pdf.getPage(pageNumber);
-                const baseViewport = page.getViewport({scale: 1});
-                const viewport = page.getViewport({scale: pageHostWidth / baseViewport.width});
-                const canvas = document.createElement("canvas");
-                const pageShell = document.createElement("div");
-                const canvasContext = canvas.getContext("2d", {alpha: false});
-                if (!canvasContext) {
-                    throw new Error(isZh ? "浏览器不支持简历预览渲染" : "Canvas rendering is not supported");
-                }
-
-                canvas.width = Math.ceil(viewport.width * pixelRatio);
-                canvas.height = Math.ceil(viewport.height * pixelRatio);
-                canvas.style.width = `${Math.ceil(viewport.width)}px`;
-                canvas.style.height = `${Math.ceil(viewport.height)}px`;
-                canvas.className = "block rounded-[2px] border border-[#D6D8DD] bg-white shadow-[0_8px_24px_rgba(14,17,20,0.10)] dark:border-[#2E333C] dark:shadow-[0_12px_32px_rgba(0,0,0,0.34)]";
-
-                pageShell.className = cn(
-                    "flex justify-center py-3",
-                    pageNumber === 1 && "pt-1",
-                    pageNumber === pdf.numPages && "pb-1",
-                );
-                const renderTask = page.render({
-                    canvas,
-                    canvasContext,
-                    viewport,
-                    transform: pixelRatio !== 1 ? [pixelRatio, 0, 0, pixelRatio, 0, 0] : undefined,
-                    background: "#fff",
-                });
-                await withPdfRenderTimeout(
-                    renderTask.promise,
-                    isZh ? "PDF 页面渲染超时" : "PDF page rendering timed out",
-                );
-                if (cancelled) {
-                    page.cleanup();
-                    break;
-                }
-                pageShell.appendChild(canvas);
-                host.appendChild(pageShell);
-                page.cleanup();
-
-                if (pageNumber === 1) {
-                    signalReady();
-                }
-            }
-
-            await pdf.cleanup();
-            await pdf.destroy();
-            signalReady();
-        };
-
-        void renderPdf().catch((error) => {
-            if (cancelled) return;
-            const message = error instanceof Error && error.message
-                ? error.message
-                : (isZh ? "原始简历加载失败" : "Failed to load original resume");
-            onError(message);
-        });
-
-        return () => {
-            cancelled = true;
-            clearHost();
-            if (loadingTask) {
-                void loadingTask.destroy().catch(() => undefined);
-            }
-        };
-    }, [blob, isZh, onError, onReady]);
-
-    return (
-        <div
-            data-resume-preview-reader
-            className={cn("h-full overflow-auto bg-[#EEF0F3] dark:bg-[#15171C]", SMOOTH_VERTICAL_SCROLLBAR_CLASS)}
-        >
-            <div
-                ref={hostRef}
-                aria-label={fileName}
-                className="mx-auto min-h-full w-full px-5 py-4"
-            />
-        </div>
     );
 }
 
@@ -4619,22 +4435,6 @@ export function CandidatesPage({
         return resumeFiles.find((file) => file.id === selectedResumeFileId) ?? currentResumeFile;
     }, [currentResumeFile, resumeFiles, selectedResumeFileId]);
     const resumeActionFile = candidateResumeView === "original" ? primaryResumeFile : currentResumeFile;
-    const [inlineResumePreviewBlob, setInlineResumePreviewBlob] = React.useState<Blob | null>(null);
-    const [inlineResumePreviewUrl, setInlineResumePreviewUrl] = React.useState<string | null>(null);
-    const [inlineResumePreviewFallback, setInlineResumePreviewFallback] = React.useState(false);
-    const [inlineResumePreviewLoading, setInlineResumePreviewLoading] = React.useState(false);
-    const [inlineResumePreviewError, setInlineResumePreviewError] = React.useState<string | null>(null);
-    const [inlineResumeFrameReady, setInlineResumeFrameReady] = React.useState(false);
-    const inlineResumeFrameReadyTimerRef = React.useRef<number | null>(null);
-    const inlineResumePreviewPending = Boolean(
-        primaryResumeFile
-        && !inlineResumeFrameReady
-        && (
-            inlineResumePreviewLoading
-            || !inlineResumePreviewError
-            || Boolean(inlineResumePreviewBlob || inlineResumePreviewUrl)
-        )
-    );
     const latestInterviewQuestion = candidateDetail?.interview_questions[0] ?? null;
     const sortedInterviewSchedules = React.useMemo(() => (
         [...interviewSchedules].sort((left, right) => {
@@ -4824,122 +4624,43 @@ export function CandidatesPage({
         });
     }, [candidateDetail?.candidate.id, resumeFiles]);
 
-    React.useEffect(() => {
-        if (candidateDetailPanel !== "resume" || candidateResumeView !== "original" || !primaryResumeFile) {
-            setInlineResumePreviewBlob(null);
-            setInlineResumePreviewUrl(null);
-            setInlineResumePreviewFallback(false);
-            setInlineResumePreviewLoading(false);
-            setInlineResumePreviewError(null);
-            setInlineResumeFrameReady(false);
-            return;
-        }
-
-        const abortController = new AbortController();
-        let objectUrl: string | null = null;
-        if (inlineResumeFrameReadyTimerRef.current !== null) {
-            window.clearTimeout(inlineResumeFrameReadyTimerRef.current);
-            inlineResumeFrameReadyTimerRef.current = null;
-        }
-        setInlineResumePreviewBlob(null);
-        setInlineResumePreviewUrl(null);
-        setInlineResumePreviewFallback(false);
-        setInlineResumeFrameReady(false);
-        setInlineResumePreviewLoading(true);
-        setInlineResumePreviewError(null);
-
-        authenticatedFetch(resolveResumeFileDownloadPath(primaryResumeFile), {
-            method: "GET",
-            cache: "no-store",
-            signal: abortController.signal,
-        })
-            .then(async (response) => {
-                if (!response.ok) {
-                    throw new Error(await response.text());
-                }
-                return response.blob();
-            })
-            .then((blob) => {
-                if (abortController.signal.aborted) {
-                    return;
-                }
-                objectUrl = URL.createObjectURL(blob);
-                setInlineResumePreviewBlob(blob);
-                setInlineResumePreviewUrl(objectUrl);
-                setInlineResumePreviewLoading(false);
-            })
-            .catch((error) => {
-                if (abortController.signal.aborted) {
-                    return;
-                }
-                setInlineResumePreviewBlob(null);
-                setInlineResumeFrameReady(false);
-                setInlineResumePreviewLoading(false);
-                setInlineResumePreviewError(
-                    error instanceof Error && error.message
-                        ? error.message
-                        : (isZh ? "原始简历加载失败" : "Failed to load original resume"),
-                );
-            });
-
-        return () => {
-            abortController.abort();
-            if (inlineResumeFrameReadyTimerRef.current !== null) {
-                window.clearTimeout(inlineResumeFrameReadyTimerRef.current);
-                inlineResumeFrameReadyTimerRef.current = null;
-            }
-            if (objectUrl) {
-                URL.revokeObjectURL(objectUrl);
-            }
-        };
-    }, [candidateDetailPanel, candidateResumePreviewRefreshKey, candidateResumeView, isZh, primaryResumeFile, resolveResumeFileDownloadPath]);
-    const handleInlineResumeFrameLoad = React.useCallback(() => {
-        if (inlineResumeFrameReadyTimerRef.current !== null) {
-            window.clearTimeout(inlineResumeFrameReadyTimerRef.current);
-        }
-        inlineResumeFrameReadyTimerRef.current = window.setTimeout(() => {
-            inlineResumeFrameReadyTimerRef.current = null;
-            setInlineResumeFrameReady(true);
-        }, 180);
-    }, []);
-    const handleInlineResumePreviewError = React.useCallback((message: string) => {
-        setInlineResumePreviewFallback(true);
-        setInlineResumeFrameReady(false);
-        setInlineResumePreviewLoading(false);
-        setInlineResumePreviewError(message);
-    }, []);
     const printCandidateResume = React.useCallback(async (file: ResumeFile | null = primaryResumeFile) => {
         if (!file) {
             toast.error(isZh ? "暂无可打印的简历" : "No resume is available to print");
             return;
         }
-        const canPrintInlinePreview = primaryResumeFile?.id === file.id && Boolean(inlineResumePreviewUrl);
-        if (!canPrintInlinePreview || !inlineResumePreviewUrl) {
-            await openResumeFile(file, false);
-            return;
-        }
-        const printWindow = window.open(inlineResumePreviewUrl, "_blank");
+        const printWindow = window.open("", "_blank");
         if (!printWindow) {
             toast.error(isZh ? "浏览器阻止了打印窗口，请允许弹窗后重试" : "The print window was blocked. Allow pop-ups and try again.");
             return;
         }
-        printWindow.opener = null;
-        const triggerPrint = () => {
-            window.setTimeout(() => {
-                try {
-                    printWindow.focus();
-                    printWindow.print();
-                } catch {
-                    // The opened resume remains available for the browser's own print action.
-                }
-            }, 300);
-        };
-        if (printWindow.document.readyState === "complete") {
-            triggerPrint();
-        } else {
-            printWindow.addEventListener("load", triggerPrint, {once: true});
+        try {
+            const response = await authenticatedFetch(resolveResumeFileDownloadPath(file), {
+                method: "GET",
+                cache: "no-store",
+            });
+            if (!response.ok) throw new Error(await response.text());
+            const objectUrl = URL.createObjectURL(await response.blob());
+            printWindow.opener = null;
+            printWindow.addEventListener("load", () => {
+                window.setTimeout(() => {
+                    try {
+                        printWindow.focus();
+                        printWindow.print();
+                    } catch {
+                        // The opened resume remains available for the browser's own print action.
+                    }
+                }, 300);
+            }, {once: true});
+            printWindow.location.replace(objectUrl);
+            window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+        } catch (error) {
+            printWindow.close();
+            toast.error(error instanceof Error && error.message
+                ? error.message
+                : (isZh ? "简历打印失败" : "Failed to print resume"));
         }
-    }, [inlineResumePreviewUrl, isZh, openResumeFile, primaryResumeFile]);
+    }, [isZh, primaryResumeFile, resolveResumeFileDownloadPath]);
     const candidateDetailPrimaryTabs = React.useMemo<Array<{key: CandidateDetailPrimaryTabKey; label: string}>>(() => ([
         {key: "profile", label: isZh ? "档案" : "Profile"},
         {key: "resume", label: isZh ? "简历" : "Resume"},
@@ -6322,75 +6043,37 @@ export function CandidatesPage({
 		                                            )}
 
                                             {candidateResumeView === "original" ? (
-                                            <div className="overflow-hidden rounded-[8px] border border-[#EBEEF5] bg-[#FAFAFB] dark:border-[#202226] dark:bg-[#0E1114]">
-                                                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#E6E7EB] bg-white px-4 py-3 dark:border-[#202226] dark:bg-[#0E1114]">
+                                            <div className="overflow-hidden rounded-[8px] border border-[#E2E5EB] bg-white dark:border-[#2A2E36] dark:bg-[#1B1E25]">
+                                                <div className="border-b border-[#E2E5EB] bg-white px-4 py-3 dark:border-[#2A2E36] dark:bg-[#1B1E25]">
                                                     <div className="min-w-0">
                                                         <p className="truncate text-[14px] font-medium text-[#0E1114] dark:text-[#F7F8FA]">
                                                             {primaryResumeFile ? primaryResumeFile.original_name : tr.noResumeFile}
                                                         </p>
-                                                        <p className="mt-0.5 text-[12px] text-[#86888F] dark:text-[#B0B2B8]">
-                                                            {primaryResumeFile
-                                                                ? tr.resumeFileDesc(primaryResumeFile.file_ext || "-", primaryResumeFile.file_size || 0, primaryResumeFile.parse_status)
-                                                                : tr.resumeFileEmptyDesc}
-                                                        </p>
                                                     </div>
-                                                    {primaryResumeFile ? (
-                                                        <div className="flex items-center gap-2">
-                                                            <Button size="sm" variant="outline" className={CANDIDATE_DETAIL_OUTLINE_BUTTON_CLASS} onClick={() => void openResumeFile(primaryResumeFile, false)}>
-                                                                <ExternalLink className="h-3.5 w-3.5"/>
-                                                                {isZh ? "新窗口打开" : "Open"}
-                                                            </Button>
-                                                            <Button size="sm" variant="outline" className={CANDIDATE_DETAIL_OUTLINE_BUTTON_CLASS} onClick={() => void openResumeFile(primaryResumeFile, true)}>
-                                                                <Download className="h-3.5 w-3.5"/>
-                                                                {tr.downloadResume}
-                                                            </Button>
-                                                        </div>
-                                                    ) : null}
                                                 </div>
-                                                <div className="relative h-[520px] min-h-[520px] overflow-hidden bg-[#EEF0F3] dark:bg-[#15171C]">
-                                                    {inlineResumePreviewPending ? (
-                                                        <div
-                                                            data-resume-preview-loading
-                                                            className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-[#EEF0F3] text-[#686B73] transition-opacity duration-300 dark:bg-[#15171C] dark:text-[#9DA0A8]"
-                                                        >
-                                                            <Loader2 className="h-7 w-7 animate-spin text-[#1E3BFA] dark:text-[#8091FF]"/>
-                                                            <span className="text-[14px]">{isZh ? "正在加载原始简历..." : "Loading original resume..."}</span>
-                                                        </div>
-                                                    ) : null}
-                                                    {inlineResumePreviewBlob && !inlineResumePreviewFallback ? (
-                                                        <div
-                                                            className={cn(
-                                                                "absolute inset-0 bg-[#EEF0F3] transition-opacity duration-300 dark:bg-[#15171C]",
-                                                                inlineResumeFrameReady ? "opacity-100" : "opacity-0",
-                                                            )}
-                                                        >
-                                                            <InlineResumePdfPreview
-                                                                blob={inlineResumePreviewBlob}
-                                                                fileName={primaryResumeFile?.original_name || "Original Resume"}
-                                                                isZh={isZh}
-                                                                onReady={handleInlineResumeFrameLoad}
-                                                                onError={handleInlineResumePreviewError}
-                                                            />
-                                                        </div>
-                                                    ) : inlineResumePreviewUrl ? (
-                                                        <iframe
-                                                            src={`${inlineResumePreviewUrl}#toolbar=0&navpanes=0&view=FitH&scrollbar=0`}
-                                                            className={cn(
-                                                                "absolute inset-4 h-[calc(100%-32px)] w-[calc(100%-32px)] rounded-[2px] border border-[#D6D8DD] bg-white shadow-[0_8px_24px_rgba(14,17,20,0.10)] transition-opacity duration-300 dark:border-[#2E333C] dark:shadow-[0_12px_32px_rgba(0,0,0,0.34)]",
-                                                                inlineResumeFrameReady ? "opacity-100" : "opacity-0",
-                                                            )}
-                                                            style={{colorScheme: "light", backgroundColor: "#fff"}}
-                                                            title={primaryResumeFile?.original_name || "Original Resume"}
-                                                            onLoad={handleInlineResumeFrameLoad}
+                                                <div className="relative h-[520px] min-h-[520px] overflow-hidden bg-white dark:bg-[#1B1E25]">
+                                                    {primaryResumeFile ? (
+                                                        <ResumeViewerAdapter
+                                                            key={`${primaryResumeFile.id}:${candidateResumePreviewRefreshKey}`}
+                                                            source={{
+                                                                id: `${primaryResumeFile.id}:${candidateResumePreviewRefreshKey}`,
+                                                                url: resolveResumeFileDownloadPath(primaryResumeFile),
+                                                                fileName: primaryResumeFile.original_name || "Original Resume.pdf",
+                                                                mimeType: primaryResumeFile.mime_type,
+                                                                fileSize: primaryResumeFile.file_size,
+                                                            }}
+                                                            isZh={isZh}
+                                                            onDownload={() => void openResumeFile(primaryResumeFile, true)}
+                                                            onOpenExternal={() => void openResumeFile(primaryResumeFile, false)}
                                                         />
-                                                    ) : !inlineResumePreviewLoading ? (
+                                                    ) : (
                                                         <div className="flex h-full items-center justify-center px-6">
                                                             <EmptyState
-                                                                title={primaryResumeFile ? (isZh ? "原始简历暂无法显示" : "Original Resume Unavailable") : tr.noResumeFile}
-                                                                description={inlineResumePreviewError || (primaryResumeFile ? (isZh ? "可使用上方按钮在新窗口打开或下载文件。" : "Use the actions above to open or download the file.") : tr.resumeFileEmptyDesc)}
+                                                                title={tr.noResumeFile}
+                                                                description={tr.resumeFileEmptyDesc}
                                                             />
                                                         </div>
-                                                    ) : null}
+                                                    )}
                                                 </div>
                                             </div>
                                             ) : null}

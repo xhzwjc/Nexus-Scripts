@@ -203,6 +203,8 @@ async function proxyRecruitmentRequest(
   const authorization = request.headers.get("authorization");
   const accept = request.headers.get("accept");
   const contentType = request.headers.get("content-type");
+  const range = request.headers.get("range");
+  const ifRange = request.headers.get("if-range");
 
   if (authorization) {
     headers.set("Authorization", authorization);
@@ -212,6 +214,12 @@ async function proxyRecruitmentRequest(
   }
   if (contentType) {
     headers.set("Content-Type", contentType);
+  }
+  if (range) {
+    headers.set("Range", range);
+  }
+  if (ifRange) {
+    headers.set("If-Range", ifRange);
   }
 
   const isLongRunningRequest = [
@@ -279,10 +287,14 @@ async function proxyRecruitmentRequest(
       const isSSE = (response.headers.get("content-type") || "").includes("text/event-stream");
       const responseHeaders = new Headers();
       for (const headerName of [
+        "accept-ranges",
         "content-type",
         "content-disposition",
+        "content-range",
         "cache-control",
         "content-length",
+        "etag",
+        "last-modified",
         "x-accel-buffering",
       ]) {
         const value = response.headers.get(headerName);
@@ -312,7 +324,8 @@ async function proxyRecruitmentRequest(
       });
     } catch (error) {
       lastError = error;
-      const shouldRetry = isSafeToRetry && attempt < maxRetries;
+      const requestAborted = Boolean(proxySignal?.aborted || request.signal.aborted);
+      const shouldRetry = isSafeToRetry && !requestAborted && attempt < maxRetries;
       const errorInfo = {
         method: request.method,
         path,
@@ -331,7 +344,7 @@ async function proxyRecruitmentRequest(
       }
       // Only retry on network-level failures (connection refused, etc.)
       // Do NOT retry if we got an HTTP response with error status
-      if (!isSafeToRetry) break;
+      if (!isSafeToRetry || requestAborted) break;
     }
   }
 
