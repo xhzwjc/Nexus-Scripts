@@ -14,6 +14,14 @@ const comparisonWorkspaceSource = await readFile(
     new URL("./pages/CandidateComparisonWorkspace.tsx", import.meta.url),
     "utf8",
 );
+const lockScreenSource = await readFile(
+    new URL("../AppShell/LockScreenOverlay.tsx", import.meta.url),
+    "utf8",
+);
+const appStylesSource = await readFile(
+    new URL("../../App.css", import.meta.url),
+    "utf8",
+);
 const apiTypesSource = await readFile(
     new URL("../../lib/recruitment-api.ts", import.meta.url),
     "utf8",
@@ -50,6 +58,14 @@ test("对比页查看详情不退出工作区并让抽屉覆盖在对比层上",
     assert.doesNotMatch(candidatesPageSource, /onOpenCandidate=\{\(candidateId\) => \{[\s\S]{0,180}exitCandidateComparison/);
     assert.match(comparisonWorkspaceSource, /detailOpen \? "z-40" : "z-\[10000\]"/);
     assert.match(candidatesPageSource, /candidateWorkspaceMode === "list" \? \([\s\S]*<CandidateComparisonTray/);
+});
+
+test("系统锁屏挂载到页面顶层并覆盖候选人对比浮层", () => {
+    assert.match(lockScreenSource, /import \{ createPortal \} from 'react-dom'/);
+    assert.match(lockScreenSource, /return createPortal\([\s\S]*document\.body/);
+    assert.match(lockScreenSource, /z-\[2147483647\]/);
+    assert.match(appStylesSource, /\.lock-screen \{[\s\S]*z-index: 2147483647/);
+    assert.match(comparisonWorkspaceSource, /z-\[70\]/);
 });
 
 test("批量选择可逐页导入且不会给原有批处理选择施加四人上限", () => {

@@ -2,6 +2,7 @@
 
 import { ChevronRight, Loader2 } from 'lucide-react';
 import React, { useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 
 import { useI18n } from '@/lib/i18n';
 
@@ -36,8 +37,12 @@ export function LockScreenOverlay({
         return () => cancelAnimationFrame(rafRef.current);
     }, []);
 
-    return (
-        <div className="lock-screen z-[999999] animate-sunlight-reveal" aria-modal="true" role="dialog">
+    if (typeof document === 'undefined') {
+        return null;
+    }
+
+    return createPortal(
+        <div className="lock-screen z-[2147483647] animate-sunlight-reveal" aria-modal="true" role="dialog">
             <div className="lock-avatar">
                 {currentUserName?.charAt(0) || 'U'}
             </div>
@@ -84,6 +89,7 @@ export function LockScreenOverlay({
                     {t.lock.switchAccount}
                 </button>
             </div>
-        </div>
+        </div>,
+        document.body,
     );
 }
