@@ -5,14 +5,15 @@ import {
     Download,
     ExternalLink,
     Loader2,
+    RefreshCw,
 } from "lucide-react";
 import {createPluginRegistration} from "@embedpdf/core";
-import {EmbedPDF} from "@embedpdf/core/react";
+import {EmbedPDF, useDocumentState} from "@embedpdf/core/react";
 import {usePdfiumEngine} from "@embedpdf/engines/react";
+import {PdfErrorCode} from "@embedpdf/models";
 import {DocumentContent, DocumentManagerPluginPackage} from "@embedpdf/plugin-document-manager/react";
-import {RenderLayer, RenderPluginPackage} from "@embedpdf/plugin-render/react";
+import {RenderPluginPackage, useRenderCapability} from "@embedpdf/plugin-render/react";
 import {Scroller, ScrollPluginPackage, ScrollStrategy} from "@embedpdf/plugin-scroll/react";
-import {TilingLayer, TilingPluginPackage} from "@embedpdf/plugin-tiling/react";
 import {Viewport, ViewportPluginPackage} from "@embedpdf/plugin-viewport/react";
 import {ZoomMode, ZoomPluginPackage} from "@embedpdf/plugin-zoom/react";
 
@@ -22,6 +23,7 @@ import {cn} from "@/lib/utils";
 const PDFIUM_WASM_URL = "/vendor/embedpdf/pdfium.wasm";
 const PDF_RANGE_CHUNK_BYTES = 2 * 1024 * 1024;
 const PDF_RANGE_PATTERN = /^bytes\s+(\d+)-(\d+)\/(\d+)$/i;
+const FIRST_PAGE_RENDER_TIMEOUT_MS = 15_000;
 
 export type ResumeAiOverlayAnnotation = {
     id: string;
@@ -221,20 +223,132 @@ function ResumeAiOverlay({
     );
 }
 
+/**
+ * EmbedPDF's stock RenderLayer encodes PDFium pixels into a Blob before it can
+ * create an image. Some Chromium builds can leave that encoding task pending,
+ * even though the PDF itself has already loaded. Drawing the raw PDFium pixels
+ * to a canvas keeps the headless engine boundary while removing that unstable
+ * conversion step.
+ */
+function ResumePageCanvas({
+                              documentId,
+                              pageIndex,
+                              renderAttempt,
+                              onRendered,
+                              onRenderError,
+                          }: {
+    documentId: string;
+    pageIndex: number;
+    renderAttempt: number;
+    onRendered?: () => void;
+    onRenderError?: () => void;
+}) {
+    const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
+    const {provides: renderCapability} = useRenderCapability();
+    const documentState = useDocumentState(documentId);
+    const scale = documentState?.scale ?? 1;
+
+    React.useEffect(() => {
+        const canvas = canvasRef.current;
+        if (!canvas || !renderCapability) return;
+
+        let active = true;
+        const dpr = Math.min(Math.max(window.devicePixelRatio || 1, 1), 2);
+        const task = renderCapability.forDocument(documentId).renderPageRaw({
+            pageIndex,
+            options: {
+                scaleFactor: scale,
+                dpr,
+                withForms: false,
+                withAnnotations: true,
+            },
+        });
+
+        task.wait(
+            (image) => {
+                if (!active) return;
+                const context = canvas.getContext("2d", {alpha: false});
+                if (!context) {
+                    onRenderError?.();
+                    return;
+                }
+                canvas.width = image.width;
+                canvas.height = image.height;
+                const pixels = image.data instanceof Uint8ClampedArray
+                    ? image.data
+                    : new Uint8ClampedArray(image.data);
+                context.putImageData(new ImageData(pixels, image.width, image.height), 0, 0);
+                onRendered?.();
+            },
+            () => {
+                if (active) onRenderError?.();
+            },
+        );
+
+        return () => {
+            active = false;
+            if (task.state.stage === 0) {
+                task.abort({
+                    code: PdfErrorCode.Cancelled,
+                    message: "cancelled resume page render",
+                });
+            }
+            const context = canvas.getContext("2d");
+            context?.clearRect(0, 0, canvas.width, canvas.height);
+            canvas.width = 0;
+            canvas.height = 0;
+        };
+    }, [documentId, onRenderError, onRendered, pageIndex, renderAttempt, renderCapability, scale]);
+
+    return (
+        <canvas
+            ref={canvasRef}
+            data-resume-viewer-canvas={pageIndex}
+            className="block h-full w-full bg-white"
+            style={{colorScheme: "light"}}
+        />
+    );
+}
+
 function ResumeDocumentViewer({
                                   documentId,
                                   annotations,
                                   isZh,
+                                  onOpenExternal,
                               }: {
     documentId: string;
     annotations: ResumeAiOverlayAnnotation[];
     isZh: boolean;
+    onOpenExternal: () => void;
 }) {
-    const [isFirstPageRendered, setIsFirstPageRendered] = React.useState(false);
+    const [firstPageRenderStatus, setFirstPageRenderStatus] = React.useState<"loading" | "ready" | "error">("loading");
+    const [renderAttempt, setRenderAttempt] = React.useState(0);
 
     React.useEffect(() => {
-        setIsFirstPageRendered(false);
+        setFirstPageRenderStatus("loading");
+        setRenderAttempt(0);
     }, [documentId]);
+
+    React.useEffect(() => {
+        if (firstPageRenderStatus !== "loading") return;
+        const timer = window.setTimeout(() => {
+            setFirstPageRenderStatus((current) => current === "loading" ? "error" : current);
+        }, FIRST_PAGE_RENDER_TIMEOUT_MS);
+        return () => window.clearTimeout(timer);
+    }, [documentId, firstPageRenderStatus, renderAttempt]);
+
+    const handleFirstPageRendered = React.useCallback(() => {
+        setFirstPageRenderStatus("ready");
+    }, []);
+
+    const handleFirstPageRenderError = React.useCallback(() => {
+        setFirstPageRenderStatus("error");
+    }, []);
+
+    const retryFirstPageRender = React.useCallback(() => {
+        setFirstPageRenderStatus("loading");
+        setRenderAttempt((current) => current + 1);
+    }, []);
 
     return (
         <div
@@ -255,25 +369,57 @@ function ResumeDocumentViewer({
                             className="relative mx-auto overflow-hidden bg-white"
                             style={{width, height, colorScheme: "light"}}
                         >
-                            <RenderLayer
+                            <ResumePageCanvas
+                                key={`canvas-${documentId}-${pageIndex}-${renderAttempt}`}
                                 documentId={documentId}
                                 pageIndex={pageIndex}
-                                style={{width: "100%", height: "100%"}}
-                                onLoadCapture={pageIndex === 0 ? () => setIsFirstPageRendered(true) : undefined}
+                                renderAttempt={renderAttempt}
+                                onRendered={pageIndex === 0 ? handleFirstPageRendered : undefined}
+                                onRenderError={pageIndex === 0 ? handleFirstPageRenderError : undefined}
                             />
-                            <TilingLayer documentId={documentId} pageIndex={pageIndex} className="absolute inset-0"/>
                             <ResumeAiOverlay annotations={annotations} pageIndex={pageIndex} enabled/>
                         </div>
                     )}
                 />
             </Viewport>
-            {!isFirstPageRendered ? (
+            {firstPageRenderStatus === "loading" ? (
                 <div
                     data-resume-viewer-render-loading
                     className="absolute inset-0 z-40 flex flex-col items-center justify-center gap-3 bg-[#EEF0F3] text-[#686B73] dark:bg-[#15171C] dark:text-[#B0B2B8]"
                 >
                     <Loader2 className="h-7 w-7 animate-spin text-[#1E3BFA] dark:text-[#8091FF]"/>
                     <span className="text-[13px]">{isZh ? "正在渲染简历..." : "Rendering resume..."}</span>
+                </div>
+            ) : null}
+            {firstPageRenderStatus === "error" ? (
+                <div
+                    data-resume-viewer-render-error
+                    className="absolute inset-0 z-40 flex flex-col items-center justify-center gap-3 bg-[#EEF0F3] px-6 text-center dark:bg-[#15171C]"
+                >
+                    <p className="text-[14px] font-medium text-[#1F2329] dark:text-[#F2F3F5]">
+                        {isZh ? "简历首屏暂未渲染成功" : "The first resume page did not render"}
+                    </p>
+                    <p className="max-w-md text-[12px] leading-5 text-[#686B73] dark:text-[#B0B2B8]">
+                        {isZh ? "可以重试渲染，或在新窗口打开原始文件。" : "Retry the preview or open the original file in a new window."}
+                    </p>
+                    <div className="flex flex-wrap items-center justify-center gap-2">
+                        <ViewerToolButton
+                            label={isZh ? "重试渲染" : "Retry rendering"}
+                            tool="retry-render"
+                            onClick={retryFirstPageRender}
+                        >
+                            <RefreshCw className="h-4 w-4"/>
+                            <span>{isZh ? "重试" : "Retry"}</span>
+                        </ViewerToolButton>
+                        <ViewerToolButton
+                            label={isZh ? "新窗口打开" : "Open in new window"}
+                            tool="open-external"
+                            onClick={onOpenExternal}
+                        >
+                            <ExternalLink className="h-4 w-4"/>
+                            <span>{isZh ? "新窗口打开" : "Open"}</span>
+                        </ViewerToolButton>
+                    </div>
                 </div>
             ) : null}
         </div>
@@ -285,16 +431,31 @@ function ResumePdfEngine({
                              buffer,
                              isZh,
                              annotations,
+                             onOpenExternal,
                          }: {
     source: ResumeViewerSource;
     buffer: ArrayBuffer;
     isZh: boolean;
     annotations: ResumeAiOverlayAnnotation[];
+    onOpenExternal: () => void;
 }) {
-    const documentId = React.useMemo(() => `resume-${source.id}`, [source.id]);
+    // EmbedPDF keeps document/plugin state by documentId. A fresh id per mount
+    // prevents a closing drawer from tearing down the next instance of the same
+    // resume while its first page is being rendered.
+    const viewerInstanceId = React.useId().replace(/:/g, "");
+    const documentId = React.useMemo(
+        () => `resume-${source.id}-${viewerInstanceId}`,
+        [source.id, viewerInstanceId],
+    );
+    const pdfiumWasmUrl = typeof window === "undefined"
+        ? PDFIUM_WASM_URL
+        : new URL(PDFIUM_WASM_URL, window.location.origin).href;
     const {engine, isLoading: engineLoading, error: engineError} = usePdfiumEngine({
-        wasmUrl: PDFIUM_WASM_URL,
-        worker: false,
+        wasmUrl: pdfiumWasmUrl,
+        // Keep every drawer lifecycle inside its own worker. Repeatedly creating
+        // and destroying the direct WASM engine on the UI thread can leave a
+        // closing render task racing with the next drawer mount.
+        worker: true,
         fontFallback: null,
     });
     const plugins = React.useMemo(() => [
@@ -316,13 +477,6 @@ function ResumePdfEngine({
         createPluginRegistration(RenderPluginPackage, {
             withForms: false,
             withAnnotations: true,
-            defaultImageType: "image/png",
-        }),
-        createPluginRegistration(TilingPluginPackage, {
-            tileSize: 768,
-            overlapPx: 4,
-            extraRings: 0,
-            defaultImageType: "image/png",
         }),
         createPluginRegistration(ZoomPluginPackage, {
             defaultZoomLevel: ZoomMode.FitWidth,
@@ -373,6 +527,7 @@ function ResumePdfEngine({
                             documentId={documentId}
                             annotations={annotations}
                             isZh={isZh}
+                            onOpenExternal={onOpenExternal}
                         />
                     );
                 }}
@@ -455,6 +610,7 @@ export function ResumeViewerAdapter({
                     buffer={state.buffer}
                     isZh={isZh}
                     annotations={annotations}
+                    onOpenExternal={onOpenExternal}
                 />
             ) : null}
         </div>

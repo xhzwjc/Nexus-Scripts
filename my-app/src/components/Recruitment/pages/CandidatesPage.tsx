@@ -6051,7 +6051,7 @@ export function CandidatesPage({
                                                         </p>
                                                     </div>
                                                 </div>
-                                                <div className="relative h-[520px] min-h-[520px] overflow-hidden bg-white dark:bg-[#1B1E25]">
+                                                <div className="relative h-[calc(100dvh-295px)] min-h-[360px] overflow-hidden bg-white dark:bg-[#1B1E25]">
                                                     {primaryResumeFile ? (
                                                         <ResumeViewerAdapter
                                                             key={`${primaryResumeFile.id}:${candidateResumePreviewRefreshKey}`}
