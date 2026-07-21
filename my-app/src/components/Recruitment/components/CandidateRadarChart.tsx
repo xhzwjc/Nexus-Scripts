@@ -161,13 +161,13 @@ function AggregatedRadar({ dimensions, radarScores, isZh, uiText }: { dimensions
           </span>
         </div>
       </div>
-      <div className="grid gap-4 rounded-[8px] border border-[#EBEEF5] p-3.5 dark:border-[#33353D] lg:grid-cols-[minmax(280px,340px)_minmax(0,1fr)]">
+      <div className="grid gap-4 rounded-[8px] border border-[#EBEEF5] p-3.5 [--candidate-radar-axis:#33353D] [--candidate-radar-grid:#EBEEF5] dark:border-[#33353D] dark:[--candidate-radar-axis:#D6D8DD] dark:[--candidate-radar-grid:#5E636E] lg:grid-cols-[minmax(280px,340px)_minmax(0,1fr)]">
         <div className="flex min-h-[270px] min-w-0 items-center">
           <div className="relative h-[270px] w-full">
             <ResponsiveContainer width="100%" height="100%">
               <RadarChart cx="50%" cy="50%" outerRadius="68%" data={chartData}>
-                <PolarGrid stroke="#EBEEF5" />
-                <PolarAngleAxis dataKey="subject" tick={{ fill: "#33353D", fontSize: 11, fontWeight: 600 }} />
+                <PolarGrid stroke="var(--candidate-radar-grid)" />
+                <PolarAngleAxis dataKey="subject" tick={{ fill: "var(--candidate-radar-axis)", fontSize: 11, fontWeight: 600 }} />
                 <Radar name={uiText.benchmark} dataKey="benchmark" stroke="#B0B2B8" strokeWidth={1.5} strokeDasharray="4 4" fill="transparent" isAnimationActive={false} />
                 <Radar name={isZh ? "候选人得分" : "Candidate score"} dataKey="candidate" stroke="#1E3BFA" strokeWidth={2} fill="#1E3BFA" fillOpacity={0.14} />
                 <Tooltip
@@ -276,13 +276,13 @@ function IndividualRadar({ dimensions, isZh, uiText }: { dimensions: CandidateSc
 
   return (
     <div className="flex flex-col w-full">
-      <div className="w-full h-[320px] relative">
+      <div className="relative h-[320px] w-full [--candidate-radar-axis:#64748B] [--candidate-radar-grid:#E2E8F0] dark:[--candidate-radar-axis:#D6D8DD] dark:[--candidate-radar-grid:#5E636E]">
         <ResponsiveContainer width="100%" height="100%">
           <RadarChart cx="50%" cy="50%" outerRadius={getOuterRadius(chartData.length)} data={chartData}>
-            <PolarGrid stroke="#e2e8f0" />
+            <PolarGrid stroke="var(--candidate-radar-grid)" />
             <PolarAngleAxis
               dataKey="subject"
-              tick={{ fill: "#64748b", fontSize: chartData.length > 8 ? 10 : 12 }}
+              tick={{ fill: "var(--candidate-radar-axis)", fontSize: chartData.length > 8 ? 10 : 12 }}
               onClick={(data: { value: string }) => handleDimClick(data.value)}
               className="cursor-pointer"
             />

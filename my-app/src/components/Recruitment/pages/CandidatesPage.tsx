@@ -6172,8 +6172,8 @@ export function CandidatesPage({
                                                 </div>
                                             </div>
 
-                                            {permissions.manageCandidate ? <details className="rounded-[8px] border border-[#E6E7EB] bg-white p-4">
-                                                <summary className="cursor-pointer text-[13px] font-medium text-[#33353D]">{isZh ? "编辑档案字段" : "Edit Profile Fields"}</summary>
+                                            {permissions.manageCandidate ? <details className="rounded-[8px] border border-[#E6E7EB] bg-white p-4 dark:border-[#282C34] dark:bg-[#1B1E25]">
+                                                <summary className="cursor-pointer text-[13px] font-medium text-[#33353D] dark:text-[#E8EAED]">{isZh ? "编辑档案字段" : "Edit Profile Fields"}</summary>
                                                 <div className="mt-4 space-y-4">
 	                                            <Field label={tr.baseInfo}>
                                                 <div className="grid gap-3 md:grid-cols-2">
@@ -7902,7 +7902,7 @@ export function CandidatesPage({
                                 <PopoverTrigger asChild>
                                     <button
                                         type="button"
-                                        className="flex min-h-[34px] w-full items-center justify-between rounded-[4px] border border-[#E6E7EB] bg-white px-3 py-2 text-left text-[12px] text-[#33353D] transition hover:border-[#1E3BFA]"
+                                        className="flex min-h-[34px] w-full items-center justify-between rounded-[4px] border border-[#E6E7EB] bg-white px-3 py-2 text-left text-[12px] text-[#33353D] transition hover:border-[#1E3BFA] dark:border-[#2E333C] dark:bg-[#15171C] dark:text-[#E8EAED] dark:hover:border-[#5B78FF]"
                                     >
                                         <span className={cn("truncate", selectedDepartmentReviewers.length ? "text-[#0E1114] dark:text-[#F7F8FA]" : "text-[#B0B2B8] dark:text-[#86888F]")}>
                                             {selectedDepartmentReviewers.length
@@ -7912,14 +7912,14 @@ export function CandidatesPage({
                                         <ChevronDown className="h-4 w-4 shrink-0 text-[#B0B2B8] dark:text-[#86888F]"/>
                                     </button>
                                 </PopoverTrigger>
-                                <PopoverContent align="start" className="z-[10050] w-[var(--radix-popover-trigger-width)] rounded-[6px] border-[#EBEEF5] bg-white p-0 shadow-[0_8px_24px_rgba(14,17,20,0.12)]">
-                                    <div className="border-b border-[#F2F3F5] p-2">
+                                <PopoverContent align="start" className="z-[10050] w-[var(--radix-popover-trigger-width)] rounded-[6px] border-[#EBEEF5] bg-white p-0 shadow-[0_8px_24px_rgba(14,17,20,0.12)] dark:border-[#282C34] dark:bg-[#1B1E25] dark:shadow-[0_16px_48px_rgba(0,0,0,0.60)]">
+                                    <div className="border-b border-[#F2F3F5] p-2 dark:border-[#282C34]">
                                         <div className="relative">
                                             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#B0B2B8]"/>
                                             <Input
                                                 value={departmentReviewReviewerQuery}
                                                 onChange={(event) => setDepartmentReviewReviewerQuery(event.target.value)}
-                                                className="h-8 rounded-[4px] border-[#E6E7EB] pl-8 text-[12px] shadow-none placeholder:text-[#B0B2B8] focus-visible:border-[#1E3BFA] focus-visible:ring-1 focus-visible:ring-[#1E3BFA]"
+                                                className="h-8 rounded-[4px] border-[#E6E7EB] bg-white pl-8 text-[12px] shadow-none placeholder:text-[#B0B2B8] focus-visible:border-[#1E3BFA] focus-visible:ring-1 focus-visible:ring-[#1E3BFA] dark:border-[#3A3F49] dark:bg-[#15171C] dark:text-[#E8EAED] dark:placeholder:text-[#6E727B]"
                                                 placeholder={isZh ? "搜索姓名或账号" : "Search name or account"}
                                             />
                                         </div>
@@ -7946,12 +7946,16 @@ export function CandidatesPage({
                                                         }}
                                                         className={cn(
                                                             "flex w-full items-center gap-3 rounded-[4px] px-3 py-2 text-left text-[12px] transition",
-                                                            selected ? "bg-[rgba(30,59,250,0.08)] text-[#1E3BFA]" : "text-[#33353D] hover:bg-[#F8F8F9]",
+                                                            selected
+                                                                ? "bg-[rgba(30,59,250,0.08)] text-[#1E3BFA] dark:bg-[rgba(91,120,255,0.16)] dark:text-[#8091FF]"
+                                                                : "text-[#33353D] hover:bg-[#F8F8F9] dark:text-[#D6D8DD] dark:hover:bg-[#20242C]",
                                                         )}
                                                     >
                                                         <span className={cn(
                                                             "flex h-4 w-4 shrink-0 items-center justify-center rounded border",
-                                                            selected ? "border-[#1E3BFA] bg-[#1E3BFA] text-white" : "border-[#D6D8DD] bg-white",
+                                                            selected
+                                                                ? "border-[#1E3BFA] bg-[#1E3BFA] text-white dark:border-[#5B78FF] dark:bg-[#5B78FF]"
+                                                                : "border-[#D6D8DD] bg-white dark:border-[#4A505C] dark:bg-[#15171C]",
                                                         )}>
                                                             {selected ? <Check className="h-3 w-3"/> : null}
                                                         </span>

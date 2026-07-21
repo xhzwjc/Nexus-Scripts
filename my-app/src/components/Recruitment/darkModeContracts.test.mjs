@@ -8,6 +8,8 @@ const recruitmentSource = await readFile(new URL("./RecruitmentAutomationContain
 const accessControlSource = await readFile(new URL("../AccessControl/AccessControlCenter.tsx", import.meta.url), "utf8");
 const dialogSource = await readFile(new URL("../ui/dialog.tsx", import.meta.url), "utf8");
 const buttonSource = await readFile(new URL("../ui/button.tsx", import.meta.url), "utf8");
+const candidatesSource = await readFile(new URL("./pages/CandidatesPage.tsx", import.meta.url), "utf8");
+const radarSource = await readFile(new URL("./components/CandidateRadarChart.tsx", import.meta.url), "utf8");
 
 test("招聘深色主题使用原型规定的完整语义令牌", () => {
     const expectedTokens = [
@@ -67,4 +69,17 @@ test("全局侧栏与页面共享深色基础表面", () => {
     assert.match(appStylesSource, /\.dark \.dashboard-sidebar \{[\s\S]*background: var\(--ats-page\)/);
     assert.match(appStylesSource, /border-right-color: var\(--ats-border-card\)/);
     assert.match(appStylesSource, /\.dark \.sidebar-nav-item\.active \{[\s\S]*background: var\(--ats-primary\)/);
+});
+
+test("候选人详情的评审选择器和档案编辑区使用深色表面", () => {
+    assert.match(candidatesSource, /dark:border-\[#4A505C\] dark:bg-\[#15171C\]/);
+    assert.match(candidatesSource, /dark:border-\[#282C34\] dark:bg-\[#1B1E25\]/);
+    assert.match(candidatesSource, /dark:text-\[#E8EAED\]/);
+});
+
+test("候选人雷达图轴标签和网格随深色主题切换", () => {
+    assert.match(radarSource, /--candidate-radar-axis:#D6D8DD/);
+    assert.match(radarSource, /--candidate-radar-grid:#5E636E/);
+    assert.match(radarSource, /fill: "var\(--candidate-radar-axis\)"/);
+    assert.match(radarSource, /stroke="var\(--candidate-radar-grid\)"/);
 });
