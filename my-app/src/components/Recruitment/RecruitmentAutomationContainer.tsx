@@ -250,14 +250,14 @@ function PageChunkLoading() {
     );
 }
 
-const settingsDialogSurfaceClass = "gap-0 overflow-hidden rounded-[8px] border-[#EBEEF5] bg-white p-0 text-[#0E1114] shadow-[0_8px_24px_rgba(14,17,20,0.16)] dark:border-[#EBEEF5] dark:bg-white dark:text-[#0E1114] [&_[data-slot=dialog-close]]:right-6 [&_[data-slot=dialog-close]]:top-[18px] [&_[data-slot=dialog-close]]:rounded-[4px] [&_[data-slot=dialog-close]]:text-[#86888F] [&_[data-slot=dialog-close]]:opacity-100 [&_[data-slot=dialog-close][data-state=open]]:bg-transparent [&_[data-slot=dialog-close][data-state=open]]:text-[#86888F] [&_[data-slot=dialog-close]]:hover:bg-[#F7F8FA] [&_[data-slot=dialog-close]]:hover:text-[#0E1114]";
-const settingsDialogHeaderClass = "shrink-0 gap-1 border-b border-[#F2F3F5] px-6 pb-[14px] pr-14 pt-[18px] text-left";
-const settingsDialogFooterClass = "h-16 shrink-0 items-center gap-3 border-t border-[#F2F3F5] px-6 sm:justify-end";
-const settingsSecondaryButtonClass = "h-[34px] rounded-[6px] border-[#E6E7EB] bg-white px-[18px] text-[13px] font-normal text-[#33353D] shadow-none hover:border-[#1E3BFA] hover:bg-[#F7F8FA] hover:text-[#0F23D9] focus-visible:outline-none focus-visible:ring-0 dark:border-[#E6E7EB] dark:bg-white dark:text-[#33353D]";
+const settingsDialogSurfaceClass = "gap-0 overflow-hidden rounded-[8px] border-[#EBEEF5] bg-white p-0 text-[#0E1114] shadow-[0_8px_24px_rgba(14,17,20,0.16)] dark:border-[#2E333C] dark:bg-[#1B1E25] dark:text-[#E8EAED] dark:shadow-[0_16px_48px_rgba(0,0,0,0.6)] [&_[data-slot=dialog-close]]:right-6 [&_[data-slot=dialog-close]]:top-[18px] [&_[data-slot=dialog-close]]:rounded-[4px] [&_[data-slot=dialog-close]]:text-[#86888F] [&_[data-slot=dialog-close]]:opacity-100 [&_[data-slot=dialog-close][data-state=open]]:bg-transparent [&_[data-slot=dialog-close][data-state=open]]:text-[#86888F] [&_[data-slot=dialog-close]]:hover:bg-[#F7F8FA] [&_[data-slot=dialog-close]]:hover:text-[#0E1114] dark:[&_[data-slot=dialog-close]]:text-[#9296A0] dark:[&_[data-slot=dialog-close]]:hover:bg-white/[0.07] dark:[&_[data-slot=dialog-close]]:hover:text-[#E8EAED]";
+const settingsDialogHeaderClass = "shrink-0 gap-1 border-b border-[#F2F3F5] px-6 pb-[14px] pr-14 pt-[18px] text-left dark:border-[#282C34]";
+const settingsDialogFooterClass = "h-16 shrink-0 items-center gap-3 border-t border-[#F2F3F5] px-6 sm:justify-end dark:border-[#282C34]";
+const settingsSecondaryButtonClass = "h-[34px] rounded-[6px] border-[#E6E7EB] bg-white px-[18px] text-[13px] font-normal text-[#33353D] shadow-none hover:border-[#1E3BFA] hover:bg-[#F7F8FA] hover:text-[#0F23D9] focus-visible:outline-none focus-visible:ring-0 dark:border-[#3A3F49] dark:bg-transparent dark:text-[#C7C9D0] dark:hover:border-[#4A505C] dark:hover:bg-white/[0.07] dark:hover:text-[#E8EAED]";
 const settingsPrimaryButtonClass = "h-[34px] rounded-[6px] bg-[#1E3BFA] px-[18px] text-[13px] font-normal text-white shadow-none hover:bg-[#0F23D9] focus-visible:outline-none focus-visible:ring-0 dark:bg-[#1E3BFA] dark:text-white dark:hover:bg-[#0F23D9]";
 const settingsDangerButtonClass = "h-[34px] rounded-[6px] bg-[#F53F3F] px-[18px] text-[13px] font-normal text-white shadow-none hover:bg-[#D9363E] focus-visible:outline-none focus-visible:ring-0 dark:bg-[#F53F3F] dark:text-white dark:hover:bg-[#D9363E]";
-const settingsInputClass = "h-[34px] rounded-[4px] border-[#E6E7EB] bg-white px-3 text-[12px] text-[#0E1114] shadow-none placeholder:text-[#B0B2B8] focus-visible:border-[#1E3BFA] focus-visible:ring-2 focus-visible:ring-[#1E3BFA]/15 md:text-[12px] dark:border-[#E6E7EB] dark:bg-white dark:text-[#0E1114] dark:placeholder:text-[#B0B2B8]";
-const settingsTextareaClass = "rounded-[4px] border-[#E6E7EB] bg-white px-3 py-2.5 text-[12px] leading-5 text-[#0E1114] shadow-none placeholder:text-[#B0B2B8] focus-visible:border-[#1E3BFA] focus-visible:ring-2 focus-visible:ring-[#1E3BFA]/15 md:text-[12px] dark:border-[#E6E7EB] dark:bg-white dark:text-[#0E1114] dark:placeholder:text-[#B0B2B8]";
+const settingsInputClass = "h-[34px] rounded-[4px] border-[#E6E7EB] bg-white px-3 text-[12px] text-[#0E1114] shadow-none placeholder:text-[#B0B2B8] focus-visible:border-[#1E3BFA] focus-visible:ring-2 focus-visible:ring-[#1E3BFA]/15 md:text-[12px] dark:border-[#3A3F49] dark:bg-[#15171C] dark:text-[#E8EAED] dark:placeholder:text-[#6E727B] dark:focus-visible:border-[#5B78FF] dark:focus-visible:ring-[rgba(91,120,255,0.2)]";
+const settingsTextareaClass = "rounded-[4px] border-[#E6E7EB] bg-white px-3 py-2.5 text-[12px] leading-5 text-[#0E1114] shadow-none placeholder:text-[#B0B2B8] focus-visible:border-[#1E3BFA] focus-visible:ring-2 focus-visible:ring-[#1E3BFA]/15 md:text-[12px] dark:border-[#3A3F49] dark:bg-[#15171C] dark:text-[#E8EAED] dark:placeholder:text-[#6E727B] dark:focus-visible:border-[#5B78FF] dark:focus-visible:ring-[rgba(91,120,255,0.2)]";
 
 function SettingsDeleteDialog({
     open,
@@ -9267,13 +9267,13 @@ export default function RecruitmentAutomationContainer({
                 return {label: isZh ? "待处理" : "Pending", background: "rgba(255,171,36,0.12)", color: "#D48806"};
             }
             if (c.ai_match_position_id && c.ai_match_position_title) {
-                return {label: isZh ? "AI 识别" : "AI Match", background: "rgba(30,59,250,0.08)", color: "#1E3BFA"};
+                return {label: isZh ? "AI 识别" : "AI Match", background: "var(--ats-brand-tint)", color: "var(--ats-primary)"};
             }
             return {label: isZh ? "人才库中" : "In Talent Pool", background: "rgba(12,201,145,0.10)", color: "#0A9C71"};
         })();
         const enteredAt = c.talent_pool_moved_at || c.created_at || c.updated_at || null;
         const profileMeta = [c.years_of_experience, c.education, c.city].filter(Boolean).join(" · ") || (isZh ? "资料待完善" : "Profile incomplete");
-        const avatarColors = ["#1E3BFA", "#2E9CFF", "#0CC991", "#7B61FF", "#FFAB24", "#F53F3F"];
+        const avatarColors = ["var(--ats-primary)", "#2E9CFF", "#0CC991", "#7B61FF", "#FFAB24", "#F53F3F"];
         const avatarColor = avatarColors[Math.abs(c.id) % avatarColors.length];
         const tags = Array.isArray(c.tags) ? c.tags.filter(Boolean) : [];
         const sanitizedAiReason = sanitizeCandidateFacingErrorText(c.ai_match_reason || "", {
@@ -16246,7 +16246,7 @@ export default function RecruitmentAutomationContainer({
 
     return (
         <div
-            className="relative flex h-full min-h-0 flex-col overflow-hidden bg-[var(--tr-page)] text-[var(--tr-ink)] dark:text-slate-300">
+            className="ats-dark-theme relative flex h-full min-h-0 flex-col overflow-hidden bg-[var(--tr-page)] text-[var(--tr-ink)] dark:text-[var(--ats-text-secondary)]">
             {activePage !== "workspace" && activePage !== "positions" && activePage !== "candidates" && activePage !== "talent-pool" && activePage !== "interviews" && activePage !== "review-workbench" && activePage !== "audit" && !isSettingsPage ? <div
                 className="shrink-0 border-b border-[var(--tr-border)] bg-white dark:border-slate-800 dark:bg-slate-950">
                 <div className="flex min-h-[62px] flex-wrap items-center justify-between gap-2 px-5 py-3 2xl:px-6">

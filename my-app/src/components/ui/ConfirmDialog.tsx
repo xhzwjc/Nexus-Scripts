@@ -40,7 +40,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = (props) => {
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
-            <div className="absolute inset-0 bg-black/50" onClick={onCancel} />
+            <div className="absolute inset-0 bg-black/50 dark:bg-black/[0.62]" onClick={onCancel} />
             <div className="relative w-full max-w-sm p-4">
                 <Card className="animate-fadeIn">
                     <CardHeader>

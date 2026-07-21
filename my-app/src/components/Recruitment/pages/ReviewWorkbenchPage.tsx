@@ -46,7 +46,7 @@ type ReviewWorkbenchPageProps = {
 };
 
 const PAGE_SIZE = 10;
-const AVATAR_COLORS = ["#1E3BFA", "#2E9CFF", "#0CC991", "#FFAB24"];
+const AVATAR_COLORS = ["var(--ats-primary)", "#2E9CFF", "#0CC991", "#FFAB24"];
 
 const VISIBLE_SECTION_LABELS: Record<string, {zh: string; en: string}> = {
     original_resume: {zh: "原始简历", en: "Original resume"},

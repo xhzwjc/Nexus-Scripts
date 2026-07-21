@@ -94,7 +94,7 @@ export function AccessControlCenter() {
     };
 
     return (
-        <div className="h-full min-h-0 overflow-y-auto bg-white text-[#0E1114] dark:bg-slate-950 dark:text-slate-100">
+        <div className="ats-dark-theme h-full min-h-0 overflow-y-auto bg-white text-[#0E1114] dark:bg-[var(--ats-page)] dark:text-[var(--ats-text-primary)]">
             <div className="min-h-full px-5 pb-12 pt-4 lg:px-8 2xl:px-10">
                 <div className="mx-auto w-full max-w-[1680px]">
                     <div className="mb-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">

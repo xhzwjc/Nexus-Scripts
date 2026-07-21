@@ -99,7 +99,7 @@ const WORKSPACE_PASSED_STATUS_VALUES = ["screening_passed", "interview_passed", 
 const WORKSPACE_REJECTED_STATUS_VALUES = ["screening_failed", "screening_rejected", "interview_first_rejected", "interview_second_rejected"];
 
 const CHART_COLORS = ["#1E3BFA", "#2E9CFF", "#0CC991", "#FFAB24", "#7B61FF", "#B0B2B8"];
-const AVATAR_COLORS = ["#1E3BFA", "#2E9CFF", "#0CC991", "#FFAB24", "#7B61FF"];
+const AVATAR_COLORS = ["var(--ats-primary)", "#2E9CFF", "#0CC991", "#FFAB24", "#7B61FF"];
 
 function resolveAvatarLabel(name?: string | null) {
     const normalized = String(name || "").trim();

@@ -1254,7 +1254,7 @@ const CandidatePrototypeTableRow = React.memo(function CandidatePrototypeTableRo
     const displayStatus = resolveCandidateDisplayStatus(candidate);
     const matchPercent = resolveCandidateSummaryMatchPercent(candidate);
     const matchColor = matchPercent == null ? "#B0B2B8" : matchPercent >= 70 ? "#0CC991" : matchPercent >= 40 ? "#FFAB24" : "#F53F3F";
-    const avatarColors = ["#1E3BFA", "#2E9CFF", "#0CC991", "#FFAB24", "#7B61FF", "#F53F3F"];
+    const avatarColors = ["var(--ats-primary)", "#2E9CFF", "#0CC991", "#FFAB24", "#7B61FF", "#F53F3F"];
     const avatarColor = avatarColors[Math.abs(candidate.id) % avatarColors.length];
     const profileMeta = [
         candidate.current_company,

@@ -92,7 +92,7 @@ const artifactTone: Record<CandidateComparisonArtifactState, string> = {
     invalid: "bg-[rgba(245,63,63,0.1)] text-[#F53F3F]",
 };
 
-const avatarPalette = ["#1E3BFA", "#2E9CFF", "#FF9F1C", "#7B61FF", "#0CC991", "#F53F3F"];
+const avatarPalette = ["var(--ats-primary)", "#2E9CFF", "#FF9F1C", "#7B61FF", "#0CC991", "#F53F3F"];
 
 function avatarColor(candidateId: number) {
     return avatarPalette[Math.abs(candidateId) % avatarPalette.length];
@@ -126,7 +126,7 @@ function normalizedAiScore(member: CandidateComparisonMember) {
 
 function scoreBarTone(score: number) {
     if (score >= 80) return "#0CC991";
-    if (score >= 60) return "#1E3BFA";
+    if (score >= 60) return "var(--ats-primary)";
     if (score >= 40) return "#FFAB24";
     return "#F53F3F";
 }
@@ -539,7 +539,7 @@ export function CandidateComparisonWorkspace({
     const levelColors = level === "strict"
         ? {background: "rgba(12,201,145,0.12)", color: "#0CC991", banner: "rgba(12,201,145,0.06)", border: "rgba(12,201,145,0.3)", accent: "#0CC991"}
         : level === "limited"
-            ? {background: "rgba(255,171,36,0.14)", color: "#D48806", banner: "rgba(255,171,36,0.09)", border: "rgba(255,171,36,0.35)", accent: "#D48806"}
+            ? {background: "rgba(255,171,36,0.14)", color: "var(--ats-warning-strong)", banner: "rgba(255,171,36,0.09)", border: "rgba(255,171,36,0.35)", accent: "var(--ats-warning-strong)"}
             : {background: "rgba(245,63,63,0.1)", color: "#F53F3F", banner: "rgba(245,63,63,0.06)", border: "rgba(245,63,63,0.3)", accent: "#F53F3F"};
 
     return (

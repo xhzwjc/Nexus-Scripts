@@ -2200,7 +2200,7 @@ export function InterviewWorkbenchPage({
                         const lockMessage = canSubmitResult ? "" : resultLockMessage(task);
                         const interviewerName = schedule?.interviewer_name || schedule?.interviewer_user_code || (isZh ? "未指定面试官" : "No interviewer");
                         const commentValue = canSubmitResult ? (commentBySchedule[schedule?.id || 0] || "") : (schedule?.result_comment || "");
-                        const avatarColors = ["#1E3BFA", "#0CC991", "#FFAB24", "#F53F3F"];
+                        const avatarColors = ["var(--ats-primary)", "#0CC991", "#FFAB24", "#F53F3F"];
                         const avatarColor = avatarColors[Math.abs(Number(candidate.id || 0)) % avatarColors.length];
                         const methodLabel = schedule?.interview_method === "video"
                             ? (isZh ? "视频面试" : "Video")

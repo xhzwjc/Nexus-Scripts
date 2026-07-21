@@ -42,7 +42,7 @@ export function ModelSettingsPage({
     const isZh = language === "zh-CN";
     const sortedConfigs = React.useMemo(() => [...llmConfigs].sort((left, right) => left.priority - right.priority || left.id - right.id), [llmConfigs]);
     const stats = [
-        {label: isZh ? "当前对话模型" : "Current chat model", value: assistantModelLabel || "-", color: "#1E3BFA"},
+        {label: isZh ? "当前对话模型" : "Current chat model", value: assistantModelLabel || "-", color: "var(--ats-primary)"},
         {label: isZh ? "当前对话来源" : "Current chat source", value: assistantActiveLLMConfig?.resolved_source || t.common.unrecognized, color: "#33A1FD"},
         {label: isZh ? "模型总数" : "Total models", value: String(llmConfigs.length), color: "#0CC991"},
         {label: isZh ? "已启用模型数" : "Enabled models", value: String(llmConfigs.filter((item) => item.is_active).length), color: "#FFAB24"},

@@ -43,7 +43,7 @@ export function AccessControlOverviewPage({ labels, refreshToken }: AccessContro
             label: labels.totalUsers,
             value: summary?.user_count || 0,
             sub: `${summary?.organization_count || 0} ${labels.organizationsPageTitle}`,
-            color: '#1E3BFA',
+            color: 'var(--ats-primary)',
         },
         {
             label: labels.activeUsers,
@@ -66,10 +66,10 @@ export function AccessControlOverviewPage({ labels, refreshToken }: AccessContro
     ];
 
     const governanceLayers = [
-        { number: '1', title: labels.rolePermissions, description: labels.rolePermissionOnlyHint, color: '#1E3BFA', background: 'rgba(30,59,250,0.08)' },
+        { number: '1', title: labels.rolePermissions, description: labels.rolePermissionOnlyHint, color: 'var(--ats-primary)', background: 'var(--ats-brand-tint)' },
         { number: '2', title: labels.organization, description: labels.organizationsPageDesc, color: '#0A9C71', background: 'rgba(12,201,145,0.1)' },
         { number: '3', title: labels.dataScope, description: labels.dataScopeDistributionDesc, color: '#2E9CFF', background: 'rgba(46,156,255,0.1)' },
-        { number: '4', title: labels.authorizationBoundary, description: labels.authorizationBoundaryHelp, color: '#D48806', background: 'rgba(255,171,36,0.14)' },
+        { number: '4', title: labels.authorizationBoundary, description: labels.authorizationBoundaryHelp, color: 'var(--ats-warning-strong)', background: 'rgba(255,171,36,0.14)' },
     ];
 
     if (summaryQuery.loading) {
