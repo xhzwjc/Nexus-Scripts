@@ -5313,7 +5313,7 @@ export function CandidatesPage({
                                 event.preventDefault();
                             }
                         }}
-                        className="candidate-detail-drawer left-auto right-0 top-0 h-screen max-h-screen translate-x-0 translate-y-0 gap-0 overflow-hidden rounded-none border-0 border-l border-[#EBEEF5] bg-white p-0 text-[#0E1114] shadow-[-8px_0_24px_rgba(14,17,20,0.12)] sm:rounded-none"
+                        className="candidate-detail-drawer left-auto right-0 top-0 h-screen max-h-screen min-w-0 max-w-full translate-x-0 translate-y-0 gap-0 overflow-hidden rounded-none border-0 border-l border-[#EBEEF5] bg-white p-0 text-[#0E1114] shadow-[-8px_0_24px_rgba(14,17,20,0.12)] sm:rounded-none"
                         style={{
                             width: "min(840px, 100vw)",
                             maxWidth: "min(840px, 100vw)",
@@ -5330,11 +5330,11 @@ export function CandidatesPage({
                             <LoadingPanel label={tr.loadingCandidateDetail}/>
                         </div>
                     ) : candidateDetail ? (
-                        <div className="flex h-full min-h-0 bg-white">
+                        <div className="flex h-full min-h-0 min-w-0 max-w-full bg-white">
                             <section
                                 ref={candidateDetailMainScrollRef}
                                 onScroll={handleCandidateDetailMainScroll}
-                                className={cn("relative min-h-0 min-w-0 flex-1 overflow-y-auto bg-white dark:bg-[#0E1114]", SMOOTH_VERTICAL_SCROLLBAR_CLASS)}
+                                className={cn("relative min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto bg-white dark:bg-[#0E1114]", SMOOTH_VERTICAL_SCROLLBAR_CLASS)}
                             >
                                 <div className="hidden" aria-hidden="true">
                                     <div className={cn(
@@ -5371,9 +5371,9 @@ export function CandidatesPage({
                                         </div>
                                     </div>
                                 </div>
-                                <div className="sticky top-0 z-30 border-b border-[#F2F3F5] bg-white px-7 pb-0 pt-5 dark:border-[#202226] dark:bg-[#0E1114]">
-                                    <div className="flex min-w-0 flex-nowrap items-start gap-2 pb-4">
-                                        <div className="flex w-[292px] min-w-0 flex-none items-center gap-3.5 overflow-hidden">
+                                <div className="sticky top-0 z-30 min-w-0 max-w-full border-b border-[#F2F3F5] bg-white px-7 pb-0 pt-5 dark:border-[#202226] dark:bg-[#0E1114]">
+                                    <div className="relative flex min-w-0 flex-wrap items-start gap-x-3 gap-y-2 pb-4 pr-10">
+                                        <div className="flex min-w-[180px] flex-1 basis-[220px] items-center gap-3.5 overflow-hidden">
                                             <CandidateDetailAvatar identity={candidateDetailIdentity}/>
                                             <div className="min-w-0 flex-1">
                                                 <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -5399,7 +5399,7 @@ export function CandidatesPage({
                                                 </p>
                                             </div>
                                         </div>
-                                        <div className="ml-auto flex shrink-0 flex-nowrap items-center justify-end gap-1.5 whitespace-nowrap">
+                                        <div className="ml-auto flex max-w-full min-w-0 flex-wrap items-center justify-end gap-1.5">
                                             {permissions.executeProcess ? (
                                                 <Button
                                                     size="sm"
@@ -5509,15 +5509,15 @@ export function CandidatesPage({
                                                     </button>
                                                 </PopoverContent>
                                             </Popover>
-                                            <button
-                                                type="button"
-                                                aria-label={isZh ? "关闭候选人详情" : "Close candidate details"}
-                                                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[4px] text-[#86888F] transition hover:bg-[#F2F3F5] hover:text-[#0E1114]"
-                                                onClick={() => setSelectedCandidateId(null)}
-                                            >
-                                                <X className="h-4 w-4"/>
-                                            </button>
                                         </div>
+                                        <button
+                                            type="button"
+                                            aria-label={isZh ? "关闭候选人详情" : "Close candidate details"}
+                                            className="absolute right-0 top-0 flex h-8 w-8 shrink-0 items-center justify-center rounded-[4px] text-[#86888F] transition hover:bg-[#F2F3F5] hover:text-[#0E1114] dark:hover:bg-[#20242C] dark:hover:text-[#E8EAED]"
+                                            onClick={() => setSelectedCandidateId(null)}
+                                        >
+                                            <X className="h-4 w-4"/>
+                                        </button>
                                     </div>
 
                                     <div className="flex min-w-0 items-center gap-7 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">

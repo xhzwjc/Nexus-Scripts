@@ -83,3 +83,10 @@ test("候选人雷达图轴标签和网格随深色主题切换", () => {
     assert.match(radarSource, /fill: "var\(--candidate-radar-axis\)"/);
     assert.match(radarSource, /stroke="var\(--candidate-radar-grid\)"/);
 });
+
+test("候选人详情英文操作文案不会撑宽抽屉", () => {
+    assert.match(candidatesSource, /candidate-detail-drawer[^"]*min-w-0 max-w-full/);
+    assert.match(candidatesSource, /overflow-x-hidden overflow-y-auto/);
+    assert.match(candidatesSource, /flex min-w-0 flex-wrap items-start[^"]*pr-10/);
+    assert.match(candidatesSource, /absolute right-0 top-0 flex h-8 w-8/);
+});
