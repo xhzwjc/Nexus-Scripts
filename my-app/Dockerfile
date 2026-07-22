@@ -1,5 +1,5 @@
-# 基础镜像
-FROM docker.1panel.live/library/node:18-alpine AS base
+# pdf-parse / pdfjs-dist 要求 Node.js 20.16+ 或 22.3+，统一使用 Node.js 22
+FROM docker.1panel.live/library/node:22-alpine AS base
 
 # 依赖安装阶段
 FROM base AS deps
@@ -7,9 +7,22 @@ RUN apk add --no-cache libc6-compat
 WORKDIR /app/my-app
 
 # 复制依赖文件
-COPY my-app/package.json my-app/package-lock.json* ./
-# 安装依赖
-RUN npm ci
+COPY my-app/package.json my-app/package-lock.json ./
+
+# 生产服务器无法稳定访问 registry.npmjs.org，使用可达镜像并缩短失败等待时间。
+# replace-registry-host=always 确保 package-lock 中的官方源地址也会替换为镜像源。
+RUN npm config set registry https://registry.npmmirror.com \
+    && npm config set replace-registry-host always \
+    && npm config set fetch-retries 2 \
+    && npm config set fetch-retry-mintimeout 5000 \
+    && npm config set fetch-retry-maxtimeout 30000 \
+    && npm config set fetch-timeout 120000
+
+# 缓存下载包但不缓存 node_modules 本身；构建中断后可复用已下载的完整包。
+# 安装结束立即校验 Next.js 可执行文件，避免不完整依赖层进入构建阶段。
+RUN --mount=type=cache,target=/root/.npm,sharing=locked \
+    npm ci --no-audit --no-fund \
+    && test -x node_modules/.bin/next
 
 # 构建阶段
 FROM base AS builder

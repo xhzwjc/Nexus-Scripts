@@ -2,6 +2,10 @@
   "name": "PyWebTools",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=22.3.0",
+    "npm": ">=10"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "node ../scripts/write-build-info.mjs && next build",
