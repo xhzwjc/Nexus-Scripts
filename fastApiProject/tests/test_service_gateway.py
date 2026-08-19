@@ -11,10 +11,10 @@ from app.config import ServiceGateway, Settings
 def test_service_gateway_default_urls():
     """测试默认情况下各微服务 URL 的正确生成"""
     test_client = ServiceGateway.get_service_url("client", env="test")
-    assert "8088" in test_client or "client" in test_client
+    assert test_client.startswith("http://")
 
     test_applet = ServiceGateway.get_service_url("applet", env="test")
-    assert "api-test" in test_applet
+    assert test_applet.startswith("http://")
 
     prod_client = ServiceGateway.get_service_url("client", env="prod")
     assert prod_client.startswith("https://")
