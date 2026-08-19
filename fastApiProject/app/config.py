@@ -66,10 +66,17 @@ class ServiceGateway:
     @classmethod
     def _build_test_origin(cls, subdomain_segment: str = "") -> str:
         """根据环境变量底座动态构建测试环境的主机 Origin"""
+        domain_part = (cls.DEFAULT_TEST_DOMAIN or "seedlingintl.com").strip()
+        if ":" in domain_part:
+            domain_name, custom_port = domain_part.split(":", 1)
+            port_part = f":{custom_port.strip()}"
+        else:
+            domain_name = domain_part
+            port_part = f":{cls.DEFAULT_TEST_PORT}" if cls.DEFAULT_TEST_PORT not in ("80", "443", "") else ""
+
         prefix = cls.DEFAULT_TEST_PREFIX
         sub = f"{prefix}-{subdomain_segment}-test" if subdomain_segment else f"{prefix}-test"
-        port_part = f":{cls.DEFAULT_TEST_PORT}" if cls.DEFAULT_TEST_PORT not in ("80", "443", "") else ""
-        return f"{cls.DEFAULT_TEST_PROTOCOL}://{sub}.{cls.DEFAULT_TEST_DOMAIN}{port_part}"
+        return f"{cls.DEFAULT_TEST_PROTOCOL}://{sub}.{domain_name}{port_part}"
 
     @classmethod
     def get_service_url(cls, service_name: str, env: str = "test", path: str = "") -> str:

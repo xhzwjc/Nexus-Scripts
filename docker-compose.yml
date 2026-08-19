@@ -29,11 +29,6 @@ services:
     restart: always
     extra_hosts:
       - "host.docker.internal:host-gateway"
-      - "fwos-api-test.seedlingintl.com:host-gateway"
-      - "fwos-client-api-test.seedlingintl.com:host-gateway"
-      - "fwos-test.seedlingintl.com:host-gateway"
-      - "fwos-chl-api-test.seedlingintl.com:host-gateway"
-      - "fwos-chl-test.seedlingintl.com:host-gateway"
     environment:
       - TZ=Asia/Shanghai
       - NEXT_PUBLIC_API_BASE_URL=/api
@@ -62,11 +57,6 @@ services:
     restart: always
     extra_hosts:
       - "host.docker.internal:host-gateway"
-      - "fwos-api-test.seedlingintl.com:host-gateway"
-      - "fwos-client-api-test.seedlingintl.com:host-gateway"
-      - "fwos-test.seedlingintl.com:host-gateway"
-      - "fwos-chl-api-test.seedlingintl.com:host-gateway"
-      - "fwos-chl-test.seedlingintl.com:host-gateway"
     volumes:
       - ./fastApiProject:/app               # 映射代码目录，实现实时同步
       - paddlex_models:/root/.paddlex       # PaddleX 模型缓存
