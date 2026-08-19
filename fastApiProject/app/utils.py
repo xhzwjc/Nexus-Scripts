@@ -208,8 +208,8 @@ def get_commission_data_from_api(auth_token: str, env: Environment) -> Dict[str,
     """从接口获取佣金数据"""
     # 确定基础URL
     if env == Environment.TEST:
-        base_url = "http://fwos-chl-api-test.seedlingintl.com"
-        web_url = "http://fwos-chl-test.seedlingintl.com"
+        base_url = "http://fwos-chl-api-test.seedlingintl.com:8088"
+        web_url = "http://fwos-chl-test.seedlingintl.com:8088"
     else:
         base_url = "https://chl-api.seedlingintl.com"
         web_url = "https://chl.seedlingintl.com"
@@ -461,7 +461,7 @@ def login_and_get_token(channel_id: int, env: Environment) -> str:
     if env == Environment.PROD:
         base_url = "https://chl-api.seedlingintl.com"
     else:
-        base_url = "http://fwos-chl-api-test.seedlingintl.com"
+        base_url = "http://fwos-chl-api-test.seedlingintl.com:8088"
 
     login_url = f"{base_url}/admin-api/system/auth-channel/login"
     payload = {

@@ -175,7 +175,7 @@ class MobileTaskService:
             return "https://smp-api.seedlingintl.com"
         if self.environment == "local":
             return "http://localhost:8080"
-        return "http://fwos-api-test.seedlingintl.com"
+        return "http://fwos-api-test.seedlingintl.com:8088"
 
     def _parse_mobile_list(
         self,
