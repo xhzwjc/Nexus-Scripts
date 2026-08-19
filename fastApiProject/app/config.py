@@ -55,7 +55,7 @@ class ServiceGateway:
 
     # 基础协议、域名与端口底座配置（可由环境变量全局控制）
     DEFAULT_TEST_DOMAIN = os.getenv("TEST_HOST_DOMAIN") or "seedlingintl.com"
-    DEFAULT_TEST_PORT = os.getenv("TEST_HOST_PORT") or "8088"
+    DEFAULT_TEST_PORT = os.getenv("TEST_HOST_PORT") or "80"
     DEFAULT_TEST_PROTOCOL = os.getenv("TEST_HOST_PROTOCOL") or "http"
     DEFAULT_TEST_PREFIX = os.getenv("TEST_HOST_PREFIX") or "fwos"
 
