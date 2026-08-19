@@ -579,7 +579,7 @@ class TaskAutomation:
             content_type = mimetypes.guess_type(file_name)[0] or "application/octet-stream"
             files = {"file": (file_name, file_content, content_type)}
 
-            resp = requests.post(url, data=form_data, files=files, timeout=30)
+            resp = requests.post(url, data=form_data, files=files, timeout=60)
             if resp.status_code not in {200, 201, 204}:
                 return {
                     "code": resp.status_code,

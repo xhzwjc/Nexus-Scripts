@@ -87,7 +87,7 @@ const CONSTANTS = {
     // 附件限制
     MAX_IMAGES: 9,
     MAX_FILES: 6,
-    MAX_FILE_SIZE: 10 * 1024 * 1024, // 10MB
+    MAX_FILE_SIZE: 50 * 1024 * 1024, // 50MB
 
     // 任务状态
     TASK_STATUS: {
@@ -97,7 +97,7 @@ const CONSTANTS = {
 
     // 请求超时（毫秒）
     REQUEST_TIMEOUT: 10000,  // 10秒
-    UPLOAD_TIMEOUT: 30000     // 30秒
+    UPLOAD_TIMEOUT: 120000   // 120秒 (支持大图片及多文件上传)
 } as const;
 
 const normalizeFileType = (fileType: string | undefined, fileName = '') => {
@@ -190,6 +190,120 @@ const getLiveCertBadgeClassName = (status: 0 | 1 | null | undefined) => {
     if (status === 1) return 'border-emerald-200 bg-emerald-50 text-emerald-700';
     if (status === 0) return 'border-amber-200 bg-amber-50 text-amber-700';
     return 'border-slate-200 bg-slate-50 text-slate-500';
+};
+
+/**
+ * 智能压缩大图片（用于交付物提交，避免 10MB+ AI生成高清图/截图触发反向代理 413 限制或网络超时）
+ */
+const compressImageIfNeeded = async (
+    file: File,
+    maxSizeBytes = 2 * 1024 * 1024, // 超过 2MB 尝试压缩
+    maxDimension = 2560,            // 最大边长 2560px
+    quality = 0.88                  // 压缩质量 88%
+): Promise<{ file: File; compressed: boolean }> => {
+    if (!file.type.startsWith('image/') || file.type === 'image/svg+xml' || file.type === 'image/gif') {
+        return { file, compressed: false };
+    }
+
+    if (file.size <= maxSizeBytes) {
+        return { file, compressed: false };
+    }
+
+    try {
+        let drawSource: ImageBitmap | HTMLImageElement | null = null;
+        let imgWidth = 0;
+        let imgHeight = 0;
+
+        if (typeof createImageBitmap === 'function') {
+            try {
+                const bitmap = await createImageBitmap(file);
+                imgWidth = bitmap.width;
+                imgHeight = bitmap.height;
+                drawSource = bitmap;
+            } catch {
+                drawSource = null;
+            }
+        }
+
+        if (!drawSource) {
+            const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+                const url = URL.createObjectURL(file);
+                const el = new Image();
+                el.onload = () => {
+                    URL.revokeObjectURL(url);
+                    resolve(el);
+                };
+                el.onerror = (e) => {
+                    URL.revokeObjectURL(url);
+                    reject(e);
+                };
+                el.src = url;
+            });
+            imgWidth = img.naturalWidth || img.width;
+            imgHeight = img.naturalHeight || img.height;
+            drawSource = img;
+        }
+
+        if (!imgWidth || !imgHeight) {
+            if (drawSource && 'close' in drawSource && typeof (drawSource as ImageBitmap).close === 'function') {
+                (drawSource as ImageBitmap).close();
+            }
+            return { file, compressed: false };
+        }
+
+        let targetWidth = imgWidth;
+        let targetHeight = imgHeight;
+        if (targetWidth > maxDimension || targetHeight > maxDimension) {
+            if (targetWidth > targetHeight) {
+                targetHeight = Math.round((targetHeight * maxDimension) / targetWidth);
+                targetWidth = maxDimension;
+            } else {
+                targetWidth = Math.round((targetWidth * maxDimension) / targetHeight);
+                targetHeight = maxDimension;
+            }
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = targetWidth;
+        canvas.height = targetHeight;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+            if (drawSource && 'close' in drawSource && typeof (drawSource as ImageBitmap).close === 'function') {
+                (drawSource as ImageBitmap).close();
+            }
+            return { file, compressed: false };
+        }
+
+        // 填充白色背景（防止 PNG 透明通道转 JPEG 后变黑）
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(0, 0, targetWidth, targetHeight);
+        ctx.drawImage(drawSource, 0, 0, targetWidth, targetHeight);
+
+        if (drawSource && 'close' in drawSource && typeof (drawSource as ImageBitmap).close === 'function') {
+            (drawSource as ImageBitmap).close();
+        }
+
+        const outputType = 'image/jpeg';
+        const blob = await new Promise<Blob | null>(resolve => {
+            canvas.toBlob(resolve, outputType, quality);
+        });
+
+        if (!blob || blob.size >= file.size) {
+            return { file, compressed: false };
+        }
+
+        const baseName = file.name.replace(/\.[^.]+$/, '');
+        const newFileName = `${baseName}.jpg`;
+        const compressedFile = new File([blob], newFileName, {
+            type: outputType,
+            lastModified: Date.now()
+        });
+
+        return { file: compressedFile, compressed: true };
+    } catch (err) {
+        console.warn('[Image Compress] 压缩失败，回退到原文件:', err);
+        return { file, compressed: false };
+    }
 };
 
 // Data Interfaces
@@ -823,10 +937,19 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
 
     const uploadSingleFile = async (item: Attachment, userToken: string, dKey: string) => {
         if (!item.fileObj) return;
+
+        let fileToUpload = item.fileObj;
+        if (item.isPic === 1) {
+            const { file: compressedFile, compressed } = await compressImageIfNeeded(item.fileObj);
+            if (compressed) {
+                fileToUpload = compressedFile;
+            }
+        }
+
         const formData = new FormData();
         formData.append('environment', environment);
         formData.append('token', userToken);
-        formData.append('file', item.fileObj);
+        formData.append('file', fileToUpload);
 
         try {
             const res = await axios.post(`${apiBaseUrl}/delivery/upload`, formData, {
@@ -869,8 +992,8 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                 }
 
                 // 使用 ID 匹配更新状态
-                const normalizedPath = normalizeRelativeFilePath(finalPath, item.uploadTime, item.fileName);
-                const normalizedTempPath = toWxTempPath(normalizedPath, item.fileName);
+                const normalizedPath = normalizeRelativeFilePath(finalPath, item.uploadTime, fileToUpload.name);
+                const normalizedTempPath = toWxTempPath(normalizedPath, fileToUpload.name);
 
                 setDrafts(prev => {
                     const draft = prev[dKey];
@@ -881,11 +1004,12 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                             return {
                                 ...a,
                                 uploading: false,
-                                fileName: a.isPic === 1 && uploadedFileName ? uploadedFileName : a.fileName,
+                                fileName: a.isPic === 1 && uploadedFileName ? uploadedFileName : (fileToUpload.name || a.fileName),
+                                fileType: normalizeFileType(undefined, fileToUpload.name) || a.fileType,
                                 filePath: normalizedPath,
                                 tempPath: uploadedTempPath || normalizedTempPath,
                                 uploadTime: uploadedTime ?? a.uploadTime,
-                                fileLength: uploadedLength ?? a.fileLength,
+                                fileLength: uploadedLength ?? fileToUpload.size,
                                 isWx: a.isPic === 1 ? 0 : 1,
                                 uploadProgress: 100
                             };
@@ -918,6 +1042,10 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
             if (axios.isAxiosError(e)) {
                 if (e.code === 'ECONNABORTED') {
                     toast.error(dm.uploadTimeout.replace('{name}', item.fileName));
+                } else if (e.response?.status === 413) {
+                    toast.error(dm.uploadPayloadTooLarge
+                        ? dm.uploadPayloadTooLarge.replace('{name}', item.fileName)
+                        : dm.uploadServerError.replace('{status}', '413').replace('{name}', item.fileName));
                 } else if (!e.response) {
                     toast.error(dm.uploadNetworkError.replace('{name}', item.fileName));
                 } else {

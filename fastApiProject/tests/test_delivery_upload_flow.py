@@ -64,7 +64,7 @@ def test_delivery_upload_posts_to_oss_and_returns_submit_file_path(monkeypatch):
     assert captured["data"]["Signature"] == "oss-signature"
     assert captured["files"]["file"][0] == file_path.split("/")[-1]
     assert captured["files"]["file"][1] == b"file-bytes"
-    assert captured["timeout"] == 30
+    assert captured["timeout"] == 60
 
 
 def test_delivery_detail_resolves_rejected_task_detail_id(monkeypatch):

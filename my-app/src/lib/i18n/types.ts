@@ -1161,6 +1161,7 @@ export interface Translations {
         uploadTimeout: string;
         uploadNetworkError: string;
         uploadServerError: string;
+        uploadPayloadTooLarge: string;
         submitTimeout: string;
         submitNetworkError: string;
         submitServerError: string;
