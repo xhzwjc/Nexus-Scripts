@@ -1,0 +1,6 @@
+{
+  "python.defaultInterpreterPath": "${workspaceFolder}/fastApiProject/venv/bin/python",
+  "python.analysis.extraPaths": [
+    "${workspaceFolder}/fastApiProject"
+  ]
+}

@@ -14,7 +14,7 @@ from urllib.parse import urlparse
 import pymysql
 import requests
 
-from ..config import settings
+from ..config import ServiceGateway, settings
 from ..models import MobileTaskInfo, MobileTaskRequest
 
 logger = logging.getLogger(__name__)
@@ -100,10 +100,7 @@ def _normalize_delivery_file_path(
 
 
 def _get_delivery_oss_host(environment: str) -> str:
-    normalized_env = settings.resolve_environment(environment)
-    if normalized_env == "prod":
-        return (os.getenv("DELIVERY_OSS_HOST_PROD") or DEFAULT_DELIVERY_OSS_HOST_PROD).rstrip("/")
-    return (os.getenv("DELIVERY_OSS_HOST_TEST") or DEFAULT_DELIVERY_OSS_HOST_TEST).rstrip("/")
+    return ServiceGateway.get_delivery_oss_host(environment)
 
 
 def _get_delivery_oss_form_config() -> Dict[str, str]:
@@ -170,12 +167,9 @@ class MobileTaskService:
             logger.info(f"[MobileTaskService] 初始化，环境: {self.environment}")
 
     def _get_base_url(self) -> str:
-        """根据环境获取基础URL"""
-        if self.environment == "prod":
-            return "https://smp-api.seedlingintl.com"
-        if self.environment == "local":
-            return "http://localhost:8080"
-        return "http://fwos-api-test.seedlingintl.com:8088"
+        """根据环境获取基础URL，通过 ServiceGateway 统一解析"""
+        return ServiceGateway.get_service_url("applet", env=self.environment)
+
 
     def _parse_mobile_list(
         self,

@@ -204,15 +204,14 @@ def get_enterprise_list(db_config: Dict[str, Any]) -> List[Dict[str, Any]]:
         raise
 
 
+from .config import ServiceGateway
+
+
 def get_commission_data_from_api(auth_token: str, env: Environment) -> Dict[str, Any]:
     """从接口获取佣金数据"""
-    # 确定基础URL
-    if env == Environment.TEST:
-        base_url = "http://fwos-chl-api-test.seedlingintl.com:8088"
-        web_url = "http://fwos-chl-test.seedlingintl.com:8088"
-    else:
-        base_url = "https://chl-api.seedlingintl.com"
-        web_url = "https://chl.seedlingintl.com"
+    env_str = env.value if isinstance(env, Environment) else str(env or "test")
+    base_url = ServiceGateway.get_service_url("chl-api", env=env_str)
+    web_url = ServiceGateway.get_service_url("chl-web", env=env_str)
 
     url = f"{base_url}/admin-api/channel/commission/page"
 
@@ -458,10 +457,8 @@ def login_and_get_token(channel_id: int, env: Environment) -> str:
 
     username, password = CHANNEL_ACCOUNTS[channel_id]
 
-    if env == Environment.PROD:
-        base_url = "https://chl-api.seedlingintl.com"
-    else:
-        base_url = "http://fwos-chl-api-test.seedlingintl.com:8088"
+    env_str = env.value if isinstance(env, Environment) else str(env or "test")
+    base_url = ServiceGateway.get_service_url("chl-api", env=env_str)
 
     login_url = f"{base_url}/admin-api/system/auth-channel/login"
     payload = {

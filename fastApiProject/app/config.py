@@ -2,10 +2,11 @@ import json
 import os
 from typing import Optional
 
-from dotenv import load_dotenv
-
-# 加载环境变量
-load_dotenv()
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 
 
 def _running_in_docker() -> bool:
@@ -49,6 +50,101 @@ def _parse_env_list(value: Optional[str]) -> list[str]:
     return [item.strip() for item in raw.split(",") if item.strip()]
 
 
+class ServiceGateway:
+    """统一服务路由与网关生成器：单一事实来源 (SSOT)"""
+
+    # 基础协议、域名与端口底座配置（可由环境变量全局控制）
+    DEFAULT_TEST_DOMAIN = os.getenv("TEST_HOST_DOMAIN") or "seedlingintl.com"
+    DEFAULT_TEST_PORT = os.getenv("TEST_HOST_PORT") or "8088"
+    DEFAULT_TEST_PROTOCOL = os.getenv("TEST_HOST_PROTOCOL") or "http"
+    DEFAULT_TEST_PREFIX = os.getenv("TEST_HOST_PREFIX") or "fwos"
+
+    DEFAULT_PROD_DOMAIN = os.getenv("PROD_HOST_DOMAIN") or "seedlingintl.com"
+    DEFAULT_PROD_PORT = os.getenv("PROD_HOST_PORT") or "443"
+    DEFAULT_PROD_PROTOCOL = os.getenv("PROD_HOST_PROTOCOL") or "https"
+
+    @classmethod
+    def _build_test_origin(cls, subdomain_segment: str = "") -> str:
+        """根据环境变量底座动态构建测试环境的主机 Origin"""
+        prefix = cls.DEFAULT_TEST_PREFIX
+        sub = f"{prefix}-{subdomain_segment}-test" if subdomain_segment else f"{prefix}-test"
+        port_part = f":{cls.DEFAULT_TEST_PORT}" if cls.DEFAULT_TEST_PORT not in ("80", "443", "") else ""
+        return f"{cls.DEFAULT_TEST_PROTOCOL}://{sub}.{cls.DEFAULT_TEST_DOMAIN}{port_part}"
+
+    @classmethod
+    def get_service_url(cls, service_name: str, env: str = "test", path: str = "") -> str:
+        """
+        获取指定环境和服务的根 URL。
+        service_name 支持:
+        - "client" / "client-api": 客户端接口
+        - "admin" / "admin-api" / "smp": 后台管理接口
+        - "applet" / "applet-api" / "delivery": 小程序/交付物移动端接口
+        - "chl-api" / "channel-api": 渠道接口
+        - "chl-web" / "channel-web": 渠道前台 Web
+        - "sms-template": 短信模板接口
+        - "web": 前台测试站点
+        """
+        env_norm = (env or "test").lower()
+        if env_norm == "prod":
+            if service_name in ("client", "client-api"):
+                base = os.getenv("BASE_URL_PROD") or "https://client-api.seedlingintl.com"
+            elif service_name in ("admin", "admin-api", "smp", "applet", "applet-api", "delivery"):
+                base = os.getenv("BASE_URL_PROD_APP") or os.getenv("SMS_ADMIN_API_URL_PROD", "").replace("/admin-api", "") or "https://smp-api.seedlingintl.com"
+            elif service_name in ("chl-api", "channel-api"):
+                base = os.getenv("BASE_URL_PROD_CHL_API") or "https://chl-api.seedlingintl.com"
+            elif service_name in ("chl-web", "channel-web"):
+                base = os.getenv("BASE_URL_PROD_CHL_WEB") or "https://chl.seedlingintl.com"
+            elif service_name == "sms-template":
+                base = os.getenv("SMS_API_BASE_PROD") or "https://smp-api.seedlingintl.com/admin-api/system/sms-template"
+            elif service_name == "web":
+                base = os.getenv("SMS_ORIGIN_PROD") or "https://fwos-test.seedlingintl.com"
+            else:
+                base = os.getenv("BASE_URL_PROD") or "https://client-api.seedlingintl.com"
+        elif env_norm == "local":
+            if service_name in ("client", "client-api"):
+                base = os.getenv("BASE_URL_LOCAL") or os.getenv("BASE_URL_TEST") or cls._build_test_origin("client-api")
+            elif service_name in ("admin", "admin-api", "smp", "applet", "applet-api", "delivery"):
+                base = os.getenv("BASE_URL_LOCAL_APP") or os.getenv("BASE_URL_TEST_APP") or cls._build_test_origin("api")
+            elif service_name in ("chl-api", "channel-api"):
+                base = os.getenv("BASE_URL_LOCAL_CHL_API") or cls._build_test_origin("chl-api")
+            elif service_name in ("chl-web", "channel-web"):
+                base = os.getenv("BASE_URL_LOCAL_CHL_WEB") or cls._build_test_origin("chl")
+            elif service_name == "sms-template":
+                base = os.getenv("SMS_API_BASE_TEST") or f"{cls._build_test_origin('api')}/admin-api/system/sms-template"
+            elif service_name == "web":
+                base = os.getenv("SMS_ORIGIN_TEST") or cls._build_test_origin("")
+            else:
+                base = os.getenv("BASE_URL_LOCAL") or os.getenv("BASE_URL_TEST") or cls._build_test_origin("client-api")
+        else:
+            if service_name in ("client", "client-api"):
+                base = os.getenv("BASE_URL_TEST") or cls._build_test_origin("client-api")
+            elif service_name in ("admin", "admin-api", "smp", "applet", "applet-api", "delivery"):
+                base = os.getenv("BASE_URL_TEST_APP") or cls._build_test_origin("api")
+            elif service_name in ("chl-api", "channel-api"):
+                base = os.getenv("BASE_URL_TEST_CHL_API") or cls._build_test_origin("chl-api")
+            elif service_name in ("chl-web", "channel-web"):
+                base = os.getenv("BASE_URL_TEST_CHL_WEB") or cls._build_test_origin("chl")
+            elif service_name == "sms-template":
+                base = os.getenv("SMS_API_BASE_TEST") or f"{cls._build_test_origin('api')}/admin-api/system/sms-template"
+            elif service_name == "web":
+                base = os.getenv("SMS_ORIGIN_TEST") or cls._build_test_origin("")
+            else:
+                base = os.getenv("BASE_URL_TEST") or cls._build_test_origin("client-api")
+
+        base = base.rstrip("/")
+        if path:
+            clean_path = "/" + path.lstrip("/")
+            return f"{base}{clean_path}"
+        return base
+
+    @classmethod
+    def get_delivery_oss_host(cls, env: str = "test") -> str:
+        env_norm = (env or "test").lower()
+        if env_norm == "prod":
+            return (os.getenv("DELIVERY_OSS_HOST_PROD") or "https://fwos-prod.oss-cn-beijing.aliyuncs.com").rstrip("/")
+        return (os.getenv("DELIVERY_OSS_HOST_TEST") or "https://fwos-test.oss-cn-beijing.aliyuncs.com").rstrip("/")
+
+
 class Settings:
     # API基础配置
     API_TITLE = "春苗系统结算API"
@@ -57,10 +153,18 @@ class Settings:
 
     VALID_ENVIRONMENTS = {"test", "prod", "local"}
 
-    # 服务基础URL配置
-    BASE_URL_TEST = os.getenv("BASE_URL_TEST")
-    BASE_URL_PROD = os.getenv("BASE_URL_PROD")
-    BASE_URL_LOCAL = os.getenv("BASE_URL_LOCAL")
+    # 服务基础URL配置（通过 ServiceGateway 统一管理，支持 .env 显式覆盖）
+    @property
+    def BASE_URL_TEST(self) -> str:
+        return ServiceGateway.get_service_url("client", env="test")
+
+    @property
+    def BASE_URL_PROD(self) -> str:
+        return ServiceGateway.get_service_url("client", env="prod")
+
+    @property
+    def BASE_URL_LOCAL(self) -> str:
+        return ServiceGateway.get_service_url("client", env="local")
 
     # 默认环境 (local, test, prod)
     # 修改默认值为 local，确保在 Docker 或本地开发时默认连接本地库
@@ -69,14 +173,14 @@ class Settings:
     # 账户余额核对 - 数据库配置（新增）
     # 测试环境数据库
     DB_TEST_HOST = os.getenv("DB_TEST_HOST")
-    DB_TEST_PORT = int(os.getenv("DB_TEST_PORT"))
+    DB_TEST_PORT = int(os.getenv("DB_TEST_PORT", "3308"))
     DB_TEST_USER = os.getenv("DB_TEST_USER")
     DB_TEST_PASSWORD = os.getenv("DB_TEST_PASSWORD")
     DB_TEST_DATABASE = os.getenv("DB_TEST_DATABASE")
 
     # 生产环境数据库
     DB_PROD_HOST = os.getenv("DB_PROD_HOST")
-    DB_PROD_PORT = int(os.getenv("DB_PROD_PORT"))
+    DB_PROD_PORT = int(os.getenv("DB_PROD_PORT", "3306"))
     DB_PROD_USER = os.getenv("DB_PROD_USER")
     DB_PROD_PASSWORD = os.getenv("DB_PROD_PASSWORD")
     DB_PROD_DATABASE = os.getenv("DB_PROD_DATABASE")
@@ -84,7 +188,7 @@ class Settings:
     # 本地环境数据库（可选，复用测试环境配置或单独配置）
     DB_LOCAL_HOST = os.getenv("DB_LOCAL_HOST", DB_TEST_HOST)
     DB_LOCAL_HOST_DOCKER = os.getenv("DB_LOCAL_HOST_DOCKER", "host.docker.internal")
-    DB_LOCAL_PORT = int(os.getenv("DB_LOCAL_PORT", DB_TEST_PORT))
+    DB_LOCAL_PORT = int(os.getenv("DB_LOCAL_PORT", str(DB_TEST_PORT)))
     DB_LOCAL_USER = os.getenv("DB_LOCAL_USER", DB_TEST_USER)
     DB_LOCAL_PASSWORD = os.getenv("DB_LOCAL_PASSWORD", DB_TEST_PASSWORD)
     DB_LOCAL_DATABASE = os.getenv("DB_LOCAL_DATABASE", DB_TEST_DATABASE)
@@ -104,11 +208,7 @@ class Settings:
 
     def get_base_url(self, environment: Optional[str] = None) -> str:
         env = self.resolve_environment(environment)
-        if env == "prod":
-            return self.BASE_URL_PROD
-        if env == "local":
-            return self.BASE_URL_LOCAL
-        return self.BASE_URL_TEST
+        return ServiceGateway.get_service_url("client", env=env)
 
     @property
     def base_url(self):
@@ -170,29 +270,59 @@ class Settings:
         return value or None
 
     # 短信服务配置
-    SMS_API_BASE_TEST = os.getenv("SMS_API_BASE_TEST")
-    SMS_API_BASE_PROD = os.getenv("SMS_API_BASE_PROD")
+    @property
+    def SMS_API_BASE_TEST(self) -> str:
+        return ServiceGateway.get_service_url("sms-template", env="test")
+
+    @property
+    def SMS_API_BASE_PROD(self) -> str:
+        return ServiceGateway.get_service_url("sms-template", env="prod")
+
     SMS_AUTH_TOKEN_TEST = os.getenv("SMS_AUTH_TOKEN_TEST")
     SMS_AUTH_TOKEN_PROD = os.getenv("SMS_AUTH_TOKEN_PROD")
     SMS_TENANT_ID = "1"
-    SMS_ORIGIN_TEST = os.getenv("SMS_ORIGIN_TEST")
-    SMS_ORIGIN_PROD = os.getenv("SMS_ORIGIN_PROD")
-    SMS_REFERER_TEST = os.getenv("SMS_REFERER_TEST")
-    SMS_REFERER_PROD = os.getenv("SMS_REFERER_PROD")
+
+    @property
+    def SMS_ORIGIN_TEST(self) -> str:
+        return os.getenv("SMS_ORIGIN_TEST") or ServiceGateway.get_service_url("web", env="test")
+
+    @property
+    def SMS_ORIGIN_PROD(self) -> str:
+        return os.getenv("SMS_ORIGIN_PROD") or ServiceGateway.get_service_url("web", env="prod")
+
+    @property
+    def SMS_REFERER_TEST(self) -> str:
+        val = os.getenv("SMS_REFERER_TEST")
+        if val:
+            return val
+        return f"{self.SMS_ORIGIN_TEST}/"
+
+    @property
+    def SMS_REFERER_PROD(self) -> str:
+        val = os.getenv("SMS_REFERER_PROD")
+        if val:
+            return val
+        return f"{self.SMS_ORIGIN_PROD}/"
 
     # Admin Login / Logs Config
-    SMS_ADMIN_API_URL_TEST = os.getenv("SMS_ADMIN_API_URL_TEST")
-    SMS_ADMIN_API_URL_PROD = os.getenv("SMS_ADMIN_API_URL_PROD")
-    SMS_ADMIN_TENANT_ID_TEST = os.getenv("SMS_ADMIN_TENANT_ID_TEST")
-    SMS_ADMIN_TENANT_ID_PROD = os.getenv("SMS_ADMIN_TENANT_ID_PROD")
-    SMS_ADMIN_TENANT_NAME_TEST = os.getenv("SMS_ADMIN_TENANT_NAME_TEST")
-    SMS_ADMIN_TENANT_NAME_PROD = os.getenv("SMS_ADMIN_TENANT_NAME_PROD")
-    SMS_ADMIN_USERNAME_TEST = os.getenv("SMS_ADMIN_USERNAME_TEST")
-    SMS_ADMIN_USERNAME_PROD = os.getenv("SMS_ADMIN_USERNAME_PROD")
+    @property
+    def SMS_ADMIN_API_URL_TEST(self) -> str:
+        return os.getenv("SMS_ADMIN_API_URL_TEST") or ServiceGateway.get_service_url("admin", env="test", path="/admin-api")
+
+    @property
+    def SMS_ADMIN_API_URL_PROD(self) -> str:
+        return os.getenv("SMS_ADMIN_API_URL_PROD") or ServiceGateway.get_service_url("admin", env="prod", path="/admin-api")
+
+    SMS_ADMIN_TENANT_ID_TEST = os.getenv("SMS_ADMIN_TENANT_ID_TEST", "1")
+    SMS_ADMIN_TENANT_ID_PROD = os.getenv("SMS_ADMIN_TENANT_ID_PROD", "1")
+    SMS_ADMIN_TENANT_NAME_TEST = os.getenv("SMS_ADMIN_TENANT_NAME_TEST", "春苗")
+    SMS_ADMIN_TENANT_NAME_PROD = os.getenv("SMS_ADMIN_TENANT_NAME_PROD", "春苗")
+    SMS_ADMIN_USERNAME_TEST = os.getenv("SMS_ADMIN_USERNAME_TEST", "admin1")
+    SMS_ADMIN_USERNAME_PROD = os.getenv("SMS_ADMIN_USERNAME_PROD", "admin")
     SMS_ADMIN_PASSWORD_TEST = os.getenv("SMS_ADMIN_PASSWORD_TEST")
     SMS_ADMIN_PASSWORD_PROD = os.getenv("SMS_ADMIN_PASSWORD_PROD")
-    SMS_ADMIN_CAPTCHA_CODE = os.getenv("SMS_ADMIN_CAPTCHA_CODE")
-    SMS_ADMIN_CAPTCHA_ID = os.getenv("SMS_ADMIN_CAPTCHA_ID")
+    SMS_ADMIN_CAPTCHA_CODE = os.getenv("SMS_ADMIN_CAPTCHA_CODE", "chunmiao")
+    SMS_ADMIN_CAPTCHA_ID = os.getenv("SMS_ADMIN_CAPTCHA_ID", "cc268ded9fda45c18463dfe78dd056be")
 
     # 预设手机号
     preset_mobiles_str = os.getenv("PRESET_MOBILES")
@@ -249,7 +379,6 @@ class Settings:
     @property
     def sms_referer(self):
         return self.get_sms_config()["referer"]
-
 
     @property
     def sms_headers(self):
