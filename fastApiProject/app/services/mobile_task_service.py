@@ -309,7 +309,8 @@ class MobileTaskService:
                 "token": res["data"]["accessToken"],
                 "user": res["data"].get("userInfo", {}),
             }
-        return {"success": False, "msg": res.get("msg", "登录失败")}
+        error_msg = res.get("msg") or res.get("error") or "登录失败"
+        return {"success": False, "msg": error_msg}
 
     def delivery_get_tasks(self, token: str, status_type: int = 0) -> Dict:
         """获取任务列表"""
@@ -516,12 +517,15 @@ class TaskAutomation:
     def sms_login(self, mobile: str, code: str = "987654") -> Dict:
         """短信登录，成功后设置 Authorization"""
         url = f"{self.base_url}/app-api/app/auth/sms-login"
+        logger.info(f"[TaskAutomation.sms_login] 正在请求上游接口: {url}, mobile={mobile}")
         try:
             resp = self.session.post(url, json={"mobile": mobile, "code": code}, timeout=10)
             data = resp.json()
 
             if data.get("code") != 0:
-                raise ValueError(f"登录失败: {data.get('msg', '未知错误')}")
+                msg = data.get("msg") or "未知错误"
+                logger.warning(f"[TaskAutomation.sms_login] 登录被上游拒绝: code={data.get('code')}, msg={msg}")
+                return {"code": data.get("code", -1), "msg": msg, "error": msg}
 
             self.access_token = data["data"].get("accessToken")
             if not self.access_token:
@@ -530,7 +534,8 @@ class TaskAutomation:
             self.session.headers.update({"Authorization": f"Bearer {self.access_token}"})
             return data
         except Exception as exc:
-            return {"error": str(exc)}
+            logger.error(f"[TaskAutomation.sms_login] 请求异常: url={url}, err={exc}")
+            return {"code": -1, "error": str(exc), "msg": f"上游接口异常({str(exc)})"}
 
     def sign_task(self, task_id: str) -> Dict:
         """报名任务"""
